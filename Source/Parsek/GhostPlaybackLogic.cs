@@ -11,43 +11,11 @@ namespace Parsek
     /// </summary>
     internal static class GhostPlaybackLogic
     {
-        // KSP rails warp levels: 1, 5, 10, 50, 100, 1000, 10000, 100000.
-        // FX threshold: 10x is the last level where explosions/puffs/reentry/RCS look reasonable.
-        // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
-        internal const float FxSuppressWarpThreshold = 10f;
-        internal const float GhostHideWarpThreshold = 50f;
-        // User-facing default for fresh ParsekSettings.autoLoopIntervalSeconds and the
-        // Settings "reset" path. Also used as an engine fallback when a trajectory's loop
-        // interval is NaN/infinite/unset. NOT an "untouched" sentinel for the optimizer.
-        internal const double DefaultLoopIntervalSeconds = 30.0;
-
-        // Sentinel value used by RecordingOptimizer.CanAutoMerge to detect an
-        // "uncustomized" loop interval on a Recording, and by Recording.LoopIntervalSeconds
-        // as its field initializer. The two MUST stay equal — a fresh Recording whose loop
-        // settings the user never touched must compare equal to this constant, otherwise
-        // the optimizer treats it as user-customized and refuses to auto-merge. This
-        // value is deliberately decoupled from DefaultLoopIntervalSeconds so changing the
-        // user-facing default doesn't silently break auto-merge for legacy saves or fresh
-        // untouched captures.
-        internal const double UntouchedLoopIntervalSentinel = 10.0;
-
-        internal const double MinLoopDurationSeconds = 1.0;
-        // Minimum user-requested loop period / minimum cycle duration. Periods
-        // below this floor are clamped at UI input and by engine math. 5s is
-        // the smallest value that lets a typical KSP rocket clear launch
-        // clamps between successive cycles, and matches the 5 m/s first-motion
-        // threshold used by TrajectoryMath.FindFirstMovingPoint so the
-        // static-pad visual window of one cycle no longer overlaps the next.
-        internal const double MinCycleDuration = 5.0;
-        // #410: shared boundary tolerance for loop-phase comparisons. Used by
-        // ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT to keep both helpers in sync
-        // on whether the ghost is "still playing the final frame" vs "entered the pause
-        // window" at exact cycle-boundary UTs.
-        internal const double BoundaryEpsilon = 1e-6;
-        internal const double MinEarlyDebrisExplosionLeadSeconds = 0.25;
-        // Grace period before zone-based watch mode exit (wall-clock seconds).
-        // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
-        internal const float WatchModeZoneGraceSeconds = 2.0f;
+        // Tunable constants live in ParsekConfig.cs:
+        //   WarpThresholds.FxSuppress / GhostHide — time-warp FX and ghost-mesh suppression levels
+        //   LoopTiming.* — default/untouched loop periods, min cycle/loop duration, boundary epsilon
+        //   WatchMode.ZoneGraceSeconds — wall-clock grace before zone-based watch exit
+        //   WatchMode.PendingPostActivationGraceSeconds / MaxPendingHoldSeconds — pending-watch holds
 
         // Dedupe set for ResolveLoopInterval clamp warnings. Without this, a recording whose
         // LoopIntervalSeconds is below MinCycleDuration produces a log line every frame from
@@ -56,6 +24,8 @@ namespace Parsek
         // with fallback to VesselName for transient fixtures lacking an id. Reset between
         // tests via ResetForTesting.
         private static readonly HashSet<string> loopIntervalClampWarned = new HashSet<string>(StringComparer.Ordinal);
+        private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
+        private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
 
         #region Warp / Loop Policy
 
@@ -108,12 +78,12 @@ namespace Parsek
 
         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
         {
-            return currentWarpRate > FxSuppressWarpThreshold;
+            return currentWarpRate > WarpThresholds.FxSuppress;
         }
 
         internal static bool ShouldSuppressGhosts(float currentWarpRate)
         {
-            return currentWarpRate > GhostHideWarpThreshold;
+            return currentWarpRate > WarpThresholds.GhostHide;
         }
 
         /// <summary>
@@ -233,7 +203,7 @@ namespace Parsek
             double currentUT, double loopStartUT, double duration,
             double intervalSeconds, long loopCycleIndex)
         {
-            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
             double cycleStartUT = loopStartUT + loopCycleIndex * cycleDuration;
             double phase = currentUT - cycleStartUT;
             if (phase < 0) phase = 0;
@@ -255,7 +225,7 @@ namespace Parsek
             // #381: intervalSeconds is the launch-to-launch period, not the post-cycle gap.
             // cycleDuration = period (clamped to MinCycleDuration). Overlap is handled via
             // IsOverlapLoop dispatch; the pause window only exists when period > duration.
-            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             double elapsed = currentUT - startUT;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
@@ -265,7 +235,7 @@ namespace Parsek
             // #410: use shared BoundaryEpsilon so ComputeLoopPhaseFromUT stays in sync.
             if (intervalSeconds > duration)
             {
-                if (phase > duration + BoundaryEpsilon)
+                if (phase > duration + LoopTiming.BoundaryEpsilon)
                     return false;
             }
 
@@ -311,7 +281,7 @@ namespace Parsek
             if (duration <= 0 || currentUT < startUT)
                 return;
 
-            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             double elapsed = currentUT - startUT;
             lastActiveCycle = (long)Math.Floor(elapsed / cycleDuration);
@@ -339,7 +309,7 @@ namespace Parsek
         /// Computes the runtime launch cadence for an overlap-looped recording so
         /// that the number of simultaneously-live cycles (ceil(duration/cadence))
         /// never exceeds <paramref name="maxCycles"/>. Starts from the
-        /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
+        /// user-requested period (clamped to <see cref="LoopTiming.MinCycleDuration"/>) and
         /// raises it only as far as needed for the cap to fit. Returns the
         /// effective cadence in seconds; the user's stored loop period is
         /// unchanged — only the runtime spawn rate is adjusted. Guarantees the
@@ -350,9 +320,9 @@ namespace Parsek
         internal static double ComputeEffectiveLaunchCadence(
             double userPeriod, double duration, int maxCycles)
         {
-            double period = Math.Max(userPeriod, MinCycleDuration);
+            double period = Math.Max(userPeriod, LoopTiming.MinCycleDuration);
             if (double.IsNaN(period) || double.IsInfinity(period))
-                period = MinCycleDuration;
+                period = LoopTiming.MinCycleDuration;
             if (duration <= 0 || maxCycles <= 0)
                 return period;
 
@@ -413,7 +383,7 @@ namespace Parsek
                 if (loopIntervalClampWarned.Add(key))
                 {
                     ParsekLog.Warn("Loop",
-                        $"ResolveLoopInterval: period {interval.ToString("R", CultureInfo.InvariantCulture)}s below MinCycleDuration " +
+                        $"ResolveLoopInterval: period {interval.ToString("R", CultureInfo.InvariantCulture)}s below LoopTiming.MinCycleDuration " +
                         $"{minCycleDuration.ToString("R", CultureInfo.InvariantCulture)}s for '{rec.VesselName}' — clamping defensively (#381)");
                 }
                 return minCycleDuration;
@@ -428,6 +398,33 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             loopIntervalClampWarned.Clear();
+            ResetFlagReplayOverridesForTesting();
+        }
+
+        /// <summary>
+        /// Test-only override for flag dedup checks. Pass null to restore the live KSP path.
+        /// </summary>
+        internal static void SetFlagExistsOverrideForTesting(Func<FlagEvent, bool> checker)
+        {
+            flagExistsOverrideForTesting = checker;
+        }
+
+        /// <summary>
+        /// Test-only override for flag spawns. Return true to simulate a successful spawn.
+        /// Pass null to restore the live KSP path.
+        /// </summary>
+        internal static void SetSpawnFlagOverrideForTesting(Func<FlagEvent, bool> spawner)
+        {
+            spawnFlagOverrideForTesting = spawner;
+        }
+
+        /// <summary>
+        /// Clears all test-only flag replay overrides.
+        /// </summary>
+        internal static void ResetFlagReplayOverridesForTesting()
+        {
+            flagExistsOverrideForTesting = null;
+            spawnFlagOverrideForTesting = null;
         }
 
         /// <summary>
@@ -524,7 +521,7 @@ namespace Parsek
             }
 
             // #381: period = intervalSeconds (launch-to-launch). Defensively clamp to MinCycleDuration.
-            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             double elapsed = currentUT - recordingStartUT;
 
@@ -536,7 +533,7 @@ namespace Parsek
             // either way, but reporting isInPause=false here keeps us consistent with
             // TryComputeLoopPlaybackUT (which uses `phase > duration + epsilon`) and avoids
             // a one-frame pause-state flicker at exact cycle boundaries.
-            if (phaseInCycle <= duration + BoundaryEpsilon)
+            if (phaseInCycle <= duration + LoopTiming.BoundaryEpsilon)
             {
                 // In the playback portion (clamp phase to duration so loopUT == endUT at the boundary).
                 double clampedPhase = phaseInCycle > duration ? duration : phaseInCycle;
@@ -1060,7 +1057,7 @@ namespace Parsek
             if (traj.PartEvents == null || traj.PartEvents.Count == 0)
                 return false;
 
-            double latestEligibleUT = traj.EndUT - MinEarlyDebrisExplosionLeadSeconds;
+            double latestEligibleUT = traj.EndUT - LoopTiming.MinEarlyDebrisExplosionLeadSeconds;
             if (latestEligibleUT <= traj.StartUT)
                 return false;
 
@@ -1104,6 +1101,7 @@ namespace Parsek
         internal static void HideAllGhostParts(GhostPlaybackState state)
         {
             if (state.ghost == null) return;
+            MuteAllAudio(state);
             var t = state.ghost.transform;
             int hidden = 0;
             // Keep cameraPivot active — FlightCamera targets it during watch-mode hold.
@@ -1768,7 +1766,7 @@ namespace Parsek
                         ApplyRoboticEvent(state, evt, currentUT);
                         break;
                     case PartEventType.InventoryPartPlaced:
-                        SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        SetGhostPartActive(state, evt.partPersistentId, true);
                         if (logicalPartIds != null)
                             logicalPartIds.Add(evt.partPersistentId);
                         if (placedTargetPartIds == null)
@@ -1777,7 +1775,7 @@ namespace Parsek
                         visibilityChanged = true;
                         break;
                     case PartEventType.InventoryPartRemoved:
-                        SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        SetGhostPartActive(state, evt.partPersistentId, false);
                         RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
                         visibilityChanged = true;
                         break;
@@ -1845,6 +1843,44 @@ namespace Parsek
             if (t != null) t.gameObject.SetActive(active);
         }
 
+        internal static void SetGhostPartActive(GhostPlaybackState state, uint persistentId, bool active)
+        {
+            if (state == null)
+                return;
+
+            SetGhostPartActive(state.ghost, persistentId, active);
+
+            if (state.audioInfos == null)
+                return;
+
+            var restores = active ? new List<(int moduleIndex, float power)>() : null;
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info == null || info.partPersistentId != persistentId || info.audioSource == null)
+                    continue;
+
+                if (!active && info.audioSource.isPlaying)
+                    info.audioSource.Stop();
+
+                info.audioSource.gameObject.SetActive(active);
+
+                if (active && info.currentPower > 0f)
+                    restores.Add((info.moduleIndex, info.currentPower));
+            }
+
+            if (restores == null)
+                return;
+
+            for (int i = 0; i < restores.Count; i++)
+            {
+                SetEngineAudio(state, new PartEvent
+                {
+                    partPersistentId = persistentId,
+                    moduleIndex = restores[i].moduleIndex
+                }, restores[i].power);
+            }
+        }
+
         internal static void InitializeInventoryPlacementVisibility(
             IPlaybackTrajectory rec, GhostPlaybackState state)
         {
@@ -1862,13 +1898,13 @@ namespace Parsek
 
                 if (evt.eventType == PartEventType.InventoryPartPlaced)
                 {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, false);
+                    SetGhostPartActive(state, evt.partPersistentId, false);
                     initialized.Add(evt.partPersistentId);
                     hidden++;
                 }
                 else if (evt.eventType == PartEventType.InventoryPartRemoved)
                 {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, true);
+                    SetGhostPartActive(state, evt.partPersistentId, true);
                     initialized.Add(evt.partPersistentId);
                 }
             }
@@ -1901,10 +1937,7 @@ namespace Parsek
                     var evt = rec.FlagEvents[state.flagEventIndex];
                     if (evt.ut > currentUT) break;
 
-                    // Spawn a real, permanent flag vessel — skip if one already exists at this position
-                    if (!FlagExistsAtPosition(evt))
-                        GhostVisualBuilder.SpawnFlagVessel(evt);
-
+                    TrySpawnFlagVessel(evt);
                     state.flagEventIndex++;
                 }
                 return;
@@ -1915,13 +1948,70 @@ namespace Parsek
             // we still want flag vessels — which are independent permanent world objects — to
             // be placed on schedule. `FlagExistsAtPosition` dedups, so a follow-up state-aware
             // walk starting from `flagEventIndex = 0` on the next frame is cheap and correct.
+            SpawnFlagVesselsUpToUT(rec, currentUT);
+        }
+
+        /// <summary>
+        /// Replays all flag events whose UT is in the past for callers that do not carry
+        /// a per-recording flag cursor (for example deferred spawn flushes at warp end).
+        /// Returns how many flag events were eligible at the requested UT, and how many
+        /// actually spawned new flag vessels after dedup, were already present, or failed.
+        /// </summary>
+        internal static (int eligibleCount, int spawnedCount, int alreadyPresentCount, int failedCount)
+            SpawnFlagVesselsUpToUT(
+            IPlaybackTrajectory rec, double currentUT)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0)
+                return (0, 0, 0, 0);
+
+            int eligibleCount = 0;
+            int spawnedCount = 0;
+            int alreadyPresentCount = 0;
+            int failedCount = 0;
             for (int i = 0; i < rec.FlagEvents.Count; i++)
             {
                 var evt = rec.FlagEvents[i];
-                if (evt.ut > currentUT) break;
-                if (!FlagExistsAtPosition(evt))
-                    GhostVisualBuilder.SpawnFlagVessel(evt);
+                if (evt.ut > currentUT)
+                    break;
+
+                eligibleCount++;
+                switch (TrySpawnFlagVessel(evt))
+                {
+                    case FlagReplayOutcome.Spawned:
+                        spawnedCount++;
+                        break;
+                    case FlagReplayOutcome.AlreadyPresent:
+                        alreadyPresentCount++;
+                        break;
+                    default:
+                        failedCount++;
+                        break;
+                }
             }
+
+            return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount);
+        }
+
+        private enum FlagReplayOutcome
+        {
+            Spawned,
+            AlreadyPresent,
+            Failed
+        }
+
+        private static FlagReplayOutcome TrySpawnFlagVessel(FlagEvent evt)
+        {
+            if (FlagExistsAtPosition(evt))
+                return FlagReplayOutcome.AlreadyPresent;
+
+            if (spawnFlagOverrideForTesting != null)
+                return spawnFlagOverrideForTesting(evt)
+                    ? FlagReplayOutcome.Spawned
+                    : FlagReplayOutcome.Failed;
+
+            return GhostVisualBuilder.SpawnFlagVessel(evt) != null
+                ? FlagReplayOutcome.Spawned
+                : FlagReplayOutcome.Failed;
         }
 
         /// <summary>
@@ -1930,6 +2020,9 @@ namespace Parsek
         /// </summary>
         private static bool FlagExistsAtPosition(FlagEvent evt)
         {
+            if (flagExistsOverrideForTesting != null)
+                return flagExistsOverrideForTesting(evt);
+
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
             if (body == null || FlightGlobals.Vessels == null) return false;
 
@@ -2003,9 +2096,9 @@ namespace Parsek
                 count++;
             }
             state.cameraPivot.localPosition = count > 0 ? (min + max) * 0.5f : Vector3.zero;
-            ParsekLog.Info("CameraFollow",
+            ParsekLog.VerboseRateLimited("CameraFollow", $"pivot-{state.ghost.name}",
                 $"Camera pivot recalculated: localPos=({state.cameraPivot.localPosition.x:F2},{state.cameraPivot.localPosition.y:F2},{state.cameraPivot.localPosition.z:F2})" +
-                $" activeParts={count}");
+                $" activeParts={count}", 1.0);
         }
 
         #endregion
@@ -4726,9 +4819,6 @@ namespace Parsek
             return false;
         }
 
-        internal const float PendingWatchPostActivationGraceSeconds = 2f;
-        internal const float MaxPendingWatchHoldSeconds = 45f;
-
         internal static float ComputePendingWatchHoldSeconds(
             float baseHoldSeconds,
             double currentUT,
@@ -4745,8 +4835,8 @@ namespace Parsek
             // NaN and Mathf.Clamp on NaN silently falls through to the base hold.
             float effectiveWarpRate = (!float.IsNaN(warpRate) && warpRate > 0.01f) ? warpRate : 1f;
             float requiredSeconds = Mathf.Ceil((float)((continuationActivationUT - currentUT) / effectiveWarpRate)
-                + PendingWatchPostActivationGraceSeconds);
-            return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, MaxPendingWatchHoldSeconds);
+                + WatchMode.PendingPostActivationGraceSeconds);
+            return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, WatchMode.MaxPendingHoldSeconds);
         }
 
         internal static void ComputePendingWatchHoldWindow(
@@ -4767,7 +4857,7 @@ namespace Parsek
             holdUntilRealTime = currentRealtime + holdSeconds;
             if (!double.IsNaN(continuationActivationUT) && continuationActivationUT > currentUT)
             {
-                holdMaxRealTime = currentRealtime + MaxPendingWatchHoldSeconds;
+                holdMaxRealTime = currentRealtime + WatchMode.MaxPendingHoldSeconds;
                 holdUntilRealTime = Mathf.Min(holdUntilRealTime, holdMaxRealTime);
             }
             else

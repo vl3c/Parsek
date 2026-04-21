@@ -292,5 +292,107 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Endpoint-Aligned Orbit Seeds
+
+        [Fact]
+        public void TryResolvePropagatedOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitEccentricity = 0.1,
+                TerminalOrbitInclination = 1.0,
+                TerminalOrbitLAN = 2.0,
+                TerminalOrbitArgumentOfPeriapsis = 3.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.4,
+                TerminalOrbitEpoch = 100.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun"
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+                eccentricity = 0.02,
+                inclination = 4.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0
+            });
+
+            Assert.True(VesselGhoster.TryResolvePropagatedOrbitSeed(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryResolvePropagatedOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun"
+            };
+
+            Assert.False(VesselGhoster.TryResolvePropagatedOrbitSeed(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
+        }
+
+        [Fact]
+        public void TryResolvePropagatedOrbitSeed_SurfaceEndpoint_DoesNotReuseStaleTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitInclination = 4.0,
+                TerminalOrbitLAN = 11.0,
+                TerminalOrbitArgumentOfPeriapsis = 22.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.7,
+                TerminalOrbitEpoch = 350.0,
+                EndpointPhase = RecordingEndpointPhase.SurfacePosition,
+                EndpointBodyName = "Mun"
+            };
+
+            Assert.False(VesselGhoster.TryResolvePropagatedOrbitSeed(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
+        }
+
+        #endregion
     }
 }

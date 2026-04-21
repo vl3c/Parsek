@@ -1102,6 +1102,39 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Null-terminal recordings should still create a ghost from a map-visible orbit
+        /// tail even after the recorded points have ended.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithRecordedPointsAndExtendedOrbitTail_Created()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "extended-tail",
+                TerminalStateValue = null,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 200, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+
+            Assert.True(should);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("HasOrbitData(Recording)")
+                && l.Contains("extended-tail")
+                && l.Contains("result=False"));
+        }
+
+        /// <summary>
         /// Null terminal state with same-body segment gap: keep showing the orbit ghost.
         /// </summary>
         [Fact]
@@ -1207,6 +1240,81 @@ namespace Parsek.Tests
             };
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
             Assert.True(should);
+        }
+
+        #endregion
+
+        #region Endpoint-Aligned Orbit Seeds
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitEccentricity = 0.1,
+                TerminalOrbitInclination = 1.0,
+                TerminalOrbitLAN = 2.0,
+                TerminalOrbitArgumentOfPeriapsis = 3.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.4,
+                TerminalOrbitEpoch = 100.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 250000.0,
+                        eccentricity = 0.02,
+                        inclination = 4.0,
+                        longitudeOfAscendingNode = 11.0,
+                        argumentOfPeriapsis = 22.0,
+                        meanAnomalyAtEpoch = 0.7,
+                        epoch = 350.0
+                    }
+                }
+            };
+
+            Assert.True(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun"
+            };
+
+            Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
         }
 
         #endregion

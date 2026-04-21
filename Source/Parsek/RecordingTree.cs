@@ -463,6 +463,10 @@ namespace Parsek
 
             if (rec.TerminalStateValue.HasValue)
                 recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
+            if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
+                recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                recNode.AddValue("endpointBodyName", rec.EndpointBodyName);
 
             if (rec.ParentBranchPointId != null)
                 recNode.AddValue("parentBranchPointId", rec.ParentBranchPointId);
@@ -724,6 +728,16 @@ namespace Parsek
                     rec.TerminalStateValue = (TerminalState)terminalInt;
             }
 
+            string endpointPhaseStr = recNode.GetValue("endpointPhase");
+            if (endpointPhaseStr != null)
+            {
+                int endpointPhaseInt;
+                if (int.TryParse(endpointPhaseStr, NumberStyles.Integer, ic, out endpointPhaseInt)
+                    && Enum.IsDefined(typeof(RecordingEndpointPhase), endpointPhaseInt))
+                    rec.EndpointPhase = (RecordingEndpointPhase)endpointPhaseInt;
+            }
+            rec.EndpointBodyName = recNode.GetValue("endpointBodyName");
+
             rec.ParentBranchPointId = recNode.GetValue("parentBranchPointId");
             rec.ChildBranchPointId = recNode.GetValue("childBranchPointId");
 
@@ -765,6 +779,8 @@ namespace Parsek
 
             // Resource, rewind, geometry, and mutable state
             LoadRecordingResourceAndState(recNode, rec);
+
+            RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingTree.LoadRecordingFrom");
 
             ParsekLog.Verbose("RecordingTree",
                 $"LoadRecordingFrom: id={rec.RecordingId} vessel='{rec.VesselName}' " +

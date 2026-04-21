@@ -20,7 +20,9 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of GameStateEvents into GameActions, filtering to the given UT range
-        /// and skipping non-convertible event types. Returns only non-null conversions.
+        /// and skipping non-convertible event types. When <paramref name="recordingId"/> is
+        /// supplied, only events tagged to that recording are converted. Returns only non-null
+        /// conversions.
         /// </summary>
         /// <param name="events">Source events (may contain non-convertible types).</param>
         /// <param name="recordingId">Recording that produced these events.</param>
@@ -52,6 +54,12 @@ namespace Parsek
                     continue;
                 }
 
+                if (!EventMatchesRecordingScope(evt, recordingId))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 var action = ConvertEvent(evt, recordingId);
                 if (action != null)
                 {
@@ -70,6 +78,16 @@ namespace Parsek
                 $"total={events.Count}, recordingId={recordingId ?? "(none)"}");
 
             return result;
+        }
+
+        // Mirrored in LedgerOrchestrator.EventMatchesRecordingScope; keep the two in sync.
+        private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -160,13 +178,18 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
-        /// Each subject becomes a ScienceEarning action with subjectId, scienceAwarded, and subjectMaxValue.
+        /// Each subject becomes a ScienceEarning action anchored at commit/end UT while
+        /// also carrying the subject's observed science window for reconciliation.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
-        /// <param name="ut">Universal time to assign to all generated actions.</param>
+        /// <param name="startUT">Owning recording start UT.</param>
+        /// <param name="endUT">Owning recording end/commit UT.</param>
         internal static List<GameAction> ConvertScienceSubjects(
-            IReadOnlyList<PendingScienceSubject> subjects, string recordingId, double ut)
+            IReadOnlyList<PendingScienceSubject> subjects,
+            string recordingId,
+            double startUT,
+            double endUT)
         {
             var result = new List<GameAction>();
 
@@ -200,12 +223,15 @@ namespace Parsek
 
                 result.Add(new GameAction
                 {
-                    UT = ut,
+                    UT = endUT,
                     Type = GameActionType.ScienceEarning,
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
                     ScienceAwarded = subj.science,
+                    Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
+                    StartUT = (float)ResolveScienceWindowStart(subj, recordingId, startUT, endUT),
+                    EndUT = (float)endUT,
                     Sequence = sequence++
                 });
             }
@@ -215,6 +241,39 @@ namespace Parsek
                 $"recordingId={recordingId ?? "(none)"}");
 
             return result;
+        }
+
+        private static double ResolveScienceWindowStart(
+            PendingScienceSubject subject,
+            string recordingId,
+            double defaultStartUT,
+            double endUT)
+        {
+            if (!string.Equals(
+                    subject.recordingId ?? "",
+                    recordingId ?? "",
+                    StringComparison.Ordinal))
+                return defaultStartUT;
+
+            double captureUt = subject.captureUT;
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return defaultStartUT;
+            if (captureUt < 0.0)
+                return defaultStartUT;
+            if (captureUt == 0.0 && defaultStartUT > 0.0)
+                return defaultStartUT;
+            if (captureUt > endUT)
+                return defaultStartUT;
+
+            return captureUt;
+        }
+
+        private static ScienceMethod ResolveScienceMethod(string reasonKey)
+        {
+            if (string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal))
+                return ScienceMethod.Recovered;
+
+            return ScienceMethod.Transmitted;
         }
 
         // ================================================================

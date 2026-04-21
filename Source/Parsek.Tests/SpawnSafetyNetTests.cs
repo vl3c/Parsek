@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -12,6 +14,7 @@ namespace Parsek.Tests
     public class SpawnSafetyNetTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly object originalFlightGlobalsBodies;
 
         public SpawnSafetyNetTests()
         {
@@ -22,10 +25,16 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            originalFlightGlobalsBodies = typeof(FlightGlobals)
+                .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
+                ?.GetValue(null);
         }
 
         public void Dispose()
         {
+            typeof(FlightGlobals)
+                .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
+                ?.SetValue(null, originalFlightGlobalsBodies);
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -747,6 +756,8 @@ namespace Parsek.Tests
             snapshot.AddValue("sit", "FLYING");
             snapshot.AddValue("landed", "False");
             snapshot.AddValue("splashed", "False");
+            snapshot.AddValue("landedAt", "LaunchPad");
+            snapshot.AddValue("displaylandedAt", "#autoLOC_6002112");
 
             bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
@@ -754,6 +765,8 @@ namespace Parsek.Tests
             Assert.Equal("LANDED", snapshot.GetValue("sit"));
             Assert.Equal("True", snapshot.GetValue("landed"));
             Assert.Equal("False", snapshot.GetValue("splashed"));
+            Assert.Equal(string.Empty, snapshot.GetValue("landedAt"));
+            Assert.Equal(string.Empty, snapshot.GetValue("displaylandedAt"));
         }
 
         [Fact]
@@ -763,6 +776,7 @@ namespace Parsek.Tests
             snapshot.AddValue("sit", "FLYING");
             snapshot.AddValue("landed", "False");
             snapshot.AddValue("splashed", "False");
+            snapshot.AddValue("landedAt", "LaunchPad");
 
             bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Splashed);
 
@@ -770,6 +784,150 @@ namespace Parsek.Tests
             Assert.Equal("SPLASHED", snapshot.GetValue("sit"));
             Assert.Equal("False", snapshot.GetValue("landed"));
             Assert.Equal("True", snapshot.GetValue("splashed"));
+            Assert.Equal(string.Empty, snapshot.GetValue("landedAt"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_FlyingToOrbiting_ClearsStaleSiteLabels()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+            snapshot.AddValue("landedAt", "LaunchPad");
+            snapshot.AddValue("displaylandedAt", "#autoLOC_6002112");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Orbiting);
+
+            Assert.True(corrected);
+            Assert.Equal("ORBITING", snapshot.GetValue("sit"));
+            Assert.Equal("False", snapshot.GetValue("landed"));
+            Assert.Equal("False", snapshot.GetValue("splashed"));
+            Assert.Equal(string.Empty, snapshot.GetValue("landedAt"));
+            Assert.Equal(string.Empty, snapshot.GetValue("displaylandedAt"));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_MalformedSnapshotWithoutEndpoint_Rejects()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            var rec = new Recording
+            {
+                VesselName = "Malformed Snapshot",
+                VesselSnapshot = snapshot
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test");
+
+            Assert.Null(validated);
+            Assert.Contains(logLines, l =>
+                l.Contains("Spawn validation failed")
+                && l.Contains("Malformed Snapshot"));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects()
+        {
+            InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("REF", "0");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "Endpoint Mismatch",
+                VesselSnapshot = snapshot,
+                EndpointPhase = RecordingEndpointPhase.SurfacePosition,
+                EndpointBodyName = "Mun"
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test");
+
+            Assert.Null(validated);
+            Assert.Contains(logLines, l =>
+                l.Contains("Spawn validation failed")
+                && l.Contains("Endpoint Mismatch"));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair()
+        {
+            InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "0");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "Surface Repair",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitInclination = 4.0,
+                TerminalOrbitLAN = 11.0,
+                TerminalOrbitArgumentOfPeriapsis = 22.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.7,
+                TerminalOrbitEpoch = 350.0,
+                EndpointPhase = RecordingEndpointPhase.TerminalPosition,
+                EndpointBodyName = "Mun",
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Mun",
+                    latitude = 4.0,
+                    longitude = 5.0,
+                    altitude = 6.0
+                }
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test");
+
+            Assert.NotNull(validated);
+            Assert.Equal("4", validated.GetValue("lat"));
+            Assert.Equal("5", validated.GetValue("lon"));
+            Assert.Equal("6", validated.GetValue("alt"));
+            ConfigNode repairedOrbit = validated.GetNode("ORBIT");
+            Assert.NotNull(repairedOrbit);
+            Assert.Equal("0", repairedOrbit.GetValue("SMA"));
+            Assert.Equal("1", repairedOrbit.GetValue("ECC"));
+            Assert.Equal("1", repairedOrbit.GetValue("REF"));
+            Assert.Contains(logLines, l =>
+                l.Contains("using endpoint surface coordinates")
+                && l.Contains("Surface Repair"));
         }
 
         [Fact]
@@ -963,6 +1121,198 @@ namespace Parsek.Tests
             Assert.Equal(2.1799662805681828, meanAnomalyAtEpoch, 10);
             Assert.Equal(2042.84218735994, epoch, 10);
             Assert.Equal("Kerbin", bodyName);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 300.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(3.0, inclination, 10);
+            Assert.Equal(0.5, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersLastMatchingSegmentWhenEndpointUsesOrbitSegments()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 250.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 250.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 260000.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Mun"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(260000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_UsesLastSegmentMatchingEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 1200000.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 300.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 300.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 260000.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Mun"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(260000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 1200000.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 450.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.False(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
         }
 
         #endregion
@@ -1540,6 +1890,23 @@ namespace Parsek.Tests
 
             string overridden = VesselSpawner.OverrideSituationFromTerminalState(classified, TerminalState.Landed);
             Assert.Equal("LANDED", overridden);
+        }
+
+        private static void InstallTestBodies(params (string name, double radius, double gravParameter)[] bodySpecs)
+        {
+            var bodies = new List<CelestialBody>();
+            foreach (var spec in bodySpecs)
+            {
+                var body = (CelestialBody)FormatterServices.GetUninitializedObject(typeof(CelestialBody));
+                typeof(CelestialBody).GetField("bodyName").SetValue(body, spec.name);
+                typeof(CelestialBody).GetField("Radius").SetValue(body, spec.radius);
+                typeof(CelestialBody).GetField("gravParameter").SetValue(body, spec.gravParameter);
+                bodies.Add(body);
+            }
+
+            typeof(FlightGlobals)
+                .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
+                ?.SetValue(null, bodies);
         }
 
         #endregion

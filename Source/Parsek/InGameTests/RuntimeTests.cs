@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -13,6 +14,29 @@ namespace Parsek.InGameTests
     /// </summary>
     public class RuntimeTests
     {
+        internal const float TimeScalePositiveThreshold = 0.01f;
+        internal const int TimeScalePositiveProbeFrames = 8;
+
+        internal enum TimeScalePositiveProbeOutcome
+        {
+            Passed,
+            SkipStockPause,
+            SkipPauseProbeUnavailable,
+            FailZeroWithoutPause,
+        }
+
+        internal struct TimeScalePositiveProbeSample
+        {
+            public int SampleIndex;
+            public int FrameCount;
+            public float RealtimeSinceStartup;
+            public float TimeScale;
+            public bool? FlightDriverPause;
+            public string KspLoaderLastUpdate;
+            public string RunnerCoroutineState;
+            public string SceneName;
+        }
+
         private readonly InGameTestRunner runner;
 
         public RuntimeTests(InGameTestRunner runner)
@@ -301,9 +325,221 @@ namespace Parsek.InGameTests
         #region Unity Environment
 
         [InGameTest(Category = "Unity", Description = "Time.timeScale is positive (game not frozen)")]
-        public void TimeScalePositive()
+        public IEnumerator TimeScalePositive()
         {
-            InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
+            var samples = new List<TimeScalePositiveProbeSample>(TimeScalePositiveProbeFrames);
+            for (int i = 0; i < TimeScalePositiveProbeFrames; i++)
+            {
+                TimeScalePositiveProbeSample sample = CaptureTimeScalePositiveProbeSample(i);
+                samples.Add(sample);
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
+
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
+                {
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
+                            FormatTimeScalePositiveProbeSummary(samples));
+                        yield break;
+                }
+
+                if (i < TimeScalePositiveProbeFrames - 1)
+                    yield return null;
+            }
+
+            string summary = FormatTimeScalePositiveProbeSummary(samples);
+            switch (ClassifyTimeScalePositiveSamples(samples))
+            {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
+                case TimeScalePositiveProbeOutcome.SkipStockPause:
+                    InGameAssert.Skip(
+                        "stock pause menu open; Time.timeScale=0 is expected while paused | " +
+                        summary);
+                    break;
+
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
+                default:
+                    InGameAssert.Fail(
+                        "Time.timeScale hit <= " +
+                        TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                        " outside stock pause during probe | " +
+                        summary);
+                    break;
+            }
+        }
+
+        internal static TimeScalePositiveProbeOutcome ClassifyTimeScalePositiveSamples(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+            bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].TimeScale > TimeScalePositiveThreshold)
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
+
+                if (samples[i].FlightDriverPause == false)
+                    return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
+            }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
+        }
+
+        internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
+        {
+            return "sample=" + sample.SampleIndex.ToString(CultureInfo.InvariantCulture) +
+                   " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
+                   " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
+                   " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
+                   " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
+                   " runner=" + (sample.RunnerCoroutineState ?? "null") +
+                   " scene=" + (sample.SceneName ?? "null");
+        }
+
+        internal static string FormatTimeScalePositiveProbeSummary(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return "no samples";
+
+            return string.Join(
+                " | ",
+                samples.Select(FormatTimeScalePositiveProbeSample).ToArray());
+        }
+
+        private TimeScalePositiveProbeSample CaptureTimeScalePositiveProbeSample(int sampleIndex)
+        {
+            return new TimeScalePositiveProbeSample
+            {
+                SampleIndex = sampleIndex,
+                FrameCount = Time.frameCount,
+                RealtimeSinceStartup = Time.realtimeSinceStartup,
+                TimeScale = Time.timeScale,
+                FlightDriverPause = SafeReadFlightDriverPause(),
+                KspLoaderLastUpdate = DescribeKspLoaderLastUpdate(),
+                RunnerCoroutineState = runner != null ? runner.DescribeCoroutineState() : "runner=null",
+                SceneName = HighLogic.LoadedScene.ToString(),
+            };
+        }
+
+        private static bool? SafeReadFlightDriverPause()
+        {
+            try
+            {
+                return FlightDriver.Pause;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private static string DescribeKspLoaderLastUpdate()
+        {
+            try
+            {
+                System.Type loaderType = ResolveKspLoaderType();
+                if (loaderType == null)
+                    return "type-missing";
+
+                FieldInfo field = loaderType.GetField(
+                    "lastUpdate",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null)
+                    return "field-missing";
+
+                object value = field.GetValue(null);
+                return value != null ? value.ToString() : "null";
+            }
+            catch (System.Exception ex)
+            {
+                return "error:" + ex.GetType().Name;
+            }
+        }
+
+        private static System.Type ResolveKspLoaderType()
+        {
+            System.Reflection.Assembly[] assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Reflection.Assembly assembly = assemblies[i];
+                System.Type direct = assembly.GetType("KSPLoader", false);
+                if (direct != null)
+                    return direct;
+
+                try
+                {
+                    System.Type[] types = assembly.GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    System.Type[] types = ex.Types;
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+            }
+
+            return null;
         }
 
         [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
@@ -512,6 +748,13 @@ namespace Parsek.InGameTests
             Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT
+                && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+            {
+                InGameAssert.Skip("test requires flight or tracking station scene");
+                return;
+            }
+
             InGameAssert.IsNotNull(MapView.fetch,
                 "MapView.fetch should exist — test requires flight or tracking station scene");
 
@@ -1086,15 +1329,15 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(index, ParsekFlight.Instance.WatchedRecordingIndex, "watching wrong index");
 
                 // --- Core assertions: tight angle check on canonical defaults ---
-                float expectedPitchRad = WatchModeController.DefaultWatchEntryPitch * Mathf.Deg2Rad;
+                float expectedPitchRad = WatchMode.EntryPitchDegrees * Mathf.Deg2Rad;
                 float actualPitchRad = FlightCamera.fetch.camPitch;
                 float actualHdgRad = FlightCamera.fetch.camHdg;
                 float pitchDeg = Mathf.Abs(actualPitchRad - expectedPitchRad) * Mathf.Rad2Deg;
-                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchModeController.DefaultWatchEntryHeading));
+                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchMode.EntryHeadingDegrees));
                 InGameAssert.IsTrue(pitchDeg < 1f,
-                    $"pitch should be near {WatchModeController.DefaultWatchEntryPitch} deg, got delta={pitchDeg:F2} deg");
+                    $"pitch should be near {WatchMode.EntryPitchDegrees} deg, got delta={pitchDeg:F2} deg");
                 InGameAssert.IsTrue(hdgDeg < 1f,
-                    $"heading should be near {WatchModeController.DefaultWatchEntryHeading} deg, got delta={hdgDeg:F2} deg");
+                    $"heading should be near {WatchMode.EntryHeadingDegrees} deg, got delta={hdgDeg:F2} deg");
 
                 // --- Safety-net assertion: no 180-degree camera flip ---
                 Vector3 cameraForwardAfter = FlightCamera.fetch.transform.forward;
@@ -1106,7 +1349,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Verbose("TestRunner",
                     $"WatchEntry_SameBody: index={index} body={state.lastInterpolatedBodyName} " +
                     $"camPitchDeg={actualPitchRad * Mathf.Rad2Deg:F2} camHdgDeg={actualHdgRad * Mathf.Rad2Deg:F2} " +
-                    $"expectedPitch={WatchModeController.DefaultWatchEntryPitch:F1} expectedHdg={WatchModeController.DefaultWatchEntryHeading:F1} " +
+                    $"expectedPitch={WatchMode.EntryPitchDegrees:F1} expectedHdg={WatchMode.EntryHeadingDegrees:F1} " +
                     $"worldDot={worldDot:F3}");
             }
             finally
@@ -1267,12 +1510,19 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(RecordingPaths.ValidateRecordingId("abc-123"),
                 "Simple alphanumeric ID should be valid");
 
-            // Invalid IDs
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(null),
+            // Invalid IDs are intentionally exercised in the test-only logging context
+            // so expected security rejections stay visible without polluting WARN triage.
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    null,
+                    RecordingIdValidationLogContext.Test),
                 "null ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(""),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "",
+                    RecordingIdValidationLogContext.Test),
                 "empty ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "../etc/passwd",
+                    RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
     }
@@ -1320,6 +1570,80 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"Ghost build sweep: {built} built, {fallback} degraded, {noSnapshot} no snapshot " +
                 $"(of {recordings.Count} recordings)");
+        }
+
+        [InGameTest(Category = "GhostVisuals", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B2: incremental snapshot build yields after one part and completes across subsequent advances")]
+        public IEnumerator IncrementalSnapshotBuild_YieldsThenCompletes()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            Recording withMultipartSnapshot = recordings.FirstOrDefault(rec =>
+            {
+                ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                return snapshot != null && snapshot.GetNodes("PART").Length >= 2;
+            });
+
+            if (withMultipartSnapshot == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "No committed recording with a multipart snapshot — skipping incremental build test");
+                yield break;
+            }
+
+            ConfigNode snapshotNode = GhostVisualBuilder.GetGhostSnapshot(withMultipartSnapshot);
+            PendingGhostVisualBuild build = GhostVisualBuilder.TryBeginTimelineGhostBuild(
+                withMultipartSnapshot,
+                snapshotNode,
+                "ParsekTest_SplitAdvance",
+                withMultipartSnapshot.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot);
+
+            InGameAssert.IsNotNull(build, "TryBeginTimelineGhostBuild should succeed for a multipart snapshot");
+
+            GameObject cleanupRoot = build.root;
+            GhostBuildResult result = null;
+            try
+            {
+                // `maxTicks: 0` is the deliberate "one part, then yield if work remains"
+                // seam from AdvanceTimelineGhostBuild. This keeps the test deterministic:
+                // we assert the split-build path itself, not a stopwatch-dependent budget.
+                bool completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                InGameAssert.IsFalse(completed,
+                    $"AdvanceTimelineGhostBuild(0) should yield for multipart snapshot '{withMultipartSnapshot.VesselName}'");
+                InGameAssert.IsTrue(build.nextPartIndex > 0 && build.nextPartIndex < build.partNodes.Length,
+                    $"First incremental advance should process at least one part and leave work remaining, got nextPartIndex={build.nextPartIndex} of {build.partNodes.Length}");
+
+                int advances = 1;
+                while (!completed)
+                {
+                    yield return null;
+                    completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                    advances++;
+                    InGameAssert.IsTrue(advances <= build.partNodes.Length + 1,
+                        $"Incremental build should complete within one advance per part, got advances={advances} parts={build.partNodes.Length}");
+                }
+
+                InGameAssert.IsTrue(build.nextPartIndex == build.partNodes.Length,
+                    $"Completed incremental build should consume every snapshot part, got {build.nextPartIndex}/{build.partNodes.Length}");
+
+                result = GhostVisualBuilder.CompleteTimelineGhostBuild(build, withMultipartSnapshot);
+                InGameAssert.IsNotNull(result, "CompleteTimelineGhostBuild should return a result after all parts are advanced");
+                InGameAssert.IsNotNull(result.root, "Incremental build result should keep the ghost root");
+
+                cleanupRoot = result.root;
+                InGameAssert.IsGreaterThan(result.root.transform.childCount, 0,
+                    $"Incremental ghost root should contain built children for '{withMultipartSnapshot.VesselName}'");
+
+                ParsekLog.Verbose("TestRunner",
+                    $"Incremental ghost build completed for '{withMultipartSnapshot.VesselName}' in {advances} advances " +
+                    $"({build.partNodes.Length} snapshot parts)");
+            }
+            finally
+            {
+                if (cleanupRoot != null)
+                    runner.TrackForCleanup(cleanupRoot);
+            }
         }
 
         [InGameTest(Category = "GhostVisuals",
@@ -3381,6 +3705,91 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 regression: scene reset must not cache a transparent opaque window
+        /// style while the destination scene skin is still bootstrapping.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Scene reset defers opaque window rebuild until a skin background exists")]
+        public void SceneReset_DefersOpaqueStyleUntilSkinReady()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            MethodInfo onSceneChange = typeof(TestRunnerShortcut).GetMethod(
+                "OnSceneChangeRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(onSceneChange,
+                "Failed to reflect TestRunnerShortcut.OnSceneChangeRequested");
+
+            var readySkin = ScriptableObject.CreateInstance<GUISkin>();
+            var missingBackgroundSkin = ScriptableObject.CreateInstance<GUISkin>();
+            var sourceBackground = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+
+            try
+            {
+                sourceBackground.SetPixels(new[]
+                {
+                    new Color(0.18f, 0.24f, 0.31f, 0.35f),
+                    new Color(0.20f, 0.27f, 0.34f, 0.40f),
+                    new Color(0.22f, 0.29f, 0.36f, 0.45f),
+                    new Color(0.24f, 0.31f, 0.38f, 0.50f),
+                });
+                sourceBackground.Apply();
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Test must start from a cleared opaque-style cache");
+
+                readySkin.window = new GUIStyle();
+                readySkin.window.normal.background = sourceBackground;
+
+                missingBackgroundSkin.window = new GUIStyle();
+
+                bool builtBeforeReset = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtBeforeReset,
+                    "Opaque style should build when a window background exists");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Opaque style must be cached before the scene reset");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Opaque style cache must keep a non-null window background before reset");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Lagging hover/focus/active states must fall back to the ready normal background");
+                InGameAssert.AreNotEqual(sourceBackground.GetInstanceID(),
+                    shortcut.OpaqueWindowBackgroundForTesting.GetInstanceID(),
+                    "Opaque style must keep a copied background texture instead of the live skin texture");
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Scene reset should clear the cached opaque style before the next rebuild");
+
+                bool builtWithMissingBackground = shortcut.TryEnsureOpaqueStyleForTesting(missingBackgroundSkin);
+                InGameAssert.IsFalse(builtWithMissingBackground,
+                    "Opaque style rebuild must defer when the destination scene skin has no window background yet");
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Deferred rebuild must not cache an opaque style with null backgrounds");
+                InGameAssert.IsNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Deferred rebuild must leave the cached opaque background unset");
+
+                bool builtAfterSkinReady = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtAfterSkinReady,
+                    "Opaque style rebuild should succeed once the scene skin is ready");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Ready-skin rebuild must repopulate the cached opaque style");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Ready-skin rebuild must cache a non-null opaque background");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Ready-skin rebuild must populate every window state background");
+            }
+            finally
+            {
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                Object.Destroy(readySkin);
+                Object.Destroy(missingBackgroundSkin);
+                Object.Destroy(sourceBackground);
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.
@@ -3568,6 +3977,194 @@ namespace Parsek.InGameTests
                 "Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio completed without crash");
         }
 
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Ghost audio re-anchors to watch pivot and keeps centered stereo defaults")]
+        public void GhostAudioSources_AnchorToWatchPivot()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+            cameraPivot.transform.localPosition = new Vector3(4f, 2f, -3f);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(ghostRoot.transform, false);
+            partRoot.transform.localPosition = new Vector3(-8f, 1f, 6f);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.spatialBlend = 1f;
+            engineSource.panStereo = 0.35f;
+
+            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
+            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
+            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
+            oneShotSource.spatialBlend = 1f;
+            oneShotSource.panStereo = -0.4f;
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource
+                    }
+                },
+                oneShotAudio = new OneShotAudioInfo
+                {
+                    audioSource = oneShotSource
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+
+            InGameAssert.IsTrue(ghostRoot.transform.parent == null,
+                "Ghost root should not be reparented by audio centering");
+            InGameAssert.IsTrue(partRoot.transform.parent == ghostRoot.transform,
+                "Part visuals should stay under the ghost root when audio is re-anchored");
+            InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
+                "Engine ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
+                "One-shot ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
+                "Engine ghost audio should sit at the watch pivot local origin");
+            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
+                "One-shot ghost audio should sit at the watch pivot local origin");
+            InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
+                "Engine ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
+                "One-shot ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
+                "Engine ghost audio spatialBlend should use the damped watch-safe blend");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
+                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Part visibility toggles keep re-anchored ghost audio in sync")]
+        public IEnumerator GhostAudioSources_FollowPartVisibilityAfterReanchor()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioVisibility");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(visualsRoot, false);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_loop", 44100, 1, 44100, false);
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource,
+                        clip = engineSource.clip,
+                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
+                        currentPower = 1f
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform,
+                atmosphereFactor = 1f,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(100u, 0)] = result.audioInfos[0]
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+            GhostPlaybackLogic.SetEngineAudio(state, new PartEvent
+            {
+                partPersistentId = 100u,
+                moduleIndex = 0
+            }, 1f);
+            yield return null;
+
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine audio should be playing before the part is hidden");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, false);
+            yield return null;
+            InGameAssert.IsFalse(partRoot.activeSelf,
+                "Part visual should disable when part visibility turns off");
+            InGameAssert.IsFalse(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should disable with the part");
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Re-anchored engine audio should stop when the part hides");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, true);
+            yield return null;
+            InGameAssert.IsTrue(partRoot.activeSelf,
+                "Part visual should re-enable when part visibility turns on");
+            InGameAssert.IsTrue(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should re-enable with the part");
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Re-anchored engine audio should resume when the part becomes visible again");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Fresh ghost cameraPivot recenters on the active-part midpoint before watch/audio uses it")]
+        public void CameraPivot_RecalculatesToActivePartMidpoint()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var left = new GameObject("ghost_part_100");
+            left.transform.SetParent(visualsRoot, false);
+            left.transform.localPosition = new Vector3(-6f, 1f, 0f);
+
+            var right = new GameObject("ghost_part_200");
+            right.transform.SetParent(visualsRoot, false);
+            right.transform.localPosition = new Vector3(2f, 5f, 4f);
+
+            var hidden = new GameObject("ghost_part_300");
+            hidden.transform.SetParent(visualsRoot, false);
+            hidden.transform.localPosition = new Vector3(50f, 50f, 50f);
+            hidden.SetActive(false);
+
+            var ignored = new GameObject("not_a_ghost_part");
+            ignored.transform.SetParent(visualsRoot, false);
+            ignored.transform.localPosition = new Vector3(99f, 99f, 99f);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform
+            };
+
+            GhostPlaybackLogic.RecalculateCameraPivot(state);
+
+            Vector3 expectedMidpoint = new Vector3(-2f, 3f, 2f);
+            InGameAssert.IsTrue((state.cameraPivot.localPosition - expectedMidpoint).sqrMagnitude < 0.0001f,
+                $"cameraPivot should recenter to {expectedMidpoint}, got {state.cameraPivot.localPosition}");
+        }
+
         // ======================= FinalizeBackfill (#265 / #259) =======================
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
@@ -3609,16 +4206,134 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"TerminalOrbitBody backfill verified: body={rec.TerminalOrbitBody} " +
-                $"sma={rec.TerminalOrbitSemiMajorAxis:F1}");
+                $"sma={rec.TerminalOrbitSemiMajorAxis.ToString("F1", CultureInfo.InvariantCulture)}");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
-            Description = "#265: Backfill skipped when TerminalOrbitBody already populated")]
-        public void TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite()
+            Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit only when the cached tuple already matches")]
+        public void TerminalOrbitBackfill_AlreadyPopulatedMatchingTuple_NoOverwrite()
         {
             var rec = new Recording
             {
                 VesselName = "TestNoOverwrite",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Existing TerminalOrbitBody should not be overwritten");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string preserveLine = captured.LastOrDefault(line =>
+                line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
+                && line.Contains("preserved cached terminal orbit")
+                && line.Contains("body=Kerbin")
+                && line.Contains("sma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(preserveLine),
+                "Expected preserve INFO log when cached tuple already matches endpoint-aligned segment");
+            InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
+                $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("healed stale cached terminal orbit")),
+                "Matching cached tuple should preserve, not heal");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody no-overwrite verified: body still Kerbin");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#484 review follow-up: endpoint-aligned backfill heals a stale same-body terminal-orbit tuple instead of preserving by body match alone")]
+        public void TerminalOrbitBackfill_StaleCachedSameBodyTuple_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleSameBodyTuple",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should keep the same body while healing stale tuple fields");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string healLine = captured.LastOrDefault(line =>
+                line.Contains("PopulateTerminalOrbitFromLastSegment")
+                && line.Contains("healed stale cached terminal orbit")
+                && line.Contains("previousBody=Kerbin")
+                && line.Contains("previousSma=250000.0")
+                && line.Contains("newBody=Kerbin")
+                && line.Contains("newSma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(healLine),
+                "Expected stale same-body tuple heal WARN log");
+            InGameAssert.IsTrue(healLine.Contains("[WARN][Flight]"),
+                $"Expected heal log to be WARN/[Flight], got: {healLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("preserved cached terminal orbit")),
+                "Stale cached tuple should heal, not preserve");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale same-body tuple heal verified: sma 250000 -> 700000");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#475/#484: endpoint-aligned backfill heals a stale cached terminal orbit body when the orbit endpoint extends past the last point")]
+        public void TerminalOrbitBackfill_StaleCachedBody_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleBody",
                 VesselPersistentId = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Mun",
@@ -3636,13 +4351,12 @@ namespace Parsek.InGameTests
 
             ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
 
-            // Backfill should NOT have overwritten the existing values
-            InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
-                "Existing TerminalOrbitBody should not be overwritten");
-            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody no-overwrite verified: body still Mun");
+                "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
         }
 
         // ======================= BackgroundRecorderSeedSkip (#265) =======================
@@ -3888,23 +4602,220 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static Strategies.Strategy FindActivatableStockStrategy()
+        private const int StrategyLifecycleProbeWarmupFrames = 3;
+        private const int StrategyLifecycleProbeRetryFrames = 30;
+        private const int StrategyLifecycleProbeStableFrames = 2;
+        private const int StrategyLifecycleActivateSettleFrames = 2;
+
+        private struct StrategyProbeResult
         {
+            public Strategies.Strategy Strategy;
+            public string ConfigName;
+            public string Diagnostic;
+            public bool ShouldRetry;
+            public bool HadProbeException;
+            public bool HadRetryableReadinessBlock;
+        }
+
+        private sealed class StrategySelectionResult
+        {
+            public Strategies.Strategy Strategy;
+            public string ConfigName;
+            public string Diagnostic;
+            public bool FinalProbeHadException;
+            public bool FinalProbeHadRetryableReadinessBlock;
+        }
+
+        private static StrategyProbeResult ProbeActivatableStockStrategy()
+        {
+            var result = new StrategyProbeResult
+            {
+                Diagnostic = "no activatable stock strategy available",
+                ShouldRetry = false,
+                HadProbeException = false,
+                HadRetryableReadinessBlock = false
+            };
+
             var system = Strategies.StrategySystem.Instance;
-            if (system == null) return null;
-            var list = system.Strategies;
-            if (list == null) return null;
+            var list = system?.Strategies;
+            string globalReadinessReason =
+                StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(system, list);
+            if (!string.IsNullOrEmpty(globalReadinessReason))
+            {
+                result.Diagnostic = globalReadinessReason;
+                result.ShouldRetry = true;
+                result.HadRetryableReadinessBlock = true;
+                StrategyLifecycleProbeSupport.LogReadinessWaiting(globalReadinessReason);
+                return result;
+            }
+
+            int nullEntries = 0;
+            int activeEntries = 0;
+            int configlessEntries = 0;
+            int namelessEntries = 0;
+            int blockedEntries = 0;
+            int probeThrows = 0;
+            int firstProbeFailureIndex = -1;
+            string firstProbeFailureSummary = null;
+            string firstProbeFailureDetail = null;
             for (int i = 0; i < list.Count; i++)
             {
                 var s = list[i];
-                if (s == null) continue;
-                if (s.IsActive) continue;
-                if (s.Config == null) continue;
-                string reason;
-                if (!s.CanBeActivated(out reason)) continue;
-                return s;
+                if (s == null)
+                {
+                    nullEntries++;
+                    continue;
+                }
+
+                try
+                {
+                    string probeConfigName = null;
+                    if (s.IsActive)
+                    {
+                        activeEntries++;
+                        continue;
+                    }
+
+                    var config = s.Config;
+                    if (config == null)
+                    {
+                        configlessEntries++;
+                        continue;
+                    }
+
+                    probeConfigName = config.Name;
+                    if (string.IsNullOrEmpty(probeConfigName))
+                    {
+                        namelessEntries++;
+                        continue;
+                    }
+
+                    string reason;
+                    if (!s.CanBeActivated(out reason))
+                    {
+                        blockedEntries++;
+                        continue;
+                    }
+
+                    result.Strategy = s;
+                    result.ConfigName = probeConfigName;
+                    result.Diagnostic = $"selected activatable strategy '{probeConfigName}'";
+                    return result;
+                }
+                catch (System.Exception ex)
+                {
+                    probeThrows++;
+                    result.HadProbeException = true;
+                    if (firstProbeFailureSummary == null)
+                    {
+                        firstProbeFailureIndex = i;
+                        firstProbeFailureSummary =
+                            StrategyLifecycleProbeSupport.FormatExceptionSummary(ex);
+                        firstProbeFailureDetail = ex.ToString();
+                    }
+                    ParsekLog.Verbose("TestRunner",
+                        $"StrategyLifecycle probe exception: index={i} {ex}");
+                }
             }
-            return null;
+
+            if (probeThrows > 0)
+            {
+                StrategyLifecycleProbeSupport.LogPollExceptions(
+                    list.Count,
+                    probeThrows,
+                    firstProbeFailureIndex,
+                    firstProbeFailureSummary);
+            }
+
+            result.Diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(
+                list.Count,
+                nullEntries,
+                activeEntries,
+                configlessEntries,
+                namelessEntries,
+                blockedEntries,
+                probeThrows,
+                firstProbeFailureIndex,
+                firstProbeFailureSummary,
+                firstProbeFailureDetail);
+            result.ShouldRetry =
+                configlessEntries > 0
+                || namelessEntries > 0
+                || probeThrows > 0;
+            return result;
+        }
+
+        private static IEnumerator WaitForStableActivatableStockStrategy(StrategySelectionResult result)
+        {
+            if (result == null)
+                throw new System.ArgumentNullException(nameof(result));
+
+            result.Strategy = null;
+            result.ConfigName = null;
+            result.Diagnostic = "no activatable stock strategy available";
+            result.FinalProbeHadException = false;
+            result.FinalProbeHadRetryableReadinessBlock = false;
+
+            for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
+                yield return null;
+
+            string stableConfigName = null;
+            int stableFrames = 0;
+            bool sawRetryableDelay = false;
+            for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
+            {
+                var probe = ProbeActivatableStockStrategy();
+                result.Diagnostic = probe.Diagnostic;
+                // Track only the final retryable state. Early hydration waits or probe
+                // exceptions that later clear must not poison a later legitimate skip.
+                result.FinalProbeHadException = probe.HadProbeException;
+                result.FinalProbeHadRetryableReadinessBlock = probe.HadRetryableReadinessBlock;
+                if (probe.Strategy != null)
+                {
+                    if (probe.ConfigName == stableConfigName)
+                        stableFrames++;
+                    else
+                    {
+                        stableConfigName = probe.ConfigName;
+                        stableFrames = 1;
+                    }
+
+                    result.Strategy = probe.Strategy;
+                    result.ConfigName = probe.ConfigName;
+                    if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                    {
+                        if (sawRetryableDelay)
+                        {
+                            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                                attempt + 1,
+                                StrategyLifecycleProbeRetryFrames,
+                                result.Diagnostic);
+                        }
+                        yield break;
+                    }
+
+                    yield return null;
+                    continue;
+                }
+
+                result.Strategy = null;
+                result.ConfigName = null;
+                stableConfigName = null;
+                stableFrames = 0;
+                if (!probe.ShouldRetry)
+                    yield break;
+
+                sawRetryableDelay = true;
+                yield return null;
+            }
+
+            if (sawRetryableDelay && (result.Strategy == null || string.IsNullOrEmpty(result.ConfigName)))
+            {
+                StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                    StrategyLifecycleProbeRetryFrames,
+                    StrategyLifecycleProbeRetryFrames,
+                    result.Diagnostic);
+            }
         }
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
@@ -3923,24 +4834,31 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            // Gate 2: StrategySystem singleton available.
-            var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            // Gate 2/3: wait briefly for StrategySystem hydration to stabilize, but
+            // DO NOT silently convert persistent probe exceptions into a skip. If
+            // readiness never settles after the retry window, fail with diagnostics.
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
+
+            if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                InGameAssert.Skip("StrategySystem.Instance is null — Admin facility may be missing or scene not ready");
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
+                {
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
+                    yield break;
+                }
+                InGameAssert.Skip(selection.Diagnostic);
                 yield break;
             }
 
-            // Gate 3: at least one activatable strategy. No cost gate — teardown
-            // restores Funds/Science/Reputation via snapshot-diff.
-            var strategy = FindActivatableStockStrategy();
-            if (strategy == null)
-            {
-                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
-                yield break;
-            }
-
-            string configName = strategy.Config.Name ?? "";
+            var strategyConfig = strategy.Config;
+            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
+            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
+                "Selected strategy must have a non-empty Config.Name");
             ParsekLog.Info("TestRunner",
                 $"StrategyLifecycle test target: configName={configName} title={strategy.Title} " +
                 $"setupF={strategy.InitialCostFunds.ToString("R", CultureInfo.InvariantCulture)} " +
@@ -3972,7 +4890,20 @@ namespace Parsek.InGameTests
             // starts a recalculation walk mid-test, this assumption breaks and the
             // test's event-find step will fail with a clear message.
 
-            bool activateOk = strategy.Activate();
+            for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                yield return null;
+
+            bool activateOk;
+            try
+            {
+                activateOk = strategy.Activate();
+            }
+            catch (System.Exception ex)
+            {
+                InGameAssert.Fail(
+                    $"Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                yield break;
+            }
             yield return null;
 
             // deactSnapshot is set inside the first try and read in the second;
@@ -4046,7 +4977,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception innerEx)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -4101,7 +5032,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -4117,34 +5048,41 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
             Description = "#439 Phase A: Activate()=false path (already-active) does NOT emit StrategyActivated (pins the __result==true filter in StrategyLifecyclePatch).")]
-        public void FailedActivation_DoesNotEmitEvent()
+        public IEnumerator FailedActivation_DoesNotEmitEvent()
         {
             if (HighLogic.CurrentGame == null)
             {
                 InGameAssert.Skip("HighLogic.CurrentGame is null");
-                return;
+                yield break;
             }
             if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
             {
                 InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
-                return;
+                yield break;
             }
 
-            var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
+
+            if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                InGameAssert.Skip("StrategySystem.Instance is null");
-                return;
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
+                {
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
+                    yield break;
+                }
+                InGameAssert.Skip(selection.Diagnostic);
+                yield break;
             }
 
-            var strategy = FindActivatableStockStrategy();
-            if (strategy == null)
-            {
-                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
-                return;
-            }
-
-            string configName = strategy.Config.Name ?? "";
+            var strategyConfig = strategy.Config;
+            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
+            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
+                "Selected strategy must have a non-empty Config.Name");
 
             // Snapshot financials — the first (successful) Activate below will
             // spend setup costs that we must restore in teardown.
@@ -4161,18 +5099,41 @@ namespace Parsek.InGameTests
             {
                 // Activate the strategy FIRST so the second Activate hits the
                 // already-active short-circuit and returns false.
-                bool firstActivate = strategy.Activate();
+                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                    yield return null;
+
+                bool firstActivate;
+                try
+                {
+                    firstActivate = strategy.Activate();
+                }
+                catch (System.Exception ex)
+                {
+                    InGameAssert.Fail(
+                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                    yield break;
+                }
                 if (!firstActivate)
                 {
                     InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                    return;
+                    yield break;
                 }
 
                 int eventCountBefore = GameStateStore.EventCount;
 
                 // Second Activate — KSP short-circuits when IsActive is true and
                 // returns false. The postfix should detect __result=false and skip.
-                bool ok = strategy.Activate();
+                bool ok;
+                try
+                {
+                    ok = strategy.Activate();
+                }
+                catch (System.Exception ex)
+                {
+                    InGameAssert.Fail(
+                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
+                    yield break;
+                }
                 InGameAssert.IsFalse(ok,
                     "Strategy.Activate should return false when already active");
 
@@ -4202,7 +5163,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
                     }
                 }
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
@@ -4457,6 +5418,171 @@ namespace Parsek.InGameTests
                 "frameLazyReentryBuildCount must NOT bump on reuse itself (the NEXT frame's UpdateReentryFx may build, but that is the B3 path, not reuse)");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse clears deferVisibilityUntilPlaybackSync and re-activates the reused ghost on the same UpdatePlayback frame when the ghost stays visible")]
+        public void Bug406_ReuseClearsDeferVisOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: false,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "test must cross a real loop-cycle boundary; otherwise the post-frame visibility assertion is meaningless");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "cycle-boundary pass must reset playbackIndex before the new-cycle frame finishes");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "cycle-boundary pass must reset partEventIndex before the new-cycle frame finishes");
+            InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
+                "visible same-frame path must clear deferVisibilityUntilPlaybackSync after reuse");
+            InGameAssert.IsNotNull(state.ghost,
+                "visible same-frame path must keep the reused ghost loaded");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "full UpdatePlayback loop-cycle path must preserve the same ghost GameObject instance instead of rebuilding");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "visible same-frame path must re-activate the reused ghost before UpdatePlayback returns");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "full-frame regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost before ActivateGhostVisualsIfNeeded owns the same-frame activation");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse leaves the ghost deferred/inactive when the same frame is hidden by zone rendering")]
+        public void Bug406_ReuseHiddenByZone_DoesNotActivateGhostOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: true,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "hidden-by-zone variant must still cross a real loop-cycle boundary");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "hidden-by-zone variant must still rewind playbackIndex on the reused cycle");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "hidden-by-zone variant must still rewind partEventIndex on the reused cycle");
+            InGameAssert.IsNotNull(state.ghost,
+                "hidden-tier prewarm should keep the reused ghost loaded while it remains invisible");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "hidden-tier prewarm path must keep the same ghost GameObject instance loaded across the loop boundary");
+            InGameAssert.IsTrue(state.deferVisibilityUntilPlaybackSync,
+                "hidden-by-zone branch must preserve deferVisibilityUntilPlaybackSync for the next visible frame");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "hidden-by-zone branch must not activate the reused ghost on the cycle-boundary frame");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "hidden-by-zone regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost while the loop frame is still hidden by zone policy");
+        }
+
+        private GhostPlaybackState RunBug406ReuseVisibilityScenario(
+            bool hiddenByZone, out GameObject originalGhost, out List<string> capturedLog)
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight");
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            if (flight.WatchedRecordingIndex >= 0)
+                flight.ExitWatchMode(skipCameraRestore: true);
+
+            var engine = new GhostPlaybackEngine(flight);
+            double renderDistance = hiddenByZone ? 1.0e9 : 0.0;
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => renderDistance;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            originalGhost = new GameObject(
+                hiddenByZone ? "ParsekTestGhost_Bug406ReuseHiddenByZone" : "ParsekTestGhost_Bug406ReuseVisible");
+            runner.TrackForCleanup(originalGhost);
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(originalGhost.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestReuseVisibility",
+                ghost = originalGhost,
+                cameraPivot = cameraPivotObj.transform,
+                loopCycleIndex = 0,
+                playbackIndex = 7,
+                partEventIndex = 3,
+                flagEventIndex = 1,
+                explosionFired = true,
+                pauseHidden = true,
+                audioMuted = true,
+            };
+
+            engine.ghostStates[0] = state;
+            var traj = new TestLoopTrajectoryForBug461(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                addHiddenPrewarmEvent: hiddenByZone);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = traj.EndUT,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 12.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line =>
+            {
+                localLog.Add(line);
+                priorSink?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            capturedLog = localLog;
+            return state;
+        }
+
         #endregion
     }
 
@@ -4504,5 +5630,483 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
+    {
+        internal TestLoopTrajectoryForBug461(
+            string bodyName, double latitude, double longitude, double altitude,
+            bool addHiddenPrewarmEvent)
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude,
+                    longitude = longitude,
+                    altitude = altitude,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude,
+                    longitude = longitude + 0.001,
+                    altitude = altitude + 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+
+            PartEvents = addHiddenPrewarmEvent
+                ? new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 3.0,
+                        partPersistentId = 1,
+                        partName = "prewarm",
+                        eventType = PartEventType.Decoupled,
+                    }
+                }
+                : new List<PartEvent>();
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 0;
+        public List<PartEvent> PartEvents { get; }
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "TestReuseVisibility";
+        public string RecordingId => "test-b461";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    public class IncompleteBallisticRuntimeTests
+    {
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Plane-exit extrapolation keeps producing a ballistic tail until the ghost would despawn")]
+        public void ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(radius + 3000.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 250.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "low-altitude flying exit should terminate instead of orbit forever");
+            InGameAssert.IsTrue(result.terminalUT > start.ut,
+                "terminal UT should extend beyond the recorded exit");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "plane exit should produce at least one extrapolated segment");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Suborbital apoapsis extrapolation keeps the ghost on an orbital arc before termination")]
+        public void ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            BallisticStateVector start = MakeApoapsisState(
+                "Kerbin",
+                gravParameter,
+                apoapsisRadius: radius + 70500.0,
+                periapsisRadius: radius + 15000.0);
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "suborbital apoapsis should eventually terminate");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "suborbital apoapsis should produce at least one extrapolated coast segment");
+            InGameAssert.AreEqual("Kerbin", result.segments[0].bodyName,
+                "the first extrapolated segment should stay on Kerbin");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Hyperbolic extrapolation crosses the child SOI and continues on the parent body")]
+        public void ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Sun"] = MakeBody("Sun", 1.1723328e18, 261600000.0, sphereOfInfluence: 1.0e30),
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    3.5316e12,
+                    600000.0,
+                    atmosphereDepth: 0.0,
+                    sphereOfInfluence: 10000000.0,
+                    parentBodyName: "Sun",
+                    parentFrameState: FixedState(Vector3d.zero, new Vector3d(0.0, 9500.0, 0.0)),
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(9500000.0, 0.0, 0.0),
+                velocity = new Vector3d(1400.0, 800.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 1,
+                "hyperbolic exit should produce more than one segment");
+            InGameAssert.IsTrue(result.segments.Any(seg => seg.bodyName == "Sun"),
+                "hyperbolic exit should hand off onto the parent-body frame");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic flyby capture yields the same active body the map-view selector would draw")]
+        public void PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView()
+        {
+            var munPatch = MakePatch(200.0, 320.0, "Mun");
+            var kerbinPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Encounter);
+            kerbinPatch.NextPatch = munPatch;
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = kerbinPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "MunFlybyRuntime");
+
+            InGameAssert.AreEqual(2, snapshot.Segments.Count,
+                "flyby snapshot should capture the encounter and Mun leg");
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                snapshot.Segments,
+                250.0,
+                out OrbitSegment segment,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "Mun flyby segment should be selectable for map rendering");
+            InGameAssert.AreEqual("Mun", segment.bodyName,
+                "map selection should follow the captured Mun leg");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic capture strips planned maneuver nodes from the ghost trajectory")]
+        public void PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn()
+        {
+            var maneuverPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Maneuver);
+            maneuverPatch.NextPatch = MakePatch(200.0, 260.0, "Mun");
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = maneuverPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "ManeuverRuntime");
+
+            InGameAssert.AreEqual(1, snapshot.Segments.Count,
+                "capture should stop before the maneuver patch");
+            InGameAssert.IsTrue(snapshot.StoppedBeforeManeuver,
+                "snapshot should flag that it stopped before a maneuver");
+            InGameAssert.AreEqual("Kerbin", snapshot.Segments[0].bodyName,
+                "post-maneuver bodies should not leak into the captured chain");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector chooses the predicted/extrapolated segment after the recorded payload ends")]
+        public void MapRendering_V1_GhostDrawsLineFromExtrapolatedSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false),
+                MakeOrbitSegment(200.0, 500.0, "Kerbin", isPredicted: true)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                350.0,
+                out OrbitSegment segment,
+                out _,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "predicted tail should remain renderable after payload end");
+            InGameAssert.IsTrue(segment.isPredicted,
+                "map selection should choose the predicted tail segment after payload end");
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Equivalent same-body tails keep the v1 map line continuous across a recorded-data gap")]
+        public void MapRendering_V1_LineContinuesPastRecordedEnd()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Kerbin", isPredicted: true, sma: 700000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out OrbitSegment segment,
+                out double visibleStartUT,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out bool carriedAcrossGap);
+
+            InGameAssert.IsTrue(visible, "equivalent predicted tail should bridge the recorded-data gap");
+            InGameAssert.IsTrue(carriedAcrossGap,
+                "equivalent predicted tail should be carried across the gap");
+            InGameAssert.AreEqual("Kerbin", segment.bodyName,
+                "gap-carry should keep the active body on the same SOI");
+            InGameAssert.ApproxEqual(100.0, visibleStartUT, 0.001);
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector does not bridge across foreign-SOI segments")]
+        public void MapRendering_V1_ForeignSOISegmentsNotRendered()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Mun", isPredicted: true, sma: 250000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsFalse(visible,
+                "foreign-SOI segments should not render through a gap in the v1 selector");
+        }
+
+        private static BallisticStateVector MakeApoapsisState(
+            string bodyName,
+            double gravParameter,
+            double apoapsisRadius,
+            double periapsisRadius)
+        {
+            double semiMajorAxis = (apoapsisRadius + periapsisRadius) * 0.5;
+            double tangentialSpeed = System.Math.Sqrt(
+                gravParameter * ((2.0 / apoapsisRadius) - (1.0 / semiMajorAxis)));
+            return new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = bodyName,
+                position = new Vector3d(apoapsisRadius, 0.0, 0.0),
+                velocity = new Vector3d(0.0, tangentialSpeed, 0.0)
+            };
+        }
+
+        private static ExtrapolationBody MakeBody(
+            string name,
+            double gravParameter,
+            double radius,
+            double atmosphereDepth = 0.0,
+            double sphereOfInfluence = 0.0,
+            string parentBodyName = null,
+            TerrainAltitudeResolver terrainAltitude = null,
+            ParentFrameStateResolver parentFrameState = null,
+            SurfaceCoordinatesResolver surfaceCoordinates = null)
+        {
+            return new ExtrapolationBody
+            {
+                Name = name,
+                ParentBodyName = parentBodyName,
+                GravitationalParameter = gravParameter,
+                Radius = radius,
+                AtmosphereDepth = atmosphereDepth,
+                SphereOfInfluence = sphereOfInfluence,
+                TerrainAltitude = terrainAltitude,
+                ParentFrameState = parentFrameState,
+                SurfaceCoordinates = surfaceCoordinates
+            };
+        }
+
+        private static OrbitSegment MakeOrbitSegment(
+            double startUT,
+            double endUT,
+            string bodyName,
+            bool isPredicted,
+            double sma = 700000.0,
+            double ecc = 0.01)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                semiMajorAxis = sma,
+                eccentricity = ecc,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                isPredicted = isPredicted
+            };
+        }
+
+        private static ParentFrameStateResolver FixedState(Vector3d position, Vector3d velocity)
+        {
+            return (double ut, out Vector3d bodyPosition, out Vector3d bodyVelocity) =>
+            {
+                bodyPosition = position;
+                bodyVelocity = velocity;
+            };
+        }
+
+        private static bool FlatTerrain(double latitude, double longitude, out double altitude)
+        {
+            altitude = 0.0;
+            return true;
+        }
+
+        private static void ZeroSurfaceCoordinates(
+            double ut,
+            Vector3d position,
+            out double latitude,
+            out double longitude)
+        {
+            latitude = 0.0;
+            longitude = 0.0;
+        }
+
+        private static FakePatchedConicOrbitPatch MakePatch(
+            double startUT,
+            double endUT,
+            string bodyName,
+            PatchedConicTransitionType transition = PatchedConicTransitionType.Final)
+        {
+            return new FakePatchedConicOrbitPatch
+            {
+                StartUT = startUT,
+                EndUT = endUT,
+                BodyName = bodyName,
+                Inclination = 0.0,
+                Eccentricity = 0.01,
+                SemiMajorAxis = 700000.0,
+                LongitudeOfAscendingNode = 0.0,
+                ArgumentOfPeriapsis = 0.0,
+                MeanAnomalyAtEpoch = 0.0,
+                Epoch = startUT,
+                EndTransition = transition
+            };
+        }
+
+        private sealed class FakePatchedConicSnapshotSource : IPatchedConicSnapshotSource
+        {
+            private int patchLimit;
+
+            public FakePatchedConicSnapshotSource(int initialPatchLimit)
+            {
+                patchLimit = initialPatchLimit;
+            }
+
+            public string VesselName => "Runtime Fake Vessel";
+            public bool IsAvailable { get; set; } = true;
+            public bool HasPatchLimitAccess { get; set; } = true;
+            public IPatchedConicOrbitPatch RootPatch { get; set; }
+
+            public int PatchLimit
+            {
+                get => patchLimit;
+                set => patchLimit = value;
+            }
+
+            public void Update() { }
+        }
+
+        private sealed class FakePatchedConicOrbitPatch : IPatchedConicOrbitPatch
+        {
+            public double StartUT { get; set; }
+            public double EndUT { get; set; }
+            public double Inclination { get; set; }
+            public double Eccentricity { get; set; }
+            public double SemiMajorAxis { get; set; }
+            public double LongitudeOfAscendingNode { get; set; }
+            public double ArgumentOfPeriapsis { get; set; }
+            public double MeanAnomalyAtEpoch { get; set; }
+            public double Epoch { get; set; }
+            public string BodyName { get; set; }
+            public PatchedConicTransitionType EndTransition { get; set; }
+            public IPatchedConicOrbitPatch NextPatch { get; set; }
+        }
     }
 }

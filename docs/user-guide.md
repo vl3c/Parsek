@@ -35,10 +35,10 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 
 ### Gloops Flight Recorder
 
-The Gloops window (opened from the "Gloops Flight Recorder" button in the main Parsek window, flight only) records a manual ghost-only loop alongside the normal auto-recorder. Typical uses are airshow replays, scenery decor, and captured maneuvers that don't need to spawn a real vessel at the end.
+The Gloops window (opened from the "Gloops Flight Recorder" button in the main Parsek window, flight only) records a manual ghost-only recording alongside the normal auto-recorder. Typical uses are airshow replays, scenery decor, and captured maneuvers that don't need to spawn a real vessel at the end.
 
 - **Start Recording** - begins capture on the active vessel.
-- **Stop Recording** - commits the recording immediately with looping enabled by default. The recording is placed in the **Gloops - Ghosts Only** group in the Recordings Manager and is flagged ghost-only (no rewind save, no vessel spawn at loop end).
+- **Stop Recording** - commits the recording immediately with looping off by default. The recording is placed in the **Gloops - Ghosts Only** group in the Recordings Manager, is flagged ghost-only (no rewind save, no vessel spawn at loop end), and keeps its loop period on the global **auto** setting if you later enable looping.
 - **Preview** / **Stop Preview** - plays the last saved Gloops recording back as a ghost from current UT without affecting the timeline.
 - **Discard** / **Discard Recording** - drops the in-progress or last saved recording.
 - **Start New Recording** - begins a fresh capture after a previous one is saved.

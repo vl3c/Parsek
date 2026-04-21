@@ -31,6 +31,19 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
+        [ThreadStatic]
+        private static bool? fundsTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? scienceTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? repTrackedOverrideForTesting;
+        // Effectively "once per play session" for the rate-limited skip diagnostics.
+        private static readonly double OneShotReconcileSkipLogIntervalSeconds =
+            TimeSpan.FromDays(365).TotalSeconds;
+        private static readonly HashSet<string> emittedReconcileWarnKeys =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
+            new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// Set to <c>true</c> by <see cref="MigrateOldSaveEvents"/> when — and only when —
@@ -69,6 +82,21 @@ namespace Parsek
         internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
         {
             return migrateOldSaveEventsRanThisLoad;
+        }
+
+        /// <summary>
+        /// Test-only override for resource tracker availability checks used by the
+        /// earnings reconciliation diagnostics. Null falls back to the live KSP
+        /// singleton availability.
+        /// </summary>
+        internal static void SetResourceTrackingAvailabilityForTesting(
+            bool? fundsTracked,
+            bool? scienceTracked,
+            bool? reputationTracked)
+        {
+            fundsTrackedOverrideForTesting = fundsTracked;
+            scienceTrackedOverrideForTesting = scienceTracked;
+            repTrackedOverrideForTesting = reputationTracked;
         }
 
         /// <summary>
@@ -220,7 +248,7 @@ namespace Parsek
             IReadOnlyList<PendingScienceSubject> pendingSource =
                 pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
             var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                pendingSource, recordingId, endUT);
+                pendingSource, recordingId, startUT, endUT);
             actions.AddRange(scienceActions);
 
             // 3. Inject vessel build cost and recovery funds from recording data
@@ -265,14 +293,16 @@ namespace Parsek
             // milestone channels (review section 5.1 regression guard).
             // #440B: now runs AFTER RecalculateAndPatch so it can read post-walk derived
             // fields; mirrors ReconcilePostWalk semantics and closes the double-WARN risk.
-            ReconcileEarningsWindow(events, actions, startUT, endUT);
+            ReconcileEarningsWindow(events, actions, startUT, endUT, recordingId);
         }
 
         /// <summary>
         /// Pure reconciliation: sums dropped FundsChanged/ReputationChanged/ScienceChanged
         /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
         /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
-        /// and logs WARN on mismatch beyond tolerance. Internal static for testability.
+        /// and logs WARN on mismatch beyond tolerance. When <paramref name="recordingId"/>
+        /// is supplied, only events tagged to that recording contribute to the store-side
+        /// delta. Internal static for testability.
         /// <para>
         /// Note: vesselCost and science actions are already merged into <paramref name="newActions"/>
         /// by <see cref="OnRecordingCommitted"/> before this runs, so they are summed implicitly
@@ -291,11 +321,25 @@ namespace Parsek
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
             List<GameAction> newActions,
-            double startUT, double endUT)
+            double startUT, double endUT,
+            string recordingId = null)
         {
+            GetResourceTrackingAvailability(
+                out bool fundsTracked,
+                out bool scienceTracked,
+                out bool repTracked);
+            if (!fundsTracked && !scienceTracked && !repTracked)
+            {
+                LogReconcileSkippedOnce("earnings-window", "Earnings reconcile",
+                    fundsTracked, scienceTracked, repTracked);
+                return;
+            }
+
             double droppedFundsDelta = 0;
             double droppedRepDelta = 0;
             double droppedSciDelta = 0;
+            double windowScopedSciDelta = 0;
+            int scopeSkipped = 0;
 
             if (events != null)
             {
@@ -303,6 +347,11 @@ namespace Parsek
                 {
                     var e = events[i];
                     if (e.ut < startUT || e.ut > endUT) continue;
+                    if (!EventMatchesRecordingScope(e, recordingId))
+                    {
+                        scopeSkipped++;
+                        continue;
+                    }
                     switch (e.eventType)
                     {
                         case GameStateEventType.FundsChanged:
@@ -312,15 +361,23 @@ namespace Parsek
                             droppedRepDelta += (e.valueAfter - e.valueBefore);
                             break;
                         case GameStateEventType.ScienceChanged:
-                            droppedSciDelta += (e.valueAfter - e.valueBefore);
+                            windowScopedSciDelta += (e.valueAfter - e.valueBefore);
                             break;
                     }
                 }
             }
 
+            if (scopeSkipped > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
+                    $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
+            }
+
             double emittedFundsDelta = 0;
             double emittedRepDelta = 0;
             double emittedSciDelta = 0;
+            var effectiveScienceActions = new List<GameAction>();
             // #438 batch counters for the three newly-added cases — a single Verbose
             // summary is emitted below so the reconciliation path's handling of these
             // action types is visible per project logging rules without per-item spam.
@@ -407,12 +464,24 @@ namespace Parsek
                             // this silences a false-positive WARN on capped subjects.
                             if (!a.Effective) break;
                             emittedSciDelta += a.EffectiveScience;
+                            effectiveScienceActions.Add(a);
                             break;
                         case GameActionType.ScienceSpending:
                             emittedSciDelta -= a.Cost;
                             break;
                     }
                 }
+            }
+
+            if (scienceTracked)
+            {
+                droppedSciDelta = SumCommitWindowScienceDelta(
+                    events,
+                    effectiveScienceActions,
+                    startUT,
+                    endUT,
+                    recordingId,
+                    windowScopedSciDelta);
             }
 
             // #438: single Verbose summary covering the three newly-handled action
@@ -423,34 +492,213 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: summed {contractAcceptCount} ContractAccept, " +
                     $"{facilityUpgradeCount} FacilityUpgrade, {facilityRepairCount} FacilityRepair " +
-                    $"into emittedFundsDelta window=[{startUT:F1},{endUT:F1}]");
+                    $"into emittedFundsDelta window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
 
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
             const double repTol = 0.1f;
             const double sciTol = 0.1f;
 
-            if (Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            if (fundsTracked && Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (funds): store delta={droppedFundsDelta:F1} vs " +
-                    $"ledger emitted delta={emittedFundsDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]");
+                    $"Earnings reconciliation (funds): store delta={FormatFixed1(droppedFundsDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedFundsDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            if (repTracked && Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (rep): store delta={droppedRepDelta:F1} vs " +
-                    $"ledger emitted delta={emittedRepDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]");
+                    $"Earnings reconciliation (rep): store delta={FormatFixed1(droppedRepDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedRepDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            if (scienceTracked && Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
             {
-                ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (sci): store delta={droppedSciDelta:F1} vs " +
-                    $"ledger emitted delta={emittedSciDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]");
+                string message =
+                    $"Earnings reconciliation (sci): store delta={FormatFixed1(droppedSciDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedSciDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]";
+                string warnKey = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "commit:sci:{0}:{1:F3}:{2:F3}:{3:F3}:{4:F3}",
+                    recordingId ?? "",
+                    startUT,
+                    endUT,
+                    droppedSciDelta,
+                    emittedSciDelta);
+                if (LogReconcileWarnOnce(warnKey, message))
+                {
+                    LogScienceCommitReconcileDumpOnce(
+                        warnKey,
+                        events,
+                        effectiveScienceActions,
+                        startUT,
+                        endUT,
+                        recordingId);
+                }
             }
+        }
+
+        private static double SumCommitWindowScienceDelta(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> effectiveScienceActions,
+            double startUT,
+            double endUT,
+            string recordingId,
+            double windowScopedSciDelta)
+        {
+            if (events == null || events.Count == 0)
+                return 0.0;
+            if (effectiveScienceActions == null || effectiveScienceActions.Count == 0)
+                return windowScopedSciDelta;
+
+            double matchedSciDelta = windowScopedSciDelta;
+            int extendedCount = 0;
+            int widenedUntaggedCount = 0;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.ScienceChanged)
+                    continue;
+                if (evt.ut >= startUT)
+                    continue;
+                if (evt.ut > endUT)
+                    continue;
+                if (!string.IsNullOrEmpty(evt.recordingId ?? ""))
+                    continue;
+                if (!DoesScienceEventMatchAnyCommitAction(
+                        evt,
+                        effectiveScienceActions,
+                        startUT,
+                        endUT,
+                        recordingId,
+                        out bool matchedViaUntaggedWindow))
+                {
+                    continue;
+                }
+
+                matchedSciDelta += (evt.valueAfter - evt.valueBefore);
+                extendedCount++;
+                if (matchedViaUntaggedWindow)
+                    widenedUntaggedCount++;
+            }
+
+            if (extendedCount > 0 && widenedUntaggedCount > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReconcileEarningsWindow: extended science delta with {extendedCount} " +
+                    $"including {widenedUntaggedCount} untagged pre-recording event(s) " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] scope='{recordingId ?? "(none)"}'");
+            }
+
+            return matchedSciDelta;
+        }
+
+        private static bool DoesScienceEventMatchAnyCommitAction(
+            GameStateEvent evt,
+            IReadOnlyList<GameAction> effectiveScienceActions,
+            double startUT,
+            double endUT,
+            string recordingId,
+            out bool matchedViaUntaggedWindow)
+        {
+            matchedViaUntaggedWindow = false;
+
+            if (effectiveScienceActions == null || effectiveScienceActions.Count == 0)
+                return evt.ut >= startUT && evt.ut <= endUT && EventMatchesRecordingScope(evt, recordingId);
+
+            for (int i = 0; i < effectiveScienceActions.Count; i++)
+            {
+                var action = effectiveScienceActions[i];
+                if (action == null)
+                    continue;
+                if (!TryGetPersistedScienceActionWindow(
+                        action,
+                        out double actionStartUt,
+                        out double actionEndUt,
+                        out bool ignoredCollapsedPersistedSpan))
+                {
+                    actionStartUt = action.StartUT;
+                    actionEndUt = action.EndUT;
+                }
+                if (evt.ut < actionStartUt || evt.ut > actionEndUt)
+                    continue;
+                if (!string.Equals(
+                        evt.key ?? "",
+                        GetScienceChangedReasonKey(action),
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (!DoesScienceEventMatchActionScope(
+                        evt,
+                        action,
+                        actionStartUt,
+                        actionEndUt,
+                        out bool viaUntaggedWindow))
+                    continue;
+
+                matchedViaUntaggedWindow = viaUntaggedWindow;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool LogReconcileWarnOnce(string warnKey, string message)
+        {
+            if (string.IsNullOrEmpty(warnKey) || emittedReconcileWarnKeys.Add(warnKey))
+            {
+                ParsekLog.Warn(Tag, message);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void LogScienceCommitReconcileDumpOnce(
+            string dumpKey,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> effectiveScienceActions,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (events == null || events.Count == 0)
+                return;
+            if (!emittedScienceReconcileDumpKeys.Add("commit-dump:" + (dumpKey ?? "")))
+                return;
+
+            double dumpStartUt = startUT - 5.0;
+            double dumpEndUt = endUT + 5.0;
+            var lines = new List<string>();
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.ScienceChanged)
+                    continue;
+                if (evt.ut < dumpStartUt || evt.ut > dumpEndUt)
+                    continue;
+
+                bool matched = DoesScienceEventMatchAnyCommitAction(
+                    evt,
+                    effectiveScienceActions,
+                    startUT,
+                    endUT,
+                    recordingId,
+                    out bool viaUntaggedWindow);
+
+                lines.Add(FormatScienceEventForReconcileDump(evt, matched, viaUntaggedWindow));
+            }
+
+            string detail = lines.Count == 0
+                ? "(no ScienceChanged events in dump window)"
+                : string.Join(" | ", lines.ToArray());
+            ParsekLog.Error(Tag,
+                $"Science reconcile dump (commit): window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] " +
+                $"scope='{recordingId ?? "(none)"}' events={detail}");
         }
 
         /// <summary>
@@ -991,15 +1239,28 @@ namespace Parsek
             // EffectiveScience) are populated and before KSP state is patched.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
-            // KSP state mutations (PostWalk already called by engine). Repeatable
-            // Records* nodes only rebuild strictly from ledger-backed thresholds on
-            // rewind-style cutoff walks; normal same-branch recalculations preserve the
-            // live in-tier best value because that finer-grained partial progress is not
-            // persisted in the ledger.
-            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-            KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule, contractsModule,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+            // #466: a live or pending tree means KSP's mutable state may already include
+            // uncommitted in-flight effects that the committed-only ledger cannot see yet.
+            // Walking the committed ledger is still useful, but writing that partial state
+            // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
+            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            if (!string.IsNullOrEmpty(patchDeferralReason))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
+            }
+            else
+            {
+                // KSP state mutations (PostWalk already called by engine). Repeatable
+                // Records* nodes only rebuild strictly from ledger-backed thresholds on
+                // rewind-style cutoff walks; normal same-branch recalculations preserve the
+                // live in-tier best value because that finer-grained partial progress is not
+                // persisted in the ledger.
+                kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+                KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
+                    milestonesModule, facilitiesModule, contractsModule,
+                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+            }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
             // per-subject credits. This prunes stale entries left behind when a
@@ -1012,6 +1273,37 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        private static string GetKspPatchDeferralReason(double? utCutoff)
+        {
+            if (utCutoff.HasValue)
+                return null;
+
+            bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+            bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+            bool hasPendingTree = RecordingStore.HasPendingTree;
+            if (!hasActiveUncommittedTree && !hasPendingTree)
+                return null;
+
+            string reason = null;
+            if (hasLiveRecorder)
+                reason = "live recorder active";
+            else if (hasActiveUncommittedTree)
+                reason = "active uncommitted flight tree";
+
+            if (hasPendingTree)
+            {
+                string treeName = RecordingStore.PendingTree?.TreeName;
+                string pendingReason = string.IsNullOrEmpty(treeName)
+                    ? $"pending tree state={RecordingStore.PendingTreeStateValue}"
+                    : $"pending tree '{treeName}' state={RecordingStore.PendingTreeStateValue}";
+                reason = string.IsNullOrEmpty(reason)
+                    ? pendingReason
+                    : reason + "; " + pendingReason;
+            }
+
+            return reason;
         }
 
         /// <summary>
@@ -3931,6 +4223,11 @@ namespace Parsek
         /// </summary>
         internal const double PostWalkReconcileEpsilonSeconds = 0.1;
 
+        // Membership in a coalesced post-walk window is stricter than "exactly zero",
+        // but intentionally independent from the compare tolerance so multiple tiny
+        // contributors can still aggregate into a visible mismatch.
+        private const double PostWalkAggregateContributionEpsilon = 1e-6;
+
         /// <summary>
         /// One resource leg of a <see cref="PostWalkExpectation"/>. Populated
         /// only when the leg applies for the action type; otherwise the leg is
@@ -4149,7 +4446,7 @@ namespace Parsek
                     {
                         Applies = true,
                         Expected = action.EffectiveScience,
-                        ReasonKey = "ScienceTransmission",
+                        ReasonKey = GetScienceChangedReasonKey(action),
                         EventType = GameStateEventType.ScienceChanged
                     };
                     return exp;
@@ -4167,8 +4464,10 @@ namespace Parsek
         /// order; for each Transformed-bucket action whose UT survives the
         /// cutoff, compares the post-walk derived delta against the live KSP
         /// delta (<c>valueAfter - valueBefore</c>) summed across matching
-        /// <see cref="GameStateStore"/> events within
-        /// <see cref="PostWalkReconcileEpsilonSeconds"/> of <c>action.UT</c>.
+        /// <see cref="GameStateStore"/> events inside the observed-side match window:
+        /// normally <see cref="PostWalkReconcileEpsilonSeconds"/> around <c>action.UT</c>,
+        /// but for end-anchored <see cref="GameActionType.ScienceEarning"/> actions the
+        /// owning recording span is used so earlier in-flight science transmissions still pair.
         /// WARN on divergence per leg; VERBOSE rate-limited on match. Emits a
         /// single INFO summary after the iteration. Log-only.
         /// <para>
@@ -4183,11 +4482,24 @@ namespace Parsek
         {
             if (actions == null || actions.Count == 0) return;
 
+            GetResourceTrackingAvailability(
+                out bool fundsTracked,
+                out bool scienceTracked,
+                out bool repTracked);
+            if (!fundsTracked && !scienceTracked && !repTracked)
+            {
+                LogReconcileSkippedOnce("post-walk", "Post-walk reconcile",
+                    fundsTracked, scienceTracked, repTracked);
+                return;
+            }
+
             const double fundsTol = 1.0;
             const double repTol = 0.1;
             const double sciTol = 0.1;
+            double livePruneThreshold = MilestoneStore.GetLatestCommittedEndUT();
 
             int walked = 0;
+            int compared = 0;
             int matched = 0;
             int mismatchFunds = 0;
             int mismatchRep = 0;
@@ -4209,65 +4521,415 @@ namespace Parsek
 
                 var exp = ClassifyPostWalk(action);
                 if (!exp.Reconcile) continue;
+                if (!HasTrackedPostWalkLeg(exp, fundsTracked, scienceTracked, repTracked))
+                    continue;
+                if (IsOutsidePostWalkLiveCoverage(
+                        action,
+                        exp,
+                        livePruneThreshold,
+                        events,
+                        actions,
+                        utCutoff))
+                {
+                    continue;
+                }
                 walked++;
 
+                bool anyCompared = false;
                 bool anyMismatch = false;
-                if (exp.Funds.Applies)
+                if (fundsTracked && exp.Funds.Applies)
                 {
-                    if (!CompareLeg(action, "funds", exp.Funds, fundsTol, events, actions, utCutoff))
+                    var result = CompareLeg(
+                        action, "funds", exp.Funds, fundsTol, events, actions, utCutoff, livePruneThreshold);
+                    if (result != PostWalkCompareResult.Skipped)
                     {
-                        mismatchFunds++;
-                        anyMismatch = true;
+                        anyCompared = true;
+                        if (result == PostWalkCompareResult.Mismatch)
+                        {
+                            mismatchFunds++;
+                            anyMismatch = true;
+                        }
                     }
                 }
-                if (exp.Rep.Applies)
+                if (repTracked && exp.Rep.Applies)
                 {
-                    if (!CompareLeg(action, "rep", exp.Rep, repTol, events, actions, utCutoff))
+                    var result = CompareLeg(
+                        action, "rep", exp.Rep, repTol, events, actions, utCutoff, livePruneThreshold);
+                    if (result != PostWalkCompareResult.Skipped)
                     {
-                        mismatchRep++;
-                        anyMismatch = true;
+                        anyCompared = true;
+                        if (result == PostWalkCompareResult.Mismatch)
+                        {
+                            mismatchRep++;
+                            anyMismatch = true;
+                        }
                     }
                 }
-                if (exp.Sci.Applies)
+                if (scienceTracked && exp.Sci.Applies)
                 {
-                    if (!CompareLeg(action, "sci", exp.Sci, sciTol, events, actions, utCutoff))
+                    var result = CompareLeg(
+                        action, "sci", exp.Sci, sciTol, events, actions, utCutoff, livePruneThreshold);
+                    if (result != PostWalkCompareResult.Skipped)
                     {
-                        mismatchSci++;
-                        anyMismatch = true;
+                        anyCompared = true;
+                        if (result == PostWalkCompareResult.Mismatch)
+                        {
+                            mismatchSci++;
+                            anyMismatch = true;
+                        }
                     }
                 }
 
-                if (!anyMismatch) matched++;
+                if (anyCompared)
+                {
+                    compared++;
+                    if (!anyMismatch) matched++;
+                }
             }
 
             string cutoffLabel = utCutoff.HasValue
                 ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
                 : "null";
             ParsekLog.Info(Tag,
-                $"Post-walk reconcile: actions={walked}, matches={matched}, " +
+                $"Post-walk reconcile: actions={walked}, compared={compared}, matches={matched}, " +
                 $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
                 $"cutoffUT={cutoffLabel}");
         }
 
         /// <summary>
-        /// Compares one resource leg for a transformed action. Returns true on
-        /// match (WARN suppressed, VERBOSE rate-limited), false on mismatch or
-        /// missing event (WARN fired). Observed delta =
+        /// Returns true when the action's UT falls outside the live <see cref="GameStateStore"/>
+        /// coverage available to post-walk reconciliation. The live store prunes resource
+        /// events at or below the latest committed milestone EndUT, and after a rewind/load the
+        /// current epoch may have no coverage for older-epoch action history even though the
+        /// ledger still retains those actions.
+        /// </summary>
+        private static bool IsOutsidePostWalkLiveCoverage(
+            GameAction action,
+            PostWalkExpectation expectation,
+            double livePruneThreshold,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            if (action == null)
+                return false;
+
+            if (action.UT <= livePruneThreshold)
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "ut is at/below live prune threshold=" +
+                    livePruneThreshold.ToString("F1", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (MilestoneStore.CurrentEpoch == 0)
+                return false;
+
+            GameStateEventType anchorType;
+            string anchorKey;
+            if (!TryGetPostWalkSourceAnchor(action, out anchorType, out anchorKey))
+                return false;
+
+            if (HasLivePostWalkSourceAnchor(action, anchorType, anchorKey, events))
+                return false;
+
+            if (!HasLivePostWalkObservedEvent(action, expectation, events, livePruneThreshold))
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "no live source anchor or observed reward leg remains in epoch=" +
+                    MilestoneStore.CurrentEpoch.ToString(CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (HasAmbiguousLiveCoverageOverlap(
+                    action,
+                    expectation,
+                    actions,
+                    utCutoff,
+                    events,
+                    livePruneThreshold))
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "same-UT live overlap is ambiguous without a live source anchor");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void LogPostWalkLiveCoverageSkip(
+            GameAction action,
+            string reason)
+        {
+            string actionType = action != null ? action.Type.ToString() : "(null)";
+            string actionId = action != null ? ActionIdForPostWalk(action) : "(null)";
+            string utLabel = action != null
+                ? action.UT.ToString("F1", CultureInfo.InvariantCulture)
+                : "null";
+            string rateKey = string.Format(
+                CultureInfo.InvariantCulture,
+                "post-walk-live-coverage-skip:{0}:{1}:{2}",
+                actionType,
+                actionId,
+                action != null ? action.UT.ToString("R", CultureInfo.InvariantCulture) : "null");
+
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                rateKey,
+                $"Post-walk live-coverage skip: {actionType} id={actionId} ut={utLabel} -- {reason}");
+        }
+
+        private static bool TryGetPostWalkSourceAnchor(
+            GameAction action,
+            out GameStateEventType anchorType,
+            out string anchorKey)
+        {
+            anchorType = default(GameStateEventType);
+            anchorKey = null;
+
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ContractComplete:
+                    anchorType = GameStateEventType.ContractCompleted;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.ContractFail:
+                    anchorType = GameStateEventType.ContractFailed;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.ContractCancel:
+                    anchorType = GameStateEventType.ContractCancelled;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.MilestoneAchievement:
+                    anchorType = GameStateEventType.MilestoneAchieved;
+                    anchorKey = action.MilestoneId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                default:
+                    return false;
+            }
+        }
+
+        private static bool HasLivePostWalkSourceAnchor(
+            GameAction action,
+            GameStateEventType anchorType,
+            string anchorKey,
+            IReadOnlyList<GameStateEvent> events)
+        {
+            if (action == null || events == null || events.Count == 0)
+                return false;
+
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            string expectedKey = anchorKey ?? "";
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.epoch != currentEpoch) continue;
+                if (e.eventType != anchorType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasLivePostWalkObservedEvent(
+            GameAction action,
+            PostWalkExpectation expectation,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || events == null || events.Count == 0)
+                return false;
+
+            return HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Funds, events, livePruneThreshold) ||
+                   HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Rep, events, livePruneThreshold) ||
+                   HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Sci, events, livePruneThreshold);
+        }
+
+        private static bool HasLivePostWalkObservedEventForLeg(
+            GameAction action,
+            PostWalkLeg leg,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || !leg.Applies || events == null || events.Count == 0)
+                return false;
+
+            string expectedKey = leg.ReasonKey ?? "";
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
+                if (e.eventType != leg.EventType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsLivePostWalkObservedEvent(
+            GameStateEvent e,
+            double livePruneThreshold)
+        {
+            if (e.ut <= livePruneThreshold)
+                return false;
+
+            if (MilestoneStore.CurrentEpoch > 0 && e.epoch != MilestoneStore.CurrentEpoch)
+                return false;
+
+            return true;
+        }
+
+        private static bool HasAmbiguousLiveCoverageOverlap(
+            GameAction anchorAction,
+            PostWalkExpectation anchorExpectation,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (anchorAction == null || actions == null || actions.Count == 0)
+                return false;
+
+            var anchorLegs = new[] { anchorExpectation.Funds, anchorExpectation.Rep, anchorExpectation.Sci };
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var other = actions[i];
+                if (other == null || object.ReferenceEquals(other, anchorAction))
+                    continue;
+                if (!PostWalkActionsShareScope(anchorAction, other))
+                    continue;
+                if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                    continue;
+                if (utCutoff.HasValue &&
+                    !RecalculationEngine.IsSeedType(other.Type) &&
+                    other.UT > utCutoff.Value)
+                {
+                    continue;
+                }
+
+                var otherExp = ClassifyPostWalk(other);
+                if (!otherExp.Reconcile)
+                    continue;
+                if (other.UT <= livePruneThreshold)
+                    continue;
+
+                GameStateEventType otherAnchorType;
+                string otherAnchorKey;
+                bool hasLiveSourceAnchor =
+                    TryGetPostWalkSourceAnchor(other, out otherAnchorType, out otherAnchorKey) &&
+                    HasLivePostWalkSourceAnchor(other, otherAnchorType, otherAnchorKey, events);
+
+                var otherLegs = new[] { otherExp.Funds, otherExp.Rep, otherExp.Sci };
+                for (int anchorIndex = 0; anchorIndex < anchorLegs.Length; anchorIndex++)
+                {
+                    var anchorLeg = anchorLegs[anchorIndex];
+                    if (!anchorLeg.Applies)
+                        continue;
+
+                    for (int otherIndex = 0; otherIndex < otherLegs.Length; otherIndex++)
+                    {
+                        var otherLeg = otherLegs[otherIndex];
+                        if (!otherLeg.Applies)
+                            continue;
+                        if (anchorLeg.EventType != otherLeg.EventType)
+                            continue;
+                        if (!string.Equals(
+                                anchorLeg.ReasonKey ?? "",
+                                otherLeg.ReasonKey ?? "",
+                                StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        if (hasLiveSourceAnchor ||
+                            HasLivePostWalkObservedEventForLeg(
+                                other, otherLeg, events, livePruneThreshold))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Compares one resource leg for a transformed action. Returns
+        /// <see cref="PostWalkCompareResult.Match"/> on match,
+        /// <see cref="PostWalkCompareResult.Mismatch"/> on mismatch or missing event,
+        /// and <see cref="PostWalkCompareResult.Skipped"/> when another action in the
+        /// same coalesced window already owns the comparison/logging for this leg.
+        /// Observed delta =
         /// <c>sum(valueAfter - valueBefore)</c> across events with matching
         /// type + key within <see cref="PostWalkReconcileEpsilonSeconds"/> of
         /// <c>action.UT</c>.
         /// </summary>
-        private static bool CompareLeg(
+        private enum PostWalkCompareResult
+        {
+            Match,
+            Mismatch,
+            Skipped
+        }
+
+        private struct PostWalkWindowAggregate
+        {
+            public double Expected;
+            public int ContributorCount;
+            public bool IsPrimary;
+            public string ContributorLabel;
+            public double ObservedWindowStartUt;
+            public double ObservedWindowEndUt;
+            public double DisplayWindowStartUt;
+            public double DisplayWindowEndUt;
+        }
+
+        private static PostWalkCompareResult CompareLeg(
             GameAction action,
             string legTag,
             PostWalkLeg leg,
             double tolerance,
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> actions,
-            double? utCutoff)
+            double? utCutoff,
+            double livePruneThreshold)
         {
-            double summedExpected = SumExpectedPostWalkWindow(
-                action, leg, tolerance, actions, utCutoff);
+            var aggregate = AggregatePostWalkWindow(
+                action, leg, tolerance, actions, utCutoff, events, livePruneThreshold);
+            if (!aggregate.IsPrimary)
+                return PostWalkCompareResult.Skipped;
+
+            double observedWindowStartUt = aggregate.ObservedWindowStartUt;
+            double observedWindowEndUt = aggregate.ObservedWindowEndUt;
+            string observedWindowLabel = FormatPostWalkObservedWindowLabel(
+                action,
+                leg,
+                aggregate.DisplayWindowStartUt,
+                aggregate.DisplayWindowEndUt);
 
             double observed = 0.0;
             int observedCount = 0;
@@ -4276,8 +4938,10 @@ namespace Parsek
                 for (int i = 0; i < events.Count; i++)
                 {
                     var e = events[i];
+                    if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
                     if (e.eventType != leg.EventType) continue;
-                    if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    if (e.ut < observedWindowStartUt || e.ut > observedWindowEndUt) continue;
+                    if (!PostWalkEventMatchesAction(e, action)) continue;
                     string eventKey = e.key ?? "";
                     if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
                         continue;
@@ -4289,52 +4953,308 @@ namespace Parsek
             // Zero-expected + zero-observed is silent match (no event fired, none
             // expected). Zero-expected + non-zero observed is a mismatch: the walk
             // produced nothing but KSP credited a delta.
-            if (Math.Abs(summedExpected) <= tolerance && observedCount == 0)
-                return true;
+            if (Math.Abs(aggregate.Expected) <= tolerance && observedCount == 0)
+                return PostWalkCompareResult.Match;
 
-            string id = ActionIdForPostWalk(action);
+            string expectedLabel = aggregate.Expected.ToString("F1", CultureInfo.InvariantCulture);
+            string observedLabel = observed.ToString("F1", CultureInfo.InvariantCulture);
+            string warnKeyPrefix = string.Format(
+                CultureInfo.InvariantCulture,
+                "postwalk:{0}:{1}:{2}:{3:F3}:{4:F3}:{5}",
+                legTag,
+                action.Type,
+                action.RecordingId ?? "",
+                observedWindowStartUt,
+                observedWindowEndUt,
+                leg.ReasonKey ?? "");
 
             if (observedCount == 0)
             {
-                ParsekLog.Warn(Tag,
+                string message =
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"id={id} expected={summedExpected:F1} but no matching {leg.EventType} event " +
-                    $"keyed '{leg.ReasonKey}' within {PostWalkReconcileEpsilonSeconds:F1}s of " +
-                    $"ut={action.UT:F1} -- missing earning channel or stale event?");
-                return false;
+                    $"{aggregate.ContributorLabel} expected={expectedLabel} but no matching {leg.EventType} event " +
+                    $"keyed '{leg.ReasonKey}' {observedWindowLabel} -- missing earning channel or stale event?";
+                string warnKey = warnKeyPrefix + ":missing:" + expectedLabel;
+                if (LogReconcileWarnOnce(warnKey, message))
+                {
+                    LogSciencePostWalkReconcileDumpOnce(
+                        warnKey,
+                        action,
+                        leg,
+                        events,
+                        observedWindowStartUt,
+                        observedWindowEndUt,
+                        livePruneThreshold);
+                }
+                return PostWalkCompareResult.Mismatch;
             }
 
-            if (Math.Abs(summedExpected - observed) > tolerance)
+            if (Math.Abs(aggregate.Expected - observed) > tolerance)
             {
-                ParsekLog.Warn(Tag,
+                string message =
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"id={id} expected={summedExpected:F1}, observed={observed:F1} across " +
-                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' at ut={action.UT:F1} " +
-                    $"-- post-walk delta mismatch");
-                return false;
+                    $"{aggregate.ContributorLabel} expected={expectedLabel}, observed={observedLabel} across " +
+                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' {observedWindowLabel} " +
+                    $"-- post-walk delta mismatch";
+                string warnKey = warnKeyPrefix + ":mismatch:" + expectedLabel + ":" + observedLabel;
+                if (LogReconcileWarnOnce(warnKey, message))
+                {
+                    LogSciencePostWalkReconcileDumpOnce(
+                        warnKey,
+                        action,
+                        leg,
+                        events,
+                        observedWindowStartUt,
+                        observedWindowEndUt,
+                        livePruneThreshold);
+                }
+                return PostWalkCompareResult.Mismatch;
             }
 
             ParsekLog.VerboseRateLimited(Tag,
-                $"post-walk-match:{action.Type}:{legTag}",
-                $"Post-walk match: {action.Type} {legTag} id={id} " +
-                $"expected={summedExpected:F1}, observed={observed:F1}, ut={action.UT:F1}");
-            return true;
+                $"post-walk-match:{action.Type}:{legTag}:{action.RecordingId ?? ""}:{leg.ReasonKey ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                $"Post-walk match: {action.Type} {legTag} {aggregate.ContributorLabel} " +
+                $"expected={expectedLabel}, observed={observedLabel}, keyed '{leg.ReasonKey}' " +
+                $"{observedWindowLabel}");
+            return PostWalkCompareResult.Match;
+        }
+
+        private static void GetPostWalkObservedWindow(
+            GameAction action,
+            PostWalkLeg leg,
+            out double startUt,
+            out double endUt,
+            out string label)
+        {
+            double epsilon = PostWalkReconcileEpsilonSeconds;
+            startUt = action.UT - epsilon;
+            endUt = action.UT + epsilon;
+            GetPostWalkObservedDisplayWindow(action, leg, out double displayStartUt, out double displayEndUt, out label);
+
+            if (action.Type != GameActionType.ScienceEarning ||
+                leg.EventType != GameStateEventType.ScienceChanged ||
+                string.IsNullOrEmpty(action.SubjectId) ||
+                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!TryGetScienceReconcileWindow(
+                    action,
+                    out double scienceStartUt,
+                    out double scienceEndUt,
+                    out bool collapsedPersistedSpan))
+                return;
+
+            double startPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceStartUt);
+            double endPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceEndUt);
+            startUt = scienceStartUt - epsilon - startPad;
+            endUt = scienceEndUt + epsilon + endPad;
+            label = FormatPostWalkObservedWindowLabel(action, leg, displayStartUt, displayEndUt);
+        }
+
+        private static void GetPostWalkObservedDisplayWindow(
+            GameAction action,
+            PostWalkLeg leg,
+            out double startUt,
+            out double endUt,
+            out string label)
+        {
+            double epsilon = PostWalkReconcileEpsilonSeconds;
+            startUt = action.UT - epsilon;
+            endUt = action.UT + epsilon;
+            label = FormatPostWalkObservedWindowLabel(action, leg, startUt, endUt);
+
+            if (action.Type != GameActionType.ScienceEarning ||
+                leg.EventType != GameStateEventType.ScienceChanged ||
+                string.IsNullOrEmpty(action.SubjectId) ||
+                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!TryGetScienceReconcileWindow(
+                    action,
+                    out double scienceStartUt,
+                    out double scienceEndUt,
+                    out bool ignoredCollapsedPersistedSpan))
+                return;
+
+            startUt = scienceStartUt;
+            endUt = scienceEndUt;
+            label = FormatPostWalkObservedWindowLabel(action, leg, startUt, endUt);
+        }
+
+        private static bool TryGetScienceReconcileWindow(
+            GameAction action,
+            out double startUt,
+            out double endUt,
+            out bool collapsedPersistedSpan)
+        {
+            startUt = 0.0;
+            endUt = 0.0;
+            collapsedPersistedSpan = false;
+
+            if (action == null)
+                return false;
+
+            if (!TryGetPersistedScienceActionWindow(
+                    action,
+                    out startUt,
+                    out endUt,
+                    out collapsedPersistedSpan))
+            {
+                var rec = FindRecordingById(action.RecordingId);
+                if (rec == null)
+                    return false;
+
+                startUt = rec.StartUT;
+                endUt = rec.EndUT;
+                if (endUt <= startUt)
+                    return false;
+
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"post-walk-science-window-fallback:{action.RecordingId}:{ActionIdForPostWalk(action)}",
+                    $"Post-walk science window: {ActionIdForPostWalk(action)} missing persisted span; " +
+                    $"falling back to recording {action.RecordingId ?? "(null)"} " +
+                    $"[{FormatFixed1(startUt)},{FormatFixed1(endUt)}]");
+            }
+            else if (collapsedPersistedSpan)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"post-walk-science-window-collapsed:{action.RecordingId}:{ActionIdForPostWalk(action)}",
+                    $"Post-walk science window: {ActionIdForPostWalk(action)} collapsed persisted span " +
+                    $"recording={action.RecordingId ?? "(null)"} " +
+                    $"start={action.StartUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"end={action.EndUT.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                    $"reconstructed [{FormatFixed3(startUt)},{FormatFixed3(endUt)}]");
+            }
+
+            // Only widen the observed-side window for the current end-anchored shape.
+            // ScienceEarning spans are persisted through float fields, so at large UTs
+            // the stored EndUT may drift from the double-backed action.UT by more than
+            // the nominal 0.1 s epsilon. Allow the float quantization loss here while
+            // still keeping the gate tight enough to reject truly non-end-anchored rows.
+            return Math.Abs(action.UT - endUt) <= GetScienceReconcileAnchorTolerance(action.UT);
+        }
+
+        private static double GetScienceReconcileAnchorTolerance(double actionUt)
+        {
+            double floatRoundTripLoss = Math.Abs((double)(float)actionUt - actionUt);
+            return PostWalkReconcileEpsilonSeconds + floatRoundTripLoss;
+        }
+
+        private static bool TryGetPersistedScienceActionWindow(
+            GameAction action,
+            out double startUt,
+            out double endUt,
+            out bool collapsedPersistedSpan)
+        {
+            startUt = 0.0;
+            endUt = 0.0;
+            collapsedPersistedSpan = false;
+
+            if (action == null)
+                return false;
+            if (float.IsNaN(action.StartUT) || float.IsNaN(action.EndUT))
+                return false;
+
+            if (action.EndUT > action.StartUT)
+            {
+                startUt = action.StartUT;
+                endUt = action.EndUT;
+                return true;
+            }
+
+            if (action.EndUT == action.StartUT && action.EndUT > 0f)
+            {
+                collapsedPersistedSpan = true;
+                startUt = GetCollapsedScienceWindowStart(action.StartUT, action.UT);
+                endUt = action.UT;
+                if (endUt < startUt)
+                    endUt = startUt;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static double GetCollapsedScienceWindowStart(float collapsedStartUt, double actionUt)
+        {
+            double halfWidth = GetScienceReconcileCollapsedHalfWidth(collapsedStartUt);
+            double startUt = collapsedStartUt - halfWidth;
+            if (double.IsNaN(startUt) || double.IsInfinity(startUt))
+                startUt = collapsedStartUt;
+            if (actionUt < startUt)
+                startUt = actionUt;
+            return startUt;
+        }
+
+        private static double GetScienceReconcileCollapsedHalfWidth(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+                return 0.0;
+
+            int bits = BitConverter.ToInt32(BitConverter.GetBytes(value), 0);
+            float previous = BitConverter.ToSingle(BitConverter.GetBytes(bits - 1), 0);
+            float next = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
+            double lower = float.IsNaN(previous) || float.IsInfinity(previous)
+                ? 0.0
+                : Math.Abs((double)value - previous);
+            double upper = float.IsNaN(next) || float.IsInfinity(next)
+                ? 0.0
+                : Math.Abs(next - (double)value);
+
+            double width = 0.0;
+            if (lower > 0.0 && upper > 0.0)
+                width = Math.Min(lower, upper);
+            else
+                width = Math.Max(lower, upper);
+
+            return width * 0.5;
+        }
+
+        private static double GetScienceReconcileBoundaryPadding(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return 0.0;
+
+            float single = (float)value;
+            int bits = BitConverter.ToInt32(BitConverter.GetBytes(single), 0);
+            float nextUp = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
+            if (float.IsNaN(nextUp) || float.IsInfinity(nextUp))
+                return 0.0;
+
+            // One full ULP safely covers any double->float rounding loss at this magnitude.
+            return Math.Abs((double)nextUp - single);
         }
 
         /// <summary>
-        /// Sums the expected post-walk delta across all actions that classify to the
-        /// same (EventType, ReasonKey) pair within the coalesce window. Mirrors the
-        /// observed-side event coalescing so same-UT reward bursts do not falsely warn.
+        /// Aggregates the expected post-walk delta across all actions that classify to
+        /// the same (EventType, ReasonKey) pair within the coalesce window. Mirrors the
+        /// observed-side event coalescing so same-UT reward bursts do not falsely warn,
+        /// and designates one "primary" action to own the comparison/logging for that
+        /// coalesced window.
         /// </summary>
-        private static double SumExpectedPostWalkWindow(
+        private static PostWalkWindowAggregate AggregatePostWalkWindow(
             GameAction anchorAction,
             PostWalkLeg anchorLeg,
             double tolerance,
             IReadOnlyList<GameAction> actions,
-            double? utCutoff)
+            double? utCutoff,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
         {
             double summedExpected = 0.0;
             int expectedCount = 0;
+            GameAction primaryAction = null;
+            var contributorIds = new List<string>();
+            double observedWindowStartUt = double.PositiveInfinity;
+            double observedWindowEndUt = double.NegativeInfinity;
+            bool hasObservedWindow = false;
+            double displayWindowStartUt = double.PositiveInfinity;
+            double displayWindowEndUt = double.NegativeInfinity;
+            bool hasDisplayWindow = false;
 
             if (actions != null)
             {
@@ -4342,6 +5262,7 @@ namespace Parsek
                 {
                     var other = actions[i];
                     if (other == null) continue;
+                    if (!PostWalkActionsShareScope(anchorAction, other)) continue;
                     if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
                         continue;
                     if (utCutoff.HasValue &&
@@ -4353,45 +5274,355 @@ namespace Parsek
 
                     var otherExp = ClassifyPostWalk(other);
                     if (!otherExp.Reconcile) continue;
+                    if (IsOutsidePostWalkLiveCoverage(
+                            other,
+                            otherExp,
+                            livePruneThreshold,
+                            events,
+                            actions,
+                            utCutoff))
+                    {
+                        continue;
+                    }
 
-                    AccumulateMatchingPostWalkLeg(
-                        otherExp.Funds, anchorLeg, tolerance,
+                    bool matched = false;
+                    matched |= AccumulateMatchingPostWalkLeg(
+                        otherExp.Funds, anchorLeg,
                         ref summedExpected, ref expectedCount);
-                    AccumulateMatchingPostWalkLeg(
-                        otherExp.Rep, anchorLeg, tolerance,
+                    matched |= AccumulateMatchingPostWalkLeg(
+                        otherExp.Rep, anchorLeg,
                         ref summedExpected, ref expectedCount);
-                    AccumulateMatchingPostWalkLeg(
-                        otherExp.Sci, anchorLeg, tolerance,
+                    matched |= AccumulateMatchingPostWalkLeg(
+                        otherExp.Sci, anchorLeg,
                         ref summedExpected, ref expectedCount);
+
+                    if (!matched) continue;
+
+                    if (primaryAction == null ||
+                        (!ActionHasRecordingScope(primaryAction) && ActionHasRecordingScope(other)))
+                        primaryAction = other;
+
+                    GetPostWalkObservedWindow(
+                        other,
+                        anchorLeg,
+                        out double contributorWindowStartUt,
+                        out double contributorWindowEndUt,
+                        out string ignoredContributorWindowLabel);
+                    GetPostWalkObservedDisplayWindow(
+                        other,
+                        anchorLeg,
+                        out double contributorDisplayWindowStartUt,
+                        out double contributorDisplayWindowEndUt,
+                        out string ignoredContributorDisplayWindowLabel);
+                    if (!hasObservedWindow || contributorWindowStartUt < observedWindowStartUt)
+                        observedWindowStartUt = contributorWindowStartUt;
+                    if (!hasObservedWindow || contributorWindowEndUt > observedWindowEndUt)
+                        observedWindowEndUt = contributorWindowEndUt;
+                    hasObservedWindow = true;
+                    if (!hasDisplayWindow || contributorDisplayWindowStartUt < displayWindowStartUt)
+                        displayWindowStartUt = contributorDisplayWindowStartUt;
+                    if (!hasDisplayWindow || contributorDisplayWindowEndUt > displayWindowEndUt)
+                        displayWindowEndUt = contributorDisplayWindowEndUt;
+                    hasDisplayWindow = true;
+                    contributorIds.Add(ActionIdForPostWalk(other));
                 }
             }
 
             if (expectedCount == 0)
-                return anchorLeg.Expected;
+            {
+                GetPostWalkObservedWindow(
+                    anchorAction,
+                    anchorLeg,
+                    out observedWindowStartUt,
+                    out observedWindowEndUt,
+                    out string ignoredAnchorWindowLabel);
+                GetPostWalkObservedDisplayWindow(
+                    anchorAction,
+                    anchorLeg,
+                    out displayWindowStartUt,
+                    out displayWindowEndUt,
+                    out string ignoredAnchorDisplayWindowLabel);
+                return new PostWalkWindowAggregate
+                {
+                    Expected = anchorLeg.Expected,
+                    ContributorCount = 1,
+                    IsPrimary = true,
+                    ContributorLabel = $"id={ActionIdForPostWalk(anchorAction)}",
+                    ObservedWindowStartUt = observedWindowStartUt,
+                    ObservedWindowEndUt = observedWindowEndUt,
+                    DisplayWindowStartUt = displayWindowStartUt,
+                    DisplayWindowEndUt = displayWindowEndUt
+                };
+            }
 
-            return summedExpected;
+            return new PostWalkWindowAggregate
+            {
+                Expected = summedExpected,
+                ContributorCount = expectedCount,
+                IsPrimary = object.ReferenceEquals(primaryAction, anchorAction),
+                ContributorLabel = FormatPostWalkContributorLabel(contributorIds, expectedCount),
+                ObservedWindowStartUt = observedWindowStartUt,
+                ObservedWindowEndUt = observedWindowEndUt,
+                DisplayWindowStartUt = displayWindowStartUt,
+                DisplayWindowEndUt = displayWindowEndUt
+            };
         }
 
-        private static void AccumulateMatchingPostWalkLeg(
+        // Mirrored in GameStateEventConverter.EventMatchesRecordingScope; keep the two in sync.
+        private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
+        }
+
+        private static bool PostWalkEventMatchesAction(GameStateEvent evt, GameAction action)
+        {
+            if (evt.eventType == GameStateEventType.ScienceChanged &&
+                action != null &&
+                action.Type == GameActionType.ScienceEarning)
+            {
+                double actionStartUt = action.StartUT;
+                double actionEndUt = action.EndUT;
+                if (TryGetScienceReconcileWindow(
+                        action,
+                        out double reconstructedStartUt,
+                        out double reconstructedEndUt,
+                        out bool ignoredCollapsedPersistedSpan))
+                {
+                    actionStartUt = reconstructedStartUt;
+                    actionEndUt = reconstructedEndUt;
+                }
+
+                return DoesScienceEventMatchActionScope(
+                    evt,
+                    action,
+                    actionStartUt,
+                    actionEndUt,
+                    out bool _);
+            }
+
+            string eventRecordingId = evt.recordingId ?? "";
+            string actionRecordingId = action?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(actionRecordingId))
+                return true;
+            return string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal);
+        }
+
+        private static bool DoesScienceEventMatchActionScope(
+            GameStateEvent evt,
+            GameAction action,
+            out bool matchedViaUntaggedWindow)
+        {
+            return DoesScienceEventMatchActionScope(
+                evt,
+                action,
+                action != null ? action.StartUT : 0.0,
+                action != null ? action.EndUT : 0.0,
+                out matchedViaUntaggedWindow);
+        }
+
+        private static bool DoesScienceEventMatchActionScope(
+            GameStateEvent evt,
+            GameAction action,
+            double actionStartUt,
+            double actionEndUt,
+            out bool matchedViaUntaggedWindow)
+        {
+            matchedViaUntaggedWindow = false;
+
+            string actionRecordingId = action?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(actionRecordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            if (string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal))
+                return true;
+
+            if (!string.IsNullOrEmpty(eventRecordingId))
+                return false;
+
+            if (evt.ut < actionStartUt || evt.ut > actionEndUt)
+                return false;
+
+            matchedViaUntaggedWindow = true;
+            return true;
+        }
+
+        private static string GetScienceChangedReasonKey(GameAction action)
+        {
+            if (action != null && action.Method == ScienceMethod.Recovered)
+                return VesselRecoveryReasonKey;
+
+            return "ScienceTransmission";
+        }
+
+        private static string FormatPostWalkObservedWindowLabel(
+            GameAction action,
+            PostWalkLeg leg,
+            double startUt,
+            double endUt)
+        {
+            if (action != null &&
+                action.Type == GameActionType.ScienceEarning &&
+                leg.EventType == GameStateEventType.ScienceChanged &&
+                !string.IsNullOrEmpty(action.SubjectId) &&
+                !action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+            {
+                return $"within science window [{FormatFixed1(startUt)},{FormatFixed1(endUt)}] for action ut={FormatFixed1(action.UT)}";
+            }
+
+            return $"within {FormatFixed1(PostWalkReconcileEpsilonSeconds)}s of ut={FormatFixed1(action.UT)}";
+        }
+
+        private static void LogSciencePostWalkReconcileDumpOnce(
+            string dumpKey,
+            GameAction action,
+            PostWalkLeg leg,
+            IReadOnlyList<GameStateEvent> events,
+            double observedWindowStartUt,
+            double observedWindowEndUt,
+            double livePruneThreshold)
+        {
+            if (events == null || events.Count == 0)
+                return;
+            if (leg.EventType != GameStateEventType.ScienceChanged)
+                return;
+            if (!emittedScienceReconcileDumpKeys.Add("postwalk-dump:" + (dumpKey ?? "")))
+                return;
+
+            double dumpStartUt = observedWindowStartUt - 5.0;
+            double dumpEndUt = observedWindowEndUt + 5.0;
+            var lines = new List<string>();
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.ScienceChanged)
+                    continue;
+                if (evt.ut < dumpStartUt || evt.ut > dumpEndUt)
+                    continue;
+
+                bool scopeMatch = PostWalkEventMatchesAction(evt, action);
+                bool liveMatch = IsLivePostWalkObservedEvent(evt, livePruneThreshold);
+                lines.Add(FormatScienceEventForReconcileDump(evt, scopeMatch && liveMatch, scopeMatch && string.IsNullOrEmpty(evt.recordingId ?? "")));
+            }
+
+            string detail = lines.Count == 0
+                ? "(no ScienceChanged events in dump window)"
+                : string.Join(" | ", lines.ToArray());
+            ParsekLog.Error(Tag,
+                $"Science reconcile dump (post-walk): action={ActionIdForPostWalk(action)} " +
+                $"reason='{leg.ReasonKey}' window=[{FormatFixed1(observedWindowStartUt)},{FormatFixed1(observedWindowEndUt)}] " +
+                $"events={detail}");
+        }
+
+        private static string FormatScienceEventForReconcileDump(
+            GameStateEvent evt,
+            bool matchedScope,
+            bool matchedViaUntaggedWindow)
+        {
+            string tag = evt.recordingId ?? "";
+            string matchLabel = matchedScope ? "match" : "skip";
+            string untaggedLabel = matchedViaUntaggedWindow ? ", untagged-window" : "";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "ut={0:F1} key='{1}' delta={2:F1} tag='{3}' [{4}{5}]",
+                evt.ut,
+                evt.key ?? "",
+                evt.valueAfter - evt.valueBefore,
+                tag,
+                matchLabel,
+                untaggedLabel);
+        }
+
+        private static bool PostWalkActionsShareScope(GameAction anchorAction, GameAction other)
+        {
+            string anchorRecordingId = anchorAction?.RecordingId ?? "";
+            string otherRecordingId = other?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(anchorRecordingId))
+                return true;
+            return string.Equals(anchorRecordingId, otherRecordingId, StringComparison.Ordinal);
+        }
+
+        private static bool ActionHasRecordingScope(GameAction action)
+        {
+            return !string.IsNullOrEmpty(action?.RecordingId);
+        }
+
+        private static bool AccumulateMatchingPostWalkLeg(
             PostWalkLeg candidate,
             PostWalkLeg anchorLeg,
-            double tolerance,
             ref double summedExpected,
             ref int expectedCount)
         {
-            if (!candidate.Applies) return;
-            if (candidate.EventType != anchorLeg.EventType) return;
+            if (!candidate.Applies) return false;
+            if (candidate.EventType != anchorLeg.EventType) return false;
 
             string candidateKey = candidate.ReasonKey ?? "";
             string anchorKey = anchorLeg.ReasonKey ?? "";
             if (!string.Equals(candidateKey, anchorKey, StringComparison.Ordinal))
-                return;
+                return false;
 
-            if (Math.Abs(candidate.Expected) <= tolerance)
-                return;
+            if (Math.Abs(candidate.Expected) <= PostWalkAggregateContributionEpsilon)
+                return false;
 
             summedExpected += candidate.Expected;
             expectedCount++;
+            return true;
+        }
+
+        private static string FormatPostWalkContributorLabel(
+            List<string> contributorIds,
+            int contributorCount)
+        {
+            if (contributorIds == null || contributorIds.Count == 0)
+                return "id=(none)";
+
+            if (contributorCount <= 1 || contributorIds.Count == 1)
+                return $"id={contributorIds[0]}";
+
+            return $"ids=[{string.Join(", ", contributorIds.ToArray())}] across {contributorCount} action(s)";
+        }
+
+        private static bool HasTrackedPostWalkLeg(
+            PostWalkExpectation exp,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            return (fundsTracked && exp.Funds.Applies)
+                || (scienceTracked && exp.Sci.Applies)
+                || (repTracked && exp.Rep.Applies);
+        }
+
+        private static void GetResourceTrackingAvailability(
+            out bool fundsTracked,
+            out bool scienceTracked,
+            out bool repTracked)
+        {
+            fundsTracked = fundsTrackedOverrideForTesting ?? Funding.Instance != null;
+            scienceTracked = scienceTrackedOverrideForTesting
+                ?? ResearchAndDevelopment.Instance != null;
+            repTracked = repTrackedOverrideForTesting ?? global::Reputation.Instance != null;
+        }
+
+        private static void LogReconcileSkippedOnce(
+            string scopeKey,
+            string scopeLabel,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                $"reconcile-skip:{scopeKey}:{fundsTracked}:{scienceTracked}:{repTracked}",
+                $"{scopeLabel} skipped: sandbox / tracker unavailable " +
+                $"(funds={fundsTracked.ToString().ToLowerInvariant()} " +
+                $"sci={scienceTracked.ToString().ToLowerInvariant()} " +
+                $"rep={repTracked.ToString().ToLowerInvariant()})",
+                OneShotReconcileSkipLogIntervalSeconds);
         }
 
         /// <summary>Pure: best-effort identifier for post-walk log lines.</summary>
@@ -4403,6 +5634,16 @@ namespace Parsek
             if (!string.IsNullOrEmpty(action.SubjectId)) return action.SubjectId;
             if (!string.IsNullOrEmpty(action.RecordingId)) return action.RecordingId;
             return "(none)";
+        }
+
+        private static string FormatFixed1(double value)
+        {
+            return value.ToString("F1", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatFixed3(double value)
+        {
+            return value.ToString("F3", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -4506,8 +5747,13 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
+            fundsTrackedOverrideForTesting = null;
+            scienceTrackedOverrideForTesting = null;
+            repTrackedOverrideForTesting = null;
             migrateOldSaveEventsRanThisLoad = false;
             kscSequenceCounter = 0;
+            emittedReconcileWarnKeys.Clear();
+            emittedScienceReconcileDumpKeys.Clear();
             consumedRecoveryEventKeys.Clear();
             scienceModule = null;
             milestonesModule = null;

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -33,7 +34,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel,
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel,
                 LoopAnchorVesselId = 0,
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000 });
@@ -210,7 +211,7 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            b.LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel + 15.0;
+            b.LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel + 15.0;
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
@@ -224,7 +225,7 @@ namespace Parsek.Tests
             // auto-merging. This test pins the invariant: the field init and the sentinel
             // MUST be equal.
             var fresh = new Recording();
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
         }
 
         [Fact]
@@ -234,8 +235,8 @@ namespace Parsek.Tests
             // regardless of the user-facing DefaultLoopIntervalSeconds value.
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
             Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
@@ -617,6 +618,34 @@ namespace Parsek.Tests
             Assert.Equal(123.4, a.TerrainHeightAtEnd);
             Assert.True(a.TerminalPosition.HasValue);
             Assert.True(a.SurfacePos.HasValue);
+        }
+
+        [Fact]
+        public void MergeInto_RefreshesEndpointDecisionFromMergedTerminalState()
+        {
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            var firstPoint = a.Points[0];
+            firstPoint.bodyName = "Kerbin";
+            a.Points[0] = firstPoint;
+            var secondPoint = a.Points[1];
+            secondPoint.bodyName = "Kerbin";
+            a.Points[1] = secondPoint;
+            a.EndpointPhase = RecordingEndpointPhase.TrajectoryPoint;
+            a.EndpointBodyName = "Kerbin";
+            b.TerminalStateValue = TerminalState.Landed;
+            b.TerminalPosition = new SurfacePosition
+            {
+                body = "Mun",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0
+            };
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal(RecordingEndpointPhase.TerminalPosition, a.EndpointPhase);
+            Assert.Equal("Mun", a.EndpointBodyName);
         }
 
         #endregion
@@ -1345,6 +1374,26 @@ namespace Parsek.Tests
             Assert.NotNull(second.TerminalPosition);
             Assert.Equal(123.4, second.TerrainHeightAtEnd);
             Assert.NotNull(second.SurfacePos);
+        }
+
+        [Fact]
+        public void SplitAtSection_RecomputesEndpointDecisionForBothHalves()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                body1: "Kerbin", body2: "Mun");
+            // Seed stale endpoint metadata that matches neither split half's final endpoint.
+            // Both halves now recompute their endpoint decision from the split payload, so
+            // the assertions below would fail if the split-time refresh were removed.
+            rec.EndpointPhase = RecordingEndpointPhase.OrbitSegment;
+            rec.EndpointBodyName = "Minmus";
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, rec.EndpointPhase);
+            Assert.Equal("Kerbin", rec.EndpointBodyName);
+            Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, second.EndpointPhase);
+            Assert.Equal("Mun", second.EndpointBodyName);
         }
 
         [Fact]
@@ -2289,6 +2338,41 @@ namespace Parsek.Tests
 
             Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(130, rec.EndUT);
+        }
+
+        [Fact]
+        public void TryGetTerminalSurfaceReference_LastPointIdentityRotation_DoesNotMarkRotationRecorded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                bodyName = "Kerbin",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                rotation = Quaternion.identity
+            });
+
+            MethodInfo method = typeof(RecordingOptimizer).GetMethod(
+                "TryGetTerminalSurfaceReference",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            object[] args =
+            {
+                rec,
+                null,
+                0.0,
+                0.0,
+                0.0,
+                Quaternion.identity,
+                false
+            };
+
+            bool found = (bool)method.Invoke(null, args);
+
+            Assert.True(found);
+            Assert.False((bool)args[6]);
         }
 
         [Fact]

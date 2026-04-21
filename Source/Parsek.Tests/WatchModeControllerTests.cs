@@ -71,7 +71,7 @@ namespace Parsek.Tests
                 hasPendingBridge: true,
                 primaryReady: false,
                 bridgeWaitFrames: 1,
-                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+                maxBridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.KeepBridge, state);
         }
@@ -82,8 +82,8 @@ namespace Parsek.Tests
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: true,
                 primaryReady: true,
-                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
-                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+                bridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.RetargetToPrimary, state);
         }
@@ -94,8 +94,8 @@ namespace Parsek.Tests
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: false,
                 primaryReady: true,
-                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
-                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+                bridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.None, state);
         }
@@ -106,8 +106,8 @@ namespace Parsek.Tests
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: true,
                 primaryReady: false,
-                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
-                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+                bridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchMode.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.ExitWatch, state);
         }
@@ -476,9 +476,9 @@ namespace Parsek.Tests
                 altitude: 289);
 
             Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
-            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
-            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.Equal(WatchMode.EntryDistance, result.Distance);
+            Assert.Equal(WatchMode.EntryPitchDegrees, result.Pitch);
+            Assert.Equal(WatchMode.EntryHeadingDegrees, result.Heading);
             Assert.False(result.UserModeOverride);
             Assert.False(result.HasTargetRotation);
             Assert.False(result.HasWorldOrbitDirection);
@@ -503,9 +503,9 @@ namespace Parsek.Tests
                 altitude: 71000);
 
             Assert.Equal(WatchCameraMode.Free, result.Mode);
-            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
-            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.Equal(WatchMode.EntryDistance, result.Distance);
+            Assert.Equal(WatchMode.EntryPitchDegrees, result.Pitch);
+            Assert.Equal(WatchMode.EntryHeadingDegrees, result.Heading);
             Assert.False(result.HasTargetRotation);
             Assert.False(result.HasWorldOrbitDirection);
         }
@@ -520,8 +520,8 @@ namespace Parsek.Tests
             // regression drops a Deg2Rad conversion or reinterprets these constants
             // as radians, sin(12 rad) ≈ -0.5366 would break this assertion.
             Vector3 orbit = WatchModeController.OrbitDirectionFromAngles(
-                WatchModeController.DefaultWatchEntryPitch,
-                WatchModeController.DefaultWatchEntryHeading);
+                WatchMode.EntryPitchDegrees,
+                WatchMode.EntryHeadingDegrees);
 
             // 12° pitch, 0° heading → (sin(0°)*cos(12°), sin(12°), cos(0°)*cos(12°))
             Assert.InRange(orbit.x, -0.0001f, 0.0001f);
@@ -531,8 +531,8 @@ namespace Parsek.Tests
             // Extra belt-and-suspenders: the constants must be in degree range,
             // not radian range. A 12-radian pitch constant slipping through would
             // be ~687° — way outside any sane camera angle.
-            Assert.InRange(WatchModeController.DefaultWatchEntryPitch, -90f, 90f);
-            Assert.InRange(WatchModeController.DefaultWatchEntryHeading, -180f, 180f);
+            Assert.InRange(WatchMode.EntryPitchDegrees, -90f, 90f);
+            Assert.InRange(WatchMode.EntryHeadingDegrees, -180f, 180f);
         }
 
         [Fact]
@@ -584,6 +584,60 @@ namespace Parsek.Tests
             Assert.True(
                 Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
                 $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+        }
+
+        [Fact]
+        public void TryResolveRetargetedWatchAngles_WithCapturedState_ReappliesCompensatedAngles()
+        {
+            Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+            Vector3 worldOrbitDirection = new Vector3(0.31f, 0.22f, 0.92f).normalized;
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = -11f,
+                Heading = 147f,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = worldOrbitDirection
+            };
+
+            bool result = WatchModeController.TryResolveRetargetedWatchAngles(
+                hasCapturedState: true,
+                cameraState: state,
+                newTargetRotation: newTargetRotation,
+                out float appliedPitch,
+                out float appliedHeading);
+
+            Assert.True(result);
+
+            Vector3 resolvedWorldDirection = WatchModeController.RotateVectorByQuaternion(
+                newTargetRotation,
+                OrbitDirectionFromAngles(appliedPitch, appliedHeading));
+
+            Assert.True(
+                Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
+                $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({appliedPitch}, {appliedHeading})");
+        }
+
+        [Fact]
+        public void TryResolveRetargetedWatchAngles_WithoutCapturedState_LeavesRawAngles()
+        {
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = 12f,
+                Heading = -33f
+            };
+
+            bool result = WatchModeController.TryResolveRetargetedWatchAngles(
+                hasCapturedState: false,
+                cameraState: state,
+                newTargetRotation: new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                out float appliedPitch,
+                out float appliedHeading);
+
+            Assert.False(result);
+            Assert.Equal(12f, appliedPitch);
+            Assert.Equal(-33f, appliedHeading);
         }
 
         [Fact]

@@ -118,6 +118,9 @@ Key source files and what they do - read the relevant one before modifying:
 - `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
 - `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
 - `RecordingStore.cs` - static recording storage surviving scene changes
+- `PatchedConicSnapshot.cs` - snapshots patched-conic coast chains into predicted `OrbitSegment` lists for scene-exit finalization
+- `BallisticExtrapolator.cs` - extrapolates incomplete ballistic tails through atmosphere / terrain / SOI events to a terminal endpoint
+- `IncompleteBallisticSceneExitFinalizer.cs` - scene-exit seam that snapshots, extrapolates, validates, and applies extended tail results to recordings
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)

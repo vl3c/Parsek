@@ -233,6 +233,199 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TextTrajectorySidecar_PredictedOrbitSegment_RoundTrips()
+        {
+            var original = new Recording
+            {
+                RecordingId = "text-predicted-orbit",
+                RecordingFormatVersion = 1
+            };
+            original.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
+
+            string path = Path.Combine(tempDir, "text-predicted-orbit.prec");
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 2);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
+            Assert.Equal(1, probe.FormatVersion);
+
+            var restored = new Recording
+            {
+                RecordingId = original.RecordingId,
+                RecordingFormatVersion = original.RecordingFormatVersion
+            };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+            Assert.True(restored.OrbitSegments[0].isPredicted);
+        }
+
+        [Fact]
+        public void TextTrajectorySidecar_LegacyOrbitSegmentWithoutPredictedFlag_DefaultsFalse()
+        {
+            var node = new ConfigNode("PARSEK_RECORDING");
+            node.AddValue("version", "1");
+            node.AddValue("recordingId", "legacy-text-predicted");
+            var segNode = node.AddNode("ORBIT_SEGMENT");
+            segNode.AddValue("startUT", "100");
+            segNode.AddValue("endUT", "220");
+            segNode.AddValue("inc", "28.5");
+            segNode.AddValue("ecc", "0.01");
+            segNode.AddValue("sma", "700000");
+            segNode.AddValue("lan", "90");
+            segNode.AddValue("argPe", "45");
+            segNode.AddValue("mna", "0.2");
+            segNode.AddValue("epoch", "100");
+            segNode.AddValue("body", "Kerbin");
+
+            var restored = new Recording
+            {
+                RecordingId = "legacy-text-predicted",
+                RecordingFormatVersion = 1
+            };
+            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+
+            Assert.Single(restored.OrbitSegments);
+            Assert.False(restored.OrbitSegments[0].isPredicted);
+        }
+
+        [Fact]
+        public void CurrentFormatTrajectorySidecar_PredictedCheckpoint_RoundTripsThroughSectionAuthoritativeBinary()
+        {
+            var original = BuildSectionAuthoritativeCodecFixture();
+            original.RecordingId = "section-authoritative-predicted";
+            original.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+
+            var predictedFlat = original.OrbitSegments[1];
+            predictedFlat.isPredicted = true;
+            original.OrbitSegments[1] = predictedFlat;
+
+            for (int t = 0; t < original.TrackSections.Count; t++)
+            {
+                if (original.TrackSections[t].referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+                    continue;
+
+                var track = original.TrackSections[t];
+                var predictedCheckpoint = track.checkpoints[1];
+                predictedCheckpoint.isPredicted = true;
+                track.checkpoints[1] = predictedCheckpoint;
+                original.TrackSections[t] = track;
+            }
+
+            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+
+            string path = Path.Combine(tempDir, "section-authoritative-predicted.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 3);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sectionAuthoritative=True") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=1"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("ReadBinaryTrajectoryFile") &&
+                l.Contains("using section-authoritative path"));
+            AssertSemanticTrajectoryEqual(original, restored);
+            Assert.False(restored.OrbitSegments[0].isPredicted);
+            Assert.True(restored.OrbitSegments[1].isPredicted);
+        }
+
+        [Fact]
+        public void CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips()
+        {
+            var original = BuildSectionAuthoritativeCodecFixture();
+            original.RecordingId = "predicted-tail-fallback";
+            original.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            original.OrbitSegments.Add(MakeOrbitSegment(630.0, 930.0, isPredicted: true));
+
+            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                original, original.TrackSections, allowRelativeSections: true));
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+
+            string path = Path.Combine(tempDir, "predicted-tail-fallback.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 4);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sectionAuthoritative=False"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("ReadBinaryTrajectoryFile") &&
+                l.Contains("used flat fallback path"));
+            AssertSemanticTrajectoryEqual(original, restored);
+            Assert.True(restored.OrbitSegments[restored.OrbitSegments.Count - 1].isPredicted);
+        }
+
+        [Fact]
+        public void V4BinaryTrajectorySidecar_WithPredictedSegments_UpgradesToV5AndPreservesFlag()
+        {
+            var legacy = new Recording
+            {
+                RecordingId = "legacy-v4-predicted",
+                RecordingFormatVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion
+            };
+            legacy.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
+
+            string path = Path.Combine(tempDir, "legacy-v4-predicted.prec");
+            logLines.Clear();
+            RecordingStore.WriteTrajectorySidecar(path, legacy, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, legacy.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("NormalizeRecordingFormatVersionForPredictedSegments") &&
+                l.Contains("recording=legacy-v4-predicted") &&
+                l.Contains("version=4->5") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=0"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=0"));
+
+            var restored = new Recording { RecordingId = legacy.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Single(restored.OrbitSegments);
+            Assert.True(restored.OrbitSegments[0].isPredicted);
+            Assert.Equal(legacy.OrbitSegments[0].startUT, restored.OrbitSegments[0].startUT);
+            Assert.Equal(legacy.OrbitSegments[0].orbitalFrameRotation.x, restored.OrbitSegments[0].orbitalFrameRotation.x);
+            Assert.Equal(legacy.OrbitSegments[0].angularVelocity.z, restored.OrbitSegments[0].angularVelocity.z);
+        }
+
+        [Fact]
         public void CurrentFormatTrajectorySidecar_MixedBackgroundCheckpointFallback_RoundTripsWithoutDroppingOrbitSegments()
         {
             var original = new Recording
@@ -1420,6 +1613,7 @@ namespace Parsek.Tests
             Assert.Equal(expected.meanAnomalyAtEpoch, actual.meanAnomalyAtEpoch);
             Assert.Equal(expected.epoch, actual.epoch);
             Assert.Equal(expected.bodyName, actual.bodyName);
+            Assert.Equal(expected.isPredicted, actual.isPredicted);
             Assert.Equal(expected.orbitalFrameRotation.x, actual.orbitalFrameRotation.x);
             Assert.Equal(expected.orbitalFrameRotation.y, actual.orbitalFrameRotation.y);
             Assert.Equal(expected.orbitalFrameRotation.z, actual.orbitalFrameRotation.z);
@@ -2109,6 +2303,27 @@ namespace Parsek.Tests
                 Assert.Equal(GhostSnapshotMode.AliasVessel,
                     RecordingStore.DetermineGhostSnapshotMode(writeRec));
             }
+        }
+
+        private static OrbitSegment MakeOrbitSegment(double startUT, double endUT,
+            string bodyName = "Kerbin", bool isPredicted = false)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = startUT,
+                bodyName = bodyName,
+                isPredicted = isPredicted,
+                orbitalFrameRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f),
+                angularVelocity = new Vector3(0.4f, 0.5f, 0.6f)
+            };
         }
 
         private static Recording BuildBoundaryCodecFixture()

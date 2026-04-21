@@ -45,6 +45,7 @@ The Parsek window is available from the toolbar button in Flight and Map view.
 | Mod | Integration |
 |-----|-------------|
 | [PersistentRotation](https://github.com/MarkusA380/PersistentRotation) | When detected, Parsek records vessel angular velocity at time warp boundaries. Ghost vessels spin during orbital playback, matching what the player saw with PersistentRotation active. Without it, ghosts hold their SAS-locked attitude (the correct behavior for stock KSP, which freezes rotation on rails). |
+| [KSP Community Fixes](https://github.com/KSPModdingLibs/KSPCommunityFixes) | Fully compatible. KCF's `FlightIntegratorPerf` patch replaces the body of `VesselPrecalculate.CalculatePhysicsStats` for performance; Parsek's recording postfix on the same method composes cleanly on top, so recordings still capture every physics frame. Players running long missions with high part counts benefit from KCF's perf gains and its stock-bug fixes (packed-parts rotation, time-warp orbit drift, memory-leak cleanup). |
 
 ## Installation
 

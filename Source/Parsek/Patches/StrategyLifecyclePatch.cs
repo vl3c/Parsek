@@ -57,7 +57,7 @@ namespace Parsek.Patches
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"Activate postfix threw while capturing strategy lifecycle: {ex.Message}");
+                    $"Activate postfix threw while capturing strategy lifecycle: {ex}");
             }
         }
     }
@@ -95,7 +95,7 @@ namespace Parsek.Patches
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"Deactivate postfix threw while capturing strategy lifecycle: {ex.Message}");
+                    $"Deactivate postfix threw while capturing strategy lifecycle: {ex}");
             }
         }
     }

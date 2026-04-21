@@ -131,6 +131,13 @@ namespace Parsek
                 return true;
             }
 
+            if (RecordingStore.IsPermanentRootGroup(childGroup))
+            {
+                ParsekLog.Warn("GroupHierarchy",
+                    $"SetGroupParent: cannot assign permanent root group '{childGroup}' to parent '{parentGroup}'");
+                return false;
+            }
+
             if (IsInAncestorChain(parentGroup, childGroup))
             {
                 ParsekLog.Warn("GroupHierarchy", $"SetGroupParent: cannot assign '{childGroup}' to parent '{parentGroup}' — would create cycle");
@@ -140,6 +147,35 @@ namespace Parsek
             groupParents[childGroup] = parentGroup;
             ParsekLog.Info("GroupHierarchy", $"Group '{childGroup}' assigned to parent group '{parentGroup}'");
             return true;
+        }
+
+        internal static void EnsurePermanentRootGroupsAreRoot()
+        {
+            if (groupParents.Count == 0)
+                return;
+
+            List<string> demotedPermanentRoots = null;
+            foreach (var kvp in groupParents)
+            {
+                if (!RecordingStore.IsPermanentRootGroup(kvp.Key))
+                    continue;
+
+                if (demotedPermanentRoots == null)
+                    demotedPermanentRoots = new List<string>();
+                demotedPermanentRoots.Add(kvp.Key);
+            }
+
+            if (demotedPermanentRoots == null)
+                return;
+
+            for (int i = 0; i < demotedPermanentRoots.Count; i++)
+            {
+                string groupName = demotedPermanentRoots[i];
+                string parentName = groupParents[groupName];
+                groupParents.Remove(groupName);
+                ParsekLog.Info("GroupHierarchy",
+                    $"Removed parent '{parentName}' from permanent root group '{groupName}'");
+            }
         }
 
         /// <summary>

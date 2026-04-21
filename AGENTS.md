@@ -4,12 +4,28 @@
 ## Build & Test
 
 ```bash
-cd Source/Parsek && dotnet build          # builds + auto-copies to KSP GameData
-cd Source/Parsek.Tests && dotnet test     # all unit tests
-dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into test save
+dotnet build Source/Parsek/Parsek.csproj                         # builds + auto-copies to KSP GameData
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj             # full xUnit suite
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter InjectAllRecordings
+pwsh -File scripts/test-coverage.ps1                            # local xUnit coverage report
 ```
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
+Prefer running these commands from the repo/worktree root so they behave the same in sibling worktrees.
+
+`dotnet test` only covers the headless xUnit suite. Runtime / in-game tests live under `Source/Parsek/InGameTests/` and must be run inside KSP via `Ctrl+Shift+T`; results export to `parsek-test-results.txt` in the KSP root.
+
+Tests marked `AllowBatchExecution = false` are single-run only. They do not execute under `Run All` / batch category runs and will show up as `(never run)` in `parsek-test-results.txt` until you launch them individually from the in-game test runner.
+
+If a machine-specific environment issue blocks `dotnet test` or `dotnet restore` (for example testhost socket startup or NuGet initialization), treat that as an environment blocker, not a repo failure. In that case, use:
+
+```bash
+dotnet build Source/Parsek.Tests/Parsek.Tests.csproj --no-restore
+```
+
+and record clearly that full xUnit execution was blocked by the local environment.
+
+If a command that needs network access fails in the sandbox (for example `git fetch`, `dotnet restore`, package downloads, or DNS/host resolution), retry it with an escalation request instead of treating it as a repo failure. If the sandbox shell/network path still misbehaves, rerun the command via `pwsh`/`pwsh.exe` and record that the blocker was environmental.
 
 ## Release
 
@@ -160,7 +176,8 @@ After any change to enums, event types, serialized fields, or schema:
 1. Verify `ParsekScenario.cs` OnSave/OnLoad handles the new data
 2. Verify test generators in `Tests/Generators/` can produce test data for the new feature
 3. Consider adding a synthetic recording for end-to-end testing
-4. Run `dotnet test` - all tests must pass
+4. Run `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` - all headless tests must pass
+5. If the change affects runtime-only behavior, run the relevant in-game tests via `Ctrl+Shift+T` and keep `parsek-test-results.txt` / `KSP.log` evidence
 
 ## Documentation Updates — Per Commit, Not Per PR
 

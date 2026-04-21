@@ -105,12 +105,12 @@ namespace Parsek
             {
                 double newSeconds = ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
                 // #381: defensively clamp to MinCycleDuration — matches per-recording UI.
-                if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                if (newSeconds < LoopTiming.MinCycleDuration)
                 {
                     ParsekLog.Info("UI",
                         $"Auto-launch period clamped from {newSeconds.ToString("F1", ic)}s to " +
-                        $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
-                    newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                        $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
+                    newSeconds = LoopTiming.MinCycleDuration;
                 }
                 s.autoLoopIntervalSeconds = (float)newSeconds;
                 ParsekLog.Info("UI",
@@ -197,7 +197,7 @@ namespace Parsek
                 s.verboseLogging = true;
                 s.writeReadableSidecarMirrors = true;
                 s.SamplingDensityLevel = SamplingDensity.Medium;
-                s.autoLoopIntervalSeconds = (float)GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                s.autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
                 s.showGhostsInTrackingStation = true;

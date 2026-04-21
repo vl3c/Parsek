@@ -26,9 +26,18 @@ namespace Parsek
     {
         private readonly GhostPlaybackEngine engine;
         private readonly ParsekFlight host;
+        internal Func<bool> IsWarpActiveOverrideForTesting;
+        internal Func<double> CurrentUTOverrideForTesting;
+        internal Func<bool> HasActiveVesselOverrideForTesting;
+        internal Func<Vector3d> ActiveVesselWorldPosOverrideForTesting;
+        internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
+        internal Action<uint> DeferredActivateVesselOverrideForTesting;
+        internal const int FlagReplayWarnRetryThreshold = 3;
 
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
         internal readonly HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
+        internal readonly HashSet<string> pendingFlagReplayRecordingIds = new HashSet<string>();
+        private readonly Dictionary<string, int> pendingFlagReplayFailureCounts = new Dictionary<string, int>();
         internal string pendingWatchRecordingId;
 
         /// <summary>
@@ -120,11 +129,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes a recording ID from the deferred spawn queue (e.g. on delete).
+        /// Removes a recording ID from the deferred spawn / deferred flag replay queues
+        /// (for example when the recording is deleted).
         /// </summary>
         internal void RemovePendingSpawn(string recordingId)
         {
             pendingSpawnRecordingIds.Remove(recordingId);
+            pendingFlagReplayRecordingIds.Remove(recordingId);
+            pendingFlagReplayFailureCounts.Remove(recordingId);
         }
 
         /// <summary>
@@ -135,73 +147,142 @@ namespace Parsek
         /// </summary>
         internal void FlushDeferredSpawns()
         {
+            bool isWarpActive = IsWarpActiveOverrideForTesting != null
+                ? IsWarpActiveOverrideForTesting()
+                : GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
             if (!GhostPlaybackLogic.ShouldFlushDeferredSpawns(
-                    pendingSpawnRecordingIds.Count,
-                    GhostPlaybackEngine.IsAnyWarpActiveFromGlobals()))
+                    pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count,
+                    isWarpActive))
                 return;
 
             var committed = RecordingStore.CommittedRecordings;
+            double currentUT = CurrentUTOverrideForTesting != null
+                ? CurrentUTOverrideForTesting()
+                : Planetarium.GetUniversalTime();
+            bool hasActiveVessel = HasActiveVesselOverrideForTesting != null
+                ? HasActiveVesselOverrideForTesting()
+                : FlightGlobals.ActiveVessel != null;
             int spawnedCount = 0;
             int deferredOutOfBubble = 0;
-            var flushedIds = new List<string>();
-            Vector3d activeVesselPos = FlightGlobals.ActiveVessel != null
-                ? FlightGlobals.ActiveVessel.GetWorldPos3D()
+            var flushedSpawnIds = new List<string>();
+            var clearedFlagReplayIds = new List<string>();
+            Vector3d activeVesselPos = hasActiveVessel
+                ? (ActiveVesselWorldPosOverrideForTesting != null
+                    ? ActiveVesselWorldPosOverrideForTesting()
+                    : FlightGlobals.ActiveVessel.GetWorldPos3D())
                 : Vector3d.zero;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
-                if (GhostPlaybackLogic.ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
+                bool pendingSpawn = pendingSpawnRecordingIds.Contains(rec.RecordingId);
+                bool pendingFlagReplay = pendingFlagReplayRecordingIds.Contains(rec.RecordingId);
+                if (!pendingSpawn && !pendingFlagReplay)
+                    continue;
+
+                bool spawnedNow = false;
+                if (pendingSpawn && GhostPlaybackLogic.ShouldSkipDeferredSpawn(
+                        rec.VesselSpawned, rec.VesselSnapshot != null))
                 {
                     ParsekLog.Verbose("Policy",
                         $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
-                    flushedIds.Add(rec.RecordingId);
-                    continue;
+                    flushedSpawnIds.Add(rec.RecordingId);
+                    pendingSpawn = false;
                 }
-
-                // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
-                if (FlightGlobals.ActiveVessel != null &&
-                    ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
+                else if (pendingSpawn)
                 {
-                    deferredOutOfBubble++;
-                    ParsekLog.Verbose("Policy",
-                        $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
-                    continue;
+                    // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
+                    if (hasActiveVessel &&
+                        ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
+                    {
+                        deferredOutOfBubble++;
+                        ParsekLog.Verbose("Policy",
+                            $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
+                        continue;
+                    }
+
+                    ParsekLog.Info("Policy",
+                        $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                    if (SpawnVesselOrChainTipOverrideForTesting != null)
+                        SpawnVesselOrChainTipOverrideForTesting(rec, i);
+                    else
+                        host.SpawnVesselOrChainTipFromPolicy(rec, i);
+                    spawnedCount++;
+                    flushedSpawnIds.Add(rec.RecordingId);
+                    pendingSpawn = false;
+                    spawnedNow = true;
                 }
 
-                ParsekLog.Info("Policy",
-                    $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
-                host.SpawnVesselOrChainTipFromPolicy(rec, i);
-                spawnedCount++;
-                flushedIds.Add(rec.RecordingId);
+                if (spawnedNow || pendingFlagReplay)
+                {
+                    var (eligibleFlags, spawnedFlags, alreadyPresentFlags, failedFlags) =
+                    GhostPlaybackLogic.SpawnFlagVesselsUpToUT(rec, currentUT);
+
+                    if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
+                    {
+                        ParsekLog.Verbose("Policy",
+                            $"Deferred flag flush: #{i} \"{rec.VesselName}\" " +
+                            $"spawned {spawnedFlags}/{eligibleFlags} flag(s) " +
+                            $"alreadyPresent={alreadyPresentFlags} failed={failedFlags} " +
+                            $"up to UT {currentUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+
+                    if (failedFlags > 0)
+                    {
+                        pendingFlagReplayRecordingIds.Add(rec.RecordingId);
+                        int failureCount = 1;
+                        if (pendingFlagReplayFailureCounts.TryGetValue(rec.RecordingId, out int existingFailureCount))
+                            failureCount = existingFailureCount + 1;
+                        pendingFlagReplayFailureCounts[rec.RecordingId] = failureCount;
+
+                        if (failureCount == FlagReplayWarnRetryThreshold)
+                        {
+                            ParsekLog.Warn("Policy",
+                                $"Deferred flag replay still failing after {failureCount} flush attempt(s): " +
+                                $"#{i} \"{rec.VesselName}\" eligible={eligibleFlags} spawned={spawnedFlags} " +
+                                $"alreadyPresent={alreadyPresentFlags} failed={failedFlags}");
+                        }
+                    }
+                    else
+                    {
+                        clearedFlagReplayIds.Add(rec.RecordingId);
+                        pendingFlagReplayFailureCounts.Remove(rec.RecordingId);
+                    }
+                }
 
                 // Restore camera follow if this recording was being watched when deferred
-                if (GhostPlaybackLogic.ShouldRestoreWatchMode(
+                if (spawnedNow && GhostPlaybackLogic.ShouldRestoreWatchMode(
                         pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                 {
                     ParsekLog.Info("Policy",
                         $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
-                    host.DeferredActivateVesselFromPolicy(rec.SpawnedVesselPersistentId);
+                    if (DeferredActivateVesselOverrideForTesting != null)
+                        DeferredActivateVesselOverrideForTesting(rec.SpawnedVesselPersistentId);
+                    else
+                        host.DeferredActivateVesselFromPolicy(rec.SpawnedVesselPersistentId);
                 }
             }
 
-            // Remove flushed IDs, keep out-of-bubble spawns in queue
-            for (int j = 0; j < flushedIds.Count; j++)
-                pendingSpawnRecordingIds.Remove(flushedIds[j]);
+            // Remove flushed IDs, keep out-of-bubble spawns and failed flag replays in queue.
+            for (int j = 0; j < flushedSpawnIds.Count; j++)
+                pendingSpawnRecordingIds.Remove(flushedSpawnIds[j]);
+            for (int j = 0; j < clearedFlagReplayIds.Count; j++)
+            {
+                pendingFlagReplayRecordingIds.Remove(clearedFlagReplayIds[j]);
+                pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
+            }
 
             if (deferredOutOfBubble > 0)
             {
                 ParsekLog.Info("Policy",
                     $"Warp ended — flushed {spawnedCount} deferred spawn(s), " +
                     $"{deferredOutOfBubble} kept (outside bubble), " +
-                    $"{pendingSpawnRecordingIds.Count} remaining");
+                    $"{pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count} remaining");
             }
             else
             {
                 ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount}/{flushedIds.Count} deferred spawn(s)");
-                pendingSpawnRecordingIds.Clear();
+                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
             }
 
             if (pendingSpawnRecordingIds.Count == 0)
@@ -1022,6 +1103,8 @@ namespace Parsek
         {
             ParsekLog.Info("Policy", "AllGhostsDestroying — clearing policy state");
             pendingSpawnRecordingIds.Clear();
+            pendingFlagReplayRecordingIds.Clear();
+            pendingFlagReplayFailureCounts.Clear();
             pendingWatchRecordingId = null;
             heldGhosts.Clear();
             pendingMapVessels.Clear();

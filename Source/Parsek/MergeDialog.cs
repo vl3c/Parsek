@@ -206,7 +206,10 @@ namespace Parsek
                 if (rec.VesselSnapshot != null)
                     CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
             }
-            RecordingStore.DiscardPendingTree();
+            // #466: while the merge/discard choice is pending, mid-flight effects stay live
+            // in KSP and patching is deferred. Discard must now rebuild from the committed
+            // ledger immediately after the pending tree is removed.
+            ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
             ClearPendingFlag();
             ParsekLog.ScreenMessage("Recording discarded", 2f);
             ParsekLog.Info("MergeDialog",

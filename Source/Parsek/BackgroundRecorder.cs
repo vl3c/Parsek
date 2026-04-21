@@ -1814,6 +1814,7 @@ namespace Parsek
                         longitude = v.longitude,
                         altitude = v.altitude,
                         rotation = v.srfRelRotation,
+                        rotationRecorded = true,
                         situation = v.situation == Vessel.Situations.SPLASHED
                             ? SurfaceSituation.Splashed
                             : SurfaceSituation.Landed

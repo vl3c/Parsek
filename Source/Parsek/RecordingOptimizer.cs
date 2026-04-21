@@ -58,8 +58,8 @@ namespace Parsek
             // other than the sentinel signals the user explicitly configured this recording's
             // loop interval — in that case auto-merge is blocked. Deliberately NOT comparing
             // against DefaultLoopIntervalSeconds, which is the UI default and may differ.
-            if (a.LoopIntervalSeconds != GhostPlaybackLogic.UntouchedLoopIntervalSentinel
-                || b.LoopIntervalSeconds != GhostPlaybackLogic.UntouchedLoopIntervalSentinel) return false;
+            if (a.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel
+                || b.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel) return false;
             if (a.LoopAnchorVesselId != 0 || b.LoopAnchorVesselId != 0) return false;
 
             // Different recording groups = user organized them differently
@@ -341,6 +341,10 @@ namespace Parsek
             if (normalizeEvaBoundaryMerge)
                 NormalizeContinuousEvaBoundaryMerge(target);
 
+            // Merged recordings inherit later terminal/body state from the absorbed segment.
+            // Re-resolve the authoritative endpoint from the merged payload before persistence.
+            RecordingEndpointResolver.RefreshEndpointDecision(target, "RecordingOptimizer.MergeInto");
+
             // 12. Invalidate cached stats
             target.CachedStats = null;
             target.CachedStatsPointCount = 0;
@@ -574,6 +578,11 @@ namespace Parsek
                 original, allowRelativeSections: true);
             bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                 second, allowRelativeSections: true);
+
+            // Both halves now have their final trajectory/terminal payloads. Refresh the
+            // persisted endpoint decision so optimizer outputs do not save stale or unknown data.
+            RecordingEndpointResolver.RefreshEndpointDecision(original, "RecordingOptimizer.SplitAtSection.FirstHalf");
+            RecordingEndpointResolver.RefreshEndpointDecision(second, "RecordingOptimizer.SplitAtSection.SecondHalf");
 
             // 12. Invalidate cached stats
             original.CachedStats = null;
@@ -1268,7 +1277,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
@@ -1280,7 +1289,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
@@ -1337,7 +1346,11 @@ namespace Parsek
 
         private static bool HasMeaningfulRotation(Quaternion rotation)
         {
-            return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
+            if (rotation.x == 0f && rotation.y == 0f && rotation.z == 0f && rotation.w == 0f)
+                return false;
+
+            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(rotation);
+            return Quaternion.Angle(sanitized, Quaternion.identity) > 1e-4f;
         }
 
         /// <summary>
