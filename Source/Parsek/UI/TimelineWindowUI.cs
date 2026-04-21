@@ -36,9 +36,11 @@ namespace Parsek
         private bool timelineWindowHasInputLock;
         private const string TimelineInputLockId = "Parsek_TimelineWindow";
         private Rect lastTimelineWindowRect;
-        private const float MinWindowWidth = 350f;
+        private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
+        private const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
+        private const float RowActionButtonWidth = 35f;
 
         // Shared width for all top filter/preset buttons (Overview, Details, Rewind/FF,
         // Recordings, Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
@@ -129,15 +131,15 @@ namespace Parsek
                 return;
             }
 
-            // Position to the left of main window on first open. Default width must
-            // accommodate 6 minimum-width buttons + inter-button margin budget
-            // (6*93 + 28 + chrome ≈ 608), with some breathing room.
+            // Position to the left of main window on first open. Keep Timeline's
+            // default width aligned with Career State so both wide data windows
+            // have the same footprint once the row action buttons share one width.
             if (timelineWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 650;
+                float x = mainWindowRect.x - (DefaultWindowWidth + 10f);
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 float height = Math.Max(600f, mainWindowRect.height);
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 640, height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
@@ -808,7 +810,7 @@ namespace Parsek
                         GUI.enabled = watchButton.Enabled;
                         if (GUILayout.Button(
                             new GUIContent(watchButton.Label, watchButton.Tooltip),
-                            GUILayout.Width(30)))
+                            GUILayout.Width(RowActionButtonWidth)))
                         {
                             string beforeFocus = flight.DescribeWatchFocusForLogs();
                             string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
@@ -835,7 +837,7 @@ namespace Parsek
                         bool canFF = CanFastForwardNow(rec, out ffReason);
                         GUI.enabled = canFF;
                         if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
-                            GUILayout.Width(35)))
+                            GUILayout.Width(RowActionButtonWidth)))
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline FF button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -850,7 +852,7 @@ namespace Parsek
                         bool canRewind = CanRewindWithResolvedSaveState(rec, out rewindReason);
                         GUI.enabled = canRewind;
                         if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
-                            GUILayout.Width(25)))
+                            GUILayout.Width(RowActionButtonWidth)))
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -867,7 +869,7 @@ namespace Parsek
                     {
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
                         bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
-                            toggleButtonStyle, GUILayout.Width(25));
+                            toggleButtonStyle, GUILayout.Width(RowActionButtonWidth));
                         if (newLoop != rec.LoopPlayback)
                         {
                             rec.LoopPlayback = newLoop;

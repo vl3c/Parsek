@@ -47,9 +47,9 @@ namespace Parsek
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
 
-        private const float DefaultWindowWidth = 820f;
+        internal const float DefaultWindowWidth = 820f;
         private const float DefaultWindowHeight = 400f;
-        private const float MinWindowWidth = 520f;
+        internal const float MinWindowWidth = 520f;
         private const float MinWindowHeight = 200f;
         private const string CareerStateInputLockId = "Parsek_CareerStateWindow";
 

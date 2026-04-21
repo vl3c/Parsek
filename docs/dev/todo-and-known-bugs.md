@@ -212,6 +212,222 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## 521. Main Parsek page can visibly flicker while clicking around the Parsek windows
+
+**Source:** user observation from `logs/2026-04-21_2335_live-collect-script`. The package does not contain a screenshot/video, but `KSP.log` shows `CareerStateWindow: rebuilt VM ...` being emitted every ~16-25 ms for long stretches even when the data is stable (for example around 23:29:45-23:29:57 with `contracts=2/2`, `strategies=0/0`, `facilities=9`, `milestones=4/4` unchanged). The same session also keeps logging `Main window position: x=20 y=100 w=250 h=0`.
+
+**Concern:** this does not look like the old transparent-window path from closed `#487`; it looks like the Career State VM and/or the shared main window layout is rebuilding at draw cadence instead of only on cache invalidation. That would explain why the main Parsek page flickers when the user clicks controls in Parsek-owned windows even though the underlying data is not changing.
+
+**Files:** `Source/Parsek/UI/CareerStateWindowUI.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek.Tests/CareerStateWindowUITests.cs`.
+
+**Status:** OPEN. User-observed; current package provides redraw/rebuild breadcrumbs but not a visual capture.
+
+---
+
+## 522. Timeline milestone rewards can still look double-counted even when the ledger itself does not warn
+
+**Source:** user observation from the same `2026-04-21_2335_live-collect-script` package. When the Timeline opened at 23:30:36, `KSP.log` reported `Build complete: 35 entries (2 recording, 33 action, 0 legacy)`, and the package does not contain milestone-funds reconciliation WARNs of the kind that motivated closed `#477`. The session does, however, contain dense milestone activity (`FirstLaunch`, `RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`, plus later repeatable `stays effective` rows), so it is a good repro corpus for "this looks duplicated in the Timeline".
+
+**Concern:** this currently looks more like a presentation regression than a real funds over-credit. Closed `#464` fixed the old gray `GameStateEvent` shadow rows in Timeline Details, and closed `#477` fixed the false-positive milestone over-attribution. This package does not show either exact old signal. If the Timeline still looks double-counted, suspect duplicate/ambiguous milestone action rows or text formatting in the Timeline render path before touching the ledger math again.
+
+**Files:** `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek/UI/TimelineWindowUI.cs`.
+
+**Status:** OPEN. Investigate against this exact `c3` package before revisiting milestone accounting.
+
+---
+
+## 523. Two SPACECENTER strategy canaries fail because strategy readiness never hydrates
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
+
+**Concern:** the package later replays a strategy activate/deactivate pair from the ledger (`researchIPsellout` at UT=72.2), so this looks like a live KSC/test-harness readiness race, not a broad failure of `StrategiesModule` or event conversion. The current readiness gate is likely probing too early or waiting on the wrong hydration condition.
+
+**Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, and possibly `Source/Parsek/ParsekKSC.cs` if the KSC/test startup ordering needs an explicit hook.
+
+**Status:** OPEN. Repro captured in-package.
+
+---
+
+## 524. Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)
+
+**Source:** user observation plus code read in `Source/Parsek/UI/TimelineWindowUI.cs`.
+
+**Concern:** the row-action column visibly jitters because the watch, fast-forward, rewind, and loop buttons all use different hard-coded widths. The mismatch is cosmetic, but it makes dense Timeline rows harder to scan and undermines the otherwise deliberate table alignment.
+
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs` (make the row-action buttons share a single width constant, likely matching `FF`).
+
+**Status:** TODO / UI polish. Cheap fix, low risk.
+
+---
+
+## 525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position
+
+**Source:** user observed multiple "explosion happened underground" cases in watch mode. The current `2026-04-21_2335_live-collect-script` package did not capture the underground variant directly, but it did capture a watched destroyed ghost (`"x"`) exploding at 23:32:42 immediately after a terrain-correction log (`Ghost terrain clamp: alt=65.3 terrain=64.8 -> 66.8 (clearance=2.0m)`).
+
+**Concern:** `GhostPlaybackEngine.TriggerExplosionIfDestroyed()` currently anchors the FX at `state.ghost.transform.position`. If watch mode or a late playback frame ever leaves the ghost root below terrain for even one frame, the stock/custom explosion FX and the watch hold will both anchor underground. This package narrows the bug even though it does not show the bad frame itself: explosion placement still trusts the raw ghost root instead of re-validating clearance at fire time.
+
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/TerrainCorrector.cs`, `Source/Parsek/ParsekFlight.cs`, plus a new in-game regression in the terrain/watch test coverage.
+
+**Status:** OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.
+
+---
+
+## 526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:32:24-23:32:25. After `Timeline FF button clicked: "x"` and `FastForwardToRecording: jumping to UT=102.9`, the real vessel `r0` is put on rails/unrails for the forward jump. Immediately after, Parsek starts a fresh tree recording on `r0`: `Recording started: vessel="r0"` plus `Auto-record started (PRELAUNCH -> FLYING)`. The new recording seeds `Start location captured: body=Kerbin, biome=Shores, situation=Flying, launchSite=Launch Pad`, then 0.5s later the recorder corrects back to `SurfaceStationary`.
+
+**Concern:** the FF/time-jump path transiently makes the real launchpad vessel look like a `PRELAUNCH -> FLYING` launch transition, so the normal auto-record logic creates a bogus recording even though the vessel is just sitting on the pad. This is a direct regression with a tight repro sequence in the collected package.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange` / `EvaluateAutoRecordLaunchDecision`), `Source/Parsek/TimeJumpManager.cs` (forward-jump rails/unrails path), `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`.
+
+**Status:** OPEN. Repro captured in-package.
+
+---
+
+## 527. Rewind's deferred recalc can drop `utCutoff` and restore future funds/contracts before replay catches up
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:30:25-23:30:28. The rewind path first does the expected cutoff walk (`cutoffUT=19.159999999999467`), dropping funds from `53861.7` to `21495.0` and removing two active contracts. About five seconds later, a deferred FLIGHT recalc runs with `cutoffUT=null` and restores the end-of-timeline funds/contracts before any replay has advanced.
+
+**Concern:** one rewind caller is re-entering `RecalculateAndPatch()` without forwarding the rewind cutoff. That makes career state snap back toward the future timeline immediately after rewind, explains the new `PatchFunds: suspicious drawdown` warning in the same package, and breaks the expected "rewind means pre-cutoff state until replay progresses" model.
+
+**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`.
+
+**Status:** OPEN. Repro captured in-package.
+
+---
+
+## 528. Launchpad science gathered before recording start is still being committed onto the later flight recording
+
+**Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.
+
+**Concern:** this reopens the closed `#483` family in a narrower but still real shape: pre-recording launchpad science is getting swept into the later flight recording, so commit-time and post-walk science reconciliation no longer operate on a clean same-scope event set. The package shows both ends of the problem on current `main`: the early subject capture and the later mismatch.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/PostWalkReconciliationIntegrationTests.cs`.
+
+**Status:** OPEN. Strong regression/new-shape signal from the package.
+
+---
+
+## 529. Stable-terminal landed re-snapshots can still persist a stale orbital `ORBIT` block
+
+**Source:** the finalized sidecar `parsek/Recordings/a31472b008f042848e868bf1759e1259_vessel.craft.txt` from `logs/2026-04-21_2335_live-collect-script` has `sit = LANDED` and `skipGroundPositioning = True`, but its `ORBIT` block still contains a stale orbital tuple (`SMA = 300816.6`, `ECC = 0.9948`, `REF = 1`). `KSP.log` shows the recording being finalized via the stable-terminal re-snapshot path immediately beforehand.
+
+**Concern:** closed `#479` normalized unsafe `sit` values during stable-terminal persistence, but the current persistence path only rewrites situation metadata. The surface-orbit repair logic still lives only in spawn-time healing, so landed/splashed stable-terminal sidecars can remain internally contradictory until a later repair path touches them.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`.
+
+**Status:** OPEN. Data-integrity bug captured in-package.
+
+---
+
+## 530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes
+
+**Source:** when Timeline opens in `logs/2026-04-21_2335_live-collect-script`, `KSP.log` records `Timeline watch button "r0" ... disabled (no ghost)` for the same recording that becomes watchable less than a second later once the ghost finishes building/spawning. No user context changed; the row just self-corrected when the ghost materialized.
+
+**Concern:** initial watchability is being computed from transient `HasActiveGhost` / same-body / range state before the lazy ghost build completes, so the Timeline row can briefly advertise a false "not watchable" state on first open. This is small, but it makes watch mode feel flaky and is distinct from the older watch-transfer bugs.
+
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
+
+**Status:** OPEN. Minor UI-state bug captured in-package.
+
+---
+
+## 531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`
+
+**Source:** the package's playback loop repeatedly logs `Spawn suppressed ... no vessel snapshot` for both committed recordings, even though the same session reports the timeline contains only destroyed recordings. The behavior is stable across many suppression cycles.
+
+**Concern:** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(...)` currently checks `rec.VesselSnapshot == null` before `rec.VesselDestroyed`, so destroyed recordings get the wrong suppression reason. This does not change the spawn outcome, but it hides the real state during FF/watch investigations and adds misleading playback noise.
+
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+
+**Status:** OPEN. Low-severity diagnostic correctness issue.
+
+---
+
+## 532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` shows `basicRocketry` being allowed, then `PatchScience: 17.1 -> 22.1`, and only later the matching `TechResearched` ledger event. The same pattern repeats for `engineering101`: allow tech, patch science back up, then record the action later.
+
+**Concern:** during bursty R&D activity, KSP's science pool is being patched upward in the gap between stock unlock and the recorder/ledger catching up. That means the player can briefly see refunded science or even try to re-spend it while the action stream is still converging.
+
+**Files:** `Source/Parsek/Patches/TechResearchPatch.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`.
+
+**Status:** OPEN. Visible resource-state bug captured in-package.
+
+---
+
+## 533. `ContractAccepted -> ContractAccept` conversion drops `contractType` on the ledger path
+
+**Source:** replay in `logs/2026-04-21_2335_live-collect-script/KSP.log` logs both accepted launch-site test contracts as `type=''`, and the committed `ledger.pgld` actions contain title/deadline/advance/penalties but no `contractType`. The raw stored contract snapshots still carry `type = PartTest`, so the type exists at capture time and is being lost during conversion.
+
+**Concern:** `GameStateRecorder.OnContractAccepted()` preserves the full contract snapshot, but `GameStateEventConverter.ConvertContractAccepted()` only reads title/deadline/funds/penalties and never populates `GameAction.ContractType`. `PatchContracts` currently survives because it re-reads the snapshot, but any UI/rule/path that relies on `GameAction.ContractType` already sees empty data.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/GameActionDisplay.cs`.
+
+**Status:** OPEN. Data-loss bug in the ledger conversion path.
+
+---
+
+## 534. Returning to a spawned chain-tip vessel can miss the vessel-switch restore and strand the next continuation outside the existing mission tree
+
+**Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 23:56:39-00:00:38. When switching back to the spawned Mun-orbit `Kerbal X`, `ParsekScenario` logs `vesselSwitchPending flag stale ... treating FLIGHT→FLIGHT as quickload, not vessel switch`. The follow-up `OnFlightReady` state is still `mode=none tree=-`, even though scene entry active vessel pid `2641112149` is the already-spawned chain tip. The later Mun landing logs `OnVesselSituationChange: not a launch transition (SUB_ORBITAL -> LANDED)`, and the only new recording that starts afterward is a fresh single-node EVA tree for Bob Kerman.
+
+**Concern:** the FLIGHT→FLIGHT return-to-vessel path can lose the pending tree restore/promotion for a spawned chain tip, so the later continuation never rejoins the existing `Kerbal X` mission tree/group. Once that tree context is lost, landing or engine-burn follow-up on the returned vessel no longer auto-starts a chained continuation; only the separate EVA auto-record path re-arms.
+
+**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`.
+
+**Status:** OPEN. Strong repro captured in-package.
+
+---
+
+## 535. Tracking Station can show a future Mun-orbit chain tip before the current ghost has actually reached the Mun
+
+**Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 00:01:42-00:02:07. Tracking Station startup immediately creates recording `#3` as a ghost vessel on `body=Mun` from terminal orbit data, then still draws atmospheric markers `#0` and `#1` over Kerbin, and later creates recording `#1` as a Kerbin ghost-map vessel from the current segment.
+
+**Concern:** Tracking Station is mixing the future chain tip's terminal orbit with the earlier active leg, so the vessel list can advertise a second `Kerbal X` as already "in Mun orbit" before the current ghost has actually reached the Mun. `CreateGhostVesselsFromCommittedRecordings()` currently instantiates tip recordings with `HasOrbitData(rec)` even when current UT is still on an earlier chain segment.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`.
+
+**Status:** OPEN. Repro captured in-package.
+
+---
+
+## 536. Tracking Station can drop the current atmospheric continuation at the Kerbin-exit handoff
+
+**Source:** the same package logs `Drawing atmospheric marker #2 "Kerbal X" ... alt=69999` at 00:03:47, then immediately removes recording `#1` with `Removed ghost map vessel for recording #1 ... reason=tracking-station-expired` at 00:03:49. No same-moment replacement current-phase marker/orbit handoff is logged for the in-progress continuation before the much later Mun-leg visibility resumes.
+
+**Concern:** the Kerbin-exit handoff in Tracking Station can drop the current ghost entirely at the boundary between atmospheric-marker playback and orbit-map lifecycle. The package shows the removal, but not a synchronized successor for the current continuation, matching the user report that the icon vanished even though the craft was still on its way back out of atmosphere toward Mun transfer.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/TrajectoryMath.cs`.
+
+**Status:** OPEN. Strong lifecycle gap signal in-package.
+
+---
+
+## 537. Tracking Station never runs the real-vessel spawn handoff that flight/map playback does
+
+**Source:** user observed the missing Mun-orbit materialization in Tracking Station; the same package shows the contrast directly. In TRACKSTATION, the host only initializes and updates ghost ProtoVessels (`ParsekTrackingStation initialized`, atmospheric markers, ghost create/remove). Later in FLIGHT/map playback, the same recording `#3` does execute the normal handoff: `Spawn #3 (Kerbal X) ... body=Mun` followed by `SpawnAtPosition: vessel spawned (sit=ORBITING, pid=3724180956, body=Mun, alt=63723m)`.
+
+**Concern:** Tracking Station currently has ghost list/map presence, but not the matching chain-tip real-vessel spawn path that flight playback runs. That makes Tracking Station playback/list state diverge from map view exactly at the moment the ghost should materialize into the real vessel.
+
+**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek/VesselSpawner.cs`.
+
+**Status:** OPEN. Cross-scene behavior gap confirmed by the package.
+
+---
+
+## 538. Atmospheric reentry fire still looks too sparse; tuning target is roughly 2x the current particle density
+
+**Source:** user observed that the atmospheric drag/heating fire is too thin and should emit about twice as many particles. Current code still hardcodes a single fire-particle layer at `ReentryFireEmissionMin=300`, `ReentryFireEmissionMax=2000`, and `ReentryFireMaxParticles=1500`. The package's reentry run confirms the path is active (`Lazy reentry build fired`, later `rebuilt emission mesh ... and 105 fire shell meshes after decouple`), but does not measure visual density.
+
+**Concern:** reentry fire density is still tuned too low for the intended look. If the target is roughly "2x the current fire particles", the adjustment points live in `DriveReentryLayers()` emission-rate scaling plus the build-time reentry particle limits. This is a visual-tuning issue rather than a package-proven correctness regression, but it should be tracked explicitly as an atmospheric-FX follow-up.
+
+**Files:** `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Status:** OPEN. User-observed tuning bug; package confirms the path, not the exact multiplier.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
