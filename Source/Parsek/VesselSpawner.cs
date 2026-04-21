@@ -2944,18 +2944,44 @@ namespace Parsek
         private static bool TryResolveBodyIndex(CelestialBody body, out int index)
         {
             index = -1;
-            if (body == null)
+            if (object.ReferenceEquals(body, null))
                 return false;
 
             ResolveBodyIndexDelegate resolver = BodyIndexResolverForTesting;
-            if (resolver != null)
-                return resolver(body, out index);
+            if (resolver != null && resolver(body, out index))
+                return true;
 
-            if (FlightGlobals.Bodies == null)
-                return false;
+            try
+            {
+                if (FlightGlobals.Bodies == null)
+                    return false;
 
-            index = FlightGlobals.Bodies.IndexOf(body);
-            return index >= 0;
+                string bodyName = body.name;
+                for (int i = 0; i < FlightGlobals.Bodies.Count; i++)
+                {
+                    CelestialBody candidate = FlightGlobals.Bodies[i];
+                    if (object.ReferenceEquals(candidate, body))
+                    {
+                        index = i;
+                        return true;
+                    }
+
+                    if (!object.ReferenceEquals(candidate, null)
+                        && !string.IsNullOrEmpty(bodyName)
+                        && string.Equals(candidate.name, bodyName, StringComparison.Ordinal))
+                    {
+                        index = i;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+            }
+
+            return false;
         }
 
         /// <summary>

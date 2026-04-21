@@ -75,6 +75,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Body-index repair now falls back to explicit reference/name scans over the loaded body list when the test seam or Unity equality path cannot resolve a `CelestialBody` directly, so landed snapshot repairs can still rewrite `ORBIT.REF` deterministically in both live KSP and headless seam tests.
 - Flat-trajectory extension detection now accepts a real appended orbit-segment suffix immediately after the rebuilt checkpoint payload, so current-format predicted tails beyond track sections still take the intended flat-binary fallback path while malformed suffixes keep failing closed.
 - Session-merge flat-copy preservation now requires a safe appended suffix beyond the rebuilt track-section payload, so duplicated or non-monotonic flat tails fall back to track-section rebuild instead of leaking bad copies into merged recordings.
 - Incomplete-ballistic scene-exit finalization now only caches permanent `FlightGlobals` probe failures, so a transient `ready=false` teardown frame cannot disable later live finalization in the same KSP session.

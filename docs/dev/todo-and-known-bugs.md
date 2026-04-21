@@ -90,6 +90,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~511. Body-index repair could still fail even after the new seam landed because Unity object equality was too brittle for headless test bodies~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the new body-index seam covered the right production path, but the fallback still depended on Unity object equality / `IndexOf(body)` semantics. In headless seam tests, uninitialized `CelestialBody` instances can fail those equality checks even when the body is present in the injected list, so landed repair leaves the stale `ORBIT.REF` untouched.
+
+**Fix:** `TryResolveBodyIndex()` now treats the seam as the first choice but falls back to an explicit scan of the loaded body list using `ReferenceEquals` and then stable body-name matching. That keeps the live path deterministic and makes the headless seam tests exercise the same repair outcome.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
