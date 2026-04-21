@@ -67,6 +67,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldEnableWatchButton_CurrentlyWatchedUnavailableRow_ReturnsTrue()
+        {
+            Assert.True(TimelineWindowUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: true));
+            Assert.False(TimelineWindowUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: false));
+        }
+
+        [Fact]
+        public void BuildRecordingIndexLookup_MapsRecordingIdsToIndices()
+        {
+            var lookup = TimelineWindowUI.BuildRecordingIndexLookup(new[]
+            {
+                new Recording { RecordingId = "rec-a" },
+                new Recording(),
+                new Recording { RecordingId = "rec-b" }
+            });
+
+            Assert.Equal(0, lookup["rec-a"]);
+            Assert.Equal(2, lookup["rec-b"]);
+            Assert.False(lookup.ContainsKey(string.Empty));
+        }
+
+        [Fact]
         public void HasActionableRewindOrFastForwardButton_FutureRecordingStart_ReturnsTrue()
         {
             var entry = new TimelineEntry
@@ -145,6 +169,20 @@ namespace Parsek.Tests
             Assert.True(watchIndex >= 0, "timeline watch-button block should exist");
             Assert.True(fastForwardIndex > watchIndex,
                 "timeline watch button should be rendered before the rewind/fast-forward buttons");
+        }
+
+        [Fact]
+        public void DrawEntryRow_WatchButton_WiresToggleAndEnabledState_PinnedBySourceInspection()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "TimelineWindowUI.cs"));
+
+            Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", uiSrc);
+            Assert.Contains("flight.ExitWatchMode()", uiSrc);
+            Assert.Contains("flight.EnterWatchMode(recIndex)", uiSrc);
         }
     }
 }
