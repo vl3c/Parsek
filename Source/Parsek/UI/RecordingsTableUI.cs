@@ -629,6 +629,32 @@ namespace Parsek
             }
         }
 
+        internal static bool IsWatchButtonEnabled(
+            bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+        {
+            return hasGhost && sameBody && inRange && !isDebris;
+        }
+
+        internal static bool ShouldEnableWatchButton(bool canWatch, bool isWatching)
+        {
+            return canWatch || isWatching;
+        }
+
+        internal static bool UpdateWatchButtonTransitionCache(
+            Dictionary<string, bool> lastCanWatchByRecId, string watchKey, bool canWatch)
+        {
+            if (lastCanWatchByRecId == null || string.IsNullOrEmpty(watchKey))
+                return false;
+
+            bool previousCanWatch;
+            if (lastCanWatchByRecId.TryGetValue(watchKey, out previousCanWatch)
+                && previousCanWatch == canWatch)
+                return false;
+
+            lastCanWatchByRecId[watchKey] = canWatch;
+            return true;
+        }
+
         internal static string GetWatchButtonReason(
             bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
@@ -643,6 +669,8 @@ namespace Parsek
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
+            if (isWatching)
+                return "Exit watch mode";
             if (isDebris)
                 return "Debris is not watchable";
             if (!hasGhost)
@@ -651,7 +679,7 @@ namespace Parsek
                 return "Ghost is on a different body";
             if (!inRange)
                 return "Ghost is beyond camera cutoff";
-            return isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
+            return "Follow ghost in watch mode";
         }
 
         private string BuildWatchObservabilitySuffix(ParsekFlight flight, int index)
@@ -1371,7 +1399,7 @@ namespace Parsek
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
+                bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
 
                 // Bug #279: log enabled/disabled transitions at INFO level so future
                 // playtests can distinguish "user didn't try" from "UI was broken".
@@ -1383,11 +1411,8 @@ namespace Parsek
                 // doesn't inherit the previous occupant's cached canWatch and emit
                 // a spurious transition log line.
                 string watchKey = rec.RecordingId;
-                bool prevCanWatch;
-                if (!string.IsNullOrEmpty(watchKey)
-                    && (!lastCanWatchByRecId.TryGetValue(watchKey, out prevCanWatch) || prevCanWatch != canWatch))
+                if (UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey, canWatch))
                 {
-                    lastCanWatchByRecId[watchKey] = canWatch;
                     string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris);
                     ParsekLog.Info("UI",
                         $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
@@ -1395,7 +1420,7 @@ namespace Parsek
                         $"{BuildWatchObservabilitySuffix(flight, ri)}");
                 }
 
-                GUI.enabled = canWatch;
+                GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
