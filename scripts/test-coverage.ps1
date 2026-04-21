@@ -103,6 +103,117 @@ function Get-ValidatedCoverageFiles {
     return $coverageFiles
 }
 
+function Get-TextCoverageContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile
+    )
+
+    $content = Get-Content -LiteralPath $CoverageFile -Raw
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        throw "Coverage file is blank: $CoverageFile"
+    }
+
+    return $content
+}
+
+function Assert-JsonCoverageFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile
+    )
+
+    $coverageJson = Get-TextCoverageContent -CoverageFile $CoverageFile | ConvertFrom-Json -ErrorAction Stop
+    $topLevelProperties = @($coverageJson.PSObject.Properties).Count
+    if ($topLevelProperties -le 0) {
+        throw "JSON coverage file contains no top-level modules: $CoverageFile"
+    }
+}
+
+function Assert-LcovCoverageFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile
+    )
+
+    $lines = @((Get-TextCoverageContent -CoverageFile $CoverageFile) -split "\r?\n")
+    if (-not ($lines | Where-Object { $_ -like "SF:*" })) {
+        throw "LCOV coverage file is missing any source-file records: $CoverageFile"
+    }
+
+    if (-not ($lines | Where-Object { $_ -like "DA:*" })) {
+        throw "LCOV coverage file is missing any line-hit records: $CoverageFile"
+    }
+
+    if (-not ($lines | Where-Object { $_ -eq "end_of_record" })) {
+        throw "LCOV coverage file is missing end_of_record markers: $CoverageFile"
+    }
+}
+
+function Assert-OpenCoverCoverageFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile
+    )
+
+    [xml]$coverageXml = Get-TextCoverageContent -CoverageFile $CoverageFile
+    $coverageSession = $coverageXml.CoverageSession
+    if ($null -eq $coverageSession) {
+        throw "OpenCover coverage file is missing the root <CoverageSession> element: $CoverageFile"
+    }
+
+    $modules = @($coverageXml.SelectNodes("/CoverageSession/Modules/Module")).Count
+    if ($modules -le 0) {
+        throw "OpenCover coverage file contains no modules: $CoverageFile"
+    }
+
+    $summary = $coverageXml.SelectSingleNode("/CoverageSession/Summary")
+    if ($null -eq $summary) {
+        throw "OpenCover coverage file is missing the <Summary> element: $CoverageFile"
+    }
+
+    $sequencePoints = 0
+    if (-not [int]::TryParse($summary.numSequencePoints, [ref]$sequencePoints) -or $sequencePoints -le 0) {
+        throw "OpenCover coverage file reports no sequence points: $CoverageFile"
+    }
+}
+
+function Assert-TeamCityCoverageFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile
+    )
+
+    $content = Get-TextCoverageContent -CoverageFile $CoverageFile
+    if ($content -notmatch "##teamcity\[buildStatisticValue") {
+        throw "TeamCity coverage file is missing buildStatisticValue messages: $CoverageFile"
+    }
+
+    if ($content -notmatch "CodeCoverage[A-Za-z]+") {
+        throw "TeamCity coverage file is missing CodeCoverage statistic keys: $CoverageFile"
+    }
+}
+
+function Assert-CoverageFileStructure {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("json", "lcov", "opencover", "cobertura", "teamcity")]
+        [string]$Format,
+
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$CoverageFiles
+    )
+
+    foreach ($coverageFile in $CoverageFiles) {
+        switch ($Format) {
+            "json" { Assert-JsonCoverageFile -CoverageFile $coverageFile.FullName }
+            "lcov" { Assert-LcovCoverageFile -CoverageFile $coverageFile.FullName }
+            "opencover" { Assert-OpenCoverCoverageFile -CoverageFile $coverageFile.FullName }
+            "teamcity" { Assert-TeamCityCoverageFile -CoverageFile $coverageFile.FullName }
+        }
+    }
+}
+
 function Write-CoberturaSummary {
     param(
         [Parameter(Mandatory = $true)]
@@ -142,6 +253,14 @@ function Write-CoberturaSummary {
     $branchesValid = [int]::Parse($coverage."branches-valid", $culture)
     $packages = @($coverageXml.SelectNodes("/coverage/packages/package")).Count
     $classes = @($coverageXml.SelectNodes("/coverage/packages/package/classes/class")).Count
+
+    if ($linesValid -le 0) {
+        throw "Cobertura coverage file reports no coverable lines: $CoverageFile"
+    }
+
+    if ($packages -le 0 -or $classes -le 0) {
+        throw "Cobertura coverage file contains no packages or classes: $CoverageFile"
+    }
 
     $summaryLines = @(
         "Coverage summary",
@@ -205,10 +324,12 @@ if ($bootstrappedEnv.Count -gt 0) {
 & dotnet @args 2>&1 | Tee-Object -FilePath $coverageLogPath
 $dotnetExitCode = $LASTEXITCODE
 if ($dotnetExitCode -ne 0) {
-    throw "Coverage run failed before report validation (dotnet exit code $dotnetExitCode). See $coverageLogPath for restore/build/test output."
+    [Console]::Error.WriteLine("Coverage run failed before report validation (dotnet exit code $dotnetExitCode). See $coverageLogPath for restore/build/test output.")
+    exit $dotnetExitCode
 }
 
 $coverageFiles = Get-ValidatedCoverageFiles -CoverageDir $coverageDir
+Assert-CoverageFileStructure -Format $Format -CoverageFiles $coverageFiles
 
 Write-Host "Coverage files:"
 $coverageFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
@@ -221,4 +342,7 @@ if ($Format -eq "cobertura") {
     Write-Host "Coverage summary:"
     $summaryLines | ForEach-Object { Write-Host "  $_" }
     Write-Host "Coverage summary file: $coverageSummaryPath"
+}
+else {
+    Write-Host "Coverage format validation: $Format structure checked."
 }
