@@ -59,7 +59,7 @@ namespace Parsek.Tests
         {
             // If this ever changes, the plan's cap-math in plan-414-spawn-throttle.md must
             // be re-derived. Catching a silent constant change here makes that explicit.
-            Assert.Equal(2, GhostPlaybackEngine.MaxSpawnsPerFrame);
+            Assert.Equal(2, GhostPlayback.MaxSpawnsPerFrame);
         }
 
         [Fact]

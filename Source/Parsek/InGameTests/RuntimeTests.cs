@@ -1329,15 +1329,15 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(index, ParsekFlight.Instance.WatchedRecordingIndex, "watching wrong index");
 
                 // --- Core assertions: tight angle check on canonical defaults ---
-                float expectedPitchRad = WatchModeController.DefaultWatchEntryPitch * Mathf.Deg2Rad;
+                float expectedPitchRad = WatchMode.EntryPitchDegrees * Mathf.Deg2Rad;
                 float actualPitchRad = FlightCamera.fetch.camPitch;
                 float actualHdgRad = FlightCamera.fetch.camHdg;
                 float pitchDeg = Mathf.Abs(actualPitchRad - expectedPitchRad) * Mathf.Rad2Deg;
-                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchModeController.DefaultWatchEntryHeading));
+                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchMode.EntryHeadingDegrees));
                 InGameAssert.IsTrue(pitchDeg < 1f,
-                    $"pitch should be near {WatchModeController.DefaultWatchEntryPitch} deg, got delta={pitchDeg:F2} deg");
+                    $"pitch should be near {WatchMode.EntryPitchDegrees} deg, got delta={pitchDeg:F2} deg");
                 InGameAssert.IsTrue(hdgDeg < 1f,
-                    $"heading should be near {WatchModeController.DefaultWatchEntryHeading} deg, got delta={hdgDeg:F2} deg");
+                    $"heading should be near {WatchMode.EntryHeadingDegrees} deg, got delta={hdgDeg:F2} deg");
 
                 // --- Safety-net assertion: no 180-degree camera flip ---
                 Vector3 cameraForwardAfter = FlightCamera.fetch.transform.forward;
@@ -1349,7 +1349,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Verbose("TestRunner",
                     $"WatchEntry_SameBody: index={index} body={state.lastInterpolatedBodyName} " +
                     $"camPitchDeg={actualPitchRad * Mathf.Rad2Deg:F2} camHdgDeg={actualHdgRad * Mathf.Rad2Deg:F2} " +
-                    $"expectedPitch={WatchModeController.DefaultWatchEntryPitch:F1} expectedHdg={WatchModeController.DefaultWatchEntryHeading:F1} " +
+                    $"expectedPitch={WatchMode.EntryPitchDegrees:F1} expectedHdg={WatchMode.EntryHeadingDegrees:F1} " +
                     $"worldDot={worldDot:F3}");
             }
             finally

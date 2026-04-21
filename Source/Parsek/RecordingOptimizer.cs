@@ -58,8 +58,8 @@ namespace Parsek
             // other than the sentinel signals the user explicitly configured this recording's
             // loop interval — in that case auto-merge is blocked. Deliberately NOT comparing
             // against DefaultLoopIntervalSeconds, which is the UI default and may differ.
-            if (a.LoopIntervalSeconds != GhostPlaybackLogic.UntouchedLoopIntervalSentinel
-                || b.LoopIntervalSeconds != GhostPlaybackLogic.UntouchedLoopIntervalSentinel) return false;
+            if (a.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel
+                || b.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel) return false;
             if (a.LoopAnchorVesselId != 0 || b.LoopAnchorVesselId != 0) return false;
 
             // Different recording groups = user organized them differently

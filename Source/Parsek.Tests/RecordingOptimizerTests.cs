@@ -34,7 +34,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel,
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel,
                 LoopAnchorVesselId = 0,
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000 });
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            b.LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel + 15.0;
+            b.LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel + 15.0;
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             // auto-merging. This test pins the invariant: the field init and the sentinel
             // MUST be equal.
             var fresh = new Recording();
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
         }
 
         [Fact]
@@ -235,8 +235,8 @@ namespace Parsek.Tests
             // regardless of the user-facing DefaultLoopIntervalSeconds value.
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
             Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }
 

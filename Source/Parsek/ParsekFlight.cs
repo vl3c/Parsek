@@ -458,7 +458,7 @@ namespace Parsek
         internal double GetLoopIntervalSecondsForWatch(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
             return engine.GetLoopIntervalSeconds(rec, globalInterval);
         }
         internal bool TryComputeLoopPlaybackUTForWatch(
@@ -9348,7 +9348,7 @@ namespace Parsek
                 externalGhostCount = activeGhostChains?.Count ?? 0,
                 mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
-                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds,
+                    ?? LoopTiming.DefaultLoopIntervalSeconds,
             };
 
             // Build trajectory list (Recording implements IPlaybackTrajectory)
@@ -9419,7 +9419,7 @@ namespace Parsek
         private double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
             return engine.GetLoopIntervalSeconds(rec, globalInterval);
         }
 
@@ -9429,7 +9429,7 @@ namespace Parsek
             int recIdx = -1)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
             return engine.TryComputeLoopPlaybackUT(rec, currentUT, globalInterval,
                 out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
