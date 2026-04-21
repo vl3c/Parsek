@@ -531,6 +531,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsFlightGlobalsRuntimeAvailable_TransientUnavailableProbe_IsNotCached()
+        {
+            int probeCount = 0;
+            IncompleteBallisticSceneExitFinalizer.FlightGlobalsRuntimeAvailabilityOverrideForTesting = () =>
+            {
+                probeCount++;
+                if (probeCount == 1)
+                    return (false, false, "fetch=true, ready=false");
+                return (true, true, "fetch=true, ready=true");
+            };
+
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("first"));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("second"));
+            Assert.Equal(2, probeCount);
+        }
+
+        [Fact]
+        public void IsFlightGlobalsRuntimeAvailable_PermanentFailureProbe_IsCached()
+        {
+            int probeCount = 0;
+            IncompleteBallisticSceneExitFinalizer.FlightGlobalsRuntimeAvailabilityOverrideForTesting = () =>
+            {
+                probeCount++;
+                return (false, true, "TypeInitializationException");
+            };
+
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("first"));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("second"));
+            Assert.Equal(1, probeCount);
+        }
+
+        [Fact]
         public void TryApply_RejectsUnsetTerminalState()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =

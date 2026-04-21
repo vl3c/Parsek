@@ -47,6 +47,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Incomplete-ballistic scene-exit finalization now only caches permanent `FlightGlobals` probe failures, so a transient `ready=false` teardown frame cannot disable later live finalization in the same KSP session.
 - `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.
 - Patched-conic snapshot capture now fails closed when a predicted patch has no reference body or the private solver `patchLimit` hook is unavailable, logs those conditions explicitly, and reports truncation as a boolean tail flag instead of a pseudo-count.
 - `#486` Quickload after a runway takeoff no longer leaves stale future samples or fake save/load discontinuity warnings in the merged recording tree.

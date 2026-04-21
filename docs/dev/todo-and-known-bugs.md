@@ -24,7 +24,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** `#442` wired `IncompleteBallisticSceneExitFinalizer.TryApply()` into the default scene-exit finalization path. In headless xUnit, Unity's native `FlightGlobals` runtime is unavailable, so the default extrapolator could trip `FlightGlobals` static initialization before the tests ever reached the branches they were actually written to assert. That turned pre-existing fallback tests into engine-startup failures unrelated to their purpose.
 
-**Fix:** `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording()` now probes `FlightGlobals.fetch` / `FlightGlobals.ready` once behind a cached guard and emits a focused `VERBOSE` line when the Unity runtime is unavailable. The production default path declines cleanly in headless xUnit, while hook / override-based tests still bypass the guard exactly as before. Added regression coverage in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+**Fix:** `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording()` now probes `FlightGlobals.fetch` / `FlightGlobals.ready` behind a guarded cache and emits a focused `VERBOSE` line when the Unity runtime is unavailable. Permanent headless probe failures are cached so xUnit does not keep tripping the static initializer, but transient `ready=false` scene states are not cached, so a teardown frame cannot disable later live scene-exit finalization in the same KSP session. Hook / override-based tests still bypass the guard exactly as before. Added regression coverage in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 

@@ -28,6 +28,7 @@ namespace Parsek
     internal static class IncompleteBallisticSceneExitFinalizer
     {
         private static bool? flightGlobalsRuntimeAvailableForTesting;
+        internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
 
         internal delegate bool TryFinalizeDelegate(
             Recording recording,
@@ -41,6 +42,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             flightGlobalsRuntimeAvailableForTesting = null;
+            FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
         }
@@ -230,7 +232,7 @@ namespace Parsek
             return applied;
         }
 
-        private static bool IsFlightGlobalsRuntimeAvailable(string recordingId)
+        internal static bool IsFlightGlobalsRuntimeAvailable(string recordingId)
         {
             if (flightGlobalsRuntimeAvailableForTesting.HasValue)
             {
@@ -244,21 +246,32 @@ namespace Parsek
             }
 
             bool runtimeAvailable;
+            bool cacheResult;
             string diagnostic;
-            try
+            if (FlightGlobalsRuntimeAvailabilityOverrideForTesting != null)
             {
-                bool hasFetch = FlightGlobals.fetch != null;
-                bool ready = FlightGlobals.ready;
-                runtimeAvailable = hasFetch && ready;
-                diagnostic = $"fetch={hasFetch}, ready={ready}";
+                (runtimeAvailable, cacheResult, diagnostic) = FlightGlobalsRuntimeAvailabilityOverrideForTesting();
             }
-            catch (Exception ex)
+            else
             {
-                runtimeAvailable = false;
-                diagnostic = ex.GetType().Name;
+                try
+                {
+                    bool hasFetch = FlightGlobals.fetch != null;
+                    bool ready = FlightGlobals.ready;
+                    runtimeAvailable = hasFetch && ready;
+                    cacheResult = runtimeAvailable;
+                    diagnostic = $"fetch={hasFetch}, ready={ready}";
+                }
+                catch (Exception ex)
+                {
+                    runtimeAvailable = false;
+                    cacheResult = true;
+                    diagnostic = ex.GetType().Name;
+                }
             }
 
-            flightGlobalsRuntimeAvailableForTesting = runtimeAvailable;
+            if (cacheResult)
+                flightGlobalsRuntimeAvailableForTesting = runtimeAvailable;
             if (!runtimeAvailable)
             {
                 ParsekLog.Verbose("Extrapolator",
