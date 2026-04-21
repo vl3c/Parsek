@@ -767,10 +767,11 @@ namespace Parsek
                         {
                             string beforeFocus = flight.DescribeWatchFocusForLogs();
                             string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
-                            if (watchAction == TimelineWatchButtonAction.Exit)
-                                flight.ExitWatchMode();
-                            else
-                                flight.EnterWatchMode(recIndex);
+                            ApplyWatchButtonAction(
+                                watchAction,
+                                recIndex,
+                                () => flight.ExitWatchMode(),
+                                index => flight.EnterWatchMode(index));
                             ParsekLog.Info("UI",
                                 $"Timeline W button clicked: {(isWatching ? "exit" : "enter")} watch on " +
                                 $"\"{rec.VesselName}\" id={rec.RecordingId} before={beforeEligibility} " +
@@ -891,6 +892,18 @@ namespace Parsek
         internal static TimelineWatchButtonAction GetWatchButtonAction(bool isWatching)
         {
             return isWatching ? TimelineWatchButtonAction.Exit : TimelineWatchButtonAction.Enter;
+        }
+
+        internal static void ApplyWatchButtonAction(
+            TimelineWatchButtonAction watchAction,
+            int recIndex,
+            Action exitWatchMode,
+            Action<int> enterWatchMode)
+        {
+            if (watchAction == TimelineWatchButtonAction.Exit)
+                exitWatchMode?.Invoke();
+            else
+                enterWatchMode?.Invoke(recIndex);
         }
 
         internal static Dictionary<string, int> BuildRecordingIndexLookup(IReadOnlyList<Recording> recordings)

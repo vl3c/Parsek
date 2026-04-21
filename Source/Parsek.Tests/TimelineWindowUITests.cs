@@ -100,6 +100,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyWatchButtonAction_ExitAction_CallsExitOnly()
+        {
+            bool exitCalled = false;
+            int enteredIndex = -1;
+
+            TimelineWindowUI.ApplyWatchButtonAction(
+                TimelineWindowUI.TimelineWatchButtonAction.Exit,
+                recIndex: 7,
+                exitWatchMode: () => exitCalled = true,
+                enterWatchMode: index => enteredIndex = index);
+
+            Assert.True(exitCalled);
+            Assert.Equal(-1, enteredIndex);
+        }
+
+        [Fact]
+        public void ApplyWatchButtonAction_EnterAction_CallsEnterWithRecordingIndex()
+        {
+            bool exitCalled = false;
+            int enteredIndex = -1;
+
+            TimelineWindowUI.ApplyWatchButtonAction(
+                TimelineWindowUI.TimelineWatchButtonAction.Enter,
+                recIndex: 7,
+                exitWatchMode: () => exitCalled = true,
+                enterWatchMode: index => enteredIndex = index);
+
+            Assert.False(exitCalled);
+            Assert.Equal(7, enteredIndex);
+        }
+
+        [Fact]
         public void HasActionableRewindOrFastForwardButton_FutureRecordingStart_ReturnsTrue()
         {
             var entry = new TimelineEntry
@@ -194,9 +226,9 @@ namespace Parsek.Tests
 
             Assert.Contains("TimelineWatchButtonAction watchAction = GetWatchButtonAction(isWatching);", watchBlock);
             Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", watchBlock);
-            Assert.Contains("if (watchAction == TimelineWatchButtonAction.Exit)", watchBlock);
-            Assert.Contains("flight.ExitWatchMode();", watchBlock);
-            Assert.Contains("flight.EnterWatchMode(recIndex);", watchBlock);
+            Assert.Contains("ApplyWatchButtonAction(", watchBlock);
+            Assert.Contains("() => flight.ExitWatchMode()", watchBlock);
+            Assert.Contains("index => flight.EnterWatchMode(index)", watchBlock);
         }
     }
 }
