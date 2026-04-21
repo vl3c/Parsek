@@ -4403,7 +4403,8 @@ namespace Parsek.InGameTests
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this drives KSP's stock programmatic quickload backend, and a stock-side quickload failure can still hang or poison the current FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this drives KSP's stock programmatic quickload backend. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
@@ -4601,41 +4602,67 @@ namespace Parsek.InGameTests
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this drives KSP's stock programmatic quickload backend, and a stock-side quickload failure can still leave the current FLIGHT session unusable.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this drives KSP's stock programmatic quickload backend. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {
-            // Pre-condition: must have an active recording in tree mode
             var flight = ParsekFlight.Instance;
             InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+
+            bool startedRecordingForTest = false;
             if (!flight.IsRecording)
             {
-                InGameAssert.Skip("no active recording — start a recording before running this test");
-                yield break;
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before F5");
+                startedRecordingForTest = true;
+                yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+                yield return new WaitForSeconds(0.5f);
             }
 
             string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
             InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
             int preFlightInstanceId = flight.GetInstanceID();
 
-            // F5
-            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
-            yield return new WaitForSeconds(2f); // accumulate post-F5 data
+            try
+            {
+                // F5
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+                yield return new WaitForSeconds(2f); // accumulate post-F5 data
 
-            // F9
-            Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                preFlightInstanceId, 15f);
-            yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+                // F9
+                Helpers.QuickloadResumeHelpers.TriggerQuickload();
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    preFlightInstanceId, 15f);
+                yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
 
-            // Re-query: old ParsekFlight instance is destroyed
-            var postFlight = ParsekFlight.Instance;
-            InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after quickload");
-            InGameAssert.IsTrue(postFlight.HasActiveTree, "ActiveTree must be restored after quickload");
+                // Re-query: old ParsekFlight instance is destroyed
+                var postFlight = ParsekFlight.Instance;
+                InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after quickload");
+                InGameAssert.IsTrue(postFlight.HasActiveTree, "ActiveTree must be restored after quickload");
 
-            string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
-            InGameAssert.AreEqual(preRecId, postRecId,
-                $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+                string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
+                InGameAssert.AreEqual(preRecId, postRecId,
+                    $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+            }
+            finally
+            {
+                var cleanupFlight = ParsekFlight.Instance;
+                if (startedRecordingForTest && cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+            }
         }
 
         /// <summary>
@@ -4648,7 +4675,8 @@ namespace Parsek.InGameTests
         /// </summary>
         [InGameTest(Category = "RevertFlow", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, stages the active vessel, and drives stock Revert to Launch in the live FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, stages the active vessel, and drives stock Revert to Launch in the live FLIGHT session. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Stock Revert to Launch soft-unstashes a live recording without opening the merge dialog")]
         public IEnumerator RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog()
         {
