@@ -24,11 +24,24 @@ function Set-MissingProcessEnvVar {
         [System.EnvironmentVariableTarget]::Process)
 
     if (-not [string]::IsNullOrWhiteSpace($currentValue)) {
-        return $null
+        return [PSCustomObject]@{
+            Status = "unchanged"
+            Message = "$Name already set"
+        }
     }
 
-    if ([string]::IsNullOrWhiteSpace($Value) -or -not (Test-Path -LiteralPath $Value)) {
-        return $null
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [PSCustomObject]@{
+            Status = "skipped"
+            Message = "$Name candidate path was empty"
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $Value)) {
+        return [PSCustomObject]@{
+            Status = "skipped"
+            Message = "$Name candidate path not found: $Value"
+        }
     }
 
     [System.Environment]::SetEnvironmentVariable(
@@ -36,7 +49,51 @@ function Set-MissingProcessEnvVar {
         $Value,
         [System.EnvironmentVariableTarget]::Process)
 
-    return "$Name=$Value"
+    return [PSCustomObject]@{
+        Status = "set"
+        Message = "$Name=$Value"
+    }
+}
+
+function Parse-CoverageNumber {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CoverageFile,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AttributeName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RawValue,
+
+        [Parameter(Mandatory = $true)]
+        [System.Type]$TargetType
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RawValue)) {
+        throw "Cobertura coverage file is missing required '$AttributeName' metadata: $CoverageFile"
+    }
+
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    if ($TargetType -eq [double]) {
+        $parsedValue = 0.0
+        if (-not [double]::TryParse($RawValue, [System.Globalization.NumberStyles]::Float, $culture, [ref]$parsedValue)) {
+            throw "Cobertura coverage file has invalid numeric '$AttributeName' metadata '$RawValue': $CoverageFile"
+        }
+
+        return $parsedValue
+    }
+
+    if ($TargetType -eq [int]) {
+        $parsedValue = 0
+        if (-not [int]::TryParse($RawValue, [System.Globalization.NumberStyles]::Integer, $culture, [ref]$parsedValue)) {
+            throw "Cobertura coverage file has invalid integer '$AttributeName' metadata '$RawValue': $CoverageFile"
+        }
+
+        return $parsedValue
+    }
+
+    throw "Unsupported coverage metadata type request for '$AttributeName': $($TargetType.FullName)"
 }
 
 function Initialize-DotnetPathEnvironment {
@@ -61,7 +118,7 @@ function Initialize-DotnetPathEnvironment {
         $bootstrapped += Set-MissingProcessEnvVar -Name "LOCALAPPDATA" -Value (Join-Path $userProfile "AppData\Local")
     }
 
-    return @($bootstrapped | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    return @($bootstrapped | Where-Object { $null -ne $_ })
 }
 
 function Remove-CoverageArtifacts {
@@ -245,12 +302,12 @@ function Write-CoberturaSummary {
     }
 
     $culture = [System.Globalization.CultureInfo]::InvariantCulture
-    $lineRate = [double]::Parse($coverage."line-rate", $culture)
-    $branchRate = [double]::Parse($coverage."branch-rate", $culture)
-    $linesCovered = [int]::Parse($coverage."lines-covered", $culture)
-    $linesValid = [int]::Parse($coverage."lines-valid", $culture)
-    $branchesCovered = [int]::Parse($coverage."branches-covered", $culture)
-    $branchesValid = [int]::Parse($coverage."branches-valid", $culture)
+    $lineRate = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "line-rate" -RawValue $coverage."line-rate" -TargetType ([double])
+    $branchRate = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "branch-rate" -RawValue $coverage."branch-rate" -TargetType ([double])
+    $linesCovered = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "lines-covered" -RawValue $coverage."lines-covered" -TargetType ([int])
+    $linesValid = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "lines-valid" -RawValue $coverage."lines-valid" -TargetType ([int])
+    $branchesCovered = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "branches-covered" -RawValue $coverage."branches-covered" -TargetType ([int])
+    $branchesValid = Parse-CoverageNumber -CoverageFile $CoverageFile -AttributeName "branches-valid" -RawValue $coverage."branches-valid" -TargetType ([int])
     $packages = @($coverageXml.SelectNodes("/coverage/packages/package")).Count
     $classes = @($coverageXml.SelectNodes("/coverage/packages/package/classes/class")).Count
 
@@ -289,7 +346,9 @@ if (-not (Test-Path $projectPath)) {
 New-Item -ItemType Directory -Force -Path $coverageDir | Out-Null
 Remove-CoverageArtifacts -CoverageDir $coverageDir
 
-$bootstrappedEnv = Initialize-DotnetPathEnvironment
+$envBootstrapResults = Initialize-DotnetPathEnvironment
+$bootstrappedEnv = @($envBootstrapResults | Where-Object { $_.Status -eq "set" })
+$skippedBootstrapEnv = @($envBootstrapResults | Where-Object { $_.Status -eq "skipped" })
 
 $coverletOutput = Join-Path $coverageDir "coverage."
 $args = @(
@@ -318,7 +377,12 @@ Write-Host "Coverage log: $coverageLogPath"
 
 if ($bootstrappedEnv.Count -gt 0) {
     Write-Host "Bootstrapped missing Windows path environment for dotnet:"
-    $bootstrappedEnv | ForEach-Object { Write-Host "  $_" }
+    $bootstrappedEnv | ForEach-Object { Write-Host "  $($_.Message)" }
+}
+
+if ($skippedBootstrapEnv.Count -gt 0) {
+    Write-Host "Skipped Windows path environment bootstrap candidates:"
+    $skippedBootstrapEnv | ForEach-Object { Write-Host "  $($_.Message)" }
 }
 
 & dotnet @args 2>&1 | Tee-Object -FilePath $coverageLogPath
