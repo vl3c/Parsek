@@ -32,9 +32,6 @@ namespace Parsek
         // Loop phase offsets: shifted loop phase for Watch mode targeting.
         internal readonly Dictionary<int, double> loopPhaseOffsets = new Dictionary<int, double>();
 
-        // Active explosion GameObjects (tracked for cleanup).
-        internal readonly List<GameObject> activeExplosions = new List<GameObject>();
-
         // Anchor vessel tracking: which anchor vessels are loaded (for looped ghost lifecycle).
         internal readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
 
@@ -58,7 +55,6 @@ namespace Parsek
         // silently culled mid-trajectory.
         internal const int MaxOverlapGhostsPerRecording = 10;
         internal const double OverlapExplosionHoldSeconds = 3.0;
-        internal const int MaxActiveExplosions = 30;
         internal const double HiddenGhostVisibleTierPrewarmBufferMeters = 5000.0;
         internal const double HiddenGhostEventPrewarmLookaheadSeconds = 2.0;
         internal const double InitialVisibleFrameClampWindowSeconds = 0.25;
@@ -136,7 +132,6 @@ namespace Parsek
         // Bug #414: per-phase stopwatches used only to populate the one-shot PlaybackBudgetPhases
         // breakdown that DiagnosticsComputation logs the first time a budget-exceeded frame fires.
         // Allocated once, Reset()+Start()/Stop() each frame — no per-frame GC.
-        private readonly Stopwatch explosionCleanupStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCreatedStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCompletedStopwatch = new Stopwatch();
         private readonly Stopwatch observabilityStopwatch = new Stopwatch();
@@ -411,7 +406,6 @@ namespace Parsek
             destroyStopwatch.Reset();
             // Bug #414: reset per-phase stopwatches used for the one-shot breakdown.
             // Cheap (Reset on a stopped Stopwatch is a single field write).
-            explosionCleanupStopwatch.Reset();
             deferredCreatedStopwatch.Reset();
             deferredCompletedStopwatch.Reset();
             observabilityStopwatch.Reset();
@@ -628,15 +622,6 @@ namespace Parsek
             // own stopwatches inside SpawnGhost/DestroyGhost) can be computed below.
             long elapsedTicksAtLoopEnd = updateStopwatch.ElapsedTicks;
 
-            // Post-loop: cleanup explosions
-            explosionCleanupStopwatch.Start();
-            for (int i = activeExplosions.Count - 1; i >= 0; i--)
-            {
-                if (activeExplosions[i] == null)
-                    activeExplosions.RemoveAt(i);
-            }
-            explosionCleanupStopwatch.Stop();
-
             // Fire deferred events AFTER loop completes
             int createdEventsFired = deferredCreatedEvents.Count;
             deferredCreatedStopwatch.Start();
@@ -701,7 +686,7 @@ namespace Parsek
                 mainLoopMicroseconds = mainLoopMicroseconds,
                 spawnMicroseconds = spawnMicroseconds,
                 destroyMicroseconds = destroyMicroseconds,
-                explosionCleanupMicroseconds = explosionCleanupStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                explosionCleanupMicroseconds = 0, // FXMonger owns explosion-side cleanup; nothing engine-local to measure
                 deferredCreatedEventsMicroseconds = deferredCreatedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
@@ -3842,66 +3827,31 @@ namespace Parsek
 
             state.explosionFired = true;
 
-            // Bug #131: cap active explosion count to prevent frame drops with overlapping reentry loops
-            if (activeExplosions.Count >= MaxActiveExplosions)
-            {
-                GhostPlaybackLogic.HideAllGhostParts(state);
-                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-capped",
-                    $"Explosion skipped for ghost #{recIdx} \"{traj.VesselName}\": " +
-                    $"activeExplosions={activeExplosions.Count} >= cap={MaxActiveExplosions}");
-                return;
-            }
-
             Vector3 worldPos = state.ghost.transform.position;
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
+            double power = Mathf.Clamp01(vesselLength / 20f);
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
+                $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                10.0);
 
-            ParsekLog.VerboseRateLimited("ExplosionFx", $"trigger-{recIdx}",
-                $"Triggering explosion for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m", 10.0);
-
-            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
-            if (explosion != null)
+            try
             {
-                UnityEngine.Object.Destroy(explosion, 6f);
-                activeExplosions.Add(explosion);
-
-                if (activeExplosions.Count > 20)
-                {
-                    for (int e = activeExplosions.Count - 1; e >= 0; e--)
-                    {
-                        if (activeExplosions[e] == null)
-                            activeExplosions.RemoveAt(e);
-                    }
-                }
-
-                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-created",
-                    $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
+                FXMonger.Explode(null, worldPos, power);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ExplosionFx",
+                    $"FXMonger.Explode threw for ghost #{recIdx} \"{traj.VesselName}\"; falling back to custom FX: {ex.Message}");
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
                 $"Ghost #{recIdx} parts hidden after explosion");
-        }
-
-        /// <summary>
-        /// Destroys and clears all active explosion GameObjects.
-        /// </summary>
-        internal void CleanupActiveExplosions()
-        {
-            if (activeExplosions.Count == 0) return;
-            int destroyed = 0;
-            for (int i = activeExplosions.Count - 1; i >= 0; i--)
-            {
-                if (activeExplosions[i] != null)
-                {
-                    UnityEngine.Object.Destroy(activeExplosions[i]);
-                    destroyed++;
-                }
-            }
-            ParsekLog.Verbose("Engine", $"CleanupActiveExplosions: destroyed {destroyed}/{activeExplosions.Count} explosion GOs");
-            activeExplosions.Clear();
         }
 
         /// <summary>
@@ -3941,7 +3891,6 @@ namespace Parsek
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
 
-            CleanupActiveExplosions();
         }
 
         /// <summary>

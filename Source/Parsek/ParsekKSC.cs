@@ -961,6 +961,7 @@ namespace Parsek
                 $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
+            // KSC scene has no FXMonger instance (it's a flight-scene MonoBehaviour); keep the custom FX here.
             var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)
                 Destroy(explosion, 6f);
