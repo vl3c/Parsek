@@ -18,6 +18,20 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~490. Timeline recording rows were missing watch-button parity and watch-state observability compared to the Recordings Manager~~
+
+**Source:** review follow-up on `timeline-watch-buttons-2026-04-21` after the initial Timeline `W` / `W*` feature landed.
+
+**Concern:** the first Timeline implementation added the visible button, but it missed three parity points the Recordings Manager already had: no `CHANGELOG.md` / `todo-and-known-bugs.md` entry for the user-facing feature, no INFO transition logging when a row's watch button changed enabled/disabled state, and a small behavior drift where Timeline let `W*` stay clickable to exit watch mode while the Recordings Manager still disabled the same watched row once the ghost went out of range / left-body / went inactive. The initial tests also pinned the UI by grepping source comments instead of asserting a pure descriptor/helper contract, so harmless wording edits could fail tests while real behavior drift still slipped through.
+
+**Fix / Resolution (2026-04-21):** shipped. Timeline now reuses shared watch-button helpers from `RecordingsTableUI` for tooltip, enablement, and transition-cache updates; both Timeline and Recordings Manager keep a watched `W*` clickable so the player can always exit from the row UI; Timeline logs INFO enabled/disabled transitions keyed by `RecordingId` the same way the table does; and the brittle source-inspection tests were replaced with pure helper tests around `BuildWatchButtonDescriptor`, `BuildRecordingIndexLookup`, `GetWatchButtonAction`, and `ApplyWatchButtonAction`. Added the missing user-facing changelog line and this archive note in the same follow-up.
+
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`, `Source/Parsek.Tests/RecordingsTableUITests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

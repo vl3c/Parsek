@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
+- Timeline recording rows now expose the same `W` / `W*` watch control as the Recordings Manager, including disabled states when a ghost is unavailable and a clickable `W*` to stop watching.
 
 ### Tests
 

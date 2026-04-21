@@ -53,6 +53,110 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowWatchButton_InFlightRecording_ReturnsTrue()
+        {
+            Assert.True(TimelineWindowUI.ShouldShowWatchButton(
+                inFlightMode: true, rec: new Recording()));
+        }
+
+        [Fact]
+        public void ShouldShowWatchButton_NonFlightRecording_ReturnsFalse()
+        {
+            Assert.False(TimelineWindowUI.ShouldShowWatchButton(
+                inFlightMode: false, rec: new Recording()));
+        }
+
+        [Fact]
+        public void BuildWatchButtonDescriptor_EligibleRow_IsEnabledForEnter()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: false, hasGhost: true, sameBody: true, inRange: true, isDebris: false);
+
+            Assert.Equal("W", descriptor.Label);
+            Assert.Equal("Follow ghost in watch mode", descriptor.Tooltip);
+            Assert.True(descriptor.Enabled);
+            Assert.True(descriptor.CanWatch);
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Enter, descriptor.Action);
+        }
+
+        [Fact]
+        public void BuildRecordingIndexLookup_MapsRecordingIdsToIndices()
+        {
+            var lookup = TimelineWindowUI.BuildRecordingIndexLookup(new[]
+            {
+                new Recording { RecordingId = "rec-a" },
+                new Recording { RecordingId = string.Empty },
+                new Recording { RecordingId = "rec-b" }
+            });
+
+            Assert.Equal(0, lookup["rec-a"]);
+            Assert.Equal(2, lookup["rec-b"]);
+            Assert.False(lookup.ContainsKey(string.Empty));
+        }
+
+        [Fact]
+        public void BuildRecordingIndexLookup_NullRecordings_ReturnsEmpty()
+        {
+            var lookup = TimelineWindowUI.BuildRecordingIndexLookup(null);
+
+            Assert.Empty(lookup);
+        }
+
+        [Fact]
+        public void BuildWatchButtonDescriptor_WatchedUnavailableRow_UsesExitTooltipAndStaysEnabled()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
+
+            Assert.Equal("W*", descriptor.Label);
+            Assert.Equal("Exit watch mode", descriptor.Tooltip);
+            Assert.True(descriptor.Enabled);
+            Assert.False(descriptor.CanWatch);
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit, descriptor.Action);
+        }
+
+        [Fact]
+        public void GetWatchButtonAction_TogglesWatchedRowsOff()
+        {
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Enter,
+                TimelineWindowUI.GetWatchButtonAction(isWatching: false));
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit,
+                TimelineWindowUI.GetWatchButtonAction(isWatching: true));
+        }
+
+        [Fact]
+        public void ApplyWatchButtonAction_ExitAction_CallsExitOnly()
+        {
+            bool exitCalled = false;
+            int enteredIndex = -1;
+
+            TimelineWindowUI.ApplyWatchButtonAction(
+                TimelineWindowUI.TimelineWatchButtonAction.Exit,
+                recIndex: 7,
+                exitWatchMode: () => exitCalled = true,
+                enterWatchMode: index => enteredIndex = index);
+
+            Assert.True(exitCalled);
+            Assert.Equal(-1, enteredIndex);
+        }
+
+        [Fact]
+        public void ApplyWatchButtonAction_EnterAction_CallsEnterWithRecordingIndex()
+        {
+            bool exitCalled = false;
+            int enteredIndex = -1;
+
+            TimelineWindowUI.ApplyWatchButtonAction(
+                TimelineWindowUI.TimelineWatchButtonAction.Enter,
+                recIndex: 7,
+                exitWatchMode: () => exitCalled = true,
+                enterWatchMode: index => enteredIndex = index);
+
+            Assert.False(exitCalled);
+            Assert.Equal(7, enteredIndex);
+        }
+
+        [Fact]
         public void HasActionableRewindOrFastForwardButton_FutureRecordingStart_ReturnsTrue()
         {
             var entry = new TimelineEntry
