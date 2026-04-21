@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Headless spawn-validation seam tests now install the body-index override in the landed surface-repair fixture and verify the private production body-index resolver directly, so the xUnit coverage actually exercises the same REF rewrite path that spawn repair uses.
 - Headless `ParsekUI` cleanup now ignores Unity GUI-object teardown calls that are unavailable in plain xUnit, and the title-color regression now exercises the pure normalization helper instead of constructing `GUIStyle` in a non-Unity process.
 - Headless scene-exit finalization tests now skip the live incomplete-ballistic extrapolator when Unity `FlightGlobals` is unavailable, and `TryApply()` now treats escaped headless `SecurityException` / `TypeInitializationException` probes as the same guarded decline path so xUnit reaches its real fallback assertions instead of dying in engine startup.
 - Headless snapshot-validation tests now resolve both snapshot `ORBIT.REF` and the later endpoint-body repair lookup through test seams, and the production fallback now declines cleanly if Unity's body registry still fails to bootstrap, so xUnit can verify endpoint-body repairs and mismatch rejection without booting `FlightGlobals`.

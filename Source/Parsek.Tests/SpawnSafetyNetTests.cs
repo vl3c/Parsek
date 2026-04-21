@@ -19,6 +19,7 @@ namespace Parsek.Tests
         private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
         private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
         private static Dictionary<string, CelestialBody> installedBodiesByName;
+        private static List<CelestialBody> installedBodiesInOrder;
 
         public SpawnSafetyNetTests()
         {
@@ -46,6 +47,7 @@ namespace Parsek.Tests
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, originalFlightGlobalsBodies);
             installedBodiesByName = null;
+            installedBodiesInOrder = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -886,6 +888,7 @@ namespace Parsek.Tests
             InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
             VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
             VesselSpawner.BodyResolverForTesting = ResolveBodyByName;
+            VesselSpawner.BodyIndexResolverForTesting = ResolveBodyIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
@@ -979,7 +982,7 @@ namespace Parsek.Tests
             VesselSpawner.BodyIndexResolverForTesting = ResolveBodyIndex;
 
             Assert.True(VesselSpawner.TryResolveBodyByName("Mun", out CelestialBody body));
-            Assert.True(ResolveBodyIndex(body, out int index));
+            Assert.True(InvokeTryResolveBodyIndex(body, out int index));
             Assert.Equal(1, index);
         }
 
@@ -1997,6 +2000,7 @@ namespace Parsek.Tests
         {
             var bodies = new List<CelestialBody>();
             installedBodiesByName = new Dictionary<string, CelestialBody>(System.StringComparer.Ordinal);
+            installedBodiesInOrder = bodies;
             foreach (var spec in bodySpecs)
             {
                 var body = (CelestialBody)FormatterServices.GetUninitializedObject(typeof(CelestialBody));
@@ -2044,22 +2048,25 @@ namespace Parsek.Tests
         private static bool ResolveBodyIndex(CelestialBody body, out int index)
         {
             index = -1;
-            if (body == null || installedBodiesByName == null)
+            if (body == null || installedBodiesInOrder == null)
                 return false;
+            index = installedBodiesInOrder.IndexOf(body);
+            return index >= 0;
+        }
 
-            int currentIndex = 0;
-            foreach (KeyValuePair<string, CelestialBody> pair in installedBodiesByName)
-            {
-                if (ReferenceEquals(pair.Value, body))
-                {
-                    index = currentIndex;
-                    return true;
-                }
+        private static bool InvokeTryResolveBodyIndex(CelestialBody body, out int index)
+        {
+            index = -1;
+            MethodInfo method = typeof(VesselSpawner).GetMethod(
+                "TryResolveBodyIndex",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
 
-                currentIndex++;
-            }
-
-            return false;
+            object[] args = { body, -1 };
+            bool resolved = (bool)method.Invoke(null, args);
+            if (resolved)
+                index = (int)args[1];
+            return resolved;
         }
 
         #endregion

@@ -42,6 +42,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~507. The new headless body-index seam coverage did not actually hit the production resolver, and the landed surface-repair fixture forgot to install the seam at all~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the seam test was only calling its own helper instead of `VesselSpawner.TryResolveBodyIndex(...)`, so it could pass or fail without telling us whether the production override was wired correctly. Separately, the landed surface-repair fixture resolved body names through the new seam but never installed the matching body-index override, so the `REF` rewrite stayed on the stale orbit body even though the endpoint repair path was otherwise correct.
+
+**Fix:** the seam test now invokes the private production resolver via reflection, the landed surface-repair fixture installs `BodyIndexResolverForTesting`, and the fixture-local body-index resolver now uses the install order list directly instead of dictionary enumeration.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
