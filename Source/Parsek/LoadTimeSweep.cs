@@ -124,11 +124,9 @@ namespace Parsek
             }
 
             // RPs: session-provisional AND not in the spare set are dead
-            // weight. Their on-disk quicksave + scenario entry are removed
-            // by the Phase 11 reaper once we flip SessionProvisional to
-            // false, but that path only reaps persistent RPs. Session-
-            // provisional RPs that belong to no-longer-live sessions are
-            // dropped directly here.
+            // weight. Session-provisional RPs that belong to no-longer-live
+            // sessions are purged directly here, including their quicksave
+            // file and BranchPoint back-reference.
             var discardRps = new List<RewindPoint>();
             if (scenario.RewindPoints != null)
             {
@@ -429,7 +427,9 @@ namespace Parsek
                 if (rp == null) continue;
                 if (rp.RewindPointId == null || !ids.Contains(rp.RewindPointId)) continue;
 
+                RewindPointReaper.TryDeleteQuicksaveFile(rp);
                 scenario.RewindPoints.RemoveAt(i);
+                RewindPointReaper.ClearBranchPointBackref(rp);
                 ParsekLog.Info(RewindTag,
                     $"Purged session-prov rp={rp.RewindPointId ?? "<no-id>"} " +
                     $"bp={rp.BranchPointId ?? "<no-bp>"} " +

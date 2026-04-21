@@ -5,9 +5,11 @@ namespace Parsek
 {
     /// <summary>
     /// Singleton journal for crash-recoverable staged-commit merges (design
-    /// doc sections 5.8 + 6.6). Written in-memory at merge step 1 and durably
-    /// saved at step 8; cleared at step 13 and durably saved at step 14. Its
-    /// presence on load triggers the finisher in section 6.9 step 2.
+    /// doc sections 5.8 + 6.6). Written in-memory at merge step 1 and
+    /// persisted at each stable crash-recovery barrier; finally cleared before
+    /// the last durable save so the terminal merged state lands on disk with
+    /// no live journal. Its presence on load triggers the finisher in
+    /// section 6.9 step 2.
     ///
     /// <para>Phase 1 only defines the data shape; behavior (the finisher and
     /// the staged-commit writer) arrives in later phases. The
@@ -25,6 +27,13 @@ namespace Parsek
         public string JournalId;
 
         public string SessionId;
+
+        /// <summary>
+        /// RecordingTree the staged merge belongs to. Added so purge/cleanup
+        /// paths can scope a live journal without inferring through the
+        /// marker, which may already be cleared in post-Durable1 phases.
+        /// </summary>
+        public string TreeId;
 
         /// <summary>
         /// Phase string. v1 only writes <see cref="Phases.Begin"/> while a merge is
@@ -102,6 +111,7 @@ namespace Parsek
             ConfigNode node = parent.AddNode(NodeName);
             node.AddValue("journalId", JournalId ?? "");
             node.AddValue("sessionId", SessionId ?? "");
+            node.AddValue("treeId", TreeId ?? "");
             node.AddValue("phase", string.IsNullOrEmpty(Phase) ? Phases.Begin : Phase);
             node.AddValue("startedUT", StartedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(StartedRealTime))
@@ -119,6 +129,9 @@ namespace Parsek
 
             string sid = node.GetValue("sessionId");
             j.SessionId = string.IsNullOrEmpty(sid) ? null : sid;
+
+            string treeId = node.GetValue("treeId");
+            j.TreeId = string.IsNullOrEmpty(treeId) ? null : treeId;
 
             string phase = node.GetValue("phase");
             j.Phase = string.IsNullOrEmpty(phase) ? Phases.Begin : phase;

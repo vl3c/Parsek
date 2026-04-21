@@ -211,7 +211,8 @@ namespace Parsek.Tests
             Assert.Empty(scenario.LedgerTombstones);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
             Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
-            // No durable save fired before the crash.
+            Assert.Contains("begin", durableSaveCheckpoints);
+            // No post-merge durable save fired before the crash.
             Assert.DoesNotContain("durable1", durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
@@ -243,6 +244,7 @@ namespace Parsek.Tests
                 scenario.LedgerTombstones[0].ActionId);
             Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Contains("begin", durableSaveCheckpoints);
             Assert.DoesNotContain("durable1", durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
@@ -270,6 +272,7 @@ namespace Parsek.Tests
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Null(provisional.SupersedeTargetId);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Contains("begin", durableSaveCheckpoints);
             Assert.DoesNotContain("durable1", durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
@@ -291,6 +294,7 @@ namespace Parsek.Tests
             RunUntil(MergeJournalOrchestrator.Phase.Durable1Done, scenario, provisional);
 
             Assert.Equal(MergeJournal.Phases.Durable1Done, scenario.ActiveMergeJournal.Phase);
+            Assert.Contains("begin", durableSaveCheckpoints);
             Assert.Contains("durable1", durableSaveCheckpoints);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
             // Pre-finisher: the RP is still session-provisional (tag step not run yet).
@@ -328,6 +332,8 @@ namespace Parsek.Tests
             // RP has empty slots so it was already reaped from the scenario.
             Assert.Empty(scenario.RewindPoints);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Contains("begin", durableSaveCheckpoints);
+            Assert.Contains("durable1", durableSaveCheckpoints);
             Assert.DoesNotContain("finisher-durable2", durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();

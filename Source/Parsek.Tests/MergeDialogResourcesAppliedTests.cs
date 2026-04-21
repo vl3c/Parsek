@@ -51,6 +51,9 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
+            ParsekScenario.ResetInstanceForTesting();
+            RecordingStore.SaveGameForTesting = null;
+            MergeJournalOrchestrator.ResetTestOverrides();
         }
 
         public void Dispose()
@@ -61,6 +64,9 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
+            ParsekScenario.ResetInstanceForTesting();
+            RecordingStore.SaveGameForTesting = null;
+            MergeJournalOrchestrator.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
@@ -102,6 +108,20 @@ namespace Parsek.Tests
             for (int i = 0; i < recordings.Length; i++)
                 tree.Recordings[recordings[i].RecordingId] = recordings[i];
             return tree;
+        }
+
+        private static ReFlySessionMarker MakeMarker(
+            string sessionId, string treeId, string provisionalId, string originId)
+        {
+            return new ReFlySessionMarker
+            {
+                SessionId = sessionId,
+                TreeId = treeId,
+                ActiveReFlyRecordingId = provisionalId,
+                OriginChildRecordingId = originId,
+                RewindPointId = "rp_merge_dialog",
+                InvokedUT = 0.0,
+            };
         }
 
         private static Milestone MakeCommittedMilestone(string id, double startUT, double endUT,
@@ -305,6 +325,106 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Tree Merge")
                 && l.Contains("tree-log"));
+        }
+
+        [Fact]
+        public void MergeCommit_ReFlyPath_RefreshesQuicksaveAfterMarkerClears()
+        {
+            var origin = MakeRecording("rec-origin", "tree-refly", 100.0, 200.0);
+            var provisional = MakeRecording("rec-provisional", "tree-refly", 100.0, 220.0);
+            provisional.MergeState = MergeState.NotCommitted;
+            provisional.SupersedeTargetId = origin.RecordingId;
+            provisional.TerminalStateValue = TerminalState.Landed;
+
+            var tree = MakeTree("tree-refly", provisional.RecordingId, origin, provisional);
+            RecordingStore.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = MakeMarker(
+                    "sess-refly", "tree-refly", provisional.RecordingId, origin.RecordingId),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
+            bool quicksaveObserved = false;
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                if (saveName == "quicksave")
+                {
+                    Assert.Null(scenario.ActiveReFlySessionMarker);
+                    Assert.Equal(MergeState.Immutable, provisional.MergeState);
+                    quicksaveObserved = true;
+                }
+                return "ok";
+            };
+
+            MergeDialog.MergeCommit(
+                tree,
+                new Dictionary<string, bool>
+                {
+                    { origin.RecordingId, false },
+                    { provisional.RecordingId, false },
+                },
+                spawnCount: 0);
+
+            Assert.True(quicksaveObserved);
+            Assert.Null(scenario.ActiveMergeJournal);
+        }
+
+        [Fact]
+        public void MergeCommit_InterruptedReFlyPath_SkipsQuicksaveRefresh()
+        {
+            var origin = MakeRecording("rec-origin-int", "tree-refly-int", 100.0, 200.0);
+            var provisional = MakeRecording("rec-provisional-int", "tree-refly-int", 100.0, 220.0);
+            provisional.MergeState = MergeState.NotCommitted;
+            provisional.SupersedeTargetId = origin.RecordingId;
+            provisional.TerminalStateValue = TerminalState.Landed;
+
+            var tree = MakeTree("tree-refly-int", provisional.RecordingId, origin, provisional);
+            RecordingStore.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = MakeMarker(
+                    "sess-refly-int", "tree-refly-int", provisional.RecordingId, origin.RecordingId),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int quicksaveCalls = 0;
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                if (saveName == "quicksave") quicksaveCalls++;
+                return "ok";
+            };
+            MergeJournalOrchestrator.FaultInjectionPoint = MergeJournalOrchestrator.Phase.Finalize;
+            MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
+
+            try
+            {
+                MergeDialog.MergeCommit(
+                    tree,
+                    new Dictionary<string, bool>
+                    {
+                        { origin.RecordingId, false },
+                        { provisional.RecordingId, false },
+                    },
+                    spawnCount: 0);
+            }
+            finally
+            {
+                MergeJournalOrchestrator.FaultInjectionPoint = null;
+            }
+
+            Assert.Equal(0, quicksaveCalls);
+            Assert.NotNull(scenario.ActiveMergeJournal);
+            Assert.Equal(MergeJournal.Phases.Finalize, scenario.ActiveMergeJournal.Phase);
         }
 
         // ================================================================

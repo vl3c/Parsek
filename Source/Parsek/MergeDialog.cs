@@ -10,6 +10,13 @@ namespace Parsek
     {
         private const string MergeLockId = "ParsekMergeDialog";
 
+        internal enum ReFlyMergeCommitResult
+        {
+            NotApplicable,
+            Completed,
+            Interrupted,
+        }
+
         /// <summary>
         /// Fired after a tree is committed via the merge dialog.
         /// ParsekFlight subscribes to re-evaluate ghost chains.
@@ -157,11 +164,6 @@ namespace Parsek
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
             RecordingStore.RunOptimizationPass();
-            // #292: Refresh quicksave so subsequent F9 quickloads include the
-            // recording IDs added by this merge (otherwise F9 loads a stale
-            // quicksave from before the merge and silently drops them).
-            RecordingStore.RefreshQuicksaveAfterMerge(
-                "merge dialog Tree Merge", tree.Recordings.Count);
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
             CrewReservationManager.SwapReservedCrewInFlight();
 
@@ -172,7 +174,17 @@ namespace Parsek
             // storage into the committed list) and BEFORE firing
             // OnTreeCommitted (so downstream chain evaluators see the
             // superseded subtree hidden from ERS).
-            TryCommitReFlySupersede();
+            ReFlyMergeCommitResult reFlyResult = TryCommitReFlySupersede();
+
+            // #292 + rewind-staging follow-up: refresh quicksave only after the
+            // re-fly staged commit has either completed or been bypassed.
+            // Interrupted re-fly commits intentionally skip the refresh so F9
+            // cannot resurrect a half-committed session from a stale snapshot.
+            if (reFlyResult != ReFlyMergeCommitResult.Interrupted)
+            {
+                RecordingStore.RefreshQuicksaveAfterMerge(
+                    "merge dialog Tree Merge", tree.Recordings.Count);
+            }
 
             ClearPendingFlag();
             OnTreeCommitted?.Invoke();
@@ -224,14 +236,14 @@ namespace Parsek
         /// silently when no session is active — the regular tree-merge flow
         /// is unchanged.
         /// </summary>
-        internal static void TryCommitReFlySupersede()
+        internal static ReFlyMergeCommitResult TryCommitReFlySupersede()
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
             {
                 ParsekLog.Verbose("MergeDialog",
                     "TryCommitReFlySupersede: no scenario instance — skipping re-fly commit path");
-                return;
+                return ReFlyMergeCommitResult.NotApplicable;
             }
 
             var marker = scenario.ActiveReFlySessionMarker;
@@ -240,7 +252,7 @@ namespace Parsek
                 ParsekLog.Verbose("MergeDialog",
                     "TryCommitReFlySupersede: no active re-fly session marker — " +
                     "regular tree-merge flow, no supersede relations to write");
-                return;
+                return ReFlyMergeCommitResult.NotApplicable;
             }
 
             string provisionalId = marker.ActiveReFlyRecordingId;
@@ -250,7 +262,7 @@ namespace Parsek
                     $"TryCommitReFlySupersede: marker sess={marker.SessionId ?? "<no-id>"} " +
                     "has no ActiveReFlyRecordingId — cannot commit supersede; " +
                     "leaving marker in place for load-time sweep");
-                return;
+                return ReFlyMergeCommitResult.Interrupted;
             }
 
             Recording provisional = FindCommittedRecording(provisionalId);
@@ -260,7 +272,7 @@ namespace Parsek
                     $"TryCommitReFlySupersede: provisional rec={provisionalId} " +
                     "not found in committed list after tree commit; " +
                     "leaving marker in place for load-time sweep");
-                return;
+                return ReFlyMergeCommitResult.Interrupted;
             }
 
             ParsekLog.Info("MergeDialog",
@@ -280,7 +292,7 @@ namespace Parsek
                     $"journal will drive recovery on next load");
                 ParsekLog.ScreenMessage(
                     "Merge interrupted — will finish on next load", 3f);
-                return;
+                return ReFlyMergeCommitResult.Interrupted;
             }
 
             if (!ok)
@@ -289,7 +301,10 @@ namespace Parsek
                     $"TryCommitReFlySupersede: orchestrator returned false for " +
                     $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId}");
                 ParsekLog.ScreenMessage("Merge commit skipped (see log)", 3f);
+                return ReFlyMergeCommitResult.Interrupted;
             }
+
+            return ReFlyMergeCommitResult.Completed;
         }
 
         // Raw committed-list scan by id. Kept local to the merge path so we

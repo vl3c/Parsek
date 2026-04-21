@@ -445,16 +445,10 @@ namespace Parsek
 
         private static bool ClearJournalIfScopedToTree(ParsekScenario scenario, string treeId)
         {
-            // A live merge journal always belongs to the session whose marker
-            // we just cleared (if any). If the marker cleared above targeted
-            // this tree, drop the journal too so the OnLoad finisher doesn't
-            // try to resume a merge whose inputs are gone. When the marker
-            // was null (or scoped to a different tree), leave the journal
-            // alone.
-            var marker = scenario.ActiveReFlySessionMarker;
-            if (marker != null) return false; // marker still live -> journal belongs to something else
             var journal = scenario.ActiveMergeJournal;
             if (journal == null) return false;
+            if (!string.Equals(journal.TreeId, treeId, StringComparison.Ordinal))
+                return false;
 
             string journalId = journal.JournalId ?? "<no-id>";
             scenario.ActiveMergeJournal = null;

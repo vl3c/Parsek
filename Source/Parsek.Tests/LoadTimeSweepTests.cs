@@ -19,6 +19,7 @@ namespace Parsek.Tests
     public class LoadTimeSweepTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly List<string> deletedRpIds = new List<string>();
         private readonly bool priorParsekLogSuppress;
         private readonly bool priorStoreSuppress;
 
@@ -39,6 +40,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             MarkerValidator.ResetTestOverrides();
+            RewindPointReaper.ResetTestOverrides();
 
             // Keep the "current UT" finite so InvokedUT comparisons are
             // deterministic (tests opt into a specific value via the
@@ -58,6 +60,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            RewindPointReaper.ResetTestOverrides();
         }
 
         // ---------- Helpers -----------------------------------------------
@@ -409,6 +412,7 @@ namespace Parsek.Tests
         {
             // No marker; a leftover NotCommitted provisional recording
             // plus a session-provisional RP referencing a defunct session.
+            var bp = Bp("bp_1", "rp_dead");
             InstallTree("tree_1",
                 new List<Recording>
                 {
@@ -416,9 +420,14 @@ namespace Parsek.Tests
                         supersedeTarget: "rec_origin"),
                     Rec("rec_origin", MergeState.CommittedProvisional),
                 },
-                new List<BranchPoint> { Bp("bp_1", "rp_dead") });
+                new List<BranchPoint> { bp });
             var zombieRp = Rp("rp_dead", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_dead", slots: new[] { Slot(0, "rec_origin") });
+            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            {
+                deletedRpIds.Add(id);
+                return true;
+            };
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { zombieRp },
                 marker: null);
@@ -427,6 +436,8 @@ namespace Parsek.Tests
 
             Assert.Null(FindRecording("rec_zombie"));
             Assert.Empty(scenario.RewindPoints);
+            Assert.Contains("rp_dead", deletedRpIds);
+            Assert.Null(bp.RewindPointId);
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Zombie discarded rec=rec_zombie"));
             Assert.Contains(logLines, l =>

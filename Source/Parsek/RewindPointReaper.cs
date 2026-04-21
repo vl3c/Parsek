@@ -215,7 +215,7 @@ namespace Parsek
             return null;
         }
 
-        private static bool TryDeleteQuicksaveFile(RewindPoint rp)
+        internal static bool TryDeleteQuicksaveFile(RewindPoint rp)
         {
             var hook = DeleteQuicksaveForTesting;
             if (hook != null)
@@ -287,7 +287,7 @@ namespace Parsek
             return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, relPath));
         }
 
-        private static bool ClearBranchPointBackref(RewindPoint rp)
+        internal static bool ClearBranchPointBackref(RewindPoint rp)
         {
             if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
                 return false;

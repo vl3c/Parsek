@@ -26,6 +26,9 @@ namespace Parsek.Tests
         private readonly bool priorParsekLogSuppress;
         private readonly bool priorStoreSuppress;
         private readonly List<string> durableSaveCheckpoints = new List<string>();
+        private readonly List<(string saveName, string saveFolder, SaveMode mode)> saveCalls
+            = new List<(string, string, SaveMode)>();
+        private readonly List<string> journalPhasesAtSave = new List<string>();
 
         public MergeJournalOrchestratorTests()
         {
@@ -245,8 +248,8 @@ namespace Parsek.Tests
             Assert.DoesNotContain(scenario.RewindPoints,
                 r => r.RewindPointId == "rp_persistent");
 
-            // All 3 durable saves fired in order.
-            Assert.Equal(new[] { "durable1", "durable2", "durable3" },
+            // Begin + all 3 stable durable barriers fired in order.
+            Assert.Equal(new[] { "begin", "durable1", "durable2", "durable3" },
                 durableSaveCheckpoints.ToArray());
 
             // §10.8 journal log contract.
@@ -404,7 +407,7 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Durable1Done,
                 scenario.ActiveMergeJournal.Phase);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            Assert.Single(durableSaveCheckpoints); // only durable1 before crash
+            Assert.Equal(new[] { "begin", "durable1" }, durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
 
@@ -417,8 +420,9 @@ namespace Parsek.Tests
             Assert.DoesNotContain(scenario.RewindPoints,
                 r => r.RewindPointId == "rp_session_1");
 
-            // All three durable saves eventually fire (the pre-crash
-            // durable1 + the finisher's durable2 + durable3).
+            // The begin checkpoint plus the pre-crash durable1 and the
+            // finisher's deferred durable2 + durable3 all fire.
+            Assert.Contains("begin", durableSaveCheckpoints);
             Assert.Contains("durable1", durableSaveCheckpoints);
             Assert.Contains("finisher-durable2", durableSaveCheckpoints);
             Assert.Contains("durable3", durableSaveCheckpoints);
@@ -530,6 +534,61 @@ namespace Parsek.Tests
             // Second call: no journal -> no-op.
             bool secondRun = MergeJournalOrchestrator.RunFinisher();
             Assert.False(secondRun);
+        }
+
+        [Fact]
+        public void RunMerge_ProductionPath_PersistsStableCheckpointsToPersistent()
+        {
+            MergeJournalOrchestrator.DurableSaveForTesting = null;
+            MergeJournalOrchestrator.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                saveCalls.Add((saveName, saveFolder, mode));
+                journalPhasesAtSave.Add(
+                    ParsekScenario.Instance?.ActiveMergeJournal?.Phase ?? "<cleared>");
+                return "ok";
+            };
+
+            var (scenario, provisional) = MakeStandardFixture();
+
+            bool ok = MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.True(ok);
+            Assert.Equal(4, saveCalls.Count);
+            Assert.All(saveCalls, call =>
+            {
+                Assert.Equal("persistent", call.saveName);
+                Assert.Equal(SaveMode.OVERWRITE, call.mode);
+            });
+            Assert.Equal(
+                new[]
+                {
+                    MergeJournal.Phases.Begin,
+                    MergeJournal.Phases.Durable1Done,
+                    MergeJournal.Phases.Durable2Done,
+                    "<cleared>",
+                },
+                journalPhasesAtSave);
+        }
+
+        [Fact]
+        public void RunFinisher_ProductionPath_DoesNotInvokeSaveGame()
+        {
+            var (scenario, provisional) = MakeStandardFixture();
+            TryRunWithFault(MergeJournalOrchestrator.Phase.Durable1Done,
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            MergeJournalOrchestrator.DurableSaveForTesting = null;
+            MergeJournalOrchestrator.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                saveCalls.Add((saveName, saveFolder, mode));
+                return "ok";
+            };
+
+            bool ran = MergeJournalOrchestrator.RunFinisher();
+
+            Assert.True(ran);
+            Assert.Empty(saveCalls);
         }
 
         [Fact]

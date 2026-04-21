@@ -14,6 +14,7 @@ namespace Parsek.Tests
             {
                 JournalId = "mj_1",
                 SessionId = "rf_c3d4",
+                TreeId = "tree_1",
                 Phase = MergeJournal.Phases.Begin,
                 StartedUT = 1742800.0,
                 StartedRealTime = "2026-04-18T12:00:00Z"
@@ -27,6 +28,7 @@ namespace Parsek.Tests
             var restored = MergeJournal.LoadFrom(node);
             Assert.Equal("mj_1", restored.JournalId);
             Assert.Equal("rf_c3d4", restored.SessionId);
+            Assert.Equal("tree_1", restored.TreeId);
             Assert.Equal(MergeJournal.Phases.Begin, restored.Phase);
             Assert.Equal(1742800.0, restored.StartedUT);
             Assert.Equal("2026-04-18T12:00:00Z", restored.StartedRealTime);
@@ -73,6 +75,7 @@ namespace Parsek.Tests
             var restored = MergeJournal.LoadFrom(parent.GetNode("MERGE_JOURNAL"));
 
             Assert.Equal(100.0, restored.StartedUT);
+            Assert.Null(restored.TreeId);
             Assert.Null(restored.StartedRealTime);
         }
     }

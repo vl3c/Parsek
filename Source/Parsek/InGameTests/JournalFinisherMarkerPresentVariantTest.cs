@@ -47,6 +47,7 @@ namespace Parsek.InGameTests
             {
                 JournalId = "mj_intest_" + System.Guid.NewGuid().ToString("N"),
                 SessionId = marker.SessionId,
+                TreeId = marker.TreeId,
                 Phase = MergeJournal.Phases.Durable1Done,
                 StartedUT = Planetarium.GetUniversalTime(),
                 StartedRealTime = System.DateTime.UtcNow.ToString("o"),

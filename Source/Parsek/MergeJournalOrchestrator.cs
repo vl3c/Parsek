@@ -8,8 +8,8 @@ namespace Parsek
     /// Phase 10 of Rewind-to-Staging (design §5.8, §6.6, §6.9 step 2, §10.8):
     /// journaled staged-commit orchestrator for merging a re-fly session. Wraps
     /// the in-memory <see cref="SupersedeCommit"/> steps in five crash-recovery
-    /// checkpoints, each durably reflected in <see cref="MergeJournal.Phase"/>,
-    /// and exposes the load-time finisher that resumes an interrupted merge.
+    /// checkpoints, persists the stable merge-path barriers to disk, and
+    /// exposes the load-time finisher that resumes an interrupted merge.
     ///
     /// <para>
     /// The 14 granular design-doc steps are consolidated into five recovery
@@ -46,8 +46,9 @@ namespace Parsek
     /// scenario state-version bumps via
     /// <see cref="ParsekScenario.BumpSupersedeStateVersion"/> +
     /// <see cref="ParsekScenario.BumpTombstoneStateVersion"/>;
-    /// three durable saves at the checkpoints (pluggable via
-    /// <see cref="DurableSaveForTesting"/>).
+    /// four persistent saves at the stable barriers (pluggable via
+    /// <see cref="DurableSaveForTesting"/> / <see cref="SaveGameForTesting"/>):
+    /// Begin, Durable1Done, Durable2Done, and the final cleared state.
     /// </para>
     ///
     /// <para>
@@ -94,24 +95,25 @@ namespace Parsek
         internal static Phase? FaultInjectionPoint;
 
         /// <summary>
-        /// Test seam: when non-null, replaces the real durable-save invocation
-        /// with the injected callback. Production code leaves this null and
-        /// the orchestrator no-ops the save (ScenarioModule OnSave fires on
-        /// the next natural save — the journal on disk is the durability
-        /// guarantee, not a synchronous SaveGame call).
-        ///
-        /// <para>
-        /// Rationale: mid-commit <c>GamePersistence.SaveGame</c> would re-enter
-        /// OnSave while we are still mutating scenario state, which is
-        /// explicitly called out as unsafe by
-        /// <see cref="RecordingStore.RefreshQuicksaveAfterMerge"/>. The
-        /// journal's phase string IS the durable barrier; the scenario save
-        /// that follows (e.g. F5 or scene change) flushes the terminal state
-        /// to disk. Tests inject a synchronous save stub so they can observe
-        /// the checkpoint ordering.
-        /// </para>
-        /// </summary>
+    /// Test seam: when non-null, replaces the durable-checkpoint behavior with
+    /// the injected callback.
+    ///
+    /// <para>
+    /// Production <see cref="RunMerge"/> persists the stable barriers
+    /// (<c>Begin</c>, <c>Durable1Done</c>, <c>Durable2Done</c>, and
+    /// <c>Complete</c>) by synchronously saving <c>persistent.sfs</c>.
+    /// <see cref="RunFinisher"/> intentionally does NOT do that because it
+    /// executes during <see cref="ParsekScenario.OnLoad"/> and must not
+    /// re-enter <c>OnSave</c>.
+    /// </para>
+    /// </summary>
         internal static Action<string> DurableSaveForTesting;
+
+        /// <summary>
+        /// Test seam for the production persistent-save call used by
+        /// <see cref="RunMerge"/>'s stable durability barriers.
+        /// </summary>
+        internal static Func<string, string, SaveMode, string> SaveGameForTesting;
 
         /// <summary>
         /// Clears all test seams. Called from the <c>Dispose</c> of any test
@@ -122,6 +124,7 @@ namespace Parsek
         {
             FaultInjectionPoint = null;
             DurableSaveForTesting = null;
+            SaveGameForTesting = null;
         }
 
         /// <summary>
@@ -182,6 +185,7 @@ namespace Parsek
             {
                 JournalId = "mj_" + Guid.NewGuid().ToString("N"),
                 SessionId = marker.SessionId,
+                TreeId = marker.TreeId,
                 Phase = MergeJournal.Phases.Begin,
                 StartedUT = startedUT,
                 StartedRealTime = startedRealTime,
@@ -189,6 +193,7 @@ namespace Parsek
             scenario.ActiveMergeJournal = journal;
             ParsekLog.Info(Tag,
                 $"sess={sessionId} phase={MergeJournal.Phases.Begin}");
+            DurableSave("begin", persistSynchronously: true);
             MaybeInject(Phase.Begin);
 
             // Step 2: supersede relations (§6.6 step 3).
@@ -210,11 +215,11 @@ namespace Parsek
             AdvancePhase(scenario, MergeJournal.Phases.Finalize);
             MaybeInject(Phase.Finalize);
 
+            AdvancePhase(scenario, MergeJournal.Phases.Durable1Done);
             // Step 5: Durable Save #1 (§6.6 step 8). Memory and disk agree on
             // supersedes + tombstones + MergeState + reservation state. Marker
             // + RPs still present.
-            DurableSave("durable1");
-            AdvancePhase(scenario, MergeJournal.Phases.Durable1Done);
+            DurableSave("durable1", persistSynchronously: true);
             MaybeInject(Phase.Durable1Done);
 
             // Step 6: tag session-provisional RPs for reap (§6.6 step 9) and
@@ -238,13 +243,13 @@ namespace Parsek
             AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
             MaybeInject(Phase.MarkerCleared);
 
-            // Step 8: Durable Save #2 (§6.6 step 12).
-            DurableSave("durable2");
             AdvancePhase(scenario, MergeJournal.Phases.Durable2Done);
+            // Step 8: Durable Save #2 (§6.6 step 12).
+            DurableSave("durable2", persistSynchronously: true);
             MaybeInject(Phase.Durable2Done);
 
             // Step 9: clear journal + Durable Save #3 (§6.6 steps 13-14).
-            ClearJournalAndFinalSave(scenario, sessionId);
+            ClearJournalAndFinalSave(scenario, sessionId, persistSynchronously: true);
             return true;
         }
 
@@ -284,9 +289,9 @@ namespace Parsek
 
             if (phase == MergeJournal.Phases.Complete)
             {
-                // §6.6 step 14: journal reached Complete but Durable Save #3
-                // crashed before clearing. Clear idempotently.
-                ClearJournalAndFinalSave(scenario, sessionId);
+                // Legacy/older saves may persist Phase=Complete instead of the
+                // fully-cleared terminal state. Clear idempotently.
+                ClearJournalAndFinalSave(scenario, sessionId, persistSynchronously: false);
                 return true;
             }
 
@@ -335,7 +340,7 @@ namespace Parsek
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
 
-            DurableSave("rollback");
+            DurableSave("rollback", persistSynchronously: false);
 
             ParsekLog.Info(Tag,
                 $"Rolled back from phase={fromPhase}: session restored sess={sessionId} " +
@@ -377,12 +382,12 @@ namespace Parsek
 
             if (journal.Phase == MergeJournal.Phases.MarkerCleared)
             {
-                DurableSave("finisher-durable2");
                 AdvancePhase(scenario, MergeJournal.Phases.Durable2Done);
+                DurableSave("finisher-durable2", persistSynchronously: false);
                 stepsDriven++;
             }
 
-            ClearJournalAndFinalSave(scenario, sessionId);
+            ClearJournalAndFinalSave(scenario, sessionId, persistSynchronously: false);
             ParsekLog.Info(Tag,
                 $"Completed from phase={fromPhase} sess={sessionId} stepsDriven={stepsDriven.ToString(CultureInfo.InvariantCulture)}");
         }
@@ -405,7 +410,7 @@ namespace Parsek
                 $"sess={scenario.ActiveMergeJournal.SessionId ?? "<no-id>"} phase={phase}");
         }
 
-        private static void DurableSave(string label)
+        private static void DurableSave(string label, bool persistSynchronously)
         {
             var hook = DurableSaveForTesting;
             if (hook != null)
@@ -413,20 +418,58 @@ namespace Parsek
                 hook(label);
                 return;
             }
-            // Production path: no synchronous SaveGame here — the journal's
-            // phase string IS the durable barrier. The next ScenarioModule
-            // OnSave (scene change, F5, auto-save) flushes the terminal state
-            // to disk. See DurableSaveForTesting rationale.
-            ParsekLog.Verbose(Tag, $"DurableSave checkpoint={label} (deferred to next ScenarioModule OnSave)");
+
+            if (!persistSynchronously)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"DurableSave checkpoint={label} (deferred: load-time finisher avoids SaveGame re-entry)");
+                return;
+            }
+
+            var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
+            if (SaveGameForTesting == null)
+            {
+                if (HighLogic.CurrentGame == null)
+                    throw new InvalidOperationException(
+                        $"DurableSave checkpoint={label} failed: HighLogic.CurrentGame is null");
+                if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+                    throw new InvalidOperationException(
+                        $"DurableSave checkpoint={label} failed: HighLogic.SaveFolder is empty");
+            }
+
+            string result = saveFn("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+            if (string.IsNullOrEmpty(result))
+            {
+                throw new InvalidOperationException(
+                    $"DurableSave checkpoint={label} failed: GamePersistence.SaveGame returned null");
+            }
+
+            ParsekLog.Info(Tag,
+                $"DurableSave checkpoint={label} persisted via persistent.sfs");
         }
 
-        private static void ClearJournalAndFinalSave(ParsekScenario scenario, string sessionId)
+        private static void ClearJournalAndFinalSave(
+            ParsekScenario scenario, string sessionId, bool persistSynchronously)
         {
             // §6.6 step 13-14 + §10.8 "Cleared" log.
-            if (scenario.ActiveMergeJournal != null)
-                scenario.ActiveMergeJournal.Phase = MergeJournal.Phases.Complete;
-            DurableSave("durable3");
-            scenario.ActiveMergeJournal = null;
+            //
+            // Production RunMerge must durably persist the *cleared* journal
+            // state, so clear before the final SaveGame call. The load-time
+            // finisher cannot do that because it must not re-enter OnSave;
+            // there we keep the legacy Complete marker semantics and clear
+            // only in memory.
+            if (persistSynchronously)
+            {
+                scenario.ActiveMergeJournal = null;
+                DurableSave("durable3", persistSynchronously: true);
+            }
+            else
+            {
+                if (scenario.ActiveMergeJournal != null)
+                    scenario.ActiveMergeJournal.Phase = MergeJournal.Phases.Complete;
+                DurableSave("durable3", persistSynchronously: false);
+                scenario.ActiveMergeJournal = null;
+            }
             ParsekLog.Verbose(Tag, $"sess={sessionId} cleared");
             ParsekLog.Info(Tag, $"Completed sess={sessionId}");
         }

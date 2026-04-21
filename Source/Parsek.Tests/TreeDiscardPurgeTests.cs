@@ -337,6 +337,7 @@ namespace Parsek.Tests
             {
                 JournalId = "mj_1",
                 SessionId = "sess_1",
+                TreeId = "tree_1",
                 Phase = MergeJournal.Phases.Begin,
             };
             var scenario = InstallScenario(marker: marker, journal: journal);
@@ -374,6 +375,27 @@ namespace Parsek.Tests
             TreeDiscardPurge.PurgeTree("tree_1");
 
             Assert.Same(marker, scenario.ActiveReFlySessionMarker);
+        }
+
+        [Fact]
+        public void PurgeTree_MarkerNull_JournalScopedToOtherTree_NotCleared()
+        {
+            InstallTree("tree_1",
+                new List<Recording> { Rec("rec_a", "tree_1") },
+                new List<BranchPoint>());
+
+            var journal = new MergeJournal
+            {
+                JournalId = "mj_other",
+                SessionId = "sess_other",
+                TreeId = "tree_other",
+                Phase = MergeJournal.Phases.Durable1Done,
+            };
+            var scenario = InstallScenario(journal: journal);
+
+            TreeDiscardPurge.PurgeTree("tree_1");
+
+            Assert.Same(journal, scenario.ActiveMergeJournal);
         }
 
         [Fact]
