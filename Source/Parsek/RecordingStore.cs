@@ -3328,7 +3328,7 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
-            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
+            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion || seg.isPredicted)
                 segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {

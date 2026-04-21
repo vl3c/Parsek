@@ -78,6 +78,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~494. Legacy text trajectory sidecars silently dropped `OrbitSegment.isPredicted` on round-trip~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.TextTrajectorySidecar_PredictedOrbitSegment_RoundTrips`.
+
+**Concern:** `SerializeOrbitSegment()` only wrote `isPredicted` once the recording format version reached the modern predicted-orbit threshold. That made legacy text sidecars serialize the orbital geometry correctly but silently clear the predicted flag during round-trip, which is exactly the kind of state drift the sidecar tests are supposed to catch.
+
+**Fix:** text sidecar serialization now writes `isPredicted` whenever a segment is actually predicted, regardless of the legacy recording-format version. Older readers ignore the extra key, while current deserialization preserves the flag and the old-format round-trip keeps its predicted tail semantics intact.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

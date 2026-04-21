@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 - Spawn-rotation helper coverage now lives in nine `SpawnRotation` in-game tests, so the suite still checks real Unity quaternion semantics without asking headless xUnit to execute `Quaternion.Euler`.
 - Endpoint-body resolution no longer lets a same-UT point lose to a stale terminal orbit on another body, and the rejection now logs the conflicting bodies and UTs instead of silently picking the cached orbit.
 - Landed-tail trimming now ignores identity terminal rotations when matching a stable surface tail, so recordings with a perfectly upright terminal pose still trim instead of treating identity as a mismatched authored rotation.
+- Text trajectory sidecars now preserve predicted orbit segments even for legacy format versions, so old-format round-trips no longer silently drop `isPredicted`.
 - Endpoint-aligned spawn-orbit tests now keep terminal-orbit fallback constrained to the resolved endpoint body, surface terminals no longer reuse stale terminal-orbit tuples, and spawn-validation logs include both the caller context and vessel name.
 - `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
