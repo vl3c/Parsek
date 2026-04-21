@@ -2538,6 +2538,18 @@ namespace Parsek.Tests
 
             Assert.Null(rec.TerminalOrbitBody);
         }
+
+        [Fact]
+        public void PreferredEndpointBodyName_WithoutInferredBody_FallsBackToKerbin()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>()
+            };
+
+            Assert.Equal("Kerbin", RecordingEndpointResolver.GetPreferredEndpointBodyName(rec));
+        }
     }
 
     #endregion
