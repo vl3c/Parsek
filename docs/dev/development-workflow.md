@@ -438,6 +438,10 @@ After all phases pass automated review, do a manual in-game verification:
 - Launch KSP, load test career, verify in-game behavior
 - Check KSP.log: `grep "[Parsek]" "Kerbal Space Program/KSP.log"`
 - Run log validator: `pwsh -File scripts/validate-ksp-log.ps1`
+- For release or RC closeout, archive the required evidence bundles from
+  `docs/dev/manual-testing/test-general.md` with `KSP.log`, `Player.log`,
+  `parsek-test-results.txt`, and `log-validation.txt`. The validator is a
+  per-bundle gate, not an end-of-run spot check.
 
 ---
 

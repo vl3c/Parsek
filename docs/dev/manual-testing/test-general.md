@@ -4,6 +4,61 @@ Use career mode for all tests (resource tracking requires it).
 
 ---
 
+## Release Closeout Evidence
+
+For a release candidate or shipping build, keep at minimum these three
+timestamped bundles under `logs/`:
+
+- `YYYY-MM-DD_HHMM_release-auto-record`
+- `YYYY-MM-DD_HHMM_release-core-playback`
+- `YYYY-MM-DD_HHMM_release-scene-transitions`
+
+Each retained bundle must include:
+
+- `KSP.log`
+- `Player.log`
+- `parsek-test-results.txt`
+- `log-validation.txt` (saved output from `pwsh -File scripts/validate-ksp-log.ps1`)
+
+### `release-auto-record`
+
+- Manual scope: `docs/dev/manual-testing/test-auto-record.md` scenarios 1, 3, and 6
+- Exported runtime evidence:
+  - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
+  - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
+- Runner note: use `Run+` for the `AutoRecord` category, or run the two rows
+  individually in a disposable `FLIGHT` session
+
+### `release-core-playback`
+
+- Manual scope: `Recording + Timeline (core flow)` plus all `Merge Dialog Options`
+  in this file
+- Exported runtime evidence:
+  - `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
+  - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+  - `RuntimeTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+- Runner note: use `Run+` for `MergeDialog`, then run
+  `RuntimeTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` from an
+  idle `FLIGHT` session
+
+### `release-scene-transitions`
+
+- Manual scope: `Scene Transitions` in this file
+- Exported runtime evidence:
+  - `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
+  - `RuntimeTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
+  - `RuntimeTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
+- Runner note: run these three rows individually from a disposable
+  `PRELAUNCH` `FLIGHT` session
+
+`validate-ksp-log` is part of the release gate, not an optional follow-up:
+
+- Run `pwsh -File scripts/validate-ksp-log.ps1` immediately after each bundle
+  while that bundle's `KSP.log` is still the latest session log
+- Save the validator output as `log-validation.txt`
+- Treat any non-zero exit, missing `log-validation.txt`, or missing named
+  `parsek-test-results.txt` rows as a failed bundle
+
 ## Recording + Timeline (core flow)
 
 1. Launch any vessel from the pad
@@ -243,4 +298,6 @@ After running a manual scenario, run:
 pwsh -File scripts/validate-ksp-log.ps1
 ```
 
-Treat a non-zero exit as a failed local validation.
+Treat a non-zero exit as a failed local validation. For release-closeout
+bundles, save the validator output as `log-validation.txt` and do not count the
+bundle as complete without a passing run.
