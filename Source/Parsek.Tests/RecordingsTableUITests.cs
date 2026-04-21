@@ -232,11 +232,13 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            // Per-row guard: the watchKey local must be tested for null/empty
-            // BEFORE the cache lookup, otherwise the empty-id case falls into
-            // the spam loop pattern.
+            // Per-row guard: the watchKey local must be routed through
+            // UpdateWatchButtonTransitionCache, which guards null/empty keys
+            // internally (covered by
+            // UpdateWatchButtonTransitionCache_EmptyKey_DoesNotMutateCache).
+            // Otherwise the empty-id case falls into the spam loop pattern.
             Assert.Contains("string watchKey = rec.RecordingId;", uiSrc);
-            Assert.Contains("!string.IsNullOrEmpty(watchKey)", uiSrc);
+            Assert.Contains("UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey", uiSrc);
 
             // Group guard: same shape — mainRecId must be non-empty before
             // we add to the dict. The fix replaced a "?? \"\"" coalesce with
