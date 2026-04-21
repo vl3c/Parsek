@@ -50,13 +50,17 @@ namespace Parsek
 
         // Constants
         // Hard ceiling on simultaneously-live ghost clones per recording in
-        // the flight scene. Per-frame cost scales with this value (mesh
-        // renderers, FX, audio, positioner). Combined with
-        // GhostPlaybackLogic.ComputeEffectiveLaunchCadence the cap is
-        // strictly observed — cadence is raised to the minimum value that
-        // keeps ceil(duration/cadence) within the cap, so no cycle is ever
-        // silently culled mid-trajectory.
-        internal const int MaxOverlapGhostsPerRecording = 10;
+        // the flight scene (primary + overlap). Per-frame cost scales with
+        // this value (mesh renderers, FX, audio, positioner); mesh vertex
+        // buffers themselves are shared via Unity sharedMesh, but every
+        // clone is still its own GameObject / Transform / renderer / draw
+        // call. Combined with GhostPlaybackLogic.ComputeEffectiveLaunchCadence
+        // the cap is strictly observed — cadence is raised to the minimum
+        // value that keeps ceil(duration/cadence) within the cap, so no cycle
+        // is ever silently culled mid-trajectory. Raising the cap therefore
+        // also lowers the minimum effective looping interval (floor =
+        // duration / cap).
+        internal const int MaxOverlapGhostsPerRecording = 20;
         internal const double OverlapExplosionHoldSeconds = 3.0;
         internal const int MaxActiveExplosions = 30;
         internal const double HiddenGhostVisibleTierPrewarmBufferMeters = 5000.0;

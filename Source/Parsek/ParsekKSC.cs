@@ -52,12 +52,13 @@ namespace Parsek
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
         // interval) could spawn many before expiration catches up.
-        // #443: KSC cap lowered to 10 to match flight, in lockstep with
+        // #443: KSC cap kept in lockstep with flight
+        // (GhostPlaybackEngine.MaxOverlapGhostsPerRecording) and with
         // GhostPlaybackLogic.ComputeEffectiveLaunchCadence — the cadence is
         // raised to the minimum value that fits the concurrent-cycle count
         // under this cap, so the cap is never exceeded and no cycle is ever
         // silently culled.
-        private const int MaxOverlapGhostsPerRecording = 10;
+        private const int MaxOverlapGhostsPerRecording = 20;
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
