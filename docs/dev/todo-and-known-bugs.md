@@ -54,6 +54,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~492. Spawn-rotation coverage used Unity quaternion APIs directly inside headless xUnit tests~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: all nine `SpawnRotationTests.*`.
+
+**Concern:** the code under test is fine, but the test bodies themselves construct expected rotations with `Quaternion.Euler(...)`. That forces plain `net472` xUnit to execute Unity-native ECalls that only exist in a live KSP runtime, so the tests fail before they reach the actual spawn-rotation assertions.
+
+**Fix:** moved the full spawn-rotation suite into `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs` under `Category = "SpawnRotation"` / `Scene = GameScenes.FLIGHT`, preserving the same helper/log assertions with `InGameAssert` and Unity-backed quaternion semantics. The old xUnit file is deleted instead of being left behind as skipped coverage.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
