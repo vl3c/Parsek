@@ -2305,7 +2305,7 @@ namespace Parsek.Tests
                 && l.Contains("explicit endpoint body=Mun")
                 && l.Contains("later segment body=Kerbin")
                 && l.Contains("sma=700000.0"));
-            Assert.DoesNotContain(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment:")
+            Assert.DoesNotContain(logLines, l => l.Contains("[Flight] PopulateTerminalOrbitFromLastSegment:")
                 && l.Contains("preserve-explicit-terminal-orbit"));
         }
 
@@ -2329,7 +2329,7 @@ namespace Parsek.Tests
 
             Assert.Equal("Kerbin", rec.TerminalOrbitBody);
             Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
-            Assert.DoesNotContain(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment:")
+            Assert.DoesNotContain(logLines, l => l.Contains("[Flight] PopulateTerminalOrbitFromLastSegment:")
                 && l.Contains("preserve-persisted-explicit-same-body-terminal-orbit"));
         }
 

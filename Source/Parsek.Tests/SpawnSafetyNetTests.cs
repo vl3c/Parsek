@@ -2050,8 +2050,17 @@ namespace Parsek.Tests
             index = -1;
             if (body == null || installedBodiesInOrder == null)
                 return false;
-            index = installedBodiesInOrder.IndexOf(body);
-            return index >= 0;
+
+            for (int i = 0; i < installedBodiesInOrder.Count; i++)
+            {
+                if (object.ReferenceEquals(installedBodiesInOrder[i], body))
+                {
+                    index = i;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool InvokeTryResolveBodyIndex(CelestialBody body, out int index)

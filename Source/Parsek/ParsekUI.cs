@@ -582,15 +582,24 @@ namespace Parsek
             if (opaqueWindowStyle == null)
                 return;
 
-            var destroyedBackgrounds = new HashSet<int>();
-            DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            try
+            {
+                var destroyedBackgrounds = new HashSet<int>();
+                DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessUiObjectFailure(ex))
+                    throw;
+            }
+
             opaqueWindowStyle = null;
             hasOpaqueWindowStyleScene = false;
         }

@@ -78,6 +78,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~510. A few xUnit follow-ups were still test-harness drift after the earlier cleanup pass~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`, `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride`, `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`, and the two Bug219 preserve tests.
+
+**Concern:** `ParsekUI` cleanup still touched GUI-style state before the narrower destroy-site catch could run, the body-index override test was relying on `List<T>.IndexOf()` for Unity objects instead of explicit reference matching, and the Bug219 preserve tests were still matching `ShouldPopulateTerminalOrbitFromLastSegment...` because the substring filter was too broad.
+
+**Fix:** wrapped the whole opaque-style cleanup pass in the same headless-safe guard, restored the body-index seam helper to explicit `ReferenceEquals` matching over the installed test bodies, and tightened the Bug219 negative log assertions to the exact `[Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
