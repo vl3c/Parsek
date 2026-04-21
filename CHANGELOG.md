@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- The predicted-tail flat-fallback regression now appends its extra orbit segment at the end of the fixture's real checkpoint payload instead of seeding a pre-track timestamp, so the test again asserts the intended “tail beyond sections” shape instead of a malformed earlier segment.
 - Remaining xUnit follow-ups now match the exact `PopulateTerminalOrbitFromLastSegment` log prefix, keep `ParsekUI` opaque-style teardown headless-safe through the whole cleanup path, and resolve body-index seam overrides by reference so the landed spawn-repair fixture rewrites `REF` through the real production seam.
 - Terminal-orbit preserve tests now match the exact `PopulateTerminalOrbitFromLastSegment:` log prefix, and the orbital-frame continuity regressions now compare canonicalized normalized rotations instead of raw non-unit quaternion tuples.
 - Headless spawn-validation seam tests now install the body-index override in the landed surface-repair fixture and verify the private production body-index resolver directly, so the xUnit coverage actually exercises the same REF rewrite path that spawn repair uses.

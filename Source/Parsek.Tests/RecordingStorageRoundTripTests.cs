@@ -350,7 +350,11 @@ namespace Parsek.Tests
             var original = BuildSectionAuthoritativeCodecFixture();
             original.RecordingId = "predicted-tail-fallback";
             original.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-            original.OrbitSegments.Add(MakeOrbitSegment(630.0, 930.0, isPredicted: true));
+            double appendedStartUT = original.OrbitSegments[original.OrbitSegments.Count - 1].endUT;
+            original.OrbitSegments.Add(MakeOrbitSegment(
+                appendedStartUT,
+                appendedStartUT + 300.0,
+                isPredicted: true));
 
             Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
                 original, original.TrackSections, allowRelativeSections: true));

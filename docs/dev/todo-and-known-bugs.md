@@ -102,6 +102,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~512. The predicted-tail flat-fallback regression fixture appended its extra orbit segment at an earlier absolute UT than the checkpoint payload it was supposed to extend~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** after the safe-suffix hardening, the helper correctly rejected malformed non-monotonic tails. The test fixture, however, was still appending its “extra predicted tail” segment at `630 -> 930` even though the section-authoritative codec fixture lives around `20030 -> 20630`. That made the test assert a malformed earlier segment instead of a real tail beyond the track-section payload.
+
+**Fix:** the test now derives the appended predicted segment from the current last flat orbit segment's `endUT`, so it extends the payload exactly the way the production fallback path is supposed to handle.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
