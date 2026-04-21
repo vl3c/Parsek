@@ -81,13 +81,22 @@ namespace Parsek.Tests
             var lookup = TimelineWindowUI.BuildRecordingIndexLookup(new[]
             {
                 new Recording { RecordingId = "rec-a" },
-                new Recording(),
+                new Recording { RecordingId = string.Empty },
                 new Recording { RecordingId = "rec-b" }
             });
 
             Assert.Equal(0, lookup["rec-a"]);
             Assert.Equal(2, lookup["rec-b"]);
             Assert.False(lookup.ContainsKey(string.Empty));
+        }
+
+        [Fact]
+        public void GetWatchButtonAction_TogglesWatchedRowsOff()
+        {
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Enter,
+                TimelineWindowUI.GetWatchButtonAction(isWatching: false));
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit,
+                TimelineWindowUI.GetWatchButtonAction(isWatching: true));
         }
 
         [Fact]
@@ -179,10 +188,14 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", "Parsek"));
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "TimelineWindowUI.cs"));
+            int watchIndex = uiSrc.IndexOf("// Watch button - flight only.", System.StringComparison.Ordinal);
+            int fastForwardIndex = uiSrc.IndexOf("bool showFastForward = ShouldShowFastForwardButton", System.StringComparison.Ordinal);
+            string watchBlock = uiSrc.Substring(watchIndex, fastForwardIndex - watchIndex);
 
-            Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", uiSrc);
-            Assert.Contains("flight.ExitWatchMode()", uiSrc);
-            Assert.Contains("flight.EnterWatchMode(recIndex)", uiSrc);
+            Assert.Contains("TimelineWatchButtonAction watchAction = GetWatchButtonAction(isWatching);", watchBlock);
+            Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", watchBlock);
+            Assert.Contains("if (watchAction == TimelineWatchButtonAction.Exit)", watchBlock);
+            Assert.Contains("flight.EnterWatchMode(recIndex);", watchBlock);
         }
     }
 }

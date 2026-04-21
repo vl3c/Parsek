@@ -13,6 +13,12 @@ namespace Parsek
     /// </summary>
     internal class TimelineWindowUI
     {
+        internal enum TimelineWatchButtonAction
+        {
+            Enter,
+            Exit
+        }
+
         private enum TimelineTierFilterMode
         {
             Overview,
@@ -749,6 +755,7 @@ namespace Parsek
                         bool isWatching = flight != null && recIndex >= 0 && flight.WatchedRecordingIndex == recIndex;
                         bool canWatch = RecordingsTableUI.IsWatchButtonEnabled(
                             hasGhost, sameBody, inRange, rec.IsDebris);
+                        TimelineWatchButtonAction watchAction = GetWatchButtonAction(isWatching);
                         string watchTooltip = isWatching
                             ? "Stop watching this ghost"
                             : RecordingsTableUI.GetWatchButtonTooltip(
@@ -760,7 +767,7 @@ namespace Parsek
                         {
                             string beforeFocus = flight.DescribeWatchFocusForLogs();
                             string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
-                            if (isWatching)
+                            if (watchAction == TimelineWatchButtonAction.Exit)
                                 flight.ExitWatchMode();
                             else
                                 flight.EnterWatchMode(recIndex);
@@ -879,6 +886,11 @@ namespace Parsek
         internal static bool ShouldEnableWatchButton(bool canWatch, bool isWatching)
         {
             return canWatch || isWatching;
+        }
+
+        internal static TimelineWatchButtonAction GetWatchButtonAction(bool isWatching)
+        {
+            return isWatching ? TimelineWatchButtonAction.Exit : TimelineWatchButtonAction.Enter;
         }
 
         internal static Dictionary<string, int> BuildRecordingIndexLookup(IReadOnlyList<Recording> recordings)
