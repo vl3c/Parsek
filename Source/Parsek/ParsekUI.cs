@@ -494,22 +494,65 @@ namespace Parsek
             if (style == null || sourceStyle == null)
                 return;
 
-            Color baseTextColor = ResolveReadableWindowTitleTextColor(
+            Color normalTextColor = style.normal.textColor;
+            Color hoverTextColor = style.hover.textColor;
+            Color focusedTextColor = style.focused.textColor;
+            Color activeTextColor = style.active.textColor;
+            Color onNormalTextColor = style.onNormal.textColor;
+            Color onHoverTextColor = style.onHover.textColor;
+            Color onFocusedTextColor = style.onFocused.textColor;
+            Color onActiveTextColor = style.onActive.textColor;
+
+            NormalizeOpaqueWindowTitleTextColors(
                 sourceStyle.normal.textColor,
-                sourceStyle.onNormal.textColor);
-            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
                 sourceStyle.onNormal.textColor,
-                sourceStyle.normal.textColor);
+                ref normalTextColor,
+                ref hoverTextColor,
+                ref focusedTextColor,
+                ref activeTextColor,
+                ref onNormalTextColor,
+                ref onHoverTextColor,
+                ref onFocusedTextColor,
+                ref onActiveTextColor);
 
-            style.normal.textColor = baseTextColor;
-            style.hover.textColor = baseTextColor;
-            style.focused.textColor = baseTextColor;
-            style.active.textColor = baseTextColor;
+            style.normal.textColor = normalTextColor;
+            style.hover.textColor = hoverTextColor;
+            style.focused.textColor = focusedTextColor;
+            style.active.textColor = activeTextColor;
+            style.onNormal.textColor = onNormalTextColor;
+            style.onHover.textColor = onHoverTextColor;
+            style.onFocused.textColor = onFocusedTextColor;
+            style.onActive.textColor = onActiveTextColor;
+        }
 
-            style.onNormal.textColor = toggledTextColor;
-            style.onHover.textColor = toggledTextColor;
-            style.onFocused.textColor = toggledTextColor;
-            style.onActive.textColor = toggledTextColor;
+        internal static void NormalizeOpaqueWindowTitleTextColors(
+            Color sourceNormalTextColor,
+            Color sourceOnNormalTextColor,
+            ref Color normalTextColor,
+            ref Color hoverTextColor,
+            ref Color focusedTextColor,
+            ref Color activeTextColor,
+            ref Color onNormalTextColor,
+            ref Color onHoverTextColor,
+            ref Color onFocusedTextColor,
+            ref Color onActiveTextColor)
+        {
+            Color baseTextColor = ResolveReadableWindowTitleTextColor(
+                sourceNormalTextColor,
+                sourceOnNormalTextColor);
+            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
+                sourceOnNormalTextColor,
+                sourceNormalTextColor);
+
+            normalTextColor = baseTextColor;
+            hoverTextColor = baseTextColor;
+            focusedTextColor = baseTextColor;
+            activeTextColor = baseTextColor;
+
+            onNormalTextColor = toggledTextColor;
+            onHoverTextColor = toggledTextColor;
+            onFocusedTextColor = toggledTextColor;
+            onActiveTextColor = toggledTextColor;
         }
 
         internal static Color ResolveReadableWindowTitleTextColor(
@@ -567,11 +610,30 @@ namespace Parsek
             if (background == null)
                 return;
 
-            int id = background.GetInstanceID();
-            if (!destroyedBackgrounds.Add(id))
-                return;
+            try
+            {
+                int id = background.GetInstanceID();
+                if (!destroyedBackgrounds.Add(id))
+                    return;
 
-            UnityEngine.Object.Destroy(background);
+                UnityEngine.Object.Destroy(background);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessUiObjectFailure(ex))
+                    throw;
+            }
+        }
+
+        private static bool IsHeadlessUiObjectFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is System.Security.SecurityException)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -1,5 +1,5 @@
-using Xunit;
 using UnityEngine;
+using Xunit;
 
 namespace Parsek.Tests
 {
@@ -32,23 +32,38 @@ namespace Parsek.Tests
         [Fact]
         public void NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor()
         {
-            var source = new GUIStyle
-            {
-                normal = { textColor = new Color(0.92f, 0.92f, 0.92f, 1f) },
-                onNormal = { textColor = new Color(0.82f, 0.82f, 0.82f, 1f) },
-                focused = { textColor = Color.black },
-                onFocused = { textColor = Color.black },
-                active = { textColor = Color.black },
-                onActive = { textColor = Color.black }
-            };
-            var style = new GUIStyle(source);
+            Color normal = Color.black;
+            Color hover = Color.black;
+            Color focused = Color.black;
+            Color active = Color.black;
+            Color onNormal = Color.black;
+            Color onHover = Color.black;
+            Color onFocused = Color.black;
+            Color onActive = Color.black;
 
-            ParsekUI.NormalizeOpaqueWindowTitleTextColors(style, source);
+            Color sourceNormal = new Color(0.92f, 0.92f, 0.92f, 1f);
+            Color sourceOnNormal = new Color(0.82f, 0.82f, 0.82f, 1f);
 
-            Assert.Equal(source.normal.textColor, style.focused.textColor);
-            Assert.Equal(source.normal.textColor, style.active.textColor);
-            Assert.Equal(source.onNormal.textColor, style.onFocused.textColor);
-            Assert.Equal(source.onNormal.textColor, style.onActive.textColor);
+            ParsekUI.NormalizeOpaqueWindowTitleTextColors(
+                sourceNormal,
+                sourceOnNormal,
+                ref normal,
+                ref hover,
+                ref focused,
+                ref active,
+                ref onNormal,
+                ref onHover,
+                ref onFocused,
+                ref onActive);
+
+            Assert.Equal(sourceNormal, normal);
+            Assert.Equal(sourceNormal, hover);
+            Assert.Equal(sourceNormal, focused);
+            Assert.Equal(sourceNormal, active);
+            Assert.Equal(sourceOnNormal, onNormal);
+            Assert.Equal(sourceOnNormal, onHover);
+            Assert.Equal(sourceOnNormal, onFocused);
+            Assert.Equal(sourceOnNormal, onActive);
         }
 
         [Fact]

@@ -30,6 +30,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~506. Headless `ParsekUI` xUnit coverage still touched Unity GUI object APIs after the shared opaque-window fix~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor` and `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`.
+
+**Concern:** the production title-color normalization path is pure color selection, but the xUnit regression still constructed `GUIStyle` directly in plain .NET, which trips Unity native GUI calls. The `ParsekUI` smoke test also called `Cleanup()`, and the shared opaque-window fix now tears down copied textures during cleanup, which likewise touches Unity GUI objects that do not exist in headless xUnit.
+
+**Fix:** extracted a pure color-based `NormalizeOpaqueWindowTitleTextColors(...)` helper that the `GUIStyle` overload delegates to, so xUnit can assert the same focused/active text-color normalization without constructing `GUIStyle`. `ParsekUI` opaque-background teardown now also treats wrapped headless `SecurityException` chains as a no-op during cleanup, so the KSC smoke test can still verify the accessor wiring without crashing in teardown.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
