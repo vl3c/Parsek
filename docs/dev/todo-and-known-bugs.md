@@ -162,6 +162,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~517. Headless landed snapshot repair still treated synthetic endpoint bodies as null inside the final ORBIT rewrite helpers~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** even after the body-index resolver seam was fixed, the landed repair path still passed a synthetic `CelestialBody` into `ApplySurfaceOrbitToSnapshot()` and `ReplaceSnapshotOrbitNode()`, and those helpers were still using Unity's overloaded `body == null` check. In headless xUnit that pseudo-null check can reject a perfectly valid test fixture before the repaired `ORBIT` node is written, leaving the stale `SMA=700000` snapshot in place.
+
+**Fix:** the headless-sensitive orbit rewrite helpers now use `object.ReferenceEquals(body, null)`, so the synthetic endpoint body reaches the real surface-orbit rewrite path and the repaired `REF` value is written through the same production helper as live KSP.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

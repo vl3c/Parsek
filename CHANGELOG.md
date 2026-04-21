@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
+- Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
 - The predicted-tail flat-fallback regression now appends its extra orbit segment at the end of the fixture's real checkpoint payload instead of seeding a pre-track timestamp, so the test again asserts the intended “tail beyond sections” shape instead of a malformed earlier segment.
 - Remaining xUnit follow-ups now match the exact `PopulateTerminalOrbitFromLastSegment` log prefix, keep `ParsekUI` opaque-style teardown headless-safe through the whole cleanup path, and resolve body-index seam overrides by reference so the landed spawn-repair fixture rewrites `REF` through the real production seam.
 - Terminal-orbit preserve tests now match the exact `PopulateTerminalOrbitFromLastSegment:` log prefix, and the orbital-frame continuity regressions now compare canonicalized normalized rotations instead of raw non-unit quaternion tuples.

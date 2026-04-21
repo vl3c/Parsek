@@ -2907,7 +2907,7 @@ namespace Parsek
 
         private static void ReplaceSnapshotOrbitNode(ConfigNode snapshot, Orbit orbit, CelestialBody body)
         {
-            if (snapshot == null || orbit == null || body == null)
+            if (snapshot == null || orbit == null || object.ReferenceEquals(body, null))
                 return;
 
             snapshot.RemoveNode("ORBIT");
@@ -2918,7 +2918,7 @@ namespace Parsek
 
         private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
         {
-            if (snapshot == null || body == null)
+            if (snapshot == null || object.ReferenceEquals(body, null))
                 return;
 
             if (!TryResolveBodyIndex(body, out int bodyIndex))
