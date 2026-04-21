@@ -264,10 +264,11 @@ namespace Parsek
 
             if (wrappedTooltipStyle == null)
             {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
                 {
                     wordWrap = true
                 };
+                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 
