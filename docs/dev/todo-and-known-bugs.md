@@ -138,6 +138,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~515. The new body-index seam test still used Unity null semantics, so the xUnit override declined valid synthetic bodies and left landed snapshot repair on the stale orbit~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the production seam was already correct, but the xUnit helper backing `BodyIndexResolverForTesting` still used `body == null`. For synthetic `CelestialBody` instances created with `FormatterServices`, Unity's overloaded null semantics can report a perfectly valid test fixture as null, so the override returned `false` and the landed repair path never rewrote `ORBIT.REF`.
+
+**Fix:** the body-index test helper now uses `object.ReferenceEquals(body, null)` and reference-based list matching, so the override consistently resolves the installed synthetic bodies and the landed surface-repair fixture exercises the real production seam.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
