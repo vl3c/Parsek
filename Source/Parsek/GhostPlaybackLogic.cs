@@ -1840,7 +1840,7 @@ namespace Parsek
             var restores = active ? new List<(int moduleIndex, float power)>() : null;
             foreach (var info in state.audioInfos.Values)
             {
-                if (info == null || info.partPersistentId != persistentId || ReferenceEquals(info.audioSource, null))
+                if (info == null || info.partPersistentId != persistentId || info.audioSource == null)
                     continue;
 
                 if (!active && info.audioSource.isPlaying)
@@ -2491,7 +2491,7 @@ namespace Parsek
             foreach (var info in state.audioInfos.Values)
             {
                 if (info.partPersistentId != partPersistentId) continue;
-                if (!ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                if (info.audioSource != null && info.audioSource.isPlaying)
                     StopLoopedGhostAudio(info, "part-removed");
             }
         }
@@ -2537,7 +2537,7 @@ namespace Parsek
             {
                 foreach (var info in state.audioInfos.Values)
                 {
-                    if (!ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                    if (info.audioSource != null && info.audioSource.isPlaying)
                         StopLoopedGhostAudio(info, "muted");
                 }
             }
