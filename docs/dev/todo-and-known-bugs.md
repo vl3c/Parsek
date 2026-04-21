@@ -140,7 +140,7 @@ Local verification on this combined branch is now healthy enough to be useful: `
 
 **Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
 
-**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging and waits for the first real trajectory point even on already-live recordings, so `ActivateNextStage()` no longer races stock staging rebuilds and the test does not fail purely because recording went live one sample before the first point landed.
+**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, then separately waits for `FlightInputHandler.state` to stay non-null through a stable window and waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
 
 **Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
 

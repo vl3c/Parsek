@@ -778,6 +778,37 @@ namespace Parsek.InGameTests
                 $"(parsekFlight={(flight != null)}, activeRecId={activeRecId ?? "null"}, points={pointCount})");
         }
 
+        internal static IEnumerator WaitForFlightInputStateReady(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            float stableStarted = -1f;
+            while (Time.time < deadline)
+            {
+                bool ready = FlightInputHandler.state != null;
+                if (ready)
+                {
+                    if (stableStarted < 0f)
+                    {
+                        stableStarted = Time.unscaledTime;
+                    }
+                    else if ((Time.unscaledTime - stableStarted) >= 0.5f)
+                    {
+                        yield break;
+                    }
+                }
+                else
+                {
+                    stableStarted = -1f;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForFlightInputStateReady timed out after {timeoutSeconds:F0}s " +
+                $"(hasFlightInput={FlightInputHandler.state != null})");
+        }
+
         private static IEnumerator WaitForDeferredEvaAutoRecordStart(string expectedCrewName, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -4700,6 +4731,7 @@ namespace Parsek.InGameTests
 
                     ParsekSettings.Current.autoRecordOnLaunch = true;
                     yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                    yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
