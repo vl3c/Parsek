@@ -397,7 +397,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** `ParsekScenario.ActiveTreeRestoreMode` is intentionally internal production state, but the merged xUnit theory surfaced it directly as a public method parameter. C# rejects that accessibility mismatch before the test run even starts, so the whole branch stops at compile time for a pure test-fixture reason.
 
-**Fix:** the theory now passes the restore mode as raw inline-data integers and casts to `ActiveTreeRestoreMode` inside the method body. That preserves the exact coverage without widening production visibility or introducing test-only public surfaces.
+**Fix:** the theory now passes the restore mode as `(int)ActiveTreeRestoreMode.X` inline-data casts and casts back to the enum at the production call site. That preserves the exact coverage without widening production visibility or introducing test-only public surfaces, and keeps each case readable by its enum name at the `[InlineData]` call site instead of surfacing raw magic integers.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 
