@@ -715,41 +715,6 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static IEnumerator WaitForStockStageManagerReadyForQuickloadSetup(float timeoutSeconds)
-        {
-            float deadline = Time.time + timeoutSeconds;
-            float stableStarted = -1f;
-            while (Time.time < deadline)
-            {
-                bool ready = KSP.UI.Screens.StageManager.Instance != null
-                    && KSP.UI.Screens.StageManager.StageCount > 0
-                    && FlightInputHandler.state != null;
-                if (ready)
-                {
-                    if (stableStarted < 0f)
-                    {
-                        stableStarted = Time.unscaledTime;
-                    }
-                    else if ((Time.unscaledTime - stableStarted) >= 0.5f)
-                    {
-                        yield break;
-                    }
-                }
-                else
-                {
-                    stableStarted = -1f;
-                }
-
-                yield return null;
-            }
-
-            InGameAssert.Fail(
-                $"WaitForStockStageManagerReadyForQuickloadSetup timed out after {timeoutSeconds:F0}s " +
-                $"(hasStageManager={KSP.UI.Screens.StageManager.Instance != null}, " +
-                $"stageCount={(KSP.UI.Screens.StageManager.Instance != null ? KSP.UI.Screens.StageManager.StageCount : 0)}, " +
-                $"hasFlightInput={FlightInputHandler.state != null})");
-        }
-
         private static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -776,6 +741,41 @@ namespace Parsek.InGameTests
                 $"isRecording={timedOutFlight?.IsRecording == true}, " +
                 $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static IEnumerator WaitForActiveRecordingPoint(ParsekFlight flight, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (flight != null
+                    && flight.ActiveTreeForSerialization != null
+                    && !string.IsNullOrEmpty(flight.ActiveTreeForSerialization.ActiveRecordingId)
+                    && flight.ActiveTreeForSerialization.Recordings.TryGetValue(
+                        flight.ActiveTreeForSerialization.ActiveRecordingId, out var rec)
+                    && rec?.Points != null
+                    && rec.Points.Count > 0)
+                {
+                    yield break;
+                }
+
+                yield return null;
+                flight = ParsekFlight.Instance;
+            }
+
+            string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+            int pointCount = 0;
+            if (flight?.ActiveTreeForSerialization != null
+                && !string.IsNullOrEmpty(activeRecId)
+                && flight.ActiveTreeForSerialization.Recordings.TryGetValue(activeRecId, out var timedOutRec)
+                && timedOutRec?.Points != null)
+            {
+                pointCount = timedOutRec.Points.Count;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForActiveRecordingPoint timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(flight != null)}, activeRecId={activeRecId ?? "null"}, points={pointCount})");
         }
 
         private static IEnumerator WaitForDeferredEvaAutoRecordStart(string expectedCrewName, float timeoutSeconds)
@@ -4699,7 +4699,7 @@ namespace Parsek.InGameTests
                     throttleCaptured = true;
 
                     ParsekSettings.Current.autoRecordOnLaunch = true;
-                    yield return WaitForStockStageManagerReadyForQuickloadSetup(10f);
+                    yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
@@ -4726,6 +4726,7 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
+                yield return WaitForActiveRecordingPoint(flight, 5f);
                 string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
                 InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
                 InGameAssert.IsTrue(
