@@ -93,10 +93,9 @@ namespace Parsek
         private Recording previewRecording;
         internal int lastPlaybackIndex = 0;
 
-        // Ghost state is owned by the engine (T25). These properties forward to engine fields
+        // Ghost state is owned by the engine (T25). This property forwards to the engine field
         // so existing ParsekFlight code accesses engine-owned collections transparently.
         private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
-        private List<GameObject> activeExplosions => engine.activeExplosions;
 
         // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
         private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
@@ -8450,9 +8449,11 @@ namespace Parsek
                 {
                     Vector3 pos = ghostObject.transform.position;
                     float len = GhostVisualBuilder.ComputeGhostLength(ghostObject);
+                    double power = Mathf.Clamp01(len / 20f);
                     ParsekLog.Info("ExplosionFx",
-                        $"Manual preview explosion for \"{previewRecording.VesselName}\" " +
-                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m");
+                        $"Stock FXMonger.Explode for manual preview \"{previewRecording.VesselName}\" " +
+                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m " +
+                        $"power={power.ToString("F2", CultureInfo.InvariantCulture)}");
                     // Hide ghost parts before explosion renders
                     if (previewGhostState != null)
                         GhostPlaybackLogic.HideAllGhostParts(previewGhostState);
@@ -8462,9 +8463,13 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    var explosion = GhostVisualBuilder.SpawnExplosionFx(pos, len);
-                    if (explosion != null)
-                        activeExplosions.Add(explosion);
+                    if (!GhostVisualBuilder.TryTriggerStockExplosionFx(pos, power, out string stockFxFailure))
+                    {
+                        ParsekLog.Warn("ExplosionFx",
+                            $"FXMonger.Explode did not queue stock FX for manual preview " +
+                            $"\"{previewRecording.VesselName}\"; falling back to custom FX: {stockFxFailure}");
+                        GhostVisualBuilder.SpawnExplosionFx(pos, len);
+                    }
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);

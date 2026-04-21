@@ -123,9 +123,6 @@ namespace Parsek
         /// </summary>
         internal const int MaxOverlapGhostsPerRecording = 20;
 
-        /// <summary>Maximum concurrent explosion GameObjects tracked by the engine.</summary>
-        internal const int MaxActiveExplosions = 30;
-
         /// <summary>
         /// Bug #414: cap on throttle-eligible ghost-visual builds per
         /// UpdatePlayback tick. Worst-case spawn cost =
