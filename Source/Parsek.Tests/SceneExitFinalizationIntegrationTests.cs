@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -470,14 +471,8 @@ namespace Parsek.Tests
                 secondStartPosition,
                 secondStartVelocity);
 
-            Assert.Equal(frozenWorldRotation.x, startWorldRotation.x);
-            Assert.Equal(frozenWorldRotation.y, startWorldRotation.y);
-            Assert.Equal(frozenWorldRotation.z, startWorldRotation.z);
-            Assert.Equal(frozenWorldRotation.w, startWorldRotation.w);
-            Assert.Equal(firstBoundaryWorldRotation.x, secondStartWorldRotation.x);
-            Assert.Equal(firstBoundaryWorldRotation.y, secondStartWorldRotation.y);
-            Assert.Equal(firstBoundaryWorldRotation.z, secondStartWorldRotation.z);
-            Assert.Equal(firstBoundaryWorldRotation.w, secondStartWorldRotation.w);
+            AssertQuaternionEquivalent(frozenWorldRotation, startWorldRotation);
+            AssertQuaternionEquivalent(firstBoundaryWorldRotation, secondStartWorldRotation);
         }
 
         [Fact]
@@ -506,6 +501,52 @@ namespace Parsek.Tests
                 l.Contains("[Parsek][VERBOSE][Extrapolator]") &&
                 l.Contains("incomplete-ballistic finalization hook declined") &&
                 l.Contains("scene-exit-decline"));
+        }
+
+        private static void AssertQuaternionEquivalent(
+            Quaternion expected,
+            Quaternion actual,
+            float tolerance = 0.0001f)
+        {
+            expected = NormalizeAndCanonicalizeQuaternion(expected);
+            actual = NormalizeAndCanonicalizeQuaternion(actual);
+            Assert.True(Mathf.Abs(expected.x - actual.x) < tolerance, $"x={actual.x} expected={expected.x}");
+            Assert.True(Mathf.Abs(expected.y - actual.y) < tolerance, $"y={actual.y} expected={expected.y}");
+            Assert.True(Mathf.Abs(expected.z - actual.z) < tolerance, $"z={actual.z} expected={expected.z}");
+            Assert.True(Mathf.Abs(expected.w - actual.w) < tolerance, $"w={actual.w} expected={expected.w}");
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            float magnitude = Mathf.Sqrt(
+                quaternion.x * quaternion.x
+                + quaternion.y * quaternion.y
+                + quaternion.z * quaternion.z
+                + quaternion.w * quaternion.w);
+            if (magnitude > 1e-6f)
+            {
+                quaternion = new Quaternion(
+                    quaternion.x / magnitude,
+                    quaternion.y / magnitude,
+                    quaternion.z / magnitude,
+                    quaternion.w / magnitude);
+            }
+
+            if (quaternion.w < 0f
+                || (quaternion.w == 0f
+                    && (quaternion.z < 0f
+                        || (quaternion.z == 0f
+                            && (quaternion.y < 0f
+                                || (quaternion.y == 0f && quaternion.x < 0f))))))
+            {
+                quaternion = new Quaternion(
+                    -quaternion.x,
+                    -quaternion.y,
+                    -quaternion.z,
+                    -quaternion.w);
+            }
+
+            return quaternion;
         }
 
         [Fact]

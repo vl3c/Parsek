@@ -54,6 +54,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~508. Several remaining xUnit failures were assertion drift, not live logic regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `Bug219_PopulateTerminalOrbitFromLastSegmentTests.*DoesNotOverwrite`, `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`, and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the two Bug219 preserve tests were filtering with `Contains("PopulateTerminalOrbitFromLastSegment")`, which also matches the newer `ShouldPopulateTerminalOrbitFromLastSegment...` preserve diagnostic and turns a passing preserve path into a false failure. The orbital-frame continuity tests were also comparing raw quaternion components on non-unit rotations, so equivalent preserved attitudes could fail the exact tuple check after canonicalization / recomposition even though the represented rotation stayed the same.
+
+**Fix:** tightened the Bug219 filter to the exact `PopulateTerminalOrbitFromLastSegment:` production prefix, and the orbital-frame assertions now normalize and canonicalize both quaternions before comparing components. That keeps the regressions pinned to real behavior changes instead of representational float drift.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

@@ -718,10 +718,45 @@ namespace Parsek.Tests
 
         private static void AssertQuaternionEqual(Quaternion expected, Quaternion actual, float tolerance = 0.0001f)
         {
+            expected = NormalizeAndCanonicalizeQuaternion(expected);
+            actual = NormalizeAndCanonicalizeQuaternion(actual);
             Assert.True(Mathf.Abs(expected.x - actual.x) < tolerance, $"x={actual.x} expected={expected.x}");
             Assert.True(Mathf.Abs(expected.y - actual.y) < tolerance, $"y={actual.y} expected={expected.y}");
             Assert.True(Mathf.Abs(expected.z - actual.z) < tolerance, $"z={actual.z} expected={expected.z}");
             Assert.True(Mathf.Abs(expected.w - actual.w) < tolerance, $"w={actual.w} expected={expected.w}");
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            float magnitude = Mathf.Sqrt(
+                quaternion.x * quaternion.x
+                + quaternion.y * quaternion.y
+                + quaternion.z * quaternion.z
+                + quaternion.w * quaternion.w);
+            if (magnitude > 1e-6f)
+            {
+                quaternion = new Quaternion(
+                    quaternion.x / magnitude,
+                    quaternion.y / magnitude,
+                    quaternion.z / magnitude,
+                    quaternion.w / magnitude);
+            }
+
+            if (quaternion.w < 0f
+                || (quaternion.w == 0f
+                    && (quaternion.z < 0f
+                        || (quaternion.z == 0f
+                            && (quaternion.y < 0f
+                                || (quaternion.y == 0f && quaternion.x < 0f))))))
+            {
+                quaternion = new Quaternion(
+                    -quaternion.x,
+                    -quaternion.y,
+                    -quaternion.z,
+                    -quaternion.w);
+            }
+
+            return quaternion;
         }
     }
 }
