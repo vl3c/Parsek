@@ -65,9 +65,9 @@ writes `log-validation.txt` into the timestamped bundle under `logs/`.
 - Use `python scripts/collect-logs.py <label>` immediately after each bundle
   while that bundle's `KSP.log` is still the latest session log. The script
   runs the validator and saves its output as `log-validation.txt`.
-- Treat any non-zero validator result, missing `log-validation.txt`, or missing
-  required rows after the explicit reset/fresh-session boundary as a failed
-  bundle.
+- Treat any non-zero validator result, missing `log-validation.txt`, missing
+  required rows, or required rows that are not `PASSED` after the explicit
+  reset/fresh-session boundary as a failed bundle.
 
 ## Recording + Timeline (core flow)
 
