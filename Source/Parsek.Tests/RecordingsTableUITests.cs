@@ -296,6 +296,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsWatchButtonEnabled_RequiresGhostSameBodyRangeAndNonDebris()
+        {
+            Assert.True(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: false, sameBody: true, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: false, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: false, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: true, isDebris: true));
+        }
+
+        [Fact]
         public void GetWatchButtonTooltip_ExplainsNoGhost()
         {
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(

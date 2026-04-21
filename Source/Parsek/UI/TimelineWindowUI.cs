@@ -77,6 +77,7 @@ namespace Parsek
 
         // Cached recording lookup by ID — refreshed on cache rebuild
         private Dictionary<string, Recording> recordingById;
+        private Dictionary<string, int> recordingIndexById;
         private Dictionary<string, bool> rewindSaveExistsByRecordingId;
 
         public bool IsOpen
@@ -179,6 +180,7 @@ namespace Parsek
             filterDirty = true;
             cachedStatsText = null;
             recordingById = null;
+            recordingIndexById = null;
             rewindSaveExistsByRecordingId = null;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
@@ -271,12 +273,16 @@ namespace Parsek
                 // Rebuild recording lookup cache
                 var recordings = RecordingStore.CommittedRecordings;
                 recordingById = new Dictionary<string, Recording>(recordings.Count);
+                recordingIndexById = new Dictionary<string, int>(recordings.Count);
                 rewindSaveExistsByRecordingId = new Dictionary<string, bool>(recordings.Count);
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var r = recordings[i];
                     if (!string.IsNullOrEmpty(r.RecordingId))
+                    {
                         recordingById[r.RecordingId] = r;
+                        recordingIndexById[r.RecordingId] = i;
+                    }
                 }
 
                 ParsekLog.Verbose("Timeline",
@@ -733,6 +739,40 @@ namespace Parsek
                 if (rec != null)
                 {
                     var tableUI = parentUI.GetRecordingsTableUI();
+                    var flight = parentUI.Flight;
+                    int recIndex = FindRecordingIndexById(entry.RecordingId);
+
+                    // Watch button - flight only. Shown disabled for entries that
+                    // are not currently watchable so the action layout stays stable.
+                    if (ShouldShowWatchButton(parentUI.InFlightMode && flight != null, rec))
+                    {
+                        bool hasGhost = flight != null && recIndex >= 0 && flight.HasActiveGhost(recIndex);
+                        bool sameBody = flight != null && recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
+                        bool inRange = flight != null && recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
+                        bool isWatching = flight != null && recIndex >= 0 && flight.WatchedRecordingIndex == recIndex;
+                        bool canWatch = RecordingsTableUI.IsWatchButtonEnabled(
+                            hasGhost, sameBody, inRange, rec.IsDebris);
+                        string watchTooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
+                        GUI.enabled = canWatch;
+                        if (GUILayout.Button(
+                            new GUIContent(isWatching ? "W*" : "W", watchTooltip),
+                            GUILayout.Width(30)))
+                        {
+                            string beforeFocus = flight.DescribeWatchFocusForLogs();
+                            string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
+                            if (isWatching)
+                                flight.ExitWatchMode();
+                            else
+                                flight.EnterWatchMode(recIndex);
+                            ParsekLog.Info("UI",
+                                $"Timeline W button clicked: {(isWatching ? "exit" : "enter")} watch on " +
+                                $"\"{rec.VesselName}\" id={rec.RecordingId} before={beforeEligibility} " +
+                                $"beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
+                        }
+                        GUI.enabled = true;
+                    }
+
                     bool showFastForward = ShouldShowFastForwardButton(rec, isFuture);
                     bool showRewind = ShouldShowRewindButton(rec, isFuture);
 
@@ -832,6 +872,11 @@ namespace Parsek
                 && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
         }
 
+        internal static bool ShouldShowWatchButton(bool inFlightMode, Recording rec)
+        {
+            return inFlightMode && rec != null;
+        }
+
         private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT)
         {
             string unusedReason;
@@ -908,6 +953,14 @@ namespace Parsek
             Recording rec;
             recordingById.TryGetValue(recordingId, out rec);
             return rec;
+        }
+
+        private int FindRecordingIndexById(string recordingId)
+        {
+            if (recordingIndexById == null || string.IsNullOrEmpty(recordingId))
+                return -1;
+            int index;
+            return recordingIndexById.TryGetValue(recordingId, out index) ? index : -1;
         }
 
         private void DrawResourceBudget()

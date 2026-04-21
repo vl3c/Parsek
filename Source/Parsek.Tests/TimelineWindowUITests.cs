@@ -53,6 +53,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowWatchButton_InFlightRecording_ReturnsTrue()
+        {
+            Assert.True(TimelineWindowUI.ShouldShowWatchButton(
+                inFlightMode: true, rec: new Recording()));
+        }
+
+        [Fact]
+        public void ShouldShowWatchButton_NonFlightRecording_ReturnsFalse()
+        {
+            Assert.False(TimelineWindowUI.ShouldShowWatchButton(
+                inFlightMode: false, rec: new Recording()));
+        }
+
+        [Fact]
         public void HasActionableRewindOrFastForwardButton_FutureRecordingStart_ReturnsTrue()
         {
             var entry = new TimelineEntry
@@ -114,6 +128,23 @@ namespace Parsek.Tests
 
             Assert.False(TimelineWindowUI.HasActionableRewindOrFastForwardButton(
                 entry, rec, currentUT: 200, canFastForward: false, canRewind: false));
+        }
+
+        [Fact]
+        public void DrawEntryRow_AddsWatchButtonBeforeRewindAndFastForward_PinnedBySourceInspection()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "TimelineWindowUI.cs"));
+
+            int watchIndex = uiSrc.IndexOf("// Watch button - flight only.", System.StringComparison.Ordinal);
+            int fastForwardIndex = uiSrc.IndexOf("// Future recording: FF button", System.StringComparison.Ordinal);
+
+            Assert.True(watchIndex >= 0, "timeline watch-button block should exist");
+            Assert.True(fastForwardIndex > watchIndex,
+                "timeline watch button should be rendered before the rewind/fast-forward buttons");
         }
     }
 }

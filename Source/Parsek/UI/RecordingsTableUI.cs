@@ -629,6 +629,12 @@ namespace Parsek
             }
         }
 
+        internal static bool IsWatchButtonEnabled(
+            bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+        {
+            return hasGhost && sameBody && inRange && !isDebris;
+        }
+
         internal static string GetWatchButtonReason(
             bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
@@ -1371,7 +1377,7 @@ namespace Parsek
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
+                bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
 
                 // Bug #279: log enabled/disabled transitions at INFO level so future
                 // playtests can distinguish "user didn't try" from "UI was broken".
