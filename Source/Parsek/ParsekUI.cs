@@ -512,6 +512,36 @@ namespace Parsek
             style.onActive.textColor = toggledTextColor;
         }
 
+        internal static void NormalizeOpaqueWindowTitleTextColors(
+            Color sourceNormalTextColor,
+            Color sourceOnNormalTextColor,
+            ref Color normalTextColor,
+            ref Color hoverTextColor,
+            ref Color focusedTextColor,
+            ref Color activeTextColor,
+            ref Color onNormalTextColor,
+            ref Color onHoverTextColor,
+            ref Color onFocusedTextColor,
+            ref Color onActiveTextColor)
+        {
+            Color baseTextColor = ResolveReadableWindowTitleTextColor(
+                sourceNormalTextColor,
+                sourceOnNormalTextColor);
+            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
+                sourceOnNormalTextColor,
+                sourceNormalTextColor);
+
+            normalTextColor = baseTextColor;
+            hoverTextColor = baseTextColor;
+            focusedTextColor = baseTextColor;
+            activeTextColor = baseTextColor;
+
+            onNormalTextColor = toggledTextColor;
+            onHoverTextColor = toggledTextColor;
+            onFocusedTextColor = toggledTextColor;
+            onActiveTextColor = toggledTextColor;
+        }
+
         internal static Color ResolveReadableWindowTitleTextColor(
             Color preferred,
             Color fallback)
@@ -539,15 +569,23 @@ namespace Parsek
             if (opaqueWindowStyle == null)
                 return;
 
-            var destroyedBackgrounds = new HashSet<int>();
-            DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
-            DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            try
+            {
+                var destroyedBackgrounds = new HashSet<int>();
+                DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
+                DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessUiObjectFailure(ex))
+                    throw;
+            }
             opaqueWindowStyle = null;
             hasOpaqueWindowStyleScene = false;
         }
@@ -567,11 +605,30 @@ namespace Parsek
             if (background == null)
                 return;
 
-            int id = background.GetInstanceID();
-            if (!destroyedBackgrounds.Add(id))
-                return;
+            try
+            {
+                int id = background.GetInstanceID();
+                if (!destroyedBackgrounds.Add(id))
+                    return;
 
-            UnityEngine.Object.Destroy(background);
+                UnityEngine.Object.Destroy(background);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessUiObjectFailure(ex))
+                    throw;
+            }
+        }
+
+        private static bool IsHeadlessUiObjectFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is System.Security.SecurityException)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

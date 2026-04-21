@@ -142,6 +142,105 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareForIsolatedBatchFlightBaselineRestore_ClearsSaveScopedInMemoryState()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = "rec",
+                VesselName = "Rocket"
+            });
+            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
+            RecordingStore.PendingCleanupNames = new HashSet<string> { "Ghost" };
+
+            var pendingTree = new RecordingTree
+            {
+                Id = "pending-tree",
+                TreeName = "Pending",
+                RootRecordingId = "pending-root",
+                ActiveRecordingId = "pending-root"
+            };
+            pendingTree.Recordings["pending-root"] = new Recording
+            {
+                RecordingId = "pending-root",
+                VesselName = "Pending"
+            };
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            GroupHierarchyStore.SetGroupParent("Child", "Parent");
+            GroupHierarchyStore.AddHiddenGroup("Hidden");
+
+            var crewNode = new ConfigNode("SCENARIO");
+            var replacementsNode = crewNode.AddNode("CREW_REPLACEMENTS");
+            var replacementEntry = replacementsNode.AddNode("ENTRY");
+            replacementEntry.AddValue("original", "Jeb");
+            replacementEntry.AddValue("replacement", "Bill");
+            CrewReservationManager.LoadCrewReplacements(crewNode);
+
+            MilestoneStore.CurrentEpoch = 3;
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "KSC",
+                ut = 1.0
+            };
+            GameStateStore.AddEvent(ref e);
+
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "subject",
+                science = 5f,
+                subjectMaxValue = 10f
+            });
+            RevertDetector.SetPendingForTesting(RevertKind.Launch);
+
+            SetPrivateStaticField(typeof(ParsekScenario), "initialLoadDone", true);
+            SetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionEpoch", (uint)9);
+            SetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPending", true);
+            SetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPendingFrame", 123);
+            ParsekScenario.MergeDialogPending = true;
+            ParsekScenario.pendingActiveTreeResumeRewindSave = "parsek_rw_restore";
+            ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                ParsekScenario.ActiveTreeRestoreMode.Quickload;
+
+            bool unsubscribeCalled = false;
+            bool stateStillPopulatedDuringUnsubscribe = false;
+
+            ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(() =>
+            {
+                unsubscribeCalled = true;
+                stateStillPopulatedDuringUnsubscribe =
+                    RecordingStore.CommittedRecordings.Count > 0
+                    && RecordingStore.HasPendingTree
+                    && GameStateStore.EventCount > 0
+                    && GameStateRecorder.PendingScienceSubjects.Count > 0;
+            });
+
+            Assert.True(unsubscribeCalled);
+            Assert.True(stateStillPopulatedDuringUnsubscribe);
+            Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "initialLoadDone"));
+            Assert.Equal((uint)0, (uint)GetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionEpoch"));
+            Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPending"));
+            Assert.Equal(-1, (int)GetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPendingFrame"));
+            Assert.False(ParsekScenario.MergeDialogPending);
+            Assert.Null(ParsekScenario.pendingActiveTreeResumeRewindSave);
+            Assert.Equal(ParsekScenario.ActiveTreeRestoreMode.None,
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Null(RecordingStore.PendingCleanupPids);
+            Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Empty(GroupHierarchyStore.GroupParents);
+            Assert.Empty(GroupHierarchyStore.HiddenGroups);
+            Assert.Equal(0, GameStateStore.EventCount);
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal(RevertKind.None, RevertDetector.PendingKind);
+
+            var savedCrewNode = new ConfigNode("SCENARIO");
+            CrewReservationManager.SaveCrewReplacements(savedCrewNode);
+            Assert.Null(savedCrewNode.GetNode("CREW_REPLACEMENTS"));
+        }
+
+        [Fact]
         public void LoadCrewAndGroupState_InitialLoad_InitializesKerbalsBeforeLoadingSlots()
         {
             LedgerOrchestrator.ResetForTesting();
@@ -1795,6 +1894,20 @@ namespace Parsek.Tests
             {
                 initialLoadDoneField.SetValue(null, previousInitialLoadDone);
             }
+        }
+
+        private static void SetPrivateStaticField(Type type, string fieldName, object value)
+        {
+            FieldInfo field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(null, value);
+        }
+
+        private static object GetPrivateStaticField(Type type, string fieldName)
+        {
+            FieldInfo field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return field.GetValue(null);
         }
 
         private static void InvokePrepareQuickloadResumeStateIfNeeded(FlightRecorder recorder)

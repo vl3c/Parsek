@@ -13,6 +13,7 @@ namespace Parsek
         public double longitudeOfAscendingNode, argumentOfPeriapsis;
         public double meanAnomalyAtEpoch, epoch;
         public string bodyName;
+        public bool isPredicted;
 
         /// <summary>
         /// Vessel rotation relative to the orbital velocity frame; identity = prograde.
@@ -43,6 +44,11 @@ namespace Parsek
             if (angularVelocity.sqrMagnitude > 0f)
             {
                 s += $" angVel={angularVelocity}";
+            }
+
+            if (isPredicted)
+            {
+                s += " predicted=true";
             }
 
             return s;

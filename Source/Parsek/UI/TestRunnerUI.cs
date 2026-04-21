@@ -138,20 +138,14 @@ namespace Parsek
                 var testsInCategory = group.Value;
 
                 bool expanded = expandedTestCategories.Contains(category);
-                int catPassed = 0, catFailed = 0;
-                foreach (var t in testsInCategory)
-                {
-                    if (t.Status == TestStatus.Passed) catPassed++;
-                    else if (t.Status == TestStatus.Failed) catFailed++;
-                }
 
                 // Category header
                 GUILayout.BeginHorizontal();
-                string arrow = expanded ? "\u25bc" : "\u25b6";
-                string catSummary = catFailed > 0
-                    ? $" ({catPassed}/{testsInCategory.Count}, {catFailed} failed)"
-                    : $" ({catPassed}/{testsInCategory.Count})";
-                if (GUILayout.Button($"{arrow} {category}{catSummary}", GUI.skin.label))
+                string categoryLabel = TestRunnerPresentation.BuildCategoryButtonLabel(
+                    category,
+                    testsInCategory,
+                    expanded);
+                if (GUILayout.Button(categoryLabel, GUI.skin.label))
                 {
                     if (expanded) expandedTestCategories.Remove(category);
                     else expandedTestCategories.Add(category);
@@ -164,6 +158,14 @@ namespace Parsek
                     testRunner.RunCategory(category);
                     ParsekLog.Verbose("UI", $"Test runner: Run category '{category}'");
                 }
+                if (GUILayout.Button(new GUIContent("Run+",
+                    "Runs this category plus any [isolated] FLIGHT tests by restoring a temporary baseline between destructive tests."),
+                    GUILayout.Width(44)))
+                {
+                    testRunner.ResetCategory(category);
+                    testRunner.RunCategoryIncludingFlightRestore(category);
+                    ParsekLog.Verbose("UI", $"Test runner: Run+ category '{category}'");
+                }
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
 
@@ -172,8 +174,9 @@ namespace Parsek
                 // Individual tests
                 foreach (var test in testsInCategory)
                 {
-                    bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
-                        || test.RequiredScene == HighLogic.LoadedScene;
+                    bool eligible = TestRunnerPresentation.IsEligibleForScene(
+                        test,
+                        HighLogic.LoadedScene);
 
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(16);
@@ -187,16 +190,10 @@ namespace Parsek
 
                     // Test name (dimmed if wrong scene)
                     if (!eligible) GUI.enabled = false;
-                    string testLabel = test.Name;
-                    if (test.Method.DeclaringType != null)
-                        testLabel = test.Method.Name; // short name within category
-                    if (!test.AllowBatchExecution)
-                        testLabel += " [single]";
-                    if (test.DurationMs > 0)
-                        testLabel += $" ({test.DurationMs:F0}ms)";
+                    string testLabel = TestRunnerPresentation.BuildTestLabel(test);
                     GUILayout.Label(
                         new GUIContent(testLabel,
-                            BuildTestTooltip(test, eligible)),
+                            TestRunnerPresentation.BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
                     GUI.enabled = true;
 
@@ -254,10 +251,11 @@ namespace Parsek
 
             if (wrappedTooltipStyle == null)
             {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
                 {
                     wordWrap = true
                 };
+                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 
@@ -281,6 +279,13 @@ namespace Parsek
                 testRunner.RunAll();
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
             }
+            if (GUILayout.Button(new GUIContent("Run All + Isolated",
+                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+            {
+                testRunner.ResetResults();
+                testRunner.RunAllIncludingFlightRestore();
+                ParsekLog.Info("UI", "Test runner: Run All + Isolated clicked");
+            }
             if (GUILayout.Button(new GUIContent("Reset",
                 "Clears the table AND per-scene history used by the auto-exported results file.")))
             {
@@ -300,19 +305,23 @@ namespace Parsek
 
             // --- Summary ---
             GUILayout.Space(SpacingSmall);
-            int total = testRunner.Tests.Count;
-            string status = testRunner.IsRunning ? "RUNNING" : "idle";
             GUILayout.Label(
-                $"{status} | {testRunner.Passed} passed  {testRunner.Failed} failed  {testRunner.Skipped} skipped  ({total} total)",
+                TestRunnerPresentation.BuildRunSummary(
+                    testRunner.IsRunning,
+                    testRunner.Passed,
+                    testRunner.Failed,
+                    testRunner.Skipped,
+                    testRunner.Tests.Count),
                 GUI.skin.box);
 
             // --- Scene filter note ---
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
-            if (HasSingleRunOnlyTestsForCurrentScene())
+            string batchModeNotice = TestRunnerPresentation.BuildBatchModeNotice(
+                testRunner.Tests,
+                HighLogic.LoadedScene);
+            if (!string.IsNullOrEmpty(batchModeNotice))
             {
-                GUILayout.Label(
-                    "Single-run tests are skipped by Run All / Run category. Use the row ▶ button for destructive scene-transition checks.",
-                    GUI.skin.label);
+                GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
 
             // --- Rebuild cached groups when run state changes ---
@@ -380,45 +389,6 @@ namespace Parsek
                 case TestStatus.Skipped: return Color.gray;
                 default:                 return Color.white;
             }
-        }
-
-        private bool HasSingleRunOnlyTestsForCurrentScene()
-        {
-            if (testRunner == null) return false;
-
-            foreach (var test in testRunner.Tests)
-            {
-                bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
-                    || test.RequiredScene == HighLogic.LoadedScene;
-                if (eligible && !test.AllowBatchExecution)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static string BuildTestTooltip(InGameTestInfo test, bool eligible)
-        {
-            var lines = new List<string>();
-
-            if (!string.IsNullOrEmpty(test.Description))
-                lines.Add(test.Description);
-
-            string batchNote = InGameTestRunner.GetBatchSkipReason(test);
-            if (!string.IsNullOrEmpty(batchNote))
-                lines.Add(batchNote);
-
-            if (!eligible)
-                lines.Add($"Requires {test.RequiredScene} scene");
-
-            if ((test.Status == TestStatus.Failed || test.Status == TestStatus.Skipped)
-                && !string.IsNullOrEmpty(test.ErrorMessage)
-                && test.ErrorMessage != batchNote)
-            {
-                lines.Add(test.ErrorMessage);
-            }
-
-            return lines.Count > 0 ? string.Join("\n", lines.ToArray()) : string.Empty;
         }
     }
 }

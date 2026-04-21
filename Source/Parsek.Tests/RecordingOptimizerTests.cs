@@ -34,7 +34,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel,
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel,
                 LoopAnchorVesselId = 0,
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000 });
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            b.LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel + 15.0;
+            b.LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel + 15.0;
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             // auto-merging. This test pins the invariant: the field init and the sentinel
             // MUST be equal.
             var fresh = new Recording();
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
         }
 
         [Fact]
@@ -235,8 +235,8 @@ namespace Parsek.Tests
             // regardless of the user-facing DefaultLoopIntervalSeconds value.
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
-            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
             Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
@@ -2310,8 +2310,14 @@ namespace Parsek.Tests
         [Fact]
         public void TrimBoringTail_LandedStableTerminalState_StillTrims()
         {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
             var rec = new Recording
             {
+                RecordingId = "trim-landed-identity",
                 TerminalStateValue = TerminalState.Landed,
                 TerminalPosition = new SurfacePosition
                 {
@@ -2338,6 +2344,10 @@ namespace Parsek.Tests
 
             Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(130, rec.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryGetTerminalSurfaceReference")
+                && l.Contains("trim-landed-identity")
+                && l.Contains("ignoring identity terminal rotation"));
         }
 
         [Fact]

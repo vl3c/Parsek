@@ -769,6 +769,125 @@ namespace Parsek.Tests
             return new[] { seg0, seg1, seg2, seg3 };
         }
 
+        internal static RecordingBuilder TruncatedPlaneCruise(double baseUT = 0)
+        {
+            double t = baseUT + 760;
+            double lat = -0.115;
+            double lon = -74.30;
+            var b = new RecordingBuilder("Truncated Plane Cruise");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            b.AddPoint(t + 0, lat, lon, 3000);
+            b.AddPoint(t + 5, lat + 0.003, lon + 0.060, 3050);
+            b.AddPoint(t + 10, lat + 0.006, lon + 0.120, 3090);
+            b.AddPoint(t + 15, lat + 0.009, lon + 0.180, 3120);
+            b.AddPoint(t + 20, lat + 0.012, lon + 0.240, 3140);
+            b.AddPoint(t + 25, lat + 0.015, lon + 0.300, 3160);
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Truncated Plane Cruise", "Jebediah Kerman", pid: 88110001)
+                    .AsLanded(lat + 0.015, lon + 0.300, 3160));
+
+            return b;
+        }
+
+        internal static RecordingBuilder TruncatedSuborbitalRecording(double baseUT = 0)
+        {
+            double t = baseUT + 820;
+            double lat = -0.0972;
+            double lon = -74.5575;
+            var b = new RecordingBuilder("Truncated Suborbital Recording");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            b.AddPoint(t + 0, lat, lon, 15000);
+            b.AddPoint(t + 20, lat + 0.004, lon + 0.040, 32000);
+            b.AddPoint(t + 40, lat + 0.008, lon + 0.090, 52000);
+            b.AddPoint(t + 60, lat + 0.011, lon + 0.145, 64500);
+            b.AddPoint(t + 80, lat + 0.013, lon + 0.190, 70500);
+            b.AddOrbitSegment(t + 80, t + 260,
+                inc: 4.0, ecc: 0.78, sma: 980000,
+                lan: 90, argPe: 45, mna: 0.2, epoch: t + 80,
+                body: "Kerbin");
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Truncated Suborbital Recording", "Valentina Kerman", pid: 88110002)
+                    .AsLanded(lat + 0.013, lon + 0.190, 70500));
+
+            return b;
+        }
+
+        internal static RecordingBuilder TruncatedHyperbolicRecording(double baseUT = 0)
+        {
+            double t = baseUT + 900;
+            double lat = -0.020;
+            double lon = -72.800;
+            var b = new RecordingBuilder("Truncated Hyperbolic Recording");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            b.AddPoint(t + 0, lat, lon, 82000);
+            b.AddPoint(t + 30, lat + 0.010, lon + 0.150, 130000);
+            b.AddPoint(t + 60, lat + 0.020, lon + 0.320, 210000);
+            b.AddPoint(t + 90, lat + 0.028, lon + 0.520, 320000);
+            b.AddOrbitSegment(t + 60, t + 3600,
+                inc: 7.0, ecc: 1.12, sma: -4500000,
+                lan: 105, argPe: 15, mna: 0.1, epoch: t + 60,
+                body: "Kerbin");
+
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Truncated Hyperbolic Recording", "Bob Kerman", pid: 88110003)
+                    .AsOrbiting(sma: 700000, ecc: 0.001, inc: 7.0, lan: 105, argPe: 15, mna: 0.1, epoch: t + 60));
+
+            return b;
+        }
+
+        internal static RecordingBuilder TruncatedMunFlybyRecording(double baseUT = 0)
+        {
+            double t = baseUT + 980;
+            double lat = -0.010;
+            double lon = -69.500;
+            var b = new RecordingBuilder("Truncated Mun Flyby Recording");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            b.AddPoint(t + 0, lat, lon, 90000);
+            b.AddPoint(t + 40, lat + 0.020, lon + 0.220, 180000);
+            b.AddPoint(t + 80, lat + 0.050, lon + 0.480, 320000);
+            b.AddPoint(t + 120, lat + 0.090, lon + 0.760, 510000);
+            b.AddOrbitSegment(t + 60, t + 2100,
+                inc: 5.0, ecc: 0.92, sma: 4200000,
+                lan: 75, argPe: 20, mna: 0.4, epoch: t + 60,
+                body: "Kerbin");
+
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Truncated Mun Flyby Recording", "Bill Kerman", pid: 88110004)
+                    .AsOrbiting(sma: 4200000, ecc: 0.92, inc: 5.0, lan: 75, argPe: 20, mna: 0.4, epoch: t + 60));
+
+            return b;
+        }
+
+        internal static RecordingBuilder TruncatedMunImpactRecording(double baseUT = 0)
+        {
+            double t = baseUT + 1060;
+            double lat = 0.0;
+            double lon = 30.0;
+            var b = new RecordingBuilder("Truncated Mun Impact Recording");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            b.AddPoint(t + 0, lat, lon, 45000, body: "Mun");
+            b.AddPoint(t + 20, lat + 0.004, lon + 0.080, 32000, body: "Mun");
+            b.AddPoint(t + 40, lat + 0.008, lon + 0.150, 18000, body: "Mun");
+            b.AddPoint(t + 60, lat + 0.011, lon + 0.210, 12000, body: "Mun");
+            b.AddOrbitSegment(t + 20, t + 180,
+                inc: 2.0, ecc: 0.12, sma: 185000,
+                lan: 25, argPe: 110, mna: 0.3, epoch: t + 20,
+                body: "Mun");
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Truncated Mun Impact Recording", "Bill Kerman", pid: 88110005)
+                    .AsLanded(lat + 0.011, lon + 0.210, 12000));
+
+            return b;
+        }
+
         /// <summary>
         /// Steep reentry capsule descending over the sea east of KSC toward the island.
         /// High speed + mid-atmosphere density produces bright reentry FX trail.
@@ -2647,6 +2766,56 @@ namespace Parsek.Tests
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture, out avX));
             Assert.Equal(0.1f, avX, 0.00001f);  // tolerance
+        }
+
+        [Fact]
+        public void TruncatedPlaneCruise_BuildsValidRecording()
+        {
+            var node = TruncatedPlaneCruise().Build();
+            Assert.Equal("Truncated Plane Cruise", node.GetValue("vesselName"));
+            Assert.Equal(6, node.GetNodes("POINT").Length);
+            Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.NotNull(node.GetNode("GHOST_VISUAL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void TruncatedSuborbitalRecording_HasKerbinTailSegment()
+        {
+            var node = TruncatedSuborbitalRecording().Build();
+            Assert.Equal("Truncated Suborbital Recording", node.GetValue("vesselName"));
+            Assert.Equal(5, node.GetNodes("POINT").Length);
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Equal("Kerbin", node.GetNodes("ORBIT_SEGMENT")[0].GetValue("body"));
+        }
+
+        [Fact]
+        public void TruncatedHyperbolicRecording_HasHyperbolicOrbitSegment()
+        {
+            var node = TruncatedHyperbolicRecording().Build();
+            Assert.Equal("Truncated Hyperbolic Recording", node.GetValue("vesselName"));
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Equal("Kerbin", node.GetNodes("ORBIT_SEGMENT")[0].GetValue("body"));
+            Assert.Equal("-4500000", node.GetNodes("ORBIT_SEGMENT")[0].GetValue("sma"));
+        }
+
+        [Fact]
+        public void TruncatedMunFlybyRecording_HasKerbinOrbitSnapshot()
+        {
+            var node = TruncatedMunFlybyRecording().Build();
+            Assert.Equal("Truncated Mun Flyby Recording", node.GetValue("vesselName"));
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Equal("Kerbin", node.GetNodes("ORBIT_SEGMENT")[0].GetValue("body"));
+            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void TruncatedMunImpactRecording_HasMunOrbitSegment()
+        {
+            var node = TruncatedMunImpactRecording().Build();
+            Assert.Equal("Truncated Mun Impact Recording", node.GetValue("vesselName"));
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Equal("Mun", node.GetNodes("ORBIT_SEGMENT")[0].GetValue("body"));
+            Assert.NotNull(node.GetNode("GHOST_VISUAL_SNAPSHOT"));
         }
 
         [Fact]
@@ -5698,6 +5867,12 @@ namespace Parsek.Tests
             for (int i = 0; i < munTransferSegments.Length; i++)
                 munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
             writer.AddRecordingsAsTree(munTransferSegments);
+
+            writer.AddRecordingAsTree(TruncatedPlaneCruise(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(TruncatedSuborbitalRecording(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(TruncatedHyperbolicRecording(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(TruncatedMunFlybyRecording(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(TruncatedMunImpactRecording(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
             writer.AddRecordingAsTree(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
             writer.AddRecordingAsTree(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));

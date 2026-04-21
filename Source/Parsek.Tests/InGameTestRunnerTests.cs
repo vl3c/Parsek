@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Parsek.InGameTests;
 using Xunit;
@@ -78,6 +80,182 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OrderForBatchExecution_PlacesRestoreTestsAfterSharedSessionTests()
+        {
+            var ordered = InGameTestRunner.OrderForBatchExecution(new[]
+            {
+                new InGameTestInfo { Category = "A", Name = "RestoreA", RestoreBatchFlightBaselineAfterExecution = true },
+                new InGameTestInfo { Category = "A", Name = "SharedA" },
+                new InGameTestInfo { Category = "A", Name = "RestoreB", RestoreBatchFlightBaselineAfterExecution = true },
+            });
+
+            Assert.Equal(
+                new[] { "SharedA", "RestoreA", "RestoreB" },
+                ordered.Select(t => t.Name).ToArray());
+        }
+
+        [Fact]
+        public void PrepareBatchExecutionIncludingFlightRestore_IncludesRestoreTestsButSkipsManualOnly()
+        {
+            var batchSafe = new InGameTestInfo { Category = "A", Name = "BatchSafe" };
+            var isolated = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "Isolated",
+                AllowBatchExecution = false,
+                RestoreBatchFlightBaselineAfterExecution = true,
+                BatchSkipReason = "run with restore"
+            };
+            var manualOnly = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "ManualOnly",
+                AllowBatchExecution = false,
+                BatchSkipReason = "manual only"
+            };
+
+            var batch = InGameTestRunner.PrepareBatchExecutionIncludingFlightRestore(
+                new[] { isolated, batchSafe, manualOnly });
+
+            Assert.Equal(new[] { "BatchSafe", "Isolated" }, batch.Select(t => t.Name).ToArray());
+            Assert.Equal(TestStatus.Skipped, manualOnly.Status);
+            Assert.Equal("manual only", manualOnly.ErrorMessage);
+            Assert.Equal(TestStatus.NotRun, isolated.Status);
+        }
+
+        [Fact]
+        public void GetBatchExecutionNote_ReturnsRestoreNoteForIsolatedTests()
+        {
+            var isolated = new InGameTestInfo
+            {
+                RestoreBatchFlightBaselineAfterExecution = true
+            };
+
+            string note = InGameTestRunner.GetBatchExecutionNote(isolated);
+
+            Assert.Equal(InGameTestRunner.DefaultBatchRestoreNote, note);
+        }
+
+        [Theory]
+        [InlineData(Vessel.Situations.PRELAUNCH, true)]
+        [InlineData(Vessel.Situations.LANDED, false)]
+        [InlineData(Vessel.Situations.FLYING, false)]
+        public void ShouldWaitForStockStageManager_OnlyForPrelaunch(
+            Vessel.Situations situation,
+            bool expected)
+        {
+            bool actual = InGameTestRunner.ShouldWaitForStockStageManager(situation);
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData(true, 1, false, false, true)]
+        [InlineData(false, 1, false, false, false)]
+        [InlineData(true, 0, false, false, false)]
+        [InlineData(true, 1, true, false, false)]
+        [InlineData(true, 1, false, true, false)]
+        public void IsStageManagerReadyForActivateNextStage_RequiresStableStockState(
+            bool hasInstance,
+            int stageCount,
+            bool rebuildIndexes,
+            bool hasSortRoutine,
+            bool expected)
+        {
+            bool actual = InGameTestRunner.IsStageManagerReadyForActivateNextStage(
+                hasInstance,
+                stageCount,
+                rebuildIndexes,
+                hasSortRoutine);
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void CreateBatchFlightParsekSaveSnapshotStaging_MissingSnapshot_DoesNotTouchCurrentDirectory()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "parsek-staging-test-" + Guid.NewGuid().ToString("N"));
+            string currentDirectory = Path.Combine(root, "Parsek");
+            string currentFile = Path.Combine(currentDirectory, "state.txt");
+            try
+            {
+                Directory.CreateDirectory(currentDirectory);
+                File.WriteAllText(currentFile, "live");
+
+                Assert.ThrowsAny<Exception>(() =>
+                    InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(
+                        currentDirectory,
+                        Path.Combine(root, "missing-snapshot")));
+
+                Assert.True(Directory.Exists(currentDirectory));
+                Assert.Equal("live", File.ReadAllText(currentFile));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void CreateBatchFlightParsekSaveSnapshotStaging_Activate_ReplacesCurrentDirectoryOnlyWhenInvoked()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "parsek-staging-test-" + Guid.NewGuid().ToString("N"));
+            string currentDirectory = Path.Combine(root, "Parsek");
+            string snapshotDirectory = Path.Combine(root, "ParsekSnapshot");
+            string currentFile = Path.Combine(currentDirectory, "state.txt");
+            string snapshotFile = Path.Combine(snapshotDirectory, "state.txt");
+            try
+            {
+                Directory.CreateDirectory(currentDirectory);
+                Directory.CreateDirectory(snapshotDirectory);
+                File.WriteAllText(currentFile, "live");
+                File.WriteAllText(snapshotFile, "baseline");
+
+                using (var staged = InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(
+                    currentDirectory,
+                    snapshotDirectory))
+                {
+                    Assert.Equal("live", File.ReadAllText(currentFile));
+
+                    staged.Activate();
+
+                    Assert.True(Directory.Exists(currentDirectory));
+                    Assert.Equal("baseline", File.ReadAllText(currentFile));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void ActivateStagedBatchFlightBaselineRestore_PreparesOnlyAfterActivation()
+        {
+            var order = new List<string>();
+
+            InGameTestRunner.ActivateStagedBatchFlightBaselineRestore(
+                () => order.Add("activate"),
+                () => order.Add("prepare"));
+
+            Assert.Equal(new[] { "activate", "prepare" }, order);
+        }
+
+        [Fact]
+        public void ActivateStagedBatchFlightBaselineRestore_ActivationFailure_DoesNotPrepare()
+        {
+            bool prepared = false;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                InGameTestRunner.ActivateStagedBatchFlightBaselineRestore(
+                    () => throw new InvalidOperationException("boom"),
+                    () => prepared = true));
+
+            Assert.False(prepared);
+        }
+
         public void FormatCoroutineState_ReportsActiveAndIdleSlots()
         {
             string state = InGameTestRunner.FormatCoroutineState(
@@ -322,6 +500,41 @@ namespace Parsek.Tests
                 new DateTime(2026, 4, 17, 10, 0, 0),
                 GameScenes.FLIGHT);
             Assert.Contains("(never run)", string.Join("\n", lines));
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_CapturesNestedCoroutineFailure()
+        {
+            Exception failure = null;
+
+            var safe = InGameTestRunner.RunCoroutineSafely(
+                OuterCoroutineYieldingNestedFailure(),
+                ex => failure = ex);
+
+            ExhaustCoroutine(safe);
+
+            var actual = Assert.IsType<InvalidOperationException>(failure);
+            Assert.Equal("nested boom", actual.Message);
+        }
+
+        private static IEnumerator OuterCoroutineYieldingNestedFailure()
+        {
+            yield return NestedThrowingCoroutine();
+        }
+
+        private static IEnumerator NestedThrowingCoroutine()
+        {
+            yield return null;
+            throw new InvalidOperationException("nested boom");
+        }
+
+        private static void ExhaustCoroutine(IEnumerator routine)
+        {
+            while (routine.MoveNext())
+            {
+                if (routine.Current is IEnumerator nested)
+                    ExhaustCoroutine(nested);
+            }
         }
     }
 }

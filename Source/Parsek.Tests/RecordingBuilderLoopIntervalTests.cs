@@ -60,8 +60,8 @@ namespace Parsek.Tests
                 .WithLoopPlayback(loop: true, intervalSeconds: 0.0);
 
             // No points → builder can't derive duration → DefaultLoopIntervalSeconds (30 s).
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, b.GetLoopIntervalSeconds());
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParseInterval(b.Build()));
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, b.GetLoopIntervalSeconds());
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, ParseInterval(b.Build()));
         }
 
         [Fact]
@@ -74,7 +74,7 @@ namespace Parsek.Tests
                 .AddPoint(ut: 10.0, lat: 0, lon: 0, alt: 0)
                 .AddPoint(ut: 10.5, lat: 0, lon: 0, alt: 0);
 
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, b.GetLoopIntervalSeconds());
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, b.GetLoopIntervalSeconds());
         }
 
         [Fact]

@@ -414,7 +414,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLoopIntervalSeconds_NullRecording_ReturnsDefault()
         {
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(null));
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(null));
         }
 
         [Fact]
@@ -422,7 +422,7 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = double.NaN;
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -430,7 +430,7 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = double.PositiveInfinity;
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -439,7 +439,7 @@ namespace Parsek.Tests
             // #381: negative intervals are no longer allowed — clamp defensively to MinCycleDuration.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = -50.0;
-            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(LoopTiming.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -448,7 +448,7 @@ namespace Parsek.Tests
             // #381: clamp applies regardless of magnitude.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = -200.0;
-            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(LoopTiming.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -465,7 +465,7 @@ namespace Parsek.Tests
             // #381: zero is also below MinCycleDuration.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = 0.0;
-            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(LoopTiming.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         #endregion

@@ -29,17 +29,18 @@ namespace Parsek
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
         private const int LegacyBinaryVersion = 2;
-        // #411 follow-up: the binary sidecar layout last changed at v3 (sparse point lists).
-        // The v4 bump is metadata-only (loopIntervalSeconds semantic change, see
-        // RecordingStore.LaunchToLaunchLoopIntervalFormatVersion), so the on-disk bytes are
-        // byte-identical between v3 and v4. SparsePointBinaryVersion pins the format feature
-        // gate for sparse point list encoding/decoding; CurrentBinaryVersion tracks the
-        // metadata semantic version so a freshly-saved v4 recording stamps its sidecar with
-        // v4 (and loads back as v4). Keep these two constants explicit so a future v5 that
-        // changes either axis independently has an obvious anchor point.
+        // #411 follow-up: the binary sidecar layout changed at v3 (sparse point lists) and
+        // again at v5 (OrbitSegment.isPredicted). The v4 bump is metadata-only
+        // (loopIntervalSeconds semantic change, see
+        // RecordingStore.LaunchToLaunchLoopIntervalFormatVersion), so the v3 and v4 bytes are
+        // identical. Keep each version anchor explicit so decode gates can distinguish the
+        // v4 no-flag layout from the v5 predicted-flag layout.
         private const int SparsePointBinaryVersion = 3;
-        private const int CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion;
+        private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
+        private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
+        private const int CurrentBinaryVersion = PredictedOrbitSegmentBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
+        private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
         private const byte SparsePointListFlagBodyDefault = 1 << 1;
         private const byte SparsePointListFlagFundsDefault = 1 << 2;
@@ -108,9 +109,7 @@ namespace Parsek
                 probe.FormatVersion = formatVersion;
                 probe.SidecarEpoch = sidecarEpoch;
                 probe.RecordingId = recordingId;
-                probe.Supported = formatVersion == LegacyBinaryVersion
-                    || formatVersion == SparsePointBinaryVersion
-                    || formatVersion == CurrentBinaryVersion;
+                probe.Supported = IsSupportedBinaryVersion(formatVersion);
                 probe.FailureReason = probe.Supported
                     ? null
                     : $"unsupported binary trajectory version {formatVersion}";
@@ -127,6 +126,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= LoopIntervalBinaryVersion
+                    ? LoopIntervalBinaryVersion
                 : rec.RecordingFormatVersion >= SparsePointBinaryVersion
                     ? SparsePointBinaryVersion
                     : LegacyBinaryVersion;
@@ -146,7 +147,7 @@ namespace Parsek
                     writer.Write(table.Strings[i] ?? string.Empty);
 
                 WritePointList(writer, sectionAuthoritative ? null : rec.Points, table, binaryVersion, ref stats);
-                WriteOrbitSegmentList(writer, sectionAuthoritative ? null : rec.OrbitSegments, table);
+                WriteOrbitSegmentList(writer, sectionAuthoritative ? null : rec.OrbitSegments, table, binaryVersion);
                 WritePartEventList(writer, rec.PartEvents, table);
                 WriteFlagEventList(writer, rec.FlagEvents, table);
                 WriteSegmentEventList(writer, rec.SegmentEvents, table);
@@ -159,10 +160,14 @@ namespace Parsek
             if (!RecordingStore.SuppressLogging)
             {
                 int nonDefaultSectionSources = CountNonDefaultSectionSources(rec.TrackSections);
+                int predictedCheckpointCount;
+                int predictedOrbitSegmentCount = RecordingStore.CountPredictedOrbitSegments(
+                    rec, out predictedCheckpointCount);
                 ParsekLog.Verbose("RecordingStore",
                     $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +
                     $"sectionAuthoritative={sectionAuthoritative} strings={table.Strings.Count} " +
                     $"points={(sectionAuthoritative ? 0 : rec.Points.Count)} orbitSegments={(sectionAuthoritative ? 0 : rec.OrbitSegments.Count)} " +
+                    $"predictedOrbitSegments={predictedOrbitSegmentCount} predictedCheckpoints={predictedCheckpointCount} " +
                     $"trackSections={rec.TrackSections?.Count ?? 0} nonDefaultSectionSources={nonDefaultSectionSources} " +
                     $"sparsePointLists={stats.SparsePointLists} sparsePoints={stats.SparsePoints} " +
                     $"omittedBody={stats.OmittedBody} omittedFunds={stats.OmittedFunds} " +
@@ -194,7 +199,7 @@ namespace Parsek
 
                 SparsePointReadStats stats = default(SparsePointReadStats);
                 ReadPointList(reader, rec.Points, stringTable, probe.FormatVersion, ref stats);
-                ReadOrbitSegmentList(reader, rec.OrbitSegments, stringTable);
+                ReadOrbitSegmentList(reader, rec.OrbitSegments, stringTable, probe.FormatVersion);
                 ReadPartEventList(reader, rec.PartEvents, stringTable);
                 ReadFlagEventList(reader, rec.FlagEvents, stringTable);
                 ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
@@ -322,6 +327,14 @@ namespace Parsek
             return table;
         }
 
+        private static bool IsSupportedBinaryVersion(int version)
+        {
+            return version == LegacyBinaryVersion
+                || version == SparsePointBinaryVersion
+                || version == LoopIntervalBinaryVersion
+                || version == CurrentBinaryVersion;
+        }
+
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
         {
             return version >= SparsePointBinaryVersion
@@ -404,24 +417,24 @@ namespace Parsek
             };
         }
 
-        private static void WriteOrbitSegmentList(BinaryWriter writer, List<OrbitSegment> segments, BinaryStringTable table)
+        private static void WriteOrbitSegmentList(BinaryWriter writer, List<OrbitSegment> segments, BinaryStringTable table, int binaryVersion)
         {
             writer.Write(segments?.Count ?? 0);
             if (segments == null)
                 return;
 
             for (int i = 0; i < segments.Count; i++)
-                WriteOrbitSegment(writer, segments[i], table);
+                WriteOrbitSegment(writer, segments[i], table, binaryVersion);
         }
 
-        private static void ReadOrbitSegmentList(BinaryReader reader, List<OrbitSegment> segments, List<string> stringTable)
+        private static void ReadOrbitSegmentList(BinaryReader reader, List<OrbitSegment> segments, List<string> stringTable, int binaryVersion)
         {
             int count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
-                segments.Add(ReadOrbitSegment(reader, stringTable));
+                segments.Add(ReadOrbitSegment(reader, stringTable, binaryVersion));
         }
 
-        private static void WriteOrbitSegment(BinaryWriter writer, OrbitSegment seg, BinaryStringTable table)
+        private static void WriteOrbitSegment(BinaryWriter writer, OrbitSegment seg, BinaryStringTable table, int binaryVersion)
         {
             writer.Write(seg.startUT);
             writer.Write(seg.endUT);
@@ -433,6 +446,8 @@ namespace Parsek
             writer.Write(seg.meanAnomalyAtEpoch);
             writer.Write(seg.epoch);
             writer.Write(table.GetIndex(seg.bodyName));
+            if (binaryVersion >= PredictedOrbitSegmentBinaryVersion)
+                writer.Write(seg.isPredicted ? OrbitSegmentFlagPredicted : (byte)0);
             writer.Write(seg.orbitalFrameRotation.x);
             writer.Write(seg.orbitalFrameRotation.y);
             writer.Write(seg.orbitalFrameRotation.z);
@@ -442,20 +457,35 @@ namespace Parsek
             writer.Write(seg.angularVelocity.z);
         }
 
-        private static OrbitSegment ReadOrbitSegment(BinaryReader reader, List<string> stringTable)
+        private static OrbitSegment ReadOrbitSegment(BinaryReader reader, List<string> stringTable, int binaryVersion)
         {
+            bool isPredicted = false;
+            double startUT = reader.ReadDouble();
+            double endUT = reader.ReadDouble();
+            double inclination = reader.ReadDouble();
+            double eccentricity = reader.ReadDouble();
+            double semiMajorAxis = reader.ReadDouble();
+            double longitudeOfAscendingNode = reader.ReadDouble();
+            double argumentOfPeriapsis = reader.ReadDouble();
+            double meanAnomalyAtEpoch = reader.ReadDouble();
+            double epoch = reader.ReadDouble();
+            string bodyName = ReadIndexedString(reader, stringTable) ?? "Kerbin";
+            if (binaryVersion >= PredictedOrbitSegmentBinaryVersion)
+                isPredicted = (reader.ReadByte() & OrbitSegmentFlagPredicted) != 0;
+
             return new OrbitSegment
             {
-                startUT = reader.ReadDouble(),
-                endUT = reader.ReadDouble(),
-                inclination = reader.ReadDouble(),
-                eccentricity = reader.ReadDouble(),
-                semiMajorAxis = reader.ReadDouble(),
-                longitudeOfAscendingNode = reader.ReadDouble(),
-                argumentOfPeriapsis = reader.ReadDouble(),
-                meanAnomalyAtEpoch = reader.ReadDouble(),
-                epoch = reader.ReadDouble(),
-                bodyName = ReadIndexedString(reader, stringTable) ?? "Kerbin",
+                startUT = startUT,
+                endUT = endUT,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = longitudeOfAscendingNode,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = bodyName,
+                isPredicted = isPredicted,
                 orbitalFrameRotation = new Quaternion(
                     reader.ReadSingle(),
                     reader.ReadSingle(),
@@ -601,7 +631,7 @@ namespace Parsek
                 writer.Write(track.minAltitude);
                 writer.Write(track.maxAltitude);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
-                WriteOrbitSegmentList(writer, track.checkpoints, table);
+                WriteOrbitSegmentList(writer, track.checkpoints, table, binaryVersion);
             }
         }
 
@@ -627,7 +657,7 @@ namespace Parsek
                 };
 
                 ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
-                ReadOrbitSegmentList(reader, track.checkpoints, stringTable);
+                ReadOrbitSegmentList(reader, track.checkpoints, stringTable, binaryVersion);
                 tracks.Add(track);
             }
         }

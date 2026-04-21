@@ -22,6 +22,7 @@ namespace Parsek.Tests
 
         public Bug278FinalizeLimboTests()
         {
+            IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -30,6 +31,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }

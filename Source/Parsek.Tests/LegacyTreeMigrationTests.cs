@@ -539,7 +539,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel
             };
             target.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 50000 });
             target.Points.Add(new TrajectoryPoint { ut = 150.0, altitude = 50000 });
@@ -557,7 +557,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel
             };
             absorbed.Points.Add(new TrajectoryPoint { ut = 150.0, altitude = 50000 });
             absorbed.Points.Add(new TrajectoryPoint { ut = 200.0, altitude = 50000 });

@@ -1188,13 +1188,5 @@ namespace Parsek.Tests
             Assert.Empty(kerbals.RetiredKerbals);
         }
 
-        // ── InferCrewEndState (Task 1 coverage, exercised via MakeRecording) ──
-
-        [Fact]
-        public void InferCrewEndState_NullTerminalState_ReturnsUnknown()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", null, new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Unknown, result);
-        }
     }
 }

@@ -51,10 +51,9 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
-        internal const float DefaultWatchEntryDistance = 50f;
-        internal const float DefaultWatchEntryPitch = 12f;
-        internal const float DefaultWatchEntryHeading = 0f;
-        internal const int MaxPendingOverlapBridgeFrames = 3;
+        // Watch-mode tunables (entry camera defaults, pending-bridge budget) live
+        // in ParsekConfig.cs under WatchMode.*. WatchModeLockId / WatchModeLockMask
+        // are KSP ControlLocks identifiers and stay local.
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
         internal static Func<float> CurrentWarpRateNow = GetCurrentWarpRateSafe;
@@ -1166,9 +1165,9 @@ namespace Parsek
                 altitude);
             return new WatchCameraTransitionState
             {
-                Distance = DefaultWatchEntryDistance,
-                Pitch = DefaultWatchEntryPitch,
-                Heading = DefaultWatchEntryHeading,
+                Distance = WatchMode.EntryDistance,
+                Pitch = WatchMode.EntryPitchDegrees,
+                Heading = WatchMode.EntryHeadingDegrees,
                 Mode = mode,
                 UserModeOverride = false,
                 HasTargetRotation = false,
@@ -1433,9 +1432,9 @@ namespace Parsek
                 ParsekLog.Info("CameraFollow",
                     $"Watch camera capture (fresh-entry-source): rec=#{index} id={rec.RecordingId ?? "null"} " +
                     $"using canonical framing (no active-vessel transfer) " +
-                    $"pitch={DefaultWatchEntryPitch.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"hdg={DefaultWatchEntryHeading.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"distance={DefaultWatchEntryDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+                    $"pitch={WatchMode.EntryPitchDegrees.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"hdg={WatchMode.EntryHeadingDegrees.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"distance={WatchMode.EntryDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
             if (switching && hasSwitchCameraState)
                 RememberWatchCameraState(switchCameraState);
@@ -1508,7 +1507,7 @@ namespace Parsek
                 var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
                 if (watchTarget != null)
                     FlightCamera.fetch.SetTargetTransform(watchTarget);
-                FlightCamera.fetch.SetDistance(DefaultWatchEntryDistance);  // override [75,400] entry clamp
+                FlightCamera.fetch.SetDistance(WatchMode.EntryDistance);  // override [75,400] entry clamp
                 ParsekLog.Warn("CameraFollow",
                     $"Watch camera transfer fallback: rec=#{index} id={rec.RecordingId ?? "null"} " +
                     $"switching={switching} hasSwitchState={hasSwitchCameraState} " +
@@ -1711,7 +1710,7 @@ namespace Parsek
             double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
             // #381: cycleDuration = launch-to-launch period (clamped). Dead-code fallback removed.
-            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             var loopPhaseOffsets = host.Engine.loopPhaseOffsets;
 
@@ -2569,7 +2568,7 @@ namespace Parsek
                 }
 
                 watchEndHoldPendingActivationUT = double.NaN;
-                float postActivationGraceUntil = RealtimeNow() + GhostPlaybackLogic.PendingWatchPostActivationGraceSeconds;
+                float postActivationGraceUntil = RealtimeNow() + WatchMode.PendingPostActivationGraceSeconds;
                 if (watchEndHoldMaxRealTime > 0f)
                     postActivationGraceUntil = Mathf.Min(postActivationGraceUntil, watchEndHoldMaxRealTime);
                 if (watchEndHoldUntilRealTime < postActivationGraceUntil)
@@ -2777,7 +2776,7 @@ namespace Parsek
                 hasPendingBridge,
                 canRetargetToPrimary,
                 bridgeWaitFrames,
-                MaxPendingOverlapBridgeFrames);
+                WatchMode.MaxPendingOverlapBridgeFrames);
             if (bridgeState == OverlapBridgeRetargetState.None)
                 return false;
 
@@ -2959,7 +2958,7 @@ namespace Parsek
                 if (currentState == null || currentState.loopCycleIndex < 0)
                     return fallbackUT;
 
-                if (resolveDuration <= GhostPlaybackLogic.MinCycleDuration)
+                if (resolveDuration <= LoopTiming.MinCycleDuration)
                     return fallbackUT;
 
                 // #443: engine's UpdateOverlapPlayback assigns loopCycleIndex using the
@@ -2970,7 +2969,7 @@ namespace Parsek
                 // GhostPlaybackEngine.cs:900.
                 double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                     intervalSeconds, resolveDuration,
-                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording);
+                    GhostPlayback.MaxOverlapGhostsPerRecording);
 
                 return GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                     Planetarium.GetUniversalTime(), loopStartUT, resolveDuration,

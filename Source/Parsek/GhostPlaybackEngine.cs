@@ -32,9 +32,6 @@ namespace Parsek
         // Loop phase offsets: shifted loop phase for Watch mode targeting.
         internal readonly Dictionary<int, double> loopPhaseOffsets = new Dictionary<int, double>();
 
-        // Active explosion GameObjects (tracked for cleanup).
-        internal readonly List<GameObject> activeExplosions = new List<GameObject>();
-
         // Anchor vessel tracking: which anchor vessels are loaded (for looped ghost lifecycle).
         internal readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
 
@@ -48,41 +45,11 @@ namespace Parsek
         private readonly Dictionary<int, (double userPeriod, double effectiveCadence, double duration)>
             lastLoggedCadence = new Dictionary<int, (double, double, double)>();
 
-        // Constants
-        // Hard ceiling on simultaneously-live ghost clones per recording in
-        // the flight scene. Per-frame cost scales with this value (mesh
-        // renderers, FX, audio, positioner). Combined with
-        // GhostPlaybackLogic.ComputeEffectiveLaunchCadence the cap is
-        // strictly observed — cadence is raised to the minimum value that
-        // keeps ceil(duration/cadence) within the cap, so no cycle is ever
-        // silently culled mid-trajectory.
-        internal const int MaxOverlapGhostsPerRecording = 10;
-        internal const double OverlapExplosionHoldSeconds = 3.0;
-        internal const int MaxActiveExplosions = 30;
-        internal const double HiddenGhostVisibleTierPrewarmBufferMeters = 5000.0;
-        internal const double HiddenGhostEventPrewarmLookaheadSeconds = 2.0;
-        internal const double InitialVisibleFrameClampWindowSeconds = 0.25;
-        // Bug #414: cap the number of throttle-eligible ghost-visual builds per UpdatePlayback
-        // tick. Worst-case spawn cost = cap * ~4ms per-spawn ≈ under the 8ms
-        // playback-budget WARN threshold. Watch-mode and loop-cycle-rebuild spawns bypass
-        // this cap; see plan-414-spawn-throttle.md for the full call-site taxonomy.
-        internal const int MaxSpawnsPerFrame = 2;
-        // Bug #450 B2: maximum timeline-build work one ghost is allowed to consume in a
-        // single BuildGhostVisualsWithMetrics call. This caps the dominant
-        // BuildTimelineGhostFromSnapshot bucket; the final completion call still pays the
-        // fixed dictionaries / priming tail. Explicit watch-mode loads bypass this cap and
-        // complete immediately on the user's request.
-        internal const double MaxSpawnBuildMillisecondsPerAdvance = 4.0;
+        // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
+        // concurrency caps, per-frame throttles, hold windows, and prewarm
+        // buffers used below.
         private static readonly long MaxSpawnTimelineBuildTicksPerAdvance =
-            (long)(Stopwatch.Frequency * (MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
-
-        // Bug #450 B3: cap on deferred reentry-FX builds that can fire on a single frame.
-        // Without a cap, N ghosts crossing atmosphereDepth in the same frame would each
-        // pay the ~7 ms TryBuildReentryFx cost, relocating the bimodal spawn-burst pattern
-        // to atmosphere-entry-time rather than eliminating it. The atmosphere-entry window
-        // is many frames wide (ghosts approach the boundary at ~hundreds of m/s vs a
-        // ~100 km atmosphere depth), so a 1-frame delay on the excess builds is invisible.
-        internal const int MaxLazyReentryBuildsPerFrame = 2;
+            (long)(Stopwatch.Frequency * (GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -136,7 +103,6 @@ namespace Parsek
         // Bug #414: per-phase stopwatches used only to populate the one-shot PlaybackBudgetPhases
         // breakdown that DiagnosticsComputation logs the first time a budget-exceeded frame fires.
         // Allocated once, Reset()+Start()/Stop() each frame — no per-frame GC.
-        private readonly Stopwatch explosionCleanupStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCreatedStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCompletedStopwatch = new Stopwatch();
         private readonly Stopwatch observabilityStopwatch = new Stopwatch();
@@ -266,7 +232,7 @@ namespace Parsek
                 : "no adjustment";
             ParsekLog.Info("Engine",
                 $"Loop cadence #{index} \"{vesselName}\": requested={userPeriod.ToString("F2", ic)}s " +
-                $"duration={duration.ToString("F2", ic)}s cap={MaxOverlapGhostsPerRecording} " +
+                $"duration={duration.ToString("F2", ic)}s cap={GhostPlayback.MaxOverlapGhostsPerRecording} " +
                 $"effective={effectiveCadence.ToString("F2", ic)}s (cycles={cycleCount}) {verdict}");
         }
 
@@ -310,7 +276,7 @@ namespace Parsek
                 return false;
 
             if (ghostDistance <= DistanceThresholds.GhostFlight.LoopSimplifiedMeters
-                + HiddenGhostVisibleTierPrewarmBufferMeters)
+                + GhostPlayback.HiddenGhostVisibleTierPrewarmBufferMeters)
             {
                 return true;
             }
@@ -318,7 +284,7 @@ namespace Parsek
             if (traj.PartEvents == null || traj.PartEvents.Count == 0)
                 return false;
 
-            double lookaheadDeadline = currentUT + HiddenGhostEventPrewarmLookaheadSeconds;
+            double lookaheadDeadline = currentUT + GhostPlayback.HiddenGhostEventPrewarmLookaheadSeconds;
             int startIndex = Math.Max(0, state.partEventIndex);
             for (int i = startIndex; i < traj.PartEvents.Count; i++)
             {
@@ -411,7 +377,6 @@ namespace Parsek
             destroyStopwatch.Reset();
             // Bug #414: reset per-phase stopwatches used for the one-shot breakdown.
             // Cheap (Reset on a stopped Stopwatch is a single field write).
-            explosionCleanupStopwatch.Reset();
             deferredCreatedStopwatch.Reset();
             deferredCompletedStopwatch.Reset();
             observabilityStopwatch.Reset();
@@ -628,15 +593,6 @@ namespace Parsek
             // own stopwatches inside SpawnGhost/DestroyGhost) can be computed below.
             long elapsedTicksAtLoopEnd = updateStopwatch.ElapsedTicks;
 
-            // Post-loop: cleanup explosions
-            explosionCleanupStopwatch.Start();
-            for (int i = activeExplosions.Count - 1; i >= 0; i--)
-            {
-                if (activeExplosions[i] == null)
-                    activeExplosions.RemoveAt(i);
-            }
-            explosionCleanupStopwatch.Stop();
-
             // Fire deferred events AFTER loop completes
             int createdEventsFired = deferredCreatedEvents.Count;
             deferredCreatedStopwatch.Start();
@@ -701,7 +657,7 @@ namespace Parsek
                 mainLoopMicroseconds = mainLoopMicroseconds,
                 spawnMicroseconds = spawnMicroseconds,
                 destroyMicroseconds = destroyMicroseconds,
-                explosionCleanupMicroseconds = explosionCleanupStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                explosionCleanupMicroseconds = 0, // FXMonger owns explosion-side cleanup; nothing engine-local to measure
                 deferredCreatedEventsMicroseconds = deferredCreatedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
@@ -1026,7 +982,7 @@ namespace Parsek
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.Info("Engine",
-                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
+                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
                     // Fire camera event so host can exit watch mode
                     OnLoopCameraAction?.Invoke(new CameraActionEvent
                     {
@@ -1091,7 +1047,7 @@ namespace Parsek
                         Index = index,
                         Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
                         AnchorPosition = state.ghost.transform.position,
-                        HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
+                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
                         Trajectory = traj, Flags = flags
                     });
 
@@ -1250,14 +1206,14 @@ namespace Parsek
             // GetActiveCycles's newest-cycle clamp (which stacked ghosts near
             // launch under short user periods).
             double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                intervalSeconds, duration, MaxOverlapGhostsPerRecording);
+                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
             LogOverlapCadenceIfChanged(index, traj, intervalSeconds, effectiveCadence, duration);
 
-            double cycleDuration = Math.Max(effectiveCadence, GhostPlaybackLogic.MinCycleDuration);
+            double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, loopEndUT, effectiveCadence,
-                MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+                GhostPlayback.MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;
             if (!overlapGhosts.TryGetValue(index, out overlaps))
@@ -1443,7 +1399,7 @@ namespace Parsek
                             : CameraActionType.ExplosionHoldEnd,
                         NewCycleIndex = cycle,
                         AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
-                        HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
+                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
                         Trajectory = traj, Flags = flags
                     });
 
@@ -1678,8 +1634,8 @@ namespace Parsek
 
             migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
             if (double.IsNaN(migratedPeriod) || double.IsInfinity(migratedPeriod)
-                || migratedPeriod < GhostPlaybackLogic.MinCycleDuration)
-                migratedPeriod = GhostPlaybackLogic.MinCycleDuration;
+                || migratedPeriod < LoopTiming.MinCycleDuration)
+                migratedPeriod = LoopTiming.MinCycleDuration;
             return true;
         }
 
@@ -1699,7 +1655,7 @@ namespace Parsek
                 return false;
             double start = EffectiveLoopStartUT(traj);
             double end = EffectiveLoopEndUT(traj);
-            return end - start > GhostPlaybackLogic.MinLoopDurationSeconds;
+            return end - start > LoopTiming.MinLoopDurationSeconds;
         }
 
         /// <summary>Resolve the effective loop interval for a trajectory.</summary>
@@ -1707,8 +1663,8 @@ namespace Parsek
         {
             return GhostPlaybackLogic.ResolveLoopInterval(
                 traj, autoLoopIntervalSeconds,
-                GhostPlaybackLogic.DefaultLoopIntervalSeconds,
-                GhostPlaybackLogic.MinCycleDuration);
+                LoopTiming.DefaultLoopIntervalSeconds,
+                LoopTiming.MinCycleDuration);
         }
 
         /// <summary>
@@ -1738,12 +1694,12 @@ namespace Parsek
             if (currentUT < loopStart) return false;
 
             double duration = loopEnd - loopStart;
-            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
+            if (duration <= LoopTiming.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
             // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
             // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
-            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
 
@@ -1760,7 +1716,7 @@ namespace Parsek
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
             // Pause window only exists when period strictly exceeds duration (there's a gap).
-            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
+            if (intervalSeconds > duration && cycleTime > duration + LoopTiming.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;
@@ -1988,7 +1944,7 @@ namespace Parsek
         /// <see cref="UpdateReentryFx"/> after its body/atmosphere/altitude guards have
         /// already confirmed the ghost is in atmosphere, so there is no duplicate
         /// <c>FlightGlobals.Bodies.Find</c> lookup. Respects
-        /// <see cref="MaxLazyReentryBuildsPerFrame"/> to prevent a burst of simultaneous
+        /// <see cref="GhostPlayback.MaxLazyReentryBuildsPerFrame"/> to prevent a burst of simultaneous
         /// atmosphere-entries from producing the same bimodal hitch #450 is trying to
         /// eliminate.
         /// </summary>
@@ -2001,7 +1957,7 @@ namespace Parsek
             // seam. A re-entrant call with the flag already cleared must be a no-op.
             if (state == null || !state.reentryFxPendingBuild) return;
 
-            if (frameLazyReentryBuildCount >= MaxLazyReentryBuildsPerFrame)
+            if (frameLazyReentryBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame)
             {
                 frameLazyReentryBuildDeferred++;
                 // Per-index rate-limit key so a burst of same-frame throttles does
@@ -2011,7 +1967,7 @@ namespace Parsek
                 // ghost.
                 ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-throttle-{recIdx}",
                     $"Lazy reentry build throttled: #{recIdx} deferred to next frame " +
-                    $"(used {frameLazyReentryBuildCount}/{MaxLazyReentryBuildsPerFrame})", 1.0);
+                    $"(used {frameLazyReentryBuildCount}/{GhostPlayback.MaxLazyReentryBuildsPerFrame})", 1.0);
                 return;  // Flag stays true — retry next frame while still in atmosphere.
             }
 
@@ -2759,12 +2715,12 @@ namespace Parsek
         /// </summary>
         private bool TryReserveSpawnSlot(int index, string site)
         {
-            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, MaxSpawnsPerFrame))
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
             {
                 frameSpawnDeferred++;
                 ParsekLog.VerboseRateLimited("Engine", "spawn-throttle",
                     $"Spawn throttled ({site}): #{index} deferred to next frame " +
-                    $"(used {frameSpawnCount}/{MaxSpawnsPerFrame})", 1.0);
+                    $"(used {frameSpawnCount}/{GhostPlayback.MaxSpawnsPerFrame})", 1.0);
                 return false;
             }
             return true;
@@ -3121,7 +3077,7 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Engine", $"spawn-split-{index}",
                         $"Ghost #{index} \"{state.vesselName}\" build split across frames: " +
                         $"{state.pendingVisualBuild.nextPartIndex}/{state.pendingVisualBuild.partNodes.Length} " +
-                        $"snapshot parts built ({reason}, budget={MaxSpawnBuildMillisecondsPerAdvance:F1}ms)",
+                        $"snapshot parts built ({reason}, budget={GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance:F1}ms)",
                         1.0);
                 }
                 return status;
@@ -3284,7 +3240,7 @@ namespace Parsek
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
-            if (activationLead <= 0.0 || activationLead > InitialVisibleFrameClampWindowSeconds)
+            if (activationLead <= 0.0 || activationLead > GhostPlayback.InitialVisibleFrameClampWindowSeconds)
                 return playbackUT;
 
             return activationStartUT;
@@ -3836,72 +3792,34 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", $"explosion-suppress-{recIdx}",
                     $"Explosion suppressed for ghost #{recIdx} \"{traj.VesselName}\": " +
                     $"warp rate {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x > " +
-                    $"{GhostPlaybackLogic.FxSuppressWarpThreshold}x");
+                    $"{WarpThresholds.FxSuppress}x");
                 return;
             }
 
             state.explosionFired = true;
 
-            // Bug #131: cap active explosion count to prevent frame drops with overlapping reentry loops
-            if (activeExplosions.Count >= MaxActiveExplosions)
-            {
-                GhostPlaybackLogic.HideAllGhostParts(state);
-                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-capped",
-                    $"Explosion skipped for ghost #{recIdx} \"{traj.VesselName}\": " +
-                    $"activeExplosions={activeExplosions.Count} >= cap={MaxActiveExplosions}");
-                return;
-            }
-
             Vector3 worldPos = state.ghost.transform.position;
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
+            double power = Mathf.Clamp01(vesselLength / 20f);
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
+                $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                10.0);
 
-            ParsekLog.VerboseRateLimited("ExplosionFx", $"trigger-{recIdx}",
-                $"Triggering explosion for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m", 10.0);
-
-            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
-            if (explosion != null)
+            if (!GhostVisualBuilder.TryTriggerStockExplosionFx(worldPos, power, out string stockFxFailure))
             {
-                UnityEngine.Object.Destroy(explosion, 6f);
-                activeExplosions.Add(explosion);
-
-                if (activeExplosions.Count > 20)
-                {
-                    for (int e = activeExplosions.Count - 1; e >= 0; e--)
-                    {
-                        if (activeExplosions[e] == null)
-                            activeExplosions.RemoveAt(e);
-                    }
-                }
-
-                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-created",
-                    $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
+                ParsekLog.Warn("ExplosionFx",
+                    $"FXMonger.Explode did not queue stock FX for ghost #{recIdx} \"{traj.VesselName}\"; " +
+                    $"falling back to custom FX: {stockFxFailure}");
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
                 $"Ghost #{recIdx} parts hidden after explosion");
-        }
-
-        /// <summary>
-        /// Destroys and clears all active explosion GameObjects.
-        /// </summary>
-        internal void CleanupActiveExplosions()
-        {
-            if (activeExplosions.Count == 0) return;
-            int destroyed = 0;
-            for (int i = activeExplosions.Count - 1; i >= 0; i--)
-            {
-                if (activeExplosions[i] != null)
-                {
-                    UnityEngine.Object.Destroy(activeExplosions[i]);
-                    destroyed++;
-                }
-            }
-            ParsekLog.Verbose("Engine", $"CleanupActiveExplosions: destroyed {destroyed}/{activeExplosions.Count} explosion GOs");
-            activeExplosions.Clear();
         }
 
         /// <summary>
@@ -3941,7 +3859,6 @@ namespace Parsek
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
 
-            CleanupActiveExplosions();
         }
 
         /// <summary>
