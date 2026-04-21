@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `#488` Quickload-resume in-game helpers now drive the stock `FlightDriver.StartAndFocusVessel` resume path instead of a bare `LoadScene(FLIGHT)`, and they now skip early on a missing/empty `quicksave.sfs` before attempting the scene reload.
+- Release-closeout evidence bundles now have a dedicated `scripts/validate-release-bundle.py` gate that fails when required artifacts are missing, `log-validation.txt` did not pass, or required runtime rows are absent / not `PASSED`.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries.
 - Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
@@ -49,6 +50,8 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
+- Release-closeout docs now define three named evidence bundles and require `collect-logs.py`, `validate-ksp-log.ps1`, and `validate-release-bundle.py` to pass on each retained packet.
+- Release-closeout docs now require the `.claude/CLAUDE.md` deployed-DLL verification recipe before trusting in-game evidence, so a stale `GameData/Parsek/Plugins/Parsek.dll` does not produce false-pass runtime bundles.
 - README now lists KSP Community Fixes in the Supported Mods table. KCF is fully compatible with Parsek; it replaces the body of `VesselPrecalculate.CalculatePhysicsStats` for performance, and Parsek's recording postfix on the same method composes cleanly.
 
 ### Bug Fixes
