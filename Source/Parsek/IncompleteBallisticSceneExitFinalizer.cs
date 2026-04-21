@@ -27,6 +27,8 @@ namespace Parsek
 
     internal static class IncompleteBallisticSceneExitFinalizer
     {
+        private static bool? flightGlobalsRuntimeAvailableForTesting;
+
         internal delegate bool TryFinalizeDelegate(
             Recording recording,
             Vessel vessel,
@@ -38,6 +40,7 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            flightGlobalsRuntimeAvailableForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
         }
@@ -100,6 +103,9 @@ namespace Parsek
             out IncompleteBallisticFinalizationResult result)
         {
             result = default(IncompleteBallisticFinalizationResult);
+
+            if (!IsFlightGlobalsRuntimeAvailable(recording != null ? recording.RecordingId : null))
+                return false;
 
             if (recording == null || vessel == null || vessel.orbit == null)
                 return false;
@@ -222,6 +228,44 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        private static bool IsFlightGlobalsRuntimeAvailable(string recordingId)
+        {
+            if (flightGlobalsRuntimeAvailableForTesting.HasValue)
+            {
+                if (!flightGlobalsRuntimeAvailableForTesting.Value)
+                {
+                    ParsekLog.Verbose("Extrapolator",
+                        $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' — " +
+                        "skipping default scene-exit extrapolation");
+                }
+                return flightGlobalsRuntimeAvailableForTesting.Value;
+            }
+
+            bool runtimeAvailable;
+            string diagnostic;
+            try
+            {
+                bool hasFetch = FlightGlobals.fetch != null;
+                bool ready = FlightGlobals.ready;
+                runtimeAvailable = hasFetch && ready;
+                diagnostic = $"fetch={hasFetch}, ready={ready}";
+            }
+            catch (Exception ex)
+            {
+                runtimeAvailable = false;
+                diagnostic = ex.GetType().Name;
+            }
+
+            flightGlobalsRuntimeAvailableForTesting = runtimeAvailable;
+            if (!runtimeAvailable)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
+                    $"({diagnostic}) — skipping default scene-exit extrapolation");
+            }
+            return runtimeAvailable;
         }
 
         private static bool ValidateResult(

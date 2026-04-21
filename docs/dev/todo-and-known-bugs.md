@@ -18,6 +18,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~489. Headless xUnit finalization tests tripped the live incomplete-ballistic extrapolator through `FlightGlobals` before they reached their real fallback assertions~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `Bug278FinalizeLimboTests.FinalizeIndividualRecording_*` and `EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`.
+
+**Concern:** `#442` wired `IncompleteBallisticSceneExitFinalizer.TryApply()` into the default scene-exit finalization path. In headless xUnit, Unity's native `FlightGlobals` runtime is unavailable, so the default extrapolator could trip `FlightGlobals` static initialization before the tests ever reached the branches they were actually written to assert. That turned pre-existing fallback tests into engine-startup failures unrelated to their purpose.
+
+**Fix:** `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording()` now probes `FlightGlobals.fetch` / `FlightGlobals.ready` once behind a cached guard and emits a focused `VERBOSE` line when the Unity runtime is unavailable. The production default path declines cleanly in headless xUnit, while hook / override-based tests still bypass the guard exactly as before. Added regression coverage in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

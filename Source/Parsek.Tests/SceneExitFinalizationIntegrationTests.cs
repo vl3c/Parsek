@@ -509,6 +509,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryApply_DefaultPath_FlightGlobalsUnavailable_DeclinesAndLogs()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-headless"
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]") &&
+                l.Contains("scene-exit-headless") &&
+                l.Contains("FlightGlobals runtime unavailable") &&
+                l.Contains("skipping default scene-exit extrapolation"));
+        }
+
+        [Fact]
         public void TryApply_RejectsUnsetTerminalState()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =

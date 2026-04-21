@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Headless scene-exit finalization tests now skip the live incomplete-ballistic extrapolator when Unity `FlightGlobals` is unavailable, so xUnit keeps exercising the intended fallback paths instead of dying in engine startup.
 - `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
 - Added spawn-rotation regressions for the explicit format-v0 surface-relative reconstruction path, including SpawnAtPosition node-prep coverage for Kerbin/Mun fixtures, snapshot-override rotation rewrites, terminal-surface-pose precedence, and the surface-only fallback gate.
