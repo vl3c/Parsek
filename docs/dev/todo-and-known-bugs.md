@@ -428,15 +428,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 539. Two `GhostPlaybackEngineTests` cases stay permanently `[Fact(Skip = ...)]` because xUnit has no Unity runtime harness
+## 539. Two `GhostPlaybackEngineTests` cases are `[Fact(Skip = ...)]` stubs that xUnit should not keep shipping
 
-**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` has two permanently-skipped cases: `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` (line 1153, Skip: `UpdateLoopingPlayback` body references `GameObject.activeSelf / SetActive`, which trip .NET 4.7.2 JIT verification) and `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` (line 1509, Skip: Unity `GameObject` instantiation requires runtime). Today's `dotnet test` confirms them still skipped (7729 passed / 2 skipped).
+**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` has two permanently-skipped cases. `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` (line 1509) is already covered by a dedicated in-game replacement — `InGameTests/RuntimeTests.cs:1860` is literally labelled "in-game replacement for xUnit SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT". `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` (line 1153) has no dedicated in-game counterpart; its skip message leans on the pure-logic xUnit sibling `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` (line 1206) plus "the in-game flow". Today's `dotnet test` confirms both still skipped (7729 passed / 2 skipped).
 
-**Concern:** both behaviors are currently only covered by neighboring pure-logic siblings and in-game tests (`ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents`, `GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame` in `InGameTests/RuntimeTests.cs`). Skip messages explicitly say "do not re-enable without a Unity runtime harness". A standing xUnit Unity shim (or isolating the non-Unity portions so these scenarios can be unit-tested directly) would remove the coverage gap without requiring Ctrl+Shift+T.
+**Concern:** by project convention (`.claude/CLAUDE.md` — in-game tests are the tool for anything requiring live KSP), the `SpawnGhost` xUnit stub is pure dead weight and should be deleted. The `UpdateLoopingPlayback_PendingCycleBoundary` stub is the only signal that the pending-build cycle-advance edge case is not yet a dedicated in-game regression — either add one under `GhostPlayback` in `RuntimeTests.cs` (parallel to the `SpawnGhost` replacement) and delete the xUnit stub, or confirm the sibling pure-logic test plus existing in-game flow is sufficient and delete the stub with a note.
 
-**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Parsek.Tests.csproj`.
+**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` (delete both `[Fact(Skip = ...)]` stubs), `Source/Parsek/InGameTests/RuntimeTests.cs` (add a dedicated `PendingCycleBoundary` in-game regression if coverage is judged insufficient).
 
-**Status:** OPEN. Long-standing skip — revisit only with a Unity runtime harness or a refactor that isolates the non-Unity paths.
+**Status:** OPEN. Cleanup — delete `SpawnGhost` stub outright; add an in-game counterpart for `PendingCycleBoundary` before deleting its stub.
 
 ---
 
