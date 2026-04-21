@@ -623,6 +623,95 @@ Local verification on this combined branch is now healthy enough to be useful: `
 
 ---
 
+## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+
+**Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
+
+**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+
+**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+
+**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+
+---
+
+## ~~495. No subsystem coverage matrix yet ties production areas to headless, runtime, log, and manual coverage~~ CLOSED 2026-04-21
+
+**Source:** audit backlog item 2 in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Resolution (2026-04-21):** CLOSED for v0.8.3. The repo now has a living [test-coverage-matrix.md](test-coverage-matrix.md) that maps major current-tree production subsystems to the four safety nets the project actually uses today: headless xUnit, in-game runtime, `KSP.log` contract validation, and manual scenario checklists.
+
+Review follow-up tightened the first version before closeout: the missing group-hierarchy / visibility subsystem row was added, the stale `done/part-coverage-catalog.md` manual reference was removed, and the diagnostics row now anchors to production observability surfaces rather than framing `LogValidation/*` as a production owner.
+
+**Why this matters:** future audit work now has one current-tree place to answer "which safety net covers this subsystem today?" instead of reconstructing that view from prose and grep each time.
+
+**Files:** `docs/dev/test-coverage-matrix.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-21). Fixed for v0.8.3.
+
+---
+
+## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+
+**Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+
+**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+
+**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+
+**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+
+---
+
+## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+
+**Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+
+**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+
+**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
+
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+
+---
+
+## ~~498. `validate-ksp-log.ps1` and exported in-game results are still not standardized release evidence~~ CLOSED 2026-04-21
+
+**Source:** audit backlog item 6 plus the "Priority 5" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Resolution (2026-04-21):** CLOSED for v0.8.3. Release-closeout evidence is now an explicit documented process instead of an implied convention. [manual-testing/test-general.md](manual-testing/test-general.md) defines the named release scenario bundle and the required artifacts, and [development-workflow.md](development-workflow.md) points release/RC closeout at the same bundle flow.
+
+The active process now requires:
+
+- collecting the packet with `scripts/collect-logs.py`
+- starting from a fresh `parsek-test-results.txt` export (`Reset` before the evidence run)
+- requiring the named runtime rows in that file to be present and `PASSED`
+- requiring `scripts/validate-ksp-log.ps1` to pass on the bundled `KSP.log`
+- requiring `scripts/validate-release-bundle.py` to pass on the collected folder
+- verifying the deployed `GameData/Parsek/Plugins/Parsek.dll` against the worktree build via the `.claude/CLAUDE.md` UTF-16 / size+mtime recipe before trusting any in-game evidence
+
+Review follow-up also corrected the release doc wording to the shipped deferred merge-dialog scene-exit semantics, made the reset / fresh-session boundary explicit so stale cumulative PASS rows do not count as valid evidence, and added an explicit bundle-validation artifact (`release-bundle-validation.txt`) on top of `log-validation.txt`.
+
+**Why this matters:** release conversations now have one canonical evidence bundle instead of relying on memory or ad-hoc packet selection.
+
+**Files:** `scripts/collect-logs.py`, `scripts/validate-ksp-log.ps1`, `scripts/validate-release-bundle.py`, `docs/dev/manual-testing/test-general.md`, `docs/dev/development-workflow.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-21). Fixed for v0.8.3.
+
+---
+
 ## ~~483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` — ≥ 15 occurrences spread across 21:18:32..21:26:05. Representative pair:
