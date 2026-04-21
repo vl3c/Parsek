@@ -116,7 +116,7 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 ---
 
-## 493. Destructive FLIGHT runtime tests now have an isolated batch mode locally, but it still needs live KSP validation
+## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
@@ -134,11 +134,11 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 `SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
 
-Local CLI verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore issues, so the next real confidence step is live KSP evidence plus code review rather than a healthy local `dotnet build`.
+Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
 
 **Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
 
-**Proposed next step:** from a disposable prelaunch `FLIGHT` session in this worktree build, use `Run All + Isolated` or per-category `Run+`, then collect `KSP.log`, `Player.log`, and `parsek-test-results.txt`. The validation bar is:
+**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
 
 - the `[isolated]` tests above run in one session without manual reloads
 - the runner quickloads the baseline back between destructive tests
