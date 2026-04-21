@@ -42,6 +42,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~491. Endpoint-aligned spawn-orbit selection could fall back across a body mismatch, while spawn-validation logs hid the vessel name behind generic caller context~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody`, `...ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody`, and the snapshot-validation log assertions that expected vessel names like `Malformed Snapshot` / `Surface Repair`.
+
+**Concern:** `TryGetEndpointAlignedRecordedOrbitSeedForSpawn()` delegated to the strict endpoint-body resolver first, then silently fell back to the older preferred-seed resolver even when that fallback pointed at a different body. That let a Kerbin terminal orbit leak into a Mun endpoint decision instead of returning false. In the same area, `BuildValidatedRespawnSnapshot()` and friends logged only the external caller label when one was supplied, so a generic context like `spawn-test` hid the actual vessel name the tests and triage needed.
+
+**Fix:** endpoint-aligned orbit selection now stays strict: orbit-segment endpoints still prefer the last matching segment, trajectory/surface endpoints prefer a matching terminal orbit first, and if nothing matches the resolved endpoint body the helper returns false instead of broadening the search. Spawn-validation messages now format context as `caller (VesselName)` when both exist, so repair/refusal logs keep the human vessel identity visible without dropping the caller label.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

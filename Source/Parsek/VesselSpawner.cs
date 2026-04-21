@@ -2656,17 +2656,18 @@ namespace Parsek
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
         {
+            string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
             if (rec?.VesselSnapshot == null)
             {
                 ParsekLog.Error("Spawner",
-                    $"BuildValidatedRespawnSnapshot: missing VesselSnapshot for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                    $"BuildValidatedRespawnSnapshot: missing VesselSnapshot for {resolvedContext}");
                 return null;
             }
 
             ConfigNode snapshot = rec.VesselSnapshot.CreateCopy();
             CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
 
-            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, logContext))
+            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, resolvedContext))
                 return null;
 
             return snapshot;
@@ -2695,7 +2696,7 @@ namespace Parsek
             if (snapshot == null)
             {
                 ParsekLog.Error("Spawner",
-                    $"RespawnValidatedRecording: refusing spawn for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                    $"RespawnValidatedRecording: refusing spawn for {DescribeSpawnValidationContext(rec, logContext)}");
                 return 0;
             }
 
@@ -2736,7 +2737,7 @@ namespace Parsek
             if (!hasEndpointBody)
             {
                 ParsekLog.Error("Spawner",
-                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"Spawn validation failed for {logContext}: " +
                     $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
                     $"and no authoritative endpoint body is available");
                 return false;
@@ -2746,7 +2747,7 @@ namespace Parsek
             if (body == null)
             {
                 ParsekLog.Error("Spawner",
-                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"Spawn validation failed for {logContext}: " +
                     $"endpoint body '{endpointBodyName}' was resolved but is not loaded");
                 return false;
             }
@@ -2760,7 +2761,7 @@ namespace Parsek
                 OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
                 ApplySurfaceOrbitToSnapshot(snapshot, body);
                 ParsekLog.Warn("Spawner",
-                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"Spawn validation repaired snapshot for {logContext} " +
                     $"using endpoint surface coordinates on body '{endpointBodyName}'");
                 return true;
             }
@@ -2788,7 +2789,7 @@ namespace Parsek
                 }
 
                 ParsekLog.Warn("Spawner",
-                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"Spawn validation repaired snapshot for {logContext} " +
                     $"using endpoint-aligned orbit data on body '{endpointBodyName}'");
                 return true;
             }
@@ -2804,14 +2805,14 @@ namespace Parsek
                     orbit.UpdateFromStateVectors(worldPos, velocity, body, currentUT);
                     ReplaceSnapshotOrbitNode(snapshot, orbit, body);
                     ParsekLog.Warn("Spawner",
-                        $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                        $"Spawn validation repaired snapshot for {logContext} " +
                         $"using endpoint state vectors on body '{endpointBodyName}'");
                     return true;
                 }
             }
 
             ParsekLog.Error("Spawner",
-                $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                $"Spawn validation failed for {logContext}: " +
                 $"snapshot provenance is malformed and endpoint data cannot reconstruct a usable orbit/body " +
                 $"(endpointBody={endpointBodyName}, endpointCoords={hasEndpointCoords}, landedLike={landedLike})");
             return false;
@@ -3139,16 +3140,7 @@ namespace Parsek
                 return true;
             }
 
-            return TryGetPreferredRecordedOrbitSeedForSpawn(
-                rec,
-                out inclination,
-                out eccentricity,
-                out semiMajorAxis,
-                out lan,
-                out argumentOfPeriapsis,
-                out meanAnomalyAtEpoch,
-                out epoch,
-                out bodyName);
+            return false;
         }
 
         internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
@@ -3280,6 +3272,16 @@ namespace Parsek
                     $"TryResolveRecordedTerminalOrbitSpawnState failed: {ex.Message}");
                 return false;
             }
+        }
+
+        private static string DescribeSpawnValidationContext(Recording rec, string logContext)
+        {
+            string vesselName = rec != null ? rec.VesselName : null;
+            if (string.IsNullOrEmpty(logContext))
+                return string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
+            if (string.IsNullOrEmpty(vesselName) || string.Equals(logContext, vesselName, StringComparison.Ordinal))
+                return logContext;
+            return $"{logContext} ({vesselName})";
         }
 
         private static bool IsFinite(Vector3d value)

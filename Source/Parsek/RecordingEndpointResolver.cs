@@ -251,8 +251,12 @@ namespace Parsek
                 return false;
             }
 
-            if (endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
+            bool hasMatchingTerminalOrbit = HasRecordedTerminalOrbit(traj)
+                && string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+
+            if (endpointUsesOrbitSegment)
+            {
+                if (TryGetLastMatchingSegment(
                     out inclination,
                     out eccentricity,
                     out semiMajorAxis,
@@ -261,13 +265,15 @@ namespace Parsek
                     out meanAnomalyAtEpoch,
                     out epoch,
                     out bodyName))
-            {
-                return true;
+                {
+                    return true;
+                }
+
+                if (!hasMatchingTerminalOrbit)
+                    return false;
             }
 
-            if (endpointUsesOrbitSegment
-                && HasRecordedTerminalOrbit(traj)
-                && string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            if (hasMatchingTerminalOrbit)
             {
                 inclination = traj.TerminalOrbitInclination;
                 eccentricity = traj.TerminalOrbitEccentricity;
@@ -280,16 +286,15 @@ namespace Parsek
                 return true;
             }
 
-            return !endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
-                    out inclination,
-                    out eccentricity,
-                    out semiMajorAxis,
-                    out lan,
-                    out argumentOfPeriapsis,
-                    out meanAnomalyAtEpoch,
-                    out epoch,
-                    out bodyName);
+            return TryGetLastMatchingSegment(
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName);
         }
 
         internal static bool TryGetOrbitEndpointCoordinates(
