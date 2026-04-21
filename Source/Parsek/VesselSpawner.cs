@@ -10,6 +10,8 @@ namespace Parsek
     /// </summary>
     public static class VesselSpawner
     {
+        internal delegate bool ResolveBodyNameByIndexDelegate(int index, out string name);
+
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
 
@@ -19,6 +21,8 @@ namespace Parsek
         /// to prevent infinite retry loops (bug #110).
         /// </summary>
         internal const int MaxCollisionBlocks = 150;
+
+        internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -2621,6 +2625,19 @@ namespace Parsek
             string rawRef = orbitNode.GetValue("REF");
             if (!int.TryParse(rawRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int bodyIndex))
                 return false;
+
+            return TryResolveBodyNameByIndex(bodyIndex, out bodyName);
+        }
+
+        internal static bool TryResolveBodyNameByIndex(int bodyIndex, out string bodyName)
+        {
+            bodyName = null;
+
+            ResolveBodyNameByIndexDelegate resolver = BodyNameResolverForTesting;
+            if (resolver != null)
+            {
+                return resolver(bodyIndex, out bodyName);
+            }
 
             if (FlightGlobals.Bodies == null
                 || bodyIndex < 0

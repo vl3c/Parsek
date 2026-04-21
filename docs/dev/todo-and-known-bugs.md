@@ -30,6 +30,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the failing logic under test was spawn-safety provenance repair, but the setup path decoded the snapshot's `ORBIT.REF` by reading `FlightGlobals.Bodies[refIndex]` directly. In headless xUnit that pulls in Unity's body registry before the test can even reach its real assertion, so a body-name lookup detail masks the actual endpoint-body decision logic.
+
+**Fix:** `VesselSpawner` now routes snapshot `REF` decoding through `TryResolveBodyNameByIndex()`, with an internal `BodyNameResolverForTesting` override for headless tests. Production still defaults to the real `FlightGlobals.Bodies` lookup; xUnit now injects `{0: Kerbin, 1: Mun}` for the affected spawn-safety tests and pins the seam itself with a direct regression.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

@@ -15,6 +15,7 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly object originalFlightGlobalsBodies;
+        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
 
         public SpawnSafetyNetTests()
         {
@@ -25,6 +26,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
             originalFlightGlobalsBodies = typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.GetValue(null);
@@ -32,6 +34,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
             typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, originalFlightGlobalsBodies);
@@ -837,6 +840,7 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects()
         {
             InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "FLYING");
@@ -870,6 +874,7 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair()
         {
             InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
@@ -928,6 +933,20 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("using endpoint surface coordinates")
                 && l.Contains("Surface Repair"));
+        }
+
+        [Fact]
+        public void TryGetSnapshotReferenceBodyName_UsesResolverOverride()
+        {
+            VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
+
+            var snapshot = new ConfigNode("VESSEL");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("REF", "1");
+            snapshot.AddNode(orbitNode);
+
+            Assert.True(VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName));
+            Assert.Equal("Mun", bodyName);
         }
 
         [Fact]
@@ -1907,6 +1926,22 @@ namespace Parsek.Tests
             typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, bodies);
+        }
+
+        private static bool ResolveBodyNameByIndex(int index, out string name)
+        {
+            switch (index)
+            {
+                case 0:
+                    name = "Kerbin";
+                    return true;
+                case 1:
+                    name = "Mun";
+                    return true;
+                default:
+                    name = null;
+                    return false;
+            }
         }
 
         #endregion
