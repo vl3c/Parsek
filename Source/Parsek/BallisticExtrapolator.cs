@@ -1491,9 +1491,9 @@ namespace Parsek
                     double hyperbolicAnomaly = SolveHyperbolicKepler(meanAnomaly, Eccentricity);
 
                     radius = SemiMajorAxis * (1.0 - Eccentricity * Math.Cosh(hyperbolicAnomaly));
-                    trueAnomaly = 2.0 * Math.Atan(
-                        Math.Sqrt((Eccentricity + 1.0) / (Eccentricity - 1.0))
-                        * Math.Tanh(hyperbolicAnomaly * 0.5));
+                    trueAnomaly = 2.0 * Math.Atan2(
+                        Math.Sqrt(Eccentricity + 1.0) * Math.Sinh(hyperbolicAnomaly * 0.5),
+                        Math.Sqrt(Eccentricity - 1.0) * Math.Cosh(hyperbolicAnomaly * 0.5));
                 }
 
                 double parameter = SemiMajorAxis * (1.0 - Eccentricity * Eccentricity);

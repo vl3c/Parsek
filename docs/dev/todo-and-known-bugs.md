@@ -150,6 +150,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~516. Hyperbolic predicted segments could rebuild the SOI handoff on the wrong outbound branch because true anomaly reconstruction used plain `Atan`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the earlier quaternion normalization/canonicalization follow-up, the remaining SOI rotation failure was not in the attitude seam anymore. The parent-body segment itself was reconstructing its hyperbolic start state with `2 * Atan(...)`, which folds the outbound branch into the wrong quadrant for some escape states. That changed the rebuilt parent-frame velocity vector at the exact handoff UT, so the preserved world rotation was being compared against the wrong orbital frame even though the stored quaternion itself was stable.
+
+**Fix:** `BallisticExtrapolator.TwoBodyOrbit.GetStateAtUT()` now reconstructs hyperbolic true anomaly with the equivalent `Atan2` form that preserves the correct branch/quadrant. Added a direct regression that asserts the parent-body predicted segment starts from the exact transformed SOI boundary state before checking the preserved frozen playback attitude.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
