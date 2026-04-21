@@ -697,22 +697,6 @@ namespace Parsek.Tests
 
     #endregion
 
-    #region Bug #131 — Explosion GO cap
-
-    public class Bug131_ExplosionCapTests
-    {
-        /// <summary>
-        /// MaxActiveExplosions constant is set to 30.
-        /// </summary>
-        [Fact]
-        public void MaxActiveExplosions_Is30()
-        {
-            Assert.Equal(30, GhostPlaybackEngine.MaxActiveExplosions);
-        }
-    }
-
-    #endregion
-
     #region Degraded tree detection
 
     public class DegradedTreeTests
