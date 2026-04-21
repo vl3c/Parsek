@@ -128,6 +128,22 @@ namespace Parsek.Tests
             Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(sticky));
         }
 
+        [Fact]
+        public void GetLabelColor_ReturnsSharedYellowInsteadOfPerTypePalette()
+        {
+            Color labelColor = MapMarkerRenderer.GetLabelColor();
+            Color shipColor = MapMarkerRenderer.GetColorForType(VesselType.Ship);
+            Color stationColor = MapMarkerRenderer.GetColorForType(VesselType.Station);
+
+            Assert.Equal(shipColor.r, labelColor.r);
+            Assert.Equal(shipColor.g, labelColor.g);
+            Assert.Equal(shipColor.b, labelColor.b);
+            Assert.Equal(shipColor.a, labelColor.a);
+
+            Assert.NotEqual(stationColor.r, labelColor.r);
+            Assert.NotEqual(stationColor.g, labelColor.g);
+        }
+
         // IsToggleClick — only left-button MouseDown toggles sticky state.
         // Non-left clicks must pass through so stock map/tracking handlers can
         // still react normally. The production click handler gates on this
