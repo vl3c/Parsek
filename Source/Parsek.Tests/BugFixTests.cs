@@ -966,7 +966,7 @@ namespace Parsek.Tests
     #region Watch mode — FindNextWatchTarget
 
     [Collection("Sequential")]
-    public class FindNextWatchTargetTests
+    public class FindNextWatchTargetTests : IDisposable
     {
         public FindNextWatchTargetTests()
         {
@@ -975,6 +975,15 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.ResetTestOverrides();
         }
 
         private Recording MakeRec(string id, string vesselName = "Ship", uint vesselPid = 100,
@@ -2266,6 +2275,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ExplicitEndpointBody_DisagreesWithLaterOrbitSegment_DoesNotOverwrite()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "preserve-explicit-terminal-orbit",
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun",
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 300, endUT = 400, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l => l.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
+                && l.Contains("[INFO][Flight]")
+                && l.Contains("preserved cached terminal orbit")
+                && l.Contains("preserve-explicit-terminal-orbit")
+                && l.Contains("explicit endpoint body=Mun")
+                && l.Contains("later segment body=Kerbin")
+                && l.Contains("sma=700000.0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment")
+                && l.Contains("preserve-explicit-terminal-orbit"));
+        }
+
+        [Fact]
+        public void SameBodyWithStaleTuple_WithPersistedExplicitEndpointBody_DoesNotOverwrite()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "preserve-persisted-explicit-same-body-terminal-orbit",
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Kerbin",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 500000,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 300, endUT = 400, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.DoesNotContain(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment")
+                && l.Contains("preserve-persisted-explicit-same-body-terminal-orbit"));
+        }
+
+        [Fact]
         public void SameBodyWithStaleTuple_WithOrbitEndpointAlignedLastSegment_Overwrites()
         {
             var rec = new Recording
@@ -2361,6 +2429,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MismatchedBody_OrbitOnlyStaleCache_WithEndpointAlignedLastSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "heal-orbit-only-stale-terminal-orbit",
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 300, endUT = 400, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(700000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment")
+                && l.Contains("healed stale cached terminal orbit")
+                && l.Contains("previousBody=Mun")
+                && l.Contains("newBody=Kerbin"));
+        }
+        [Fact]
         public void MismatchedBody_WithOrbitEndpointAlignedLastSegment_Overwrites()
         {
             var rec = new Recording
@@ -2441,6 +2532,18 @@ namespace Parsek.Tests
             ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
 
             Assert.Null(rec.TerminalOrbitBody);
+        }
+
+        [Fact]
+        public void PreferredEndpointBodyName_WithoutInferredBody_FallsBackToKerbin()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>()
+            };
+
+            Assert.Equal("Kerbin", RecordingEndpointResolver.GetPreferredEndpointBodyName(rec));
         }
     }
 

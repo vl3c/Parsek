@@ -153,15 +153,25 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Kerbals window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekKerbals".GetHashCode(),
-                kerbalsWindowRect,
-                DrawKerbalsWindow,
-                "Parsek - Kerbals",
-                opaqueWindowStyle,
-                GUILayout.Width(kerbalsWindowRect.width),
-                GUILayout.Height(kerbalsWindowRect.height)
-            );
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekKerbals".GetHashCode(),
+                    kerbalsWindowRect,
+                    DrawKerbalsWindow,
+                    "Parsek - Kerbals",
+                    opaqueWindowStyle,
+                    GUILayout.Width(kerbalsWindowRect.width),
+                    GUILayout.Height(kerbalsWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("Kerbals", ref lastKerbalsWindowRect, kerbalsWindowRect);
 
             if (kerbalsWindowRect.Contains(Event.current.mousePosition))

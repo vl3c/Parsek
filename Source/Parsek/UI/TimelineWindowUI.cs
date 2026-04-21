@@ -147,15 +147,25 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Timeline window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekTimeline".GetHashCode(),
-                timelineWindowRect,
-                DrawTimelineWindow,
-                "Parsek - Timeline",
-                opaqueWindowStyle,
-                GUILayout.Width(timelineWindowRect.width),
-                GUILayout.Height(timelineWindowRect.height)
-            );
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekTimeline".GetHashCode(),
+                    timelineWindowRect,
+                    DrawTimelineWindow,
+                    "Parsek - Timeline",
+                    opaqueWindowStyle,
+                    GUILayout.Width(timelineWindowRect.width),
+                    GUILayout.Height(timelineWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("Timeline", ref lastTimelineWindowRect, timelineWindowRect);
 
             if (timelineWindowRect.Contains(Event.current.mousePosition))

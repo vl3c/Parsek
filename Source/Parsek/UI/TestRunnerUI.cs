@@ -70,14 +70,24 @@ namespace Parsek
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekTestRunner".GetHashCode(),
-                testRunnerWindowRect,
-                DrawTestRunnerWindow,
-                "Parsek - Test Runner",
-                opaqueWindowStyle,
-                GUILayout.Width(DefaultWindowWidth)
-            );
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekTestRunner".GetHashCode(),
+                    testRunnerWindowRect,
+                    DrawTestRunnerWindow,
+                    "Parsek - Test Runner",
+                    opaqueWindowStyle,
+                    GUILayout.Width(DefaultWindowWidth)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("TestRunner", ref lastTestRunnerWindowRect, testRunnerWindowRect);
 
             if (testRunnerWindowRect.Contains(Event.current.mousePosition))
@@ -154,6 +164,14 @@ namespace Parsek
                     testRunner.RunCategory(category);
                     ParsekLog.Verbose("UI", $"Test runner: Run category '{category}'");
                 }
+                if (GUILayout.Button(new GUIContent("Run+",
+                    "Runs this category plus any [isolated] FLIGHT tests by restoring a temporary baseline between destructive tests."),
+                    GUILayout.Width(44)))
+                {
+                    testRunner.ResetCategory(category);
+                    testRunner.RunCategoryIncludingFlightRestore(category);
+                    ParsekLog.Verbose("UI", $"Test runner: Run+ category '{category}'");
+                }
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
 
@@ -180,7 +198,9 @@ namespace Parsek
                     string testLabel = test.Name;
                     if (test.Method.DeclaringType != null)
                         testLabel = test.Method.Name; // short name within category
-                    if (!test.AllowBatchExecution)
+                    if (test.RestoreBatchFlightBaselineAfterExecution)
+                        testLabel += " [isolated]";
+                    else if (!test.AllowBatchExecution)
                         testLabel += " [single]";
                     if (test.DurationMs > 0)
                         testLabel += $" ({test.DurationMs:F0}ms)";
@@ -244,10 +264,11 @@ namespace Parsek
 
             if (wrappedTooltipStyle == null)
             {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
                 {
                     wordWrap = true
                 };
+                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 
@@ -270,6 +291,13 @@ namespace Parsek
                 testRunner.ResetResults();
                 testRunner.RunAll();
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
+            }
+            if (GUILayout.Button(new GUIContent("Run All + Isolated",
+                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+            {
+                testRunner.ResetResults();
+                testRunner.RunAllIncludingFlightRestore();
+                ParsekLog.Info("UI", "Test runner: Run All + Isolated clicked");
             }
             if (GUILayout.Button(new GUIContent("Reset",
                 "Clears the table AND per-scene history used by the auto-exported results file.")))
@@ -298,11 +326,10 @@ namespace Parsek
 
             // --- Scene filter note ---
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
-            if (HasSingleRunOnlyTestsForCurrentScene())
+            string batchModeNotice = BuildBatchModeNotice();
+            if (!string.IsNullOrEmpty(batchModeNotice))
             {
-                GUILayout.Label(
-                    "Single-run tests are skipped by Run All / Run category. Use the row ▶ button for destructive scene-transition checks.",
-                    GUI.skin.label);
+                GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
 
             // --- Rebuild cached groups when run state changes ---
@@ -372,19 +399,38 @@ namespace Parsek
             }
         }
 
-        private bool HasSingleRunOnlyTestsForCurrentScene()
+        private string BuildBatchModeNotice()
         {
-            if (testRunner == null) return false;
+            if (testRunner == null) return null;
+
+            bool hasIsolated = false;
+            bool hasManualOnly = false;
 
             foreach (var test in testRunner.Tests)
             {
                 bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
                     || test.RequiredScene == HighLogic.LoadedScene;
-                if (eligible && !test.AllowBatchExecution)
-                    return true;
+                if (!eligible)
+                    continue;
+
+                if (test.RestoreBatchFlightBaselineAfterExecution)
+                    hasIsolated = true;
+                else if (!test.AllowBatchExecution)
+                    hasManualOnly = true;
             }
 
-            return false;
+            if (hasIsolated && hasManualOnly)
+            {
+                return "[isolated] tests can run through Run All + Isolated / Run+. [single] tests still require the row play button.";
+            }
+
+            if (hasIsolated)
+                return "[isolated] tests can run through Run All + Isolated / Run+ in a disposable FLIGHT session.";
+
+            if (hasManualOnly)
+                return "[single] tests are skipped by Run All / Run category. Use the row play button for manual-only destructive checks.";
+
+            return null;
         }
 
         private static string BuildTestTooltip(InGameTestInfo test, bool eligible)
@@ -394,7 +440,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(test.Description))
                 lines.Add(test.Description);
 
-            string batchNote = InGameTestRunner.GetBatchSkipReason(test);
+            string batchNote = InGameTestRunner.GetBatchExecutionNote(test);
             if (!string.IsNullOrEmpty(batchNote))
                 lines.Add(batchNote);
 

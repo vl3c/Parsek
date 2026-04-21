@@ -119,9 +119,21 @@ namespace Parsek
             if (!showUI) return;
 
             windowRect.height = 0f;
-            windowRect = ClickThruBlocker.GUILayoutWindow(
-                GetInstanceID(), windowRect, ui.DrawWindow,
-                "Parsek", ui.GetOpaqueWindowStyle(), GUILayout.Width(250));
+            var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
+
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                windowRect = ClickThruBlocker.GUILayoutWindow(
+                    GetInstanceID(), windowRect, ui.DrawWindow,
+                    "Parsek", opaqueWindowStyle, GUILayout.Width(250));
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawTimelineWindowIfOpen(windowRect);

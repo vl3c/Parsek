@@ -38,7 +38,41 @@ namespace Parsek.InGameTests
         }
 
         private readonly InGameTestRunner runner;
-
+        private static readonly System.Type FlightEvaType =
+            typeof(Part).Assembly.GetType("FlightEVA", false);
+        private static readonly FieldInfo FlightEvaFetchField =
+            FlightEvaType?.GetField("fetch",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo FlightEvaSpawnMethod =
+            FlightEvaType?.GetMethod("spawnEVA",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
+                null);
+        private static readonly FieldInfo PartAirlockField =
+            typeof(Part).GetField("airlock",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo PopupDialogToDisplayField =
+            typeof(PopupDialog).GetField("dialogToDisplay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogNameField =
+            typeof(MultiOptionDialog).GetField("name",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogTitleField =
+            typeof(MultiOptionDialog).GetField("title",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogOptionsField =
+            typeof(MultiOptionDialog).GetField("Options",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo DialogGuiButtonTextField =
+            typeof(DialogGUIButton).GetField("OptionText",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
+            typeof(DialogGUIButton).GetMethod("OptionSelected",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekScenarioShowDeferredMergeDialogMethod =
+            typeof(ParsekScenario).GetMethod("ShowDeferredMergeDialog",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         public RuntimeTests(InGameTestRunner runner)
         {
             this.runner = runner;
@@ -736,6 +770,750 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region AutoRecord
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test stages and launches the active vessel. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Launch auto-record starts exactly once when a PRELAUNCH vessel leaves the pad")]
+        public IEnumerator AutoRecordOnLaunch_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH active vessel, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForLaunchAutoRecordStart(10f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = captured.Count(
+                    l => l.Contains("[Flight]") && l.Contains("Auto-record started ("));
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one launch auto-record log line, got {autoStartCount}");
+
+                string activeRecId = ParsekFlight.Instance?.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set after launch auto-record starts");
+
+                ParsekLog.Info("TestRunner",
+                    $"AutoRecord launch: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
+                    $"situation={FlightGlobals.ActiveVessel?.situation} activeRecId={activeRecId} " +
+                    $"autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test forces a crew EVA from the active vessel. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Deferred EVA auto-record starts exactly once after switching to the EVA kerbal")]
+        public IEnumerator AutoRecordOnEvaFromPad_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA)
+            {
+                InGameAssert.Skip("requires a crewed vessel, got EVA");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle crewed vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
+            {
+                InGameAssert.Skip(flightEvaSkipReason);
+                yield break;
+            }
+            if (!TryGetEvaSource(vessel, out Part sourcePart, out ProtoCrewMember crewMember,
+                out Transform airlock, out string evaSourceSkipReason))
+            {
+                InGameAssert.Skip(evaSourceSkipReason);
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnEva;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnEva = true;
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    FlightEvaSpawnMethod.Invoke(flightEva, new object[] { crewMember, sourcePart, airlock, true });
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                yield return WaitForDeferredEvaAutoRecordStart(crewMember.name, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = captured.Count(
+                    l => l.Contains("[Flight]") && l.Contains("Auto-record started (EVA from pad)"));
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one EVA auto-record log line, got {autoStartCount}");
+
+                var activeVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(activeVessel,
+                    "Active vessel should switch to the EVA kerbal before the deferred auto-record starts");
+                InGameAssert.IsTrue(activeVessel.isEVA,
+                    $"Expected active vessel to be EVA, got {activeVessel?.vesselName ?? "null"}");
+
+                string activeRecId = ParsekFlight.Instance?.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set after deferred EVA auto-record starts");
+
+                ParsekLog.Info("TestRunner",
+                    $"AutoRecord EVA: source='{vessel.vesselName}' crew='{crewMember.name}' " +
+                    $"active='{activeVessel.vesselName}' activeRecId={activeRecId} " +
+                    $"autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+        }
+
+        internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.situation != Vessel.Situations.PRELAUNCH)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForLaunchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        internal static bool HasObservedActiveRecordingPoint(
+            ParsekFlight flight,
+            out int treePointCount,
+            out int bufferedPointCount,
+            out double lastRecordedUT)
+        {
+            treePointCount = 0;
+            bufferedPointCount = 0;
+            lastRecordedUT = double.NaN;
+
+            if (flight == null)
+                return false;
+
+            var activeTree = flight.ActiveTreeForSerialization;
+            string activeRecId = activeTree?.ActiveRecordingId;
+            if (activeTree != null
+                && !string.IsNullOrEmpty(activeRecId)
+                && activeTree.Recordings.TryGetValue(activeRecId, out var rec)
+                && rec?.Points != null)
+            {
+                treePointCount = rec.Points.Count;
+            }
+
+            var activeRecorder = flight.ActiveRecorderForSerialization;
+            if (activeRecorder != null)
+            {
+                bufferedPointCount = activeRecorder.Recording?.Count ?? 0;
+                lastRecordedUT = activeRecorder.LastRecordedUT;
+            }
+
+            return treePointCount > 0
+                || bufferedPointCount > 0
+                || !double.IsNaN(lastRecordedUT);
+        }
+
+        internal static IEnumerator WaitForActiveRecordingPoint(ParsekFlight flight, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (HasObservedActiveRecordingPoint(
+                    flight,
+                    out _,
+                    out _,
+                    out _))
+                {
+                    yield break;
+                }
+
+                yield return null;
+                flight = ParsekFlight.Instance;
+            }
+
+            string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+            HasObservedActiveRecordingPoint(flight, out int treePointCount, out int bufferedPointCount, out double lastRecordedUT);
+
+            InGameAssert.Fail(
+                $"WaitForActiveRecordingPoint timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(flight != null)}, activeRecId={activeRecId ?? "null"}, " +
+                $"treePoints={treePointCount}, bufferedPoints={bufferedPointCount}, " +
+                $"lastRecordedUT={(double.IsNaN(lastRecordedUT) ? "NaN" : lastRecordedUT.ToString("F2"))})");
+        }
+
+        internal static IEnumerator WaitForFlightInputStateReady(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            float stableStarted = -1f;
+            while (Time.time < deadline)
+            {
+                bool ready = FlightInputHandler.state != null;
+                if (ready)
+                {
+                    if (stableStarted < 0f)
+                    {
+                        stableStarted = Time.unscaledTime;
+                    }
+                    else if ((Time.unscaledTime - stableStarted) >= 0.5f)
+                    {
+                        yield break;
+                    }
+                }
+                else
+                {
+                    stableStarted = -1f;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForFlightInputStateReady timed out after {timeoutSeconds:F0}s " +
+                $"(hasFlightInput={FlightInputHandler.state != null})");
+        }
+
+        private static IEnumerator WaitForDeferredEvaAutoRecordStart(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.isEVA
+                    && (string.IsNullOrEmpty(expectedCrewName)
+                        || vessel.vesselName == expectedCrewName
+                        || vessel.vesselName.Contains(expectedCrewName)))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForDeferredEvaAutoRecordStart timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true})");
+        }
+
+        private static bool TryResolveFlightEva(out object flightEva, out string skipReason)
+        {
+            flightEva = null;
+            skipReason = null;
+
+            if (FlightEvaType == null)
+            {
+                skipReason = "FlightEVA type is unavailable";
+                return false;
+            }
+            if (FlightEvaFetchField == null)
+            {
+                skipReason = "FlightEVA.fetch field is not reflectable";
+                return false;
+            }
+            if (FlightEvaSpawnMethod == null)
+            {
+                skipReason = "FlightEVA.spawnEVA(ProtoCrewMember, Part, Transform, bool) is not reflectable";
+                return false;
+            }
+
+            flightEva = FlightEvaFetchField.GetValue(null);
+            if (flightEva == null)
+            {
+                skipReason = "FlightEVA.fetch is null";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetEvaSource(Vessel vessel, out Part sourcePart,
+            out ProtoCrewMember crewMember, out Transform airlock, out string skipReason)
+        {
+            sourcePart = null;
+            crewMember = null;
+            airlock = null;
+            skipReason = null;
+
+            if (vessel == null)
+            {
+                skipReason = "no active vessel";
+                return false;
+            }
+            if (PartAirlockField == null)
+            {
+                skipReason = "Part.airlock field is not reflectable";
+                return false;
+            }
+
+            foreach (Part part in vessel.parts)
+            {
+                if (part?.protoModuleCrew == null || part.protoModuleCrew.Count == 0)
+                    continue;
+
+                Transform partAirlock = PartAirlockField.GetValue(part) as Transform;
+                if (partAirlock == null)
+                    continue;
+
+                ProtoCrewMember firstCrew = part.protoModuleCrew[0];
+                if (firstCrew == null)
+                    continue;
+
+                sourcePart = part;
+                crewMember = firstCrew;
+                airlock = partAirlock;
+                return true;
+            }
+
+            skipReason = $"active vessel '{vessel.vesselName}' has no crewed part with an airlock";
+            return false;
+        }
+
+        #endregion
+
+        #region MergeDialog
+
+        [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree and drives the live merge popup in the current FLIGHT session. Use Run All + Isolated or the row play button.",
+            Description = "Tree merge popup shows both actions and the discard button clears the pending tree")]
+        public IEnumerator TreeMergeDialog_DiscardButton_ClearsPendingTree()
+        {
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            bool originalMergeDialogPending = ParsekScenario.MergeDialogPending;
+            RecordingTree tree = BuildSyntheticPendingTree("ingame-merge-dialog-discard");
+
+            try
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                ParsekScenario.MergeDialogPending = true;
+
+                MergeDialog.ShowTreeDialog(tree);
+
+                yield return WaitForPopupDialog("ParsekMerge", 2f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup, "ParsekMerge popup should exist after ShowTreeDialog");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                InGameAssert.AreEqual(2, buttons.Length,
+                    $"Expected exactly two merge dialog buttons, got {buttons.Length}");
+
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 2f);
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Discard button should clear the pending tree");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Discard button should clear the deferred merge-dialog flag");
+
+                ParsekLog.Info("TestRunner",
+                    $"Merge dialog discard runtime: tree='{tree.TreeName}' buttons={buttons.Length}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                    RecordingStore.DiscardPendingTree();
+                ParsekScenario.MergeDialogPending = originalMergeDialogPending;
+            }
+        }
+
+        [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree, drives the deferred FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up. Use Run All + Isolated or the row play button.",
+            Description = "Deferred merge popup commits a pending tree through the real Merge to Timeline path")]
+        public IEnumerator TreeMergeDialog_DeferredMergeButton_CommitsPendingTree()
+        {
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null
+                || ParsekScenarioShowDeferredMergeDialogMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            ParsekScenario scenario = Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null)
+            {
+                InGameAssert.Skip("ParsekScenario instance is unavailable in FLIGHT");
+                yield break;
+            }
+
+            bool originalMergeDialogPending = ParsekScenario.MergeDialogPending;
+            RecordingTree tree = BuildSyntheticPendingTree("ingame-deferred-merge-commit");
+
+            try
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                ParsekScenario.MergeDialogPending = true;
+
+                IEnumerator deferredDialog = ParsekScenarioShowDeferredMergeDialogMethod.Invoke(
+                    scenario, null) as IEnumerator;
+                InGameAssert.IsNotNull(deferredDialog,
+                    "ShowDeferredMergeDialog should return an IEnumerator");
+                scenario.StartCoroutine(deferredDialog);
+
+                yield return WaitForPopupDialog("ParsekMerge", 8f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after deferred merge dialog starts");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Merge to Timeline should consume the pending tree");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Merge to Timeline should clear the deferred merge-dialog flag");
+
+                RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
+                    candidate => candidate != null && candidate.Id == tree.Id);
+                InGameAssert.IsNotNull(committedTree,
+                    "Deferred Merge to Timeline should commit the synthetic tree");
+
+                bool recordingCommitted = RecordingStore.CommittedRecordings.Any(
+                    rec => rec != null && rec.TreeId == tree.Id && rec.RecordingId == tree.ActiveRecordingId);
+                InGameAssert.IsTrue(recordingCommitted,
+                    "CommittedRecordings should contain the merged tree's active recording");
+
+                ParsekLog.Info("TestRunner",
+                    $"Deferred merge runtime: committed tree='{tree.TreeName}' id={tree.Id}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                    RecordingStore.DiscardPendingTree();
+                RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
+                ParsekScenario.MergeDialogPending = originalMergeDialogPending;
+            }
+        }
+
+        private static RecordingTree BuildSyntheticPendingTree(string suffix)
+        {
+            string treeId = "runtime-tree-" + suffix;
+            string recordingId = "runtime-rec-" + suffix;
+            double startUt = Planetarium.GetUniversalTime();
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            string vesselName = activeVessel?.vesselName ?? "Runtime Test Vessel";
+            CelestialBody body = activeVessel?.mainBody;
+            string bodyName = body?.bodyName ?? "Kerbin";
+            double baseLatitude = activeVessel != null ? activeVessel.latitude : 0.0;
+            double baseLongitude = activeVessel != null ? activeVessel.longitude : 0.0;
+            double bodyRadius = body != null && body.Radius > 0.0 ? body.Radius : 600000.0;
+            double degreesPerMeter = 180.0 / (System.Math.PI * bodyRadius);
+            double firstLatitude = baseLatitude + 40.0 * degreesPerMeter;
+            double secondLatitude = baseLatitude + 80.0 * degreesPerMeter;
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = vesselName,
+                TreeId = treeId,
+                VesselPersistentId = 900000u,
+                TerminalStateValue = TerminalState.Landed,
+                MaxDistanceFromLaunch = 100.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = startUt,
+                        bodyName = bodyName,
+                        latitude = firstLatitude,
+                        longitude = baseLongitude,
+                        altitude = 10.0
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = startUt + 5.0,
+                        bodyName = bodyName,
+                        latitude = secondLatitude,
+                        longitude = baseLongitude,
+                        altitude = 12.0
+                    }
+                }
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Runtime Merge Dialog " + suffix,
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId
+            };
+            tree.Recordings[recordingId] = rec;
+            return tree;
+        }
+
+        private static IEnumerator WaitForPopupDialog(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) != null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialog timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForPopupDialogToClose(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) == null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialogToClose timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static PopupDialog FindPopupDialog(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName) || PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
+                return null;
+
+            PopupDialog[] popups = Object.FindObjectsOfType<PopupDialog>();
+            for (int i = 0; i < popups.Length; i++)
+            {
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
+                if (dialog == null)
+                    continue;
+
+                string currentName = MultiOptionDialogNameField.GetValue(dialog) as string;
+                if (currentName == dialogName)
+                    return popups[i];
+            }
+
+            return null;
+        }
+
+        private static DialogGUIButton[] GetDialogButtons(MultiOptionDialog dialog)
+        {
+            if (dialog == null || MultiOptionDialogOptionsField == null)
+                return new DialogGUIButton[0];
+
+            DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
+            if (options == null || options.Length == 0)
+                return new DialogGUIButton[0];
+
+            var buttons = new List<DialogGUIButton>();
+            for (int i = 0; i < options.Length; i++)
+            {
+                DialogGUIButton button = options[i] as DialogGUIButton;
+                if (button != null)
+                    buttons.Add(button);
+            }
+
+            return buttons.ToArray();
+        }
+
+        private static string GetDialogButtonText(DialogGUIButton button)
+        {
+            if (button == null || DialogGuiButtonTextField == null)
+                return null;
+
+            return DialogGuiButtonTextField.GetValue(button) as string;
+        }
+
+        private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
+            }
+        }
+
+        #endregion
+
         #region MapView icons (#387)
 
         // Verify that MapMarkerRenderer's per-type icon entries match the live
@@ -1159,7 +1937,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one, which mutates the current FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one. Use Run All + Isolated or the row play button.",
             Description = "Run All cleanup exits watch mode before ghost teardown so Sun.LateUpdate stays exception-free")]
         public IEnumerator RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs()
         {
@@ -2542,8 +3321,8 @@ namespace Parsek.InGameTests
             // Capture log output so we can assert on the name-fallback INFO line
             // and the summary counter.
             var logLines = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => logLines.Add(line);
             try
             {
                 CrewReservationManager.ClearReplacementsInternal();
@@ -2619,7 +3398,7 @@ namespace Parsek.InGameTests
             finally
             {
                 // Restore log sink first so cleanup doesn't pollute the captured lines.
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
 
                 if (placedCrew && target.protoModuleCrew.Contains(standIn))
                     target.RemoveCrewmember(standIn);
@@ -2818,7 +3597,287 @@ namespace Parsek.InGameTests
     public class FlightIntegrationTests
     {
         private readonly InGameTestRunner runner;
+        private static readonly MethodInfo FlightDriverRevertToLaunchMethod =
+            typeof(FlightDriver).GetMethod("RevertToLaunch",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo FlightGlobalsClearPersistentIdDictionariesMethod =
+            typeof(FlightGlobals).GetMethod("ClearpersistentIdDictionaries",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly PropertyInfo FlightDriverCanRevertProperty =
+            typeof(FlightDriver).GetProperty("CanRevert",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo PopupDialogToDisplayField =
+            typeof(PopupDialog).GetField("dialogToDisplay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogNameField =
+            typeof(MultiOptionDialog).GetField("name",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogTitleField =
+            typeof(MultiOptionDialog).GetField("title",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogOptionsField =
+            typeof(MultiOptionDialog).GetField("Options",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo DialogGuiButtonTextField =
+            typeof(DialogGUIButton).GetField("OptionText",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
+            typeof(DialogGUIButton).GetMethod("OptionSelected",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         public FlightIntegrationTests(InGameTestRunner runner) { this.runner = runner; }
+
+        private static IEnumerator WaitForRecordingToLeavePrelaunch(string expectedRecordingId, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.situation != Vessel.Situations.PRELAUNCH
+                    && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForRecordingToLeavePrelaunch timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecordingId={timedOutFlight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null"}, " +
+                $"expectedRecordingId={expectedRecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
+        {
+            float deadline = Time.time + durationSeconds;
+            while (Time.time < deadline)
+            {
+                PopupDialog popup = FindPopupDialog(dialogName);
+                if (popup != null)
+                {
+                    string title = null;
+                    if (PopupDialogToDisplayField != null && MultiOptionDialogTitleField != null)
+                    {
+                        MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                        title = dialog != null ? MultiOptionDialogTitleField.GetValue(dialog) as string : null;
+                    }
+
+                    InGameAssert.Fail(
+                        $"Unexpected popup dialog '{dialogName}' appeared during no-dialog window " +
+                        $"(title='{title ?? "<null>"}')");
+                }
+
+                yield return null;
+            }
+        }
+
+        private static PopupDialog FindPopupDialog(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName) || PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
+                return null;
+
+            PopupDialog[] popups = Object.FindObjectsOfType<PopupDialog>();
+            for (int i = 0; i < popups.Length; i++)
+            {
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
+                if (dialog == null)
+                    continue;
+
+                string currentName = MultiOptionDialogNameField.GetValue(dialog) as string;
+                if (currentName == dialogName)
+                    return popups[i];
+            }
+
+            return null;
+        }
+
+        private static DialogGUIButton[] GetDialogButtons(MultiOptionDialog dialog)
+        {
+            if (dialog == null || MultiOptionDialogOptionsField == null)
+                return new DialogGUIButton[0];
+
+            DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
+            if (options == null || options.Length == 0)
+                return new DialogGUIButton[0];
+
+            var buttons = new List<DialogGUIButton>();
+            for (int i = 0; i < options.Length; i++)
+            {
+                DialogGUIButton button = options[i] as DialogGUIButton;
+                if (button != null)
+                    buttons.Add(button);
+            }
+
+            return buttons.ToArray();
+        }
+
+        private static string GetDialogButtonText(DialogGUIButton button)
+        {
+            if (button == null || DialogGuiButtonTextField == null)
+                return null;
+
+            return DialogGuiButtonTextField.GetValue(button) as string;
+        }
+
+        private static IEnumerator WaitForPopupDialog(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) != null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialog timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForPopupDialogToClose(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) == null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialogToClose timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForLoadedScene(GameScenes expectedScene, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (HighLogic.LoadedScene == expectedScene)
+                {
+                    if (expectedScene != GameScenes.SPACECENTER
+                        || Object.FindObjectOfType<ParsekKSC>() != null)
+                    {
+                        yield break;
+                    }
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForLoadedScene timed out after {timeoutSeconds:F0}s " +
+                $"(expected={expectedScene}, actual={HighLogic.LoadedScene})");
+        }
+
+        private static IEnumerator WaitForRecordingToClearPad(
+            Vector3d launchWorldPosition,
+            double minimumDistanceMeters,
+            string expectedRecordingId,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+                double currentDistance = vessel != null
+                    ? Vector3d.Distance(vessel.GetWorldPos3D(), launchWorldPosition)
+                    : double.NaN;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId)
+                    && currentDistance >= minimumDistanceMeters)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            double finalDistance = timedOutVessel != null
+                ? Vector3d.Distance(timedOutVessel.GetWorldPos3D(), launchWorldPosition)
+                : double.NaN;
+            InGameAssert.Fail(
+                $"WaitForRecordingToClearPad timed out after {timeoutSeconds:F0}s " +
+                $"(minimumDistance={minimumDistanceMeters:F0}m, actualDistance={finalDistance:F1}m, " +
+                $"parsekFlight={(timedOutFlight != null)}, isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecordingId={timedOutFlight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null"}, " +
+                $"expectedRecordingId={expectedRecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static void TriggerSaveAndExitToSpaceCenter()
+        {
+            if (HighLogic.CurrentGame == null)
+                InGameAssert.Fail("TriggerSaveAndExitToSpaceCenter requires HighLogic.CurrentGame");
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+                InGameAssert.Fail("TriggerSaveAndExitToSpaceCenter requires HighLogic.SaveFolder");
+            if (FlightGlobalsClearPersistentIdDictionariesMethod == null)
+                InGameAssert.Fail(
+                    "TriggerSaveAndExitToSpaceCenter requires FlightGlobals.ClearpersistentIdDictionaries reflection");
+
+            GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
+            Game updatedGame = HighLogic.CurrentGame.Updated();
+            InGameAssert.IsNotNull(updatedGame,
+                "HighLogic.CurrentGame.Updated() should return a game before stock-style Space Center exit");
+            try
+            {
+                FlightGlobalsClearPersistentIdDictionariesMethod.Invoke(null, null);
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"FlightGlobals.ClearpersistentIdDictionaries threw " +
+                    $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+            GamePersistence.SaveGame(updatedGame, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+            HighLogic.LoadScene(GameScenes.SPACECENTER);
+        }
+
+        private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId, bool recalculateAfterRemoval)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            bool removedAny = false;
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
+                removedAny = true;
+            }
+
+            if (removedAny && recalculateAfterRemoval)
+            {
+                RecordingStore.RunOptimizationPass();
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
+        }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
             Description = "Ghost world position matches lat/lon/alt via GetWorldSurfacePosition")]
@@ -3307,8 +4366,8 @@ namespace Parsek.InGameTests
 
             // Capture log output so we can assert the walkback ran.
             var captured = new List<string>();
-            System.Action<string> prevSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => captured.Add(line);
+            System.Action<string> prevObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => captured.Add(line);
 
             try
             {
@@ -3413,7 +4472,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.TestObserverForTesting = prevObserver;
                 if (spawnedVessel != null && spawnedVessel.protoVessel != null)
                 {
                     try
@@ -3580,8 +4639,8 @@ namespace Parsek.InGameTests
 
             // Capture log so we can assert the re-snapshot fired
             var logLines = new System.Collections.Generic.List<string>();
-            var prevSink = Parsek.ParsekLog.TestSinkForTesting;
-            Parsek.ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var prevObserver = Parsek.ParsekLog.TestObserverForTesting;
+            Parsek.ParsekLog.TestObserverForTesting = line => logLines.Add(line);
             try
             {
                 ParsekFlight.FinalizeIndividualRecording(
@@ -3589,7 +4648,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                Parsek.ParsekLog.TestSinkForTesting = prevSink;
+                Parsek.ParsekLog.TestObserverForTesting = prevObserver;
             }
 
             // The fresh snapshot should be from the live vessel — its sit field should
@@ -3673,13 +4732,15 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Canary test: verifies that the TestRunnerShortcut singleton survives a
-        /// scene transition via quickload. This drives a real stock quickload and is
-        /// intentionally single-run only: when stock restore itself fails, it can
-        /// leave the live FLIGHT session broken.
+        /// scene transition via quickload. This drives the stock programmatic
+        /// quickload backend and remains intentionally single-run only: when
+        /// stock flight restore itself fails, it can still leave the live
+        /// FLIGHT session hung or broken. Use a disposable/manual-backup save.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 scene transition can leave the live FLIGHT session broken when stock quickload fails.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this drives KSP's stock programmatic quickload backend. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
@@ -3790,47 +4851,732 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 follow-up: the test runner draw path must neutralize leaked IMGUI tint
+        /// state so a scene transition cannot leave the window visually transparent.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Window drawing normalizes leaked GUI tint and restores the prior state")]
+        public void WindowDraw_NormalizesGuiTintAndRestoresState()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            Color incomingColor = GUI.color;
+            Color incomingBackground = GUI.backgroundColor;
+            Color incomingContent = GUI.contentColor;
+            Color originalColor = new Color(0.2f, 0.3f, 0.4f, 0.25f);
+            Color originalBackground = new Color(0.5f, 0.4f, 0.3f, 0.15f);
+            Color originalContent = new Color(0.6f, 0.7f, 0.8f, 0.35f);
+            try
+            {
+                GUI.color = originalColor;
+                GUI.backgroundColor = originalBackground;
+                GUI.contentColor = originalContent;
+
+                Color observedColor = Color.clear;
+                Color observedBackground = Color.clear;
+                Color observedContent = Color.clear;
+
+                int result = shortcut.RunWindowWithNormalizedGuiColorsForTesting(() =>
+                {
+                    observedColor = GUI.color;
+                    observedBackground = GUI.backgroundColor;
+                    observedContent = GUI.contentColor;
+                    GUI.color = Color.red;
+                    GUI.backgroundColor = Color.green;
+                    GUI.contentColor = Color.blue;
+                    return 7;
+                });
+
+                InGameAssert.AreEqual(7, result, "Wrapped callback return value should flow through unchanged");
+                InGameAssert.IsTrue(Mathf.Approximately(observedColor.a, 1f)
+                        && Mathf.Approximately(observedColor.r, 1f)
+                        && Mathf.Approximately(observedColor.g, 1f)
+                        && Mathf.Approximately(observedColor.b, 1f),
+                    "Window draw should force GUI.color to opaque white inside the callback");
+                InGameAssert.IsTrue(Mathf.Approximately(observedBackground.a, 1f)
+                        && Mathf.Approximately(observedBackground.r, 1f)
+                        && Mathf.Approximately(observedBackground.g, 1f)
+                        && Mathf.Approximately(observedBackground.b, 1f),
+                    "Window draw should force GUI.backgroundColor to opaque white inside the callback");
+                InGameAssert.IsTrue(Mathf.Approximately(observedContent.a, 1f)
+                        && Mathf.Approximately(observedContent.r, 1f)
+                        && Mathf.Approximately(observedContent.g, 1f)
+                        && Mathf.Approximately(observedContent.b, 1f),
+                    "Window draw should force GUI.contentColor to opaque white inside the callback");
+                InGameAssert.IsTrue(Mathf.Approximately(GUI.color.r, originalColor.r)
+                        && Mathf.Approximately(GUI.color.g, originalColor.g)
+                        && Mathf.Approximately(GUI.color.b, originalColor.b)
+                        && Mathf.Approximately(GUI.color.a, originalColor.a),
+                    "Window draw should restore the previous GUI.color after the callback");
+                InGameAssert.IsTrue(Mathf.Approximately(GUI.backgroundColor.r, originalBackground.r)
+                        && Mathf.Approximately(GUI.backgroundColor.g, originalBackground.g)
+                        && Mathf.Approximately(GUI.backgroundColor.b, originalBackground.b)
+                        && Mathf.Approximately(GUI.backgroundColor.a, originalBackground.a),
+                    "Window draw should restore the previous GUI.backgroundColor after the callback");
+                InGameAssert.IsTrue(Mathf.Approximately(GUI.contentColor.r, originalContent.r)
+                        && Mathf.Approximately(GUI.contentColor.g, originalContent.g)
+                        && Mathf.Approximately(GUI.contentColor.b, originalContent.b)
+                        && Mathf.Approximately(GUI.contentColor.a, originalContent.a),
+                    "Window draw should restore the previous GUI.contentColor after the callback");
+            }
+            finally
+            {
+                GUI.color = incomingColor;
+                GUI.backgroundColor = incomingBackground;
+                GUI.contentColor = incomingContent;
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
-        /// This also drives a real stock quickload, so it is intentionally single-run only.
+        /// This also drives KSP's stock programmatic quickload backend, so it
+        /// remains intentionally single-run only while stock quickload itself can
+        /// still destabilize the current FLIGHT session on failure. Use a
+        /// disposable/manual-backup save before running it.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 resume check can poison the current FLIGHT session if stock quickload restores into a broken state.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this drives KSP's stock programmatic quickload backend. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {
-            // Pre-condition: must have an active recording in tree mode
             var flight = ParsekFlight.Instance;
             InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
-            if (!flight.IsRecording)
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
             {
-                InGameAssert.Skip("no active recording — start a recording before running this test");
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
                 yield break;
             }
 
-            string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
-            InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
-            int preFlightInstanceId = flight.GetInstanceID();
+            bool startedRecordingForTest = false;
+            bool originalAutoRecordOnLaunch = false;
+            float originalThrottle = 0f;
+            bool autoRecordStateCaptured = false;
+            bool throttleCaptured = false;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
 
-            // F5
-            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
-            yield return new WaitForSeconds(2f); // accumulate post-F5 data
+            try
+            {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorObserver?.Invoke(line);
+                };
 
-            // F9
-            Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                preFlightInstanceId, 15f);
-            yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+                if (!flight.IsRecording)
+                {
+                    if (vessel.situation != Vessel.Situations.PRELAUNCH)
+                    {
+                        InGameAssert.Skip(
+                            $"requires either an already-live launched recording or an idle PRELAUNCH vessel, got {vessel.situation}");
+                        yield break;
+                    }
+                    if (ParsekSettings.Current == null)
+                    {
+                        InGameAssert.Skip("ParsekSettings.Current is null");
+                        yield break;
+                    }
+                    originalAutoRecordOnLaunch = ParsekSettings.Current.autoRecordOnLaunch;
+                    autoRecordStateCaptured = true;
 
-            // Re-query: old ParsekFlight instance is destroyed
-            var postFlight = ParsekFlight.Instance;
-            InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after quickload");
-            InGameAssert.IsTrue(postFlight.HasActiveTree, "ActiveTree must be restored after quickload");
+                    ParsekSettings.Current.autoRecordOnLaunch = true;
+                    yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                    yield return RuntimeTests.WaitForFlightInputStateReady(5f);
+                    originalThrottle = FlightInputHandler.state.mainThrottle;
+                    throttleCaptured = true;
+                    FlightInputHandler.state.mainThrottle = 1f;
+                    KSP.UI.Screens.StageManager.ActivateNextStage();
 
-            string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
-            InGameAssert.AreEqual(preRecId, postRecId,
-                $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(10f);
+                    yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+                    yield return new WaitForSeconds(0.5f);
+
+                    startedRecordingForTest = true;
+                    flight = ParsekFlight.Instance;
+                    vessel = FlightGlobals.ActiveVessel;
+                    InGameAssert.IsNotNull(flight, "ParsekFlight.Instance must survive launch auto-record setup");
+                    InGameAssert.IsNotNull(vessel, "Active vessel must exist after launch auto-record setup");
+                    InGameAssert.IsTrue(vessel.situation != Vessel.Situations.PRELAUNCH,
+                        "Quickload mid-recording setup must leave PRELAUNCH before F5");
+
+                    int autoStartCount = captured.Count(
+                        l => l.Contains("[Flight]") && l.Contains("Auto-record started ("));
+                    InGameAssert.AreEqual(1, autoStartCount,
+                        $"Expected exactly one launch auto-record log line during quickload setup, got {autoStartCount}");
+                }
+                else if (vessel.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    InGameAssert.Skip("requires an already-live launched recording or an idle PRELAUNCH vessel");
+                    yield break;
+                }
+
+                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
+                string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
+                InGameAssert.IsTrue(
+                    flight.ActiveTreeForSerialization.Recordings.TryGetValue(preRecId, out _),
+                    $"Active tree must contain the active recording '{preRecId}' before F5");
+                RuntimeTests.HasObservedActiveRecordingPoint(
+                    flight,
+                    out int preTreePointCount,
+                    out int preBufferedPointCount,
+                    out double preLastRecordedUT);
+                InGameAssert.IsTrue(
+                    preTreePointCount > 0
+                    || preBufferedPointCount > 0
+                    || !double.IsNaN(preLastRecordedUT),
+                    "Quickload mid-recording setup must capture at least one live trajectory sample before F5");
+                int preFlightInstanceId = flight.GetInstanceID();
+
+                ParsekLog.Info("TestRunner",
+                    $"Quickload mid-recording setup: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
+                    $"situation={FlightGlobals.ActiveVessel?.situation} preRecId={preRecId} " +
+                    $"treePoints={preTreePointCount} bufferedPoints={preBufferedPointCount} " +
+                    $"lastRecordedUT={(double.IsNaN(preLastRecordedUT) ? "NaN" : preLastRecordedUT.ToString("F2"))} " +
+                    $"startedRecordingForTest={startedRecordingForTest}");
+
+                // F5
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+                yield return new WaitForSeconds(2f); // accumulate post-F5 data
+
+                // F9
+                Helpers.QuickloadResumeHelpers.TriggerQuickload();
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    preFlightInstanceId, 15f);
+                yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+
+                // Re-query: old ParsekFlight instance is destroyed
+                var postFlight = ParsekFlight.Instance;
+                InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after quickload");
+                InGameAssert.IsTrue(postFlight.HasActiveTree, "ActiveTree must be restored after quickload");
+
+                string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
+                InGameAssert.AreEqual(preRecId, postRecId,
+                    $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+            }
+            finally
+            {
+                if (throttleCaptured && FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (autoRecordStateCaptured && ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecordOnLaunch;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (startedRecordingForTest && cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+            }
+        }
+
+        /// <summary>
+        /// Stock Revert to Launch player-flow canary. Starts a real recording,
+        /// launches the active vessel, then drives KSP's stock Revert-to-Launch
+        /// backend. The expected shipped behavior after #434 is soft-unstash:
+        /// the pending tree is cleared without a merge dialog and the reverted
+        /// flight does not commit into the timeline. Use a disposable/manual-
+        /// backup save before running it.
+        /// </summary>
+        [InGameTest(Category = "RevertFlow", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, stages the active vessel, and drives stock Revert to Launch in the live FLIGHT session. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Stock Revert to Launch soft-unstashes a live recording without opening the merge dialog")]
+        public IEnumerator RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can launch and then stock-revert, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (FlightDriverRevertToLaunchMethod == null || FlightDriverCanRevertProperty == null)
+            {
+                InGameAssert.Skip("FlightDriver revert-to-launch reflection surface unavailable on this KSP build");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the stock revert flow");
+
+                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the live revert-flow canary");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return new WaitForSeconds(1.0f);
+
+                bool canRevert = (bool)(FlightDriverCanRevertProperty.GetValue(null, null) ?? false);
+                InGameAssert.IsTrue(canRevert,
+                    "FlightDriver.CanRevert should be true after the staged vessel leaves PRELAUNCH");
+
+                int previousFlightInstanceId = flight.GetInstanceID();
+                try
+                {
+                    FlightDriverRevertToLaunchMethod.Invoke(null, null);
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"FlightDriver.RevertToLaunch threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 15f);
+                yield return new WaitForSeconds(0.5f);
+                yield return AssertNoPopupDialog("ParsekMerge", 2.5f);
+
+                var postFlight = ParsekFlight.Instance;
+                var postVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after stock revert");
+                InGameAssert.IsNotNull(postVessel, "Active vessel must exist after stock revert");
+                InGameAssert.IsFalse(postFlight.IsRecording,
+                    "Stock revert should end the pre-revert live recording instead of resuming it");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Stock revert should soft-unstash the pending tree instead of surfacing the merge dialog");
+                InGameAssert.AreEqual(committedBefore, RecordingStore.CommittedRecordings.Count,
+                    "Revert-to-launch must not commit the reverted recording into the timeline");
+                InGameAssert.AreEqual(committedTreesBefore, RecordingStore.CommittedTrees.Count,
+                    "Revert-to-launch must not commit a reverted tree into CommittedTrees");
+                InGameAssert.IsTrue(
+                    postVessel.situation == Vessel.Situations.PRELAUNCH || postVessel.LandedOrSplashed,
+                    $"Revert-to-launch should bring the vessel back to a launch-site state, got {postVessel.situation}");
+
+                bool sawKeepFreshPending = captured.Any(
+                    l => l.Contains("Revert: keeping freshly-stashed pending")
+                        || l.Contains("Revert: keeping pending Limbo tree"));
+                bool sawSoftUnstash = captured.Any(
+                    l => l.Contains("Unstashed pending tree '") && l.Contains("sidecar files preserved"));
+                InGameAssert.IsTrue(sawKeepFreshPending,
+                    "Expected revert OnLoad to keep the freshly-stashed pending tree long enough to classify it");
+                InGameAssert.IsTrue(sawSoftUnstash,
+                    "Expected revert OnLoad to soft-unstash the pending tree instead of committing or discarding it");
+
+                ParsekLog.Info("TestRunner",
+                    $"Revert flow runtime: rec='{activeRecId}' postVessel='{postVessel.vesselName}' " +
+                    $"situation={postVessel.situation} committedBefore={committedBefore} " +
+                    $"committedAfter={RecordingStore.CommittedRecordings.Count}");
+            }
+            finally
+            {
+                FlightInputHandler.state.mainThrottle = originalThrottle;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+            }
+        }
+
+        /// <summary>
+        /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
+        /// launches the active vessel far enough to avoid the idle-on-pad discard
+        /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
+        /// stock PauseMenu uses. The expected shipped behavior after #434 with
+        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
+        /// "Merge to Timeline" button commits the pending tree. Use a disposable/
+        /// manual-backup save before running it.
+        /// </summary>
+        [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog in SPACECENTER.",
+            Description = "Space Center exit shows deferred merge dialog and Merge to Timeline commits the pending tree")]
+        public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can stage and then exit to Space Center, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            bool originalAutoMerge = ParsekSettings.Current.autoMerge;
+            Vector3d launchWorldPosition = vessel.GetWorldPos3D();
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string treeId = null;
+            string activeRecId = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                PopupDialog.DismissPopup("ParsekMerge");
+                ParsekSettings.Current.autoMerge = false;
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the Space Center exit flow");
+
+                treeId = flight.ActiveTreeForSerialization?.Id;
+                activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(treeId, "Active tree id should exist before the Space Center exit flow");
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the Space Center exit flow");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                TriggerSaveAndExitToSpaceCenter();
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+                yield return WaitForPopupDialog("ParsekMerge", 10f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after the real Space Center exit");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
+                    "Real Space Center exit should surface a pending tree before the merge click");
+                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
+                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
+                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Merge to Timeline should consume the pending tree after real scene exit");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Merge to Timeline should clear the deferred merge-dialog flag");
+                InGameAssert.AreEqual(committedTreesBefore + 1, RecordingStore.CommittedTrees.Count,
+                    "Merge to Timeline should add exactly one committed tree after the real scene exit");
+                InGameAssert.IsGreaterThan(RecordingStore.CommittedRecordings.Count, committedBefore,
+                    "Merge to Timeline should add committed recordings after the real scene exit");
+
+                RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
+                    candidate => candidate != null && candidate.Id == treeId);
+                InGameAssert.IsNotNull(committedTree,
+                    "Merge to Timeline should commit the live pending tree into CommittedTrees");
+                bool recordingCommitted = RecordingStore.CommittedRecordings.Any(
+                    rec => rec != null && rec.TreeId == treeId && rec.RecordingId == activeRecId);
+                InGameAssert.IsTrue(recordingCommitted,
+                    "CommittedRecordings should contain the merged tree's active recording");
+
+                bool sawDeferredDialog = captured.Any(
+                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawUserMerge = captured.Any(
+                    line => line.Contains("User chose: Tree Merge"));
+                InGameAssert.IsTrue(sawDeferredDialog,
+                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawUserMerge,
+                    "Expected the real scene-exit flow to log the Merge to Timeline branch");
+
+                ParsekLog.Info("TestRunner",
+                    $"Scene-exit merge commit runtime: treeId={treeId} recId={activeRecId} " +
+                    $"committedTreesBefore={committedTreesBefore} committedTreesAfter={RecordingStore.CommittedTrees.Count}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoMerge = originalAutoMerge;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                    ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge commit canary cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+            }
+        }
+
+        /// <summary>
+        /// Stock non-revert scene-exit discard canary. Starts a real recording,
+        /// launches the active vessel far enough to avoid the idle-on-pad discard
+        /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
+        /// stock PauseMenu uses. The expected shipped behavior after #434 with
+        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
+        /// explicit "Discard" button clears the pending tree without committing
+        /// anything to the timeline. Use a disposable/manual-backup save before
+        /// running it.
+        /// </summary>
+        [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog discard branch in SPACECENTER.",
+            Description = "Space Center exit shows deferred merge dialog and Discard clears the pending tree without a commit")]
+        public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can stage and then exit to Space Center, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            bool originalAutoMerge = ParsekSettings.Current.autoMerge;
+            Vector3d launchWorldPosition = vessel.GetWorldPos3D();
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string treeId = null;
+            string activeRecId = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                PopupDialog.DismissPopup("ParsekMerge");
+                ParsekSettings.Current.autoMerge = false;
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the Space Center discard flow");
+
+                treeId = flight.ActiveTreeForSerialization?.Id;
+                activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(treeId, "Active tree id should exist before the Space Center discard flow");
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the Space Center discard flow");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                TriggerSaveAndExitToSpaceCenter();
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+                yield return WaitForPopupDialog("ParsekMerge", 10f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after the real Space Center exit");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
+                    "Real Space Center exit should surface a pending tree before the discard click");
+                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
+                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
+                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Discard should clear the pending tree after the real scene exit");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Discard should clear the deferred merge-dialog flag");
+                InGameAssert.AreEqual(committedBefore, RecordingStore.CommittedRecordings.Count,
+                    "Discard should not add committed recordings after the real scene exit");
+                InGameAssert.AreEqual(committedTreesBefore, RecordingStore.CommittedTrees.Count,
+                    "Discard should not add committed trees after the real scene exit");
+                InGameAssert.IsFalse(RecordingStore.CommittedTrees.Any(
+                        candidate => candidate != null && candidate.Id == treeId),
+                    "Discard should not leave the pending tree inside CommittedTrees");
+
+                bool sawDeferredDialog = captured.Any(
+                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawUserDiscard = captured.Any(
+                    line => line.Contains("User chose: Tree Discard"));
+                InGameAssert.IsTrue(sawDeferredDialog,
+                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawUserDiscard,
+                    "Expected the real scene-exit flow to log the Discard branch");
+
+                ParsekLog.Info("TestRunner",
+                    $"Scene-exit merge discard runtime: treeId={treeId} recId={activeRecId} " +
+                    $"committedTreesBefore={committedTreesBefore} committedTreesAfter={RecordingStore.CommittedTrees.Count}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoMerge = originalAutoMerge;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                    ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge discard canary cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+            }
         }
 
         /// <summary>
@@ -3844,6 +5590,115 @@ namespace Parsek.InGameTests
             // The guard must be false during normal flight (no restore in progress)
             InGameAssert.IsFalse(ParsekFlight.restoringActiveTree,
                 "restoringActiveTree must be false during normal flight");
+        }
+
+        [InGameTest(Category = "PlaybackControl", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic keep-vessel timeline recording, fast-forwards UT, and recovers the spawned vessel during cleanup. Use Run All + Isolated or the row play button.",
+            Description = "Synthetic Keep Vessel timeline fast-forward starts playback and spawns exactly once")]
+        public IEnumerator KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for a deterministic keep-vessel playback canary (situation={activeVessel.situation})");
+                yield break;
+            }
+
+            if (!TryBuildSyntheticKeepVesselTree(activeVessel, out RecordingTree tree,
+                out Recording recording, out string skipReason))
+            {
+                InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                yield break;
+            }
+
+            Vessel spawnedVessel = null;
+            uint spawnedPid = 0;
+
+            try
+            {
+                RecordingStore.CommitTree(tree);
+
+                int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
+                InGameAssert.IsTrue(recordingIndex >= 0,
+                    "Synthetic keep-vessel recording should be present in CommittedRecordings");
+
+                flight.FastForwardToRecording(recording);
+
+                yield return WaitForActiveTimelineGhost(flight, recordingIndex, 4f);
+                yield return WaitForRecordingSpawn(recording, 10f);
+
+                spawnedPid = recording.SpawnedVesselPersistentId;
+                InGameAssert.IsGreaterThan((double)spawnedPid, 0.0,
+                    "SpawnedVesselPersistentId should be non-zero after keep-vessel playback");
+
+                spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Spawned vessel should be findable by persistentId after playback");
+
+                int pidMatchesBefore = CountLoadedVesselsByPid(spawnedPid);
+                InGameAssert.AreEqual(1, pidMatchesBefore,
+                    $"Expected exactly one loaded vessel with pid={spawnedPid} right after spawn, got {pidMatchesBefore}");
+
+                yield return new WaitForSeconds(2f);
+
+                InGameAssert.IsTrue(recording.VesselSpawned,
+                    "Recording should stay marked spawned after the initial vessel materializes");
+                InGameAssert.AreEqual((double)spawnedPid, (double)recording.SpawnedVesselPersistentId,
+                    "Keep-vessel playback should not replace the spawned vessel with a second pid");
+
+                int pidMatchesAfter = CountLoadedVesselsByPid(spawnedPid);
+                InGameAssert.AreEqual(1, pidMatchesAfter,
+                    $"Expected exactly one loaded vessel with pid={spawnedPid} after the duplicate-prevention wait, got {pidMatchesAfter}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Keep-vessel runtime: rec='{recording.RecordingId}' ghostIndex={recordingIndex} spawnedPid={spawnedPid}");
+            }
+            finally
+            {
+                if (spawnedVessel == null && spawnedPid != 0)
+                    spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"Keep-vessel runtime cleanup failed to recover pid={spawnedPid}: {ex.Message}");
+                    }
+                }
+
+                RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
         }
 
         // ======================= GhostAudio (#265) =======================
@@ -4210,12 +6065,75 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#265/#484: endpoint-aligned backfill must not overwrite explicit recorded terminal orbit data that already matches the recording endpoint")]
+        public void TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestNoOverwrite",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                RecordingId = "runtime-preserve-explicit-terminal-orbit",
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun",
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
+                "Explicit endpoint metadata should keep the cached TerminalOrbitBody authoritative");
+            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string preserveLine = captured.LastOrDefault(line =>
+                line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
+                && line.Contains("preserved cached terminal orbit")
+                && line.Contains("runtime-preserve-explicit-terminal-orbit")
+                && line.Contains("explicit endpoint body=Mun")
+                && line.Contains("later segment body=Kerbin")
+                && line.Contains("sma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(preserveLine),
+                "Expected explicit-endpoint preserve INFO log");
+            InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
+                $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("healed stale cached terminal orbit")),
+                "Explicit recorded terminal-orbit data should preserve, not heal");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody explicit preserve verified: body still Mun");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
             Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit only when the cached tuple already matches")]
         public void TerminalOrbitBackfill_AlreadyPopulatedMatchingTuple_NoOverwrite()
         {
             var rec = new Recording
             {
-                VesselName = "TestNoOverwrite",
+                VesselName = "TestNoOverwriteMatchingTuple",
                 VesselPersistentId = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin",
@@ -4249,7 +6167,7 @@ namespace Parsek.InGameTests
             }
 
             InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
-                "Existing TerminalOrbitBody should not be overwritten");
+                "Existing TerminalOrbitBody should not be overwritten when the full cached tuple already matches");
             InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
             string preserveLine = captured.LastOrDefault(line =>
                 line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
@@ -4264,7 +6182,7 @@ namespace Parsek.InGameTests
                 "Matching cached tuple should preserve, not heal");
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody no-overwrite verified: body still Kerbin");
+                "TerminalOrbitBody matching tuple preserve verified: body still Kerbin");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
@@ -4349,11 +6267,140 @@ namespace Parsek.InGameTests
             });
             rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
 
-            ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
 
             InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
                 "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
             InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#484: orbit-only stale same-body terminal-orbit cache still heals from the endpoint-aligned last segment")]
+        public void TerminalOrbitBackfill_OrbitOnlyStaleCachedSameBodyTuple_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleSameBodyTuple",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should keep the same body while healing stale tuple fields");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string healLine = captured.LastOrDefault(line =>
+                line.Contains("PopulateTerminalOrbitFromLastSegment")
+                && line.Contains("healed stale cached terminal orbit")
+                && line.Contains("previousBody=Kerbin")
+                && line.Contains("previousSma=250000.0")
+                && line.Contains("newBody=Kerbin")
+                && line.Contains("newSma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(healLine),
+                "Expected stale same-body tuple heal WARN log");
+            InGameAssert.IsTrue(healLine.Contains("[WARN][Flight]"),
+                $"Expected heal log to be WARN/[Flight], got: {healLine ?? "(null)"}");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale same-body tuple heal verified: sma 250000 -> 700000");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#475/#484: orbit-only stale cached terminal orbit body heals when the endpoint-aligned segment disagrees")]
+        public void TerminalOrbitBackfill_OrbitOnlyStaleCachedBody_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleBody",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string healLine = captured.LastOrDefault(line =>
+                line.Contains("PopulateTerminalOrbitFromLastSegment")
+                && line.Contains("healed stale cached terminal orbit")
+                && line.Contains("previousBody=Mun")
+                && line.Contains("previousSma=250000.0")
+                && line.Contains("newBody=Kerbin")
+                && line.Contains("newSma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(healLine),
+                "Expected stale body heal WARN log");
+            InGameAssert.IsTrue(healLine.Contains("[WARN][Flight]"),
+                $"Expected heal log to be WARN/[Flight], got: {healLine ?? "(null)"}");
 
             ParsekLog.Verbose("TestRunner",
                 "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
@@ -4462,6 +6509,169 @@ namespace Parsek.InGameTests
                 $"after-double={rec.PartEvents.Count} events");
         }
 
+        [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
+            Description = "Light part events flip ghost lights exactly at their authored UT boundaries")]
+        public void PartEventTiming_LightToggle_AppliesAtEventUt()
+        {
+            var ghostRoot = new GameObject("ParsekTest_LightTimingGhost");
+            runner.TrackForCleanup(ghostRoot);
+
+            var lightHost = new GameObject("ghost_part_101");
+            lightHost.transform.SetParent(ghostRoot.transform, false);
+            var light = lightHost.AddComponent<Light>();
+            light.enabled = false;
+
+            var rec = new Recording
+            {
+                VesselName = "LightTimingCanary",
+                PartEvents = new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 100.0,
+                        partPersistentId = 101u,
+                        eventType = PartEventType.LightOn
+                    },
+                    new PartEvent
+                    {
+                        ut = 110.0,
+                        partPersistentId = 101u,
+                        eventType = PartEventType.LightOff
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                lightInfos = new Dictionary<uint, LightGhostInfo>
+                {
+                    [101u] = new LightGhostInfo
+                    {
+                        partPersistentId = 101u,
+                        lights = new List<Light> { light }
+                    }
+                }
+            };
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 99.9, state);
+            InGameAssert.IsFalse(light.enabled,
+                "Light should stay off before the authored LightOn UT");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "Part-event cursor should not advance before the first light event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 100.0, state);
+            InGameAssert.IsTrue(light.enabled,
+                "Light should turn on exactly at the authored LightOn UT");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should advance after the LightOn event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 109.9, state);
+            InGameAssert.IsTrue(light.enabled,
+                "Light should remain on between the authored LightOn and LightOff events");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should not advance before the authored LightOff UT");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 110.0, state);
+            InGameAssert.IsFalse(light.enabled,
+                "Light should turn off exactly at the authored LightOff UT");
+            InGameAssert.AreEqual(2, state.partEventIndex,
+                "Part-event cursor should advance after the LightOff event fires");
+        }
+
+        [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
+            Description = "Deployable part events swap ghost transforms exactly at their authored UT boundaries")]
+        public void PartEventTiming_DeployableTransition_AppliesAtEventUt()
+        {
+            var ghostRoot = new GameObject("ParsekTest_DeployableTimingGhost");
+            runner.TrackForCleanup(ghostRoot);
+
+            var deployableHost = new GameObject("ghost_part_202");
+            deployableHost.transform.SetParent(ghostRoot.transform, false);
+
+            DeployableTransformState deployableState = new DeployableTransformState
+            {
+                t = deployableHost.transform,
+                stowedPos = new Vector3(-1f, 0f, 0f),
+                stowedRot = Quaternion.Euler(0f, 0f, 0f),
+                stowedScale = new Vector3(1f, 1f, 1f),
+                deployedPos = new Vector3(2f, 3f, 4f),
+                deployedRot = Quaternion.Euler(0f, 90f, 0f),
+                deployedScale = new Vector3(1f, 2f, 1f)
+            };
+
+            deployableHost.transform.localPosition = deployableState.stowedPos;
+            deployableHost.transform.localRotation = deployableState.stowedRot;
+            deployableHost.transform.localScale = deployableState.stowedScale;
+
+            var rec = new Recording
+            {
+                VesselName = "DeployableTimingCanary",
+                PartEvents = new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 200.0,
+                        partPersistentId = 202u,
+                        eventType = PartEventType.DeployableExtended
+                    },
+                    new PartEvent
+                    {
+                        ut = 210.0,
+                        partPersistentId = 202u,
+                        eventType = PartEventType.DeployableRetracted
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                deployableInfos = new Dictionary<uint, DeployableGhostInfo>
+                {
+                    [202u] = new DeployableGhostInfo
+                    {
+                        partPersistentId = 202u,
+                        transforms = new List<DeployableTransformState> { deployableState }
+                    }
+                }
+            };
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 199.9, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "Deployable should stay stowed before the authored extend UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
+                "Deployable rotation should stay stowed before the authored extend UT");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "Part-event cursor should not advance before the first deployable event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 200.0, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "Deployable should extend exactly at the authored DeployableExtended UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.deployedRot,
+                "Deployable rotation should switch to the deployed pose at the authored extend UT");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.deployedScale,
+                "Deployable scale should switch to the deployed pose at the authored extend UT");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should advance after the deployable extend event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 209.9, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "Deployable should remain extended between the authored extend and retract events");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should not advance before the authored retract UT");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 210.0, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "Deployable should retract exactly at the authored DeployableRetracted UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
+                "Deployable rotation should switch back to the stowed pose at the authored retract UT");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.stowedScale,
+                "Deployable scale should switch back to the stowed pose at the authored retract UT");
+            InGameAssert.AreEqual(2, state.partEventIndex,
+                "Part-event cursor should advance after the deployable retract event fires");
+        }
+
         // ======================= ResourceManifest (Phase 11) =======================
 
         [InGameTest(Category = "ResourceManifest", Scene = GameScenes.FLIGHT,
@@ -4504,8 +6714,8 @@ namespace Parsek.InGameTests
         {
             // Capture log lines for the duration of the test.
             var captured = new List<string>();
-            var prevSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { captured.Add(line); prevSink?.Invoke(line); };
+            var prevObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { captured.Add(line); prevObserver?.Invoke(line); };
 
             try
             {
@@ -4541,7 +6751,364 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.TestObserverForTesting = prevObserver;
+            }
+        }
+
+        #endregion
+
+        #region PlaybackControl helpers
+
+        private static bool TryBuildSyntheticKeepVesselTree(
+            Vessel activeVessel,
+            out RecordingTree tree,
+            out Recording recording,
+            out string skipReason)
+        {
+            tree = null;
+            recording = null;
+            skipReason = null;
+
+            if (activeVessel == null)
+            {
+                skipReason = "active vessel is null";
+                return false;
+            }
+
+            CelestialBody body = activeVessel.mainBody;
+            if (body == null || body.Radius <= 0.0)
+            {
+                skipReason = "active vessel body is unavailable";
+                return false;
+            }
+
+            ConfigNode sourceSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+            if (sourceSnapshot == null)
+            {
+                skipReason = "failed to snapshot active vessel";
+                return false;
+            }
+
+            ConfigNode vesselSnapshot = sourceSnapshot.CreateCopy();
+            ConfigNode ghostSnapshot = sourceSnapshot.CreateCopy();
+            double now = Planetarium.GetUniversalTime();
+            double stepMeters = 10.0;
+            if (!TryResolveSyntheticKeepVesselPath(body, activeVessel.latitude, activeVessel.longitude,
+                stepMeters, out double startOffsetMeters, out double startLat, out double middleLat,
+                out double endLat, out double lon, out skipReason))
+            {
+                return false;
+            }
+
+            Quaternion landedRotation = activeVessel.transform != null
+                ? activeVessel.transform.rotation
+                : Quaternion.identity;
+
+            double surfaceClearance = ResolveSyntheticKeepVesselClearance(
+                body, activeVessel, vesselSnapshot);
+            double startAlt = ResolvePlaybackSurfaceAltitude(body, startLat, lon, surfaceClearance);
+            double middleAlt = ResolvePlaybackSurfaceAltitude(body, middleLat, lon, surfaceClearance);
+            double endAlt = ResolvePlaybackSurfaceAltitude(body, endLat, lon, surfaceClearance);
+            double terminalTerrainAlt = body.TerrainAltitude(endLat, lon);
+            if (double.IsNaN(terminalTerrainAlt) || double.IsInfinity(terminalTerrainAlt))
+                terminalTerrainAlt = endAlt - surfaceClearance;
+
+            VesselSpawner.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
+                -1, activeVessel.vesselName ?? "Runtime Test Vessel", body, landedRotation);
+            vesselSnapshot.SetValue("sit", "LANDED", true);
+            vesselSnapshot.SetValue("landed", "True", true);
+            vesselSnapshot.SetValue("splashed", "False", true);
+
+            double endDistanceMeters = SpawnCollisionDetector.SurfaceDistance(
+                activeVessel.latitude, activeVessel.longitude, endLat, lon, body.Radius);
+
+            string recordingId = "runtime-keep-vessel-" + System.DateTime.UtcNow.Ticks;
+            string treeId = "runtime-tree-keep-vessel-" + recordingId;
+            uint syntheticPid = activeVessel.persistentId ^ 0x5A5AA5A5u;
+            if (syntheticPid == 0 || syntheticPid == activeVessel.persistentId)
+                syntheticPid = 950001u;
+
+            recording = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = treeId,
+                VesselName = (activeVessel.vesselName ?? "Runtime Test Vessel") + " timeline",
+                VesselPersistentId = syntheticPid,
+                TerminalStateValue = TerminalState.Landed,
+                DistanceFromLaunch = endDistanceMeters,
+                MaxDistanceFromLaunch = endDistanceMeters,
+                TerrainHeightAtEnd = terminalTerrainAlt,
+                VesselSnapshot = vesselSnapshot,
+                GhostVisualSnapshot = ghostSnapshot,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = body.name,
+                    latitude = endLat,
+                    longitude = lon,
+                    altitude = endAlt,
+                    rotation = landedRotation,
+                    situation = SurfaceSituation.Landed
+                },
+                SurfacePos = new SurfacePosition
+                {
+                    body = body.name,
+                    latitude = endLat,
+                    longitude = lon,
+                    altitude = endAlt,
+                    rotation = landedRotation,
+                    situation = SurfaceSituation.Landed
+                },
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = now + 30.0,
+                        latitude = startLat,
+                        longitude = lon,
+                        altitude = startAlt,
+                        bodyName = body.name,
+                        rotation = landedRotation,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = now + 32.0,
+                        latitude = middleLat,
+                        longitude = lon,
+                        altitude = middleAlt,
+                        bodyName = body.name,
+                        rotation = landedRotation,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = now + 34.0,
+                        latitude = endLat,
+                        longitude = lon,
+                        altitude = endAlt,
+                        bodyName = body.name,
+                        rotation = landedRotation,
+                        velocity = Vector3.zero
+                    }
+                }
+            };
+
+            tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Runtime Keep Vessel Playback",
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId
+            };
+            tree.Recordings[recordingId] = recording;
+            return true;
+        }
+
+        private static double ResolvePlaybackSurfaceAltitude(
+            CelestialBody body,
+            double latitude,
+            double longitude,
+            double surfaceClearance)
+        {
+            double terrainAlt = body.TerrainAltitude(latitude, longitude);
+            if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
+                terrainAlt = 0.0;
+            return terrainAlt + surfaceClearance;
+        }
+
+        private static double ResolveSyntheticKeepVesselClearance(
+            CelestialBody body,
+            Vessel activeVessel,
+            ConfigNode vesselSnapshot)
+        {
+            const double minimumClearanceMeters = 6.0;
+
+            if (body == null || activeVessel == null)
+                return minimumClearanceMeters;
+
+            double terrainAlt = body.TerrainAltitude(activeVessel.latitude, activeVessel.longitude);
+            if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
+                return minimumClearanceMeters;
+
+            double clearance = minimumClearanceMeters;
+            if (VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out double snapshotAlt))
+                clearance = System.Math.Max(clearance, snapshotAlt - terrainAlt);
+
+            if (!double.IsNaN(activeVessel.altitude) && !double.IsInfinity(activeVessel.altitude))
+                clearance = System.Math.Max(clearance, activeVessel.altitude - terrainAlt);
+
+            return clearance;
+        }
+
+        private static bool TryResolveSyntheticKeepVesselPath(
+            CelestialBody body,
+            double originLatitude,
+            double originLongitude,
+            double stepMeters,
+            out double startOffsetMeters,
+            out double startLatitude,
+            out double middleLatitude,
+            out double endLatitude,
+            out double longitude,
+            out string skipReason)
+        {
+            startOffsetMeters = 0.0;
+            startLatitude = 0.0;
+            middleLatitude = 0.0;
+            endLatitude = 0.0;
+            longitude = 0.0;
+            skipReason = null;
+
+            if (body == null || body.Radius <= 0.0)
+            {
+                skipReason = "active vessel body is unavailable";
+                return false;
+            }
+
+            double latitudeDegreesPerMeter = 180.0 / (System.Math.PI * body.Radius);
+            double cosLatitude = System.Math.Cos(originLatitude * System.Math.PI / 180.0);
+            double longitudeDegreesPerMeter = System.Math.Abs(cosLatitude) > 1e-6
+                ? latitudeDegreesPerMeter / cosLatitude
+                : latitudeDegreesPerMeter;
+
+            double[] northCandidates = body.isHomeWorld
+                ? new[] { 220.0, 320.0, 420.0, 520.0 }
+                : new[] { 120.0 };
+            double[] eastCandidates = body.isHomeWorld
+                ? new[] { 0.0, 160.0, -160.0, 320.0, -320.0 }
+                : new[] { 0.0 };
+
+            for (int northIndex = 0; northIndex < northCandidates.Length; northIndex++)
+            {
+                double northMeters = northCandidates[northIndex];
+                for (int eastIndex = 0; eastIndex < eastCandidates.Length; eastIndex++)
+                {
+                    double eastMeters = eastCandidates[eastIndex];
+                    double candidateLongitude = originLongitude + eastMeters * longitudeDegreesPerMeter;
+                    double candidateStartLatitude = originLatitude + northMeters * latitudeDegreesPerMeter;
+                    double candidateMiddleLatitude = originLatitude
+                        + (northMeters + stepMeters) * latitudeDegreesPerMeter;
+                    double candidateEndLatitude = originLatitude
+                        + (northMeters + stepMeters * 2.0) * latitudeDegreesPerMeter;
+
+                    if (body.isHomeWorld)
+                    {
+                        bool startBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateStartLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        bool middleBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateMiddleLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        bool endBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateEndLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        if (startBlocked || middleBlocked || endBlocked)
+                            continue;
+                    }
+
+                    startOffsetMeters = northMeters;
+                    startLatitude = candidateStartLatitude;
+                    middleLatitude = candidateMiddleLatitude;
+                    endLatitude = candidateEndLatitude;
+                    longitude = candidateLongitude;
+                    return true;
+                }
+            }
+
+            skipReason = body.isHomeWorld
+                ? "failed to find synthetic keep-vessel path outside the KSC exclusion zone"
+                : "failed to resolve synthetic keep-vessel path";
+            return false;
+        }
+
+        private static IEnumerator WaitForActiveTimelineGhost(
+            ParsekFlight flight,
+            int recordingIndex,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (flight != null && flight.Engine != null
+                    && flight.Engine.HasGhost(recordingIndex)
+                    && flight.Engine.HasActiveGhost(recordingIndex))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForActiveTimelineGhost timed out after {timeoutSeconds:F0}s (index={recordingIndex})");
+        }
+
+        private static IEnumerator WaitForRecordingSpawn(Recording recording, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (recording != null
+                    && recording.VesselSpawned
+                    && recording.SpawnedVesselPersistentId != 0)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForRecordingSpawn timed out after {timeoutSeconds:F0}s (rec='{recording?.RecordingId ?? "null"}')");
+        }
+
+        private static int CountLoadedVesselsByPid(uint persistentId)
+        {
+            if (persistentId == 0 || FlightGlobals.Vessels == null)
+                return 0;
+
+            int matches = 0;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel vessel = FlightGlobals.Vessels[i];
+                if (vessel != null && vessel.persistentId == persistentId)
+                    matches++;
+            }
+
+            return matches;
+        }
+
+        private static int FindCommittedRecordingIndex(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return -1;
+
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate != null && candidate.RecordingId == recordingId)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static void RemoveCommittedTreeByIdForPlaybackRuntimeTest(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
             }
         }
 
@@ -4879,10 +7446,11 @@ namespace Parsek.InGameTests
             int eventCountBefore = GameStateStore.EventCount;
             int ledgerCountBefore = Ledger.Actions.Count;
 
-            // Install log sink chained to prior sink.
+            // Install a tee-style observer so the assertions can capture log lines
+            // without muting the live KSP log file.
             var captured = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
             // Note: GameStateRecorder.IsReplayingActions is false during normal
             // test-runner execution — we are not inside a KspStatePatcher walk — so
@@ -4967,8 +7535,8 @@ namespace Parsek.InGameTests
             }
             catch
             {
-                // Ensure the sink + financials are restored on an exception path.
-                // We leave the sink installed on the happy path so the second
+                // Ensure the observer + financials are restored on an exception path.
+                // We leave the observer installed on the happy path so the second
                 // yield-and-assert block can read the deactivate log line that
                 // was emitted synchronously inside strategy.Deactivate above.
                 if (strategy.IsActive)
@@ -4980,7 +7548,7 @@ namespace Parsek.InGameTests
                             $"StrategyLifecycle mid-test Deactivate threw: {innerEx}");
                     }
                 }
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
                 GameStateStore.TruncateEventsForTesting(eventCountBefore);
                 Ledger.TruncateActionsForTesting(ledgerCountBefore);
@@ -5035,7 +7603,7 @@ namespace Parsek.InGameTests
                             $"StrategyLifecycle deactivate-phase teardown threw: {ex}");
                     }
                 }
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
                 // Truncate events and ledger actions AFTER the restore so the
                 // restore's (resource-suppressed) calls can't append stray rows
@@ -5334,8 +7902,8 @@ namespace Parsek.InGameTests
             // prior invocation in the same KSP session.
             ParsekLog.ResetRateLimitsForTesting();
             var capturedLog = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { capturedLog.Add(line); priorSink?.Invoke(line); };
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { capturedLog.Add(line); priorObserver?.Invoke(line); };
             try
             {
                 engine.ReusePrimaryGhostAcrossCycle(
@@ -5344,7 +7912,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
             }
 
             // Log-line assertion: the reuse path MUST emit the distinctive
@@ -5556,14 +8124,14 @@ namespace Parsek.InGameTests
             };
 
             var localLog = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
             ParsekLog.ResetRateLimitsForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line =>
+            ParsekLog.TestObserverForTesting = line =>
             {
                 localLog.Add(line);
-                priorSink?.Invoke(line);
+                priorObserver?.Invoke(line);
             };
 
             try
@@ -5575,7 +8143,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
             }
 

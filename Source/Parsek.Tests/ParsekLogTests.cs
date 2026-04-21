@@ -25,6 +25,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Warn_UsesStructuredFormat()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+
+            ParsekLog.Warn("UnitTest", "careful");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][WARN][UnitTest] careful", lines[0]);
+        }
+
+        [Fact]
+        public void TestObserverForTesting_ReceivesStructuredFormat()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestObserverForTesting = line => lines.Add(line);
+
+            ParsekLog.Info("UnitTest", "hello");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][INFO][UnitTest] hello", lines[0]);
+        }
+
+        [Fact]
+        public void TestObserverForTesting_RunsAlongsideTestSink()
+        {
+            var observed = new List<string>();
+            var sunk = new List<string>();
+            ParsekLog.TestObserverForTesting = line => observed.Add(line);
+            ParsekLog.TestSinkForTesting = line => sunk.Add(line);
+
+            ParsekLog.Info("UnitTest", "hello");
+
+            Assert.Single(observed);
+            Assert.Single(sunk);
+            Assert.Equal("[Parsek][INFO][UnitTest] hello", observed[0]);
+            Assert.Equal("[Parsek][INFO][UnitTest] hello", sunk[0]);
+        }
+
+        [Fact]
+        public void Info_NullInputs_UseSafeFallbacks()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+
+            ParsekLog.Info(null, null);
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][INFO][General] (empty)", lines[0]);
+        }
+
+        [Fact]
         public void Verbose_SuppressedWhenVerboseDisabled()
         {
             var lines = new List<string>();
@@ -64,13 +116,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetRateLimitsForTesting_AllowsImmediateReemit()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            double now = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+            now = 1000.5;
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+
+            Assert.Equal(2, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[1]);
+        }
+
+        [Fact]
         public void ResetTestOverrides_ClearsSuppressLogging()
         {
             ParsekLog.SuppressLogging = true;
+            ParsekLog.TestObserverForTesting = _ => { };
 
             ParsekLog.ResetTestOverrides();
 
             Assert.False(ParsekLog.SuppressLogging);
+            Assert.Null(ParsekLog.TestObserverForTesting);
         }
     }
 }

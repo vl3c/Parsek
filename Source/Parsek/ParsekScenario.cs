@@ -945,8 +945,10 @@ namespace Parsek
                         // but user reverted before acting on it. Prevents OnFlightReady fallback
                         // from showing the dialog again (#64).
                         // However, if the pending was stashed during THIS scene transition
-                        // (OnSceneChangeRequested → StashPendingTree), it is fresh
-                        // and must survive so OnFlightReady can show the merge dialog.
+                        // (OnSceneChangeRequested → StashPendingTree), it is fresh and must
+                        // survive long enough for the current OnLoad to classify it correctly.
+                        // On true revert the later soft-unstash branch below clears it again;
+                        // on quickload/non-revert paths other dispatch owns it.
                         if (RecordingStore.PendingStashedThisTransition)
                         {
                             ParsekLog.Info("Scenario",
@@ -1801,6 +1803,41 @@ namespace Parsek
                     ScenarioLog($"[Parsek Scenario] Failed to capture initial baseline: {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// In-game test helper: clears save-scoped in-memory state before an isolated
+        /// FLIGHT baseline quickload restore so the next OnLoad uses the cold-load
+        /// path and rebuilds Parsek state from the restored save + sidecars.
+        /// </summary>
+        internal void UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore()
+        {
+            stateRecorder?.Unsubscribe();
+        }
+
+        internal static void PrepareForIsolatedBatchFlightBaselineRestore(
+            Action unsubscribeLiveRecorder = null)
+        {
+            ParsekLog.Info("Scenario",
+                "Preparing save-scoped state for isolated FLIGHT batch baseline restore");
+
+            unsubscribeLiveRecorder?.Invoke();
+            initialLoadDone = false;
+            budgetDeductionEpoch = 0;
+            mergeDialogPending = false;
+            pendingActiveTreeResumeRewindSave = null;
+            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            vesselSwitchPending = false;
+            vesselSwitchPendingFrame = -1;
+
+            RecordingStore.ResetForTesting();
+            GroupHierarchyStore.ResetForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateRecorder.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RevertDetector.ResetForTesting();
         }
 
         /// <summary>

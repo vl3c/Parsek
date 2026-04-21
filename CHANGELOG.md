@@ -13,10 +13,17 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#488` Quickload-resume in-game helpers now drive the stock `FlightDriver.StartAndFocusVessel` resume path instead of a bare `LoadScene(FLIGHT)`, and they now skip early on a missing/empty `quicksave.sfs` before attempting the scene reload.
+- Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
+- Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries.
+- Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
+- `#493` The launch-backed `Quickload_MidRecording` isolated canary now records through the live-log observer again, so F5/F9 validation keeps writing the same KSP log evidence instead of swallowing those lines into a sink-only test hook.
+- `#493` The launch-backed `Quickload_MidRecording` isolated canary now uses the runner's stronger StageManager gate, waits through transient-null `FlightInputHandler.state` until input stays stable, and waits for the first real trajectory point before asserting already-live recordings, reducing stage-race and first-sample flakes.
 - `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
 - Added spawn-rotation regressions for the explicit format-v0 surface-relative reconstruction path, including SpawnAtPosition node-prep coverage for Kerbin/Mun fixtures, snapshot-override rotation rewrites, terminal-surface-pose precedence, and the surface-only fallback gate.
 - `#487` Added an in-game `TestRunner` regression that drives the scene-reset + missing-skin path, clears any preexisting cache before the initial build, and asserts lagging hover/focus/active states fall back to the ready normal window background instead of caching a transparent frame.
+- `#487` Followed the same guarded opaque-window rebuild and missing-state fallback into the shared `ParsekUI` window-style cache, so the Settings-hosted Test Runner and other Parsek windows no longer bypass the original Ctrl+Shift+T transparency fix.
 - `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
@@ -447,6 +454,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Developer Tools
 
 - `#269` Test runner now survives scene transitions (`Instantly + DontDestroyOnLoad`), enabling multi-scene coroutine tests. Three QuickloadResume in-game tests added: bridge canary, mid-recording resume identity, reentrancy guard verification.
+- `#269` QuickloadResume's mid-recording canary now self-primes through a real launch-triggered auto-record before F5/F9, so it no longer depends on manual pad setup while still covering an in-flight recording.
 - `#265` Nine in-game tests added for code paths xUnit can't reach (AudioSource dependency): ghost audio pause/unpause, terminal orbit backfill from orbit segments, and part-state seeder consistency.
 
 ### Bug Fixes & Maintenance

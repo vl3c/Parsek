@@ -30,15 +30,26 @@ namespace Parsek.InGameTests
         public bool RunLast { get; set; }
 
         /// <summary>
-        /// Whether this test is safe to run from batch entry points such as
-        /// Run All / Run category. Set false for destructive scene-transition
-        /// tests that should only be run individually.
+        /// Whether this test is safe to run in the ordinary shared-session
+        /// batch entry points such as Run All / Run category. Leave false for
+        /// destructive tests that either require the isolated restore path or
+        /// must remain manual-only.
         /// </summary>
         public bool AllowBatchExecution { get; set; } = true;
 
         /// <summary>
-        /// Optional reason shown when a single-run-only test is skipped from
-        /// batch execution.
+        /// When true, the batch runner may include this destructive FLIGHT test
+        /// by capturing a temporary baseline save before the batch and
+        /// quickloading that baseline after the test finishes. Use for tests
+        /// that mutate the live FLIGHT session but can be returned to a known
+        /// baseline automatically. Leave false for tests whose failure mode can
+        /// still poison or hang the session irrecoverably.
+        /// </summary>
+        public bool RestoreBatchFlightBaselineAfterExecution { get; set; }
+
+        /// <summary>
+        /// Optional reason shown when a test is excluded from the ordinary
+        /// shared-session batch path.
         /// </summary>
         public string BatchSkipReason { get; set; }
     }

@@ -29,6 +29,8 @@ namespace Parsek.InGameTests
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
         private GUIStyle wrappedTooltipStyle;
+        private GameScenes opaqueStyleScene;
+        private bool hasOpaqueStyleScene;
 
         private bool shortcutHeld;
         private static TestRunnerShortcut instance;
@@ -111,13 +113,14 @@ namespace Parsek.InGameTests
             if (!EnsureOpaqueStyle(GUI.skin))
                 return;
 
-            windowRect = GUILayout.Window(
-                "ParsekTestRunnerGlobal".GetHashCode(),
-                windowRect,
-                DrawWindow,
-                "Parsek - Test Runner",
-                opaqueStyle,
-                GUILayout.Width(DefaultWindowWidth));
+            windowRect = RunWindowWithNormalizedGuiColors(() =>
+                GUILayout.Window(
+                    "ParsekTestRunnerGlobal".GetHashCode(),
+                    windowRect,
+                    DrawWindow,
+                    "Parsek - Test Runner",
+                    opaqueStyle,
+                    GUILayout.Width(DefaultWindowWidth)));
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
@@ -159,6 +162,11 @@ namespace Parsek.InGameTests
         /// </summary>
         private void OnSceneChangeRequested(GameScenes scene)
         {
+            ResetSceneScopedWindowState();
+        }
+
+        private void ResetSceneScopedWindowState()
+        {
             windowHasInputLock = false;
             ClearOpaqueStyle();
             zeroHeightLabelStyle = null;
@@ -171,10 +179,31 @@ namespace Parsek.InGameTests
             return EnsureOpaqueStyle(skin);
         }
 
+        internal T RunWindowWithNormalizedGuiColorsForTesting<T>(System.Func<T> callback)
+        {
+            return RunWindowWithNormalizedGuiColors(callback);
+        }
+
+        private static T RunWindowWithNormalizedGuiColors<T>(System.Func<T> callback)
+        {
+            return ParsekUI.RunWithNormalizedWindowGuiColors(callback);
+        }
+
         private bool EnsureOpaqueStyle(GUISkin skin)
         {
             if (opaqueStyle != null)
-                return true;
+            {
+                if (hasOpaqueStyleScene
+                    && opaqueStyleScene == HighLogic.LoadedScene
+                    && AreAllOpaqueStyleBackgroundsPresent(opaqueStyle))
+                    return true;
+
+                ParsekLog.VerboseRateLimited(Tag, "opaque-style-cache-stale",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Test runner: dropping cached opaque style before rebuild (built={0}, current={1})",
+                        opaqueStyleScene, HighLogic.LoadedScene), 1f);
+                ResetSceneScopedWindowState();
+            }
 
             if (!IsOpaqueStyleSkinReady(skin))
             {
@@ -184,6 +213,8 @@ namespace Parsek.InGameTests
             }
 
             opaqueStyle = BuildOpaqueStyle(skin.window);
+            opaqueStyleScene = HighLogic.LoadedScene;
+            hasOpaqueStyleScene = true;
             return true;
         }
 
@@ -202,6 +233,7 @@ namespace Parsek.InGameTests
             DestroyOpaqueBackground(opaqueStyle.hover.background, destroyedBackgrounds);
             DestroyOpaqueBackground(opaqueStyle.onHover.background, destroyedBackgrounds);
             opaqueStyle = null;
+            hasOpaqueStyleScene = false;
         }
 
         private static bool IsOpaqueStyleSkinReady(GUISkin skin)
@@ -213,21 +245,7 @@ namespace Parsek.InGameTests
 
         private static GUIStyle BuildOpaqueStyle(GUIStyle sourceStyle)
         {
-            // Match ParsekUI's opaque window style: copy KSP skin, force alpha to 1.
-            // KSP can hydrate the normal window background a frame before the other
-            // state variants, so fall back to the ready normal texture for any state
-            // that is still null on this frame.
-            Texture2D normalSource = sourceStyle.normal.background;
-            var style = new GUIStyle(sourceStyle);
-            style.normal.background = MakeOpaqueCopy(normalSource);
-            style.onNormal.background = MakeOpaqueCopy(sourceStyle.onNormal.background ?? normalSource);
-            style.focused.background = MakeOpaqueCopy(sourceStyle.focused.background ?? normalSource);
-            style.onFocused.background = MakeOpaqueCopy(sourceStyle.onFocused.background ?? normalSource);
-            style.active.background = MakeOpaqueCopy(sourceStyle.active.background ?? normalSource);
-            style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
-            style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
-            style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
-            return style;
+            return ParsekUI.BuildOpaqueWindowStyleFromSource(sourceStyle);
         }
 
         private static bool AreAllOpaqueStyleBackgroundsPresent(GUIStyle style)
@@ -256,7 +274,6 @@ namespace Parsek.InGameTests
 
             Object.Destroy(background);
         }
-
         private void DrawWindow(int windowID)
         {
             if (runner == null) { GUI.DragWindow(); return; }
@@ -271,6 +288,12 @@ namespace Parsek.InGameTests
             GUILayout.BeginHorizontal();
             GUI.enabled = !running;
             if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
+            if (GUILayout.Button(new GUIContent("Run All + Isolated",
+                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+            {
+                runner.ResetResults();
+                runner.RunAllIncludingFlightRestore();
+            }
             // The explicit Reset button wipes BOTH the live table and the per-scene
             // history used by the auto-export — clicking Reset must produce a fresh
             // report on the next run. The implicit pre-run ResetResults (above)
@@ -290,11 +313,10 @@ namespace Parsek.InGameTests
                 $"{status} | {runner.Passed} passed  {runner.Failed} failed  {runner.Skipped} skipped  ({runner.Tests.Count} total)",
                 GUI.skin.box);
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}");
-            if (HasSingleRunOnlyTestsForCurrentScene())
+            string batchModeNotice = BuildBatchModeNotice();
+            if (!string.IsNullOrEmpty(batchModeNotice))
             {
-                GUILayout.Label(
-                    "Single-run tests are skipped by Run All / Run category. Use the row ▶ button for destructive scene-transition checks.",
-                    GUI.skin.label);
+                GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
 
             scrollPos = GUILayout.BeginScrollView(scrollPos,
@@ -328,6 +350,13 @@ namespace Parsek.InGameTests
                     runner.ResetCategory(cat);
                     runner.RunCategory(cat);
                 }
+                if (GUILayout.Button(new GUIContent("Run+",
+                    "Runs this category plus any [isolated] FLIGHT tests by restoring a temporary baseline between destructive tests."),
+                    GUILayout.Width(44)))
+                {
+                    runner.ResetCategory(cat);
+                    runner.RunCategoryIncludingFlightRestore(cat);
+                }
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
 
@@ -347,7 +376,9 @@ namespace Parsek.InGameTests
 
                     if (!eligible) GUI.enabled = false;
                     string label = test.Method.Name;
-                    if (!test.AllowBatchExecution)
+                    if (test.RestoreBatchFlightBaselineAfterExecution)
+                        label += " [isolated]";
+                    else if (!test.AllowBatchExecution)
                         label += " [single]";
                     if (test.DurationMs > 0) label += $" ({test.DurationMs:F0}ms)";
                     GUILayout.Label(new GUIContent(label, BuildTestTooltip(test, eligible)), GUILayout.ExpandWidth(true));
@@ -444,10 +475,11 @@ namespace Parsek.InGameTests
 
             if (wrappedTooltipStyle == null)
             {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
                 {
                     wordWrap = true
                 };
+                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 
@@ -495,19 +527,38 @@ namespace Parsek.InGameTests
             return copy;
         }
 
-        private bool HasSingleRunOnlyTestsForCurrentScene()
+        private string BuildBatchModeNotice()
         {
-            if (runner == null) return false;
+            if (runner == null) return null;
+
+            bool hasIsolated = false;
+            bool hasManualOnly = false;
 
             foreach (var test in runner.Tests)
             {
                 bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
                     || test.RequiredScene == HighLogic.LoadedScene;
-                if (eligible && !test.AllowBatchExecution)
-                    return true;
+                if (!eligible)
+                    continue;
+
+                if (test.RestoreBatchFlightBaselineAfterExecution)
+                    hasIsolated = true;
+                else if (!test.AllowBatchExecution)
+                    hasManualOnly = true;
             }
 
-            return false;
+            if (hasIsolated && hasManualOnly)
+            {
+                return "[isolated] tests can run through Run All + Isolated / Run+. [single] tests still require the row play button.";
+            }
+
+            if (hasIsolated)
+                return "[isolated] tests can run through Run All + Isolated / Run+ in a disposable FLIGHT session.";
+
+            if (hasManualOnly)
+                return "[single] tests are skipped by Run All / Run category. Use the row play button for manual-only destructive checks.";
+
+            return null;
         }
 
         private static string BuildTestTooltip(InGameTestInfo test, bool eligible)
@@ -517,7 +568,7 @@ namespace Parsek.InGameTests
             if (!string.IsNullOrEmpty(test.Description))
                 lines.Add(test.Description);
 
-            string batchNote = InGameTestRunner.GetBatchSkipReason(test);
+            string batchNote = InGameTestRunner.GetBatchExecutionNote(test);
             if (!string.IsNullOrEmpty(batchNote))
                 lines.Add(batchNote);
 
