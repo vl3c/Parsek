@@ -64,6 +64,148 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Priority Classification
+
+        [Theory]
+        [InlineData("LiquidFuel", 1)]
+        [InlineData("MonoPropellant", 1)]
+        [InlineData("XenonGas", 2)]
+        [InlineData("ElectricCharge", 2)]
+        [InlineData("IntakeAir", 3)]
+        public void ClassifyLoopedPriority_MapsPropellantsToExpectedTier(
+            string propellantName, int expectedPriorityClass)
+        {
+            Assert.Equal((GhostAudioPriorityClass)expectedPriorityClass,
+                GhostAudioPresets.ClassifyLoopedPriority(MakePropellants(propellantName)));
+        }
+
+        [Fact]
+        public void ClassifyOneShotPriority_Destroyed_ReturnsExplosionTier()
+        {
+            Assert.Equal(
+                GhostAudioPriorityClass.Explosion,
+                GhostAudioPresets.ClassifyOneShotPriority(PartEventType.Destroyed));
+        }
+
+        [Fact]
+        public void ComputeRuntimePriority_ExplosionAtZeroDistance_StaysAtBaselineGamePriority()
+        {
+            Assert.Equal(
+                GhostAudioPresets.BaselineGameAudioPriority,
+                GhostAudioPresets.ComputeRuntimePriority(
+                    GhostAudioPriorityClass.Explosion,
+                    distanceMeters: 0.0));
+        }
+
+        [Fact]
+        public void ComputeRuntimePriority_DistancePenaltyLowersPriorityForFarGhosts()
+        {
+            int nearPriority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPriorityClass.RocketEngine,
+                distanceMeters: DistanceThresholds.GhostAudio.RolloffMinDistanceMeters);
+            int farPriority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPriorityClass.RocketEngine,
+                distanceMeters: DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters);
+
+            Assert.True(farPriority > nearPriority);
+        }
+
+        [Fact]
+        public void ComputeRuntimePriority_RocketEngineBeatsJetAtSameDistance()
+        {
+            double distanceMeters = 1000.0;
+            int rocketPriority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPriorityClass.RocketEngine,
+                distanceMeters);
+            int jetPriority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPriorityClass.JetEngine,
+                distanceMeters);
+
+            Assert.True(rocketPriority < jetPriority);
+        }
+
+        [Fact]
+        public void ResolveAudioPriorityDistance_PrefersRenderDistanceThenFallsBackToActiveDistance()
+        {
+            var state = new GhostPlaybackState
+            {
+                lastRenderDistance = 4200.0,
+                lastDistance = 800.0
+            };
+
+            Assert.Equal(4200.0, GhostPlaybackLogic.ResolveAudioPriorityDistance(state));
+
+            state.lastRenderDistance = double.NaN;
+            Assert.Equal(800.0, GhostPlaybackLogic.ResolveAudioPriorityDistance(state));
+        }
+
+        [Fact]
+        public void SelectHighestPriorityActiveLoopedGhostAudioSources_PrefersActiveRocketsBeforeQuietAndJetSounds()
+        {
+            var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
+                new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0.4f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.QuietEngine, currentPower = 0.7f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 1.0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0.8f }
+                },
+                maxSources: 3);
+
+            Assert.Collection(selected,
+                info => Assert.Equal(GhostAudioPriorityClass.RocketEngine, info.priorityClass),
+                info => Assert.Equal(GhostAudioPriorityClass.RocketEngine, info.priorityClass),
+                info => Assert.Equal(GhostAudioPriorityClass.QuietEngine, info.priorityClass));
+        }
+
+        [Fact]
+        public void SelectHighestPriorityActiveLoopedGhostAudioSources_IgnoresDormantHigherTierEngines()
+        {
+            var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
+                new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0.9f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.QuietEngine, currentPower = 0.6f }
+                },
+                maxSources: 2);
+
+            Assert.Collection(selected,
+                info => Assert.Equal(GhostAudioPriorityClass.QuietEngine, info.priorityClass),
+                info => Assert.Equal(GhostAudioPriorityClass.JetEngine, info.priorityClass));
+        }
+
+        [Fact]
+        public void SetEngineAudio_MutedStillTracksLatestPower()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var info = new AudioGhostInfo
+            {
+                partPersistentId = 42,
+                moduleIndex = 1,
+                currentPower = 1f
+            };
+            var state = new GhostPlaybackState
+            {
+                audioMuted = true,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    { key, info }
+                }
+            };
+
+            GhostPlaybackLogic.SetEngineAudio(
+                state,
+                new PartEvent { partPersistentId = 42, moduleIndex = 1 },
+                power: 0f);
+
+            Assert.Equal(0f, info.currentPower);
+        }
+
+        #endregion
+
         #region Thrust Classification
 
         [Theory]
