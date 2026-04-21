@@ -126,6 +126,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~514. Two remaining xUnit failures were still test-harness drift, not production regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI` and the two Bug219 preserve tests.
+
+**Concern:** the `ParsekUI` KSC smoke test still called `Cleanup()` unguarded in a headless process even though the test only cares about constructor wiring, and the Bug219 negative log assertions were still matching the longer `ShouldPopulateTerminalOrbitFromLastSegment...` diagnostic because the filter was not anchored to the full production prefix.
+
+**Fix:** the KSC smoke test now treats headless `SecurityException` teardown as irrelevant to the constructor/accessor assertion, and the Bug219 negative log assertions now match the full `[Parsek][INFO][Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

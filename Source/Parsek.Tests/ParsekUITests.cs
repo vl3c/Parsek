@@ -1,5 +1,6 @@
 using UnityEngine;
 using Xunit;
+using System.Security;
 
 namespace Parsek.Tests
 {
@@ -25,7 +26,15 @@ namespace Parsek.Tests
             }
             finally
             {
-                ui.Cleanup();
+                try
+                {
+                    ui.Cleanup();
+                }
+                catch (SecurityException)
+                {
+                    // Headless xUnit still lacks Unity GUI teardown; the smoke test only
+                    // cares that KSC mode constructed and exposed the sub-window.
+                }
             }
         }
 
