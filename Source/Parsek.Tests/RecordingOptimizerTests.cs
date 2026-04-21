@@ -2310,8 +2310,14 @@ namespace Parsek.Tests
         [Fact]
         public void TrimBoringTail_LandedStableTerminalState_StillTrims()
         {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
             var rec = new Recording
             {
+                RecordingId = "trim-landed-identity",
                 TerminalStateValue = TerminalState.Landed,
                 TerminalPosition = new SurfacePosition
                 {
@@ -2338,6 +2344,10 @@ namespace Parsek.Tests
 
             Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(130, rec.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryGetTerminalSurfaceReference")
+                && l.Contains("trim-landed-identity")
+                && l.Contains("ignoring identity terminal rotation"));
         }
 
         [Fact]

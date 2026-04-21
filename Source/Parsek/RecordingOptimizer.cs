@@ -1277,7 +1277,12 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = pos.HasRecordedRotation;
+                hasRotation = pos.HasRecordedRotation && HasMeaningfulRotation(pos.rotation);
+                if (pos.HasRecordedRotation && !hasRotation)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"TryGetTerminalSurfaceReference: ignoring identity terminal rotation for '{rec.RecordingId ?? "(null)"}'");
+                }
                 return true;
             }
 
@@ -1289,7 +1294,12 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = pos.HasRecordedRotation;
+                hasRotation = pos.HasRecordedRotation && HasMeaningfulRotation(pos.rotation);
+                if (pos.HasRecordedRotation && !hasRotation)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"TryGetTerminalSurfaceReference: ignoring identity terminal rotation for '{rec.RecordingId ?? "(null)"}'");
+                }
                 return true;
             }
 

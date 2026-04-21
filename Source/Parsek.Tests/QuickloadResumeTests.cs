@@ -179,7 +179,7 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch = 3;
             var e = new GameStateEvent
             {
-                eventType = GameStateEventType.FacilityUpgrade,
+                eventType = GameStateEventType.FacilityUpgraded,
                 key = "KSC",
                 ut = 1.0
             };

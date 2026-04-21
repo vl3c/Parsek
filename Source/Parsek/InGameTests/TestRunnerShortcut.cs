@@ -308,12 +308,18 @@ namespace Parsek.InGameTests
             GUI.enabled = true;
             GUILayout.EndHorizontal();
 
-            string status = running ? "RUNNING" : "idle";
             GUILayout.Label(
-                $"{status} | {runner.Passed} passed  {runner.Failed} failed  {runner.Skipped} skipped  ({runner.Tests.Count} total)",
+                TestRunnerPresentation.BuildRunSummary(
+                    running,
+                    runner.Passed,
+                    runner.Failed,
+                    runner.Skipped,
+                    runner.Tests.Count),
                 GUI.skin.box);
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}");
-            string batchModeNotice = BuildBatchModeNotice();
+            string batchModeNotice = TestRunnerPresentation.BuildBatchModeNotice(
+                runner.Tests,
+                HighLogic.LoadedScene);
             if (!string.IsNullOrEmpty(batchModeNotice))
             {
                 GUILayout.Label(batchModeNotice, GUI.skin.label);
@@ -327,19 +333,13 @@ namespace Parsek.InGameTests
                 var cat = group.Key;
                 var tests = group.Value;
                 bool expanded = expandedCategories.Contains(cat);
-                int catPassed = 0, catFailed = 0;
-                foreach (var t in tests)
-                {
-                    if (t.Status == TestStatus.Passed) catPassed++;
-                    else if (t.Status == TestStatus.Failed) catFailed++;
-                }
 
                 GUILayout.BeginHorizontal();
-                string arrow = expanded ? "\u25bc" : "\u25b6";
-                string summary = catFailed > 0
-                    ? $" ({catPassed}/{tests.Count}, {catFailed} failed)"
-                    : $" ({catPassed}/{tests.Count})";
-                if (GUILayout.Button($"{arrow} {cat}{summary}", GUI.skin.label))
+                string categoryLabel = TestRunnerPresentation.BuildCategoryButtonLabel(
+                    cat,
+                    tests,
+                    expanded);
+                if (GUILayout.Button(categoryLabel, GUI.skin.label))
                 {
                     if (expanded) expandedCategories.Remove(cat);
                     else expandedCategories.Add(cat);
@@ -364,8 +364,9 @@ namespace Parsek.InGameTests
 
                 foreach (var test in tests)
                 {
-                    bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
-                        || test.RequiredScene == HighLogic.LoadedScene;
+                    bool eligible = TestRunnerPresentation.IsEligibleForScene(
+                        test,
+                        HighLogic.LoadedScene);
 
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(16);
@@ -375,13 +376,10 @@ namespace Parsek.InGameTests
                     GUI.contentColor = prevColor;
 
                     if (!eligible) GUI.enabled = false;
-                    string label = test.Method.Name;
-                    if (test.RestoreBatchFlightBaselineAfterExecution)
-                        label += " [isolated]";
-                    else if (!test.AllowBatchExecution)
-                        label += " [single]";
-                    if (test.DurationMs > 0) label += $" ({test.DurationMs:F0}ms)";
-                    GUILayout.Label(new GUIContent(label, BuildTestTooltip(test, eligible)), GUILayout.ExpandWidth(true));
+                    string label = TestRunnerPresentation.BuildTestLabel(test);
+                    GUILayout.Label(
+                        new GUIContent(label, TestRunnerPresentation.BuildTestTooltip(test, eligible)),
+                        GUILayout.ExpandWidth(true));
                     GUI.enabled = true;
 
                     GUI.enabled = !running && eligible;
@@ -525,64 +523,6 @@ namespace Parsek.InGameTests
             copy.Apply();
             copy.filterMode = source.filterMode;
             return copy;
-        }
-
-        private string BuildBatchModeNotice()
-        {
-            if (runner == null) return null;
-
-            bool hasIsolated = false;
-            bool hasManualOnly = false;
-
-            foreach (var test in runner.Tests)
-            {
-                bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
-                    || test.RequiredScene == HighLogic.LoadedScene;
-                if (!eligible)
-                    continue;
-
-                if (test.RestoreBatchFlightBaselineAfterExecution)
-                    hasIsolated = true;
-                else if (!test.AllowBatchExecution)
-                    hasManualOnly = true;
-            }
-
-            if (hasIsolated && hasManualOnly)
-            {
-                return "[isolated] tests can run through Run All + Isolated / Run+. [single] tests still require the row play button.";
-            }
-
-            if (hasIsolated)
-                return "[isolated] tests can run through Run All + Isolated / Run+ in a disposable FLIGHT session.";
-
-            if (hasManualOnly)
-                return "[single] tests are skipped by Run All / Run category. Use the row play button for manual-only destructive checks.";
-
-            return null;
-        }
-
-        private static string BuildTestTooltip(InGameTestInfo test, bool eligible)
-        {
-            var lines = new List<string>();
-
-            if (!string.IsNullOrEmpty(test.Description))
-                lines.Add(test.Description);
-
-            string batchNote = InGameTestRunner.GetBatchExecutionNote(test);
-            if (!string.IsNullOrEmpty(batchNote))
-                lines.Add(batchNote);
-
-            if (!eligible)
-                lines.Add($"Requires {test.RequiredScene} scene");
-
-            if ((test.Status == TestStatus.Failed || test.Status == TestStatus.Skipped)
-                && !string.IsNullOrEmpty(test.ErrorMessage)
-                && test.ErrorMessage != batchNote)
-            {
-                lines.Add(test.ErrorMessage);
-            }
-
-            return lines.Count > 0 ? string.Join("\n", lines.ToArray()) : string.Empty;
         }
     }
 }
