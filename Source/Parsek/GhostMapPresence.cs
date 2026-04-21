@@ -1083,6 +1083,22 @@ namespace Parsek
                         lastVisibleIndex,
                         carriedAcrossGap),
                     1.0);
+
+                if (PlaybackOrbitDiagnostics.TryBuildMapPredictedTailLog(
+                    recordingIndex,
+                    vesselPid,
+                    committed[recordingIndex],
+                    segment,
+                    currentUT,
+                    startUT,
+                    endUT,
+                    carriedAcrossGap,
+                    out string mapRenderKey,
+                    out string mapRenderMessage))
+                {
+                    ParsekLog.VerboseRateLimited("MapRender", mapRenderKey, mapRenderMessage, 1.0);
+                }
+
                 return true;
             }
 

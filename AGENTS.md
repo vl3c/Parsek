@@ -25,6 +25,8 @@ dotnet build Source/Parsek.Tests/Parsek.Tests.csproj --no-restore
 
 and record clearly that full xUnit execution was blocked by the local environment.
 
+If a command that needs network access fails in the sandbox (for example `git fetch`, `dotnet restore`, package downloads, or DNS/host resolution), retry it with an escalation request instead of treating it as a repo failure. If the sandbox shell/network path still misbehaves, rerun the command via `pwsh`/`pwsh.exe` and record that the blocker was environmental.
+
 ## Release
 
 ```bash

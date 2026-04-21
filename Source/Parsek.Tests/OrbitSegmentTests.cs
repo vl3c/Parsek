@@ -475,6 +475,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OrbitSegment_ToString_WhenPredicted_UsesKeyValueFormatting()
+        {
+            var seg = MakeSegment(100, 200);
+            seg.isPredicted = true;
+
+            string result = seg.ToString();
+
+            Assert.Contains("predicted=true", result);
+        }
+
+        [Fact]
         public void FindOrbitSegment_SinglePointBoundary()
         {
             // startUT == endUT, a degenerate segment

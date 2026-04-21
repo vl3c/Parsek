@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## ~~488. Timeline recording rows were missing watch-button parity and watch-state observability compared to the Recordings Manager~~
+## ~~490. Timeline recording rows were missing watch-button parity and watch-state observability compared to the Recordings Manager~~
 
 **Source:** review follow-up on `timeline-watch-buttons-2026-04-21` after the initial Timeline `W` / `W*` feature landed.
 
@@ -29,6 +29,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 **Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`, `Source/Parsek.Tests/RecordingsTableUITests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
+
+**Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
+
+**Concern:** `IncompleteBallisticSceneExitFinalizer.TryApply()` only rejected `terminalUT = NaN`; a hook that returned `true` with an unset/default terminal state or a `terminalUT` earlier than the current commit/end boundary could still be applied. The caller-side scene-exit lifetime-extension path also force-nulled/backfilled `TerminalOrbitBody`, so a hook that had already stamped authoritative terminal-orbit data directly on the `Recording` could be overwritten by the last `OrbitSegment`. Separately, a ghost-only surface result with no new `TerminalPosition` could wipe existing surface metadata without any explanatory log.
+
+**Fix:** the hook contract is now validated before apply: `terminalState` must be set to a defined enum, `terminalUT` must stay monotonic against `max(commitUT, current EndUT)`, and real hook declines emit a VERBOSE diagnostic. Scene-exit lifetime extension now preserves hook-authored terminal-orbit metadata instead of force-backfilling over it, and ghost-only surface finalization keeps existing surface metadata (or leaves it unavailable) with an explicit WARN explaining what happened. Focused xUnit coverage lives in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+
+**Status:** CLOSED 2026-04-20. Fixed for v0.8.3.
 
 ---
 
@@ -622,6 +634,20 @@ Similar care needed for `FundsThreshold = 100.0` and `ScienceThreshold = 1.0` â€
 **Dependencies:** none. Fixes the rep-mismatch tail of #469 specifically, though the underlying #469 investigation may also surface non-rep mismatches unrelated to this threshold.
 
 **Status:** ~~TODO~~ Fixed for v0.8.3. Priority was high â€” shipped as a small recorder-side threshold hardening plus targeted unit coverage.
+
+---
+
+## ~~489. Ghosts freeze in mid-air when an incomplete ballistic flight ends on scene exit~~
+
+**Source:** implementation plan + follow-through from `docs/dev/plans/incomplete-ballistic-extrapolation.md`.
+
+**Concern:** if the player leaves flight while a vessel is still on an incomplete ballistic path, the saved recording ends at the last sampled frame and the ghost later freezes in place. Suborbital arcs, atmospheric descents, escape trajectories, and post-flyby coasts all stop at scene-exit UT instead of continuing to a natural endpoint.
+
+**Fix / Resolution (2026-04-20):** shipped. Scene-exit finalization now snapshots the vessel's patched-conic coast chain, stores predicted segments in the existing `OrbitSegments` list with persisted `isPredicted` metadata, extrapolates incomplete ballistic tails through SOI handoffs until atmosphere / terrain / horizon termination, and commits the resulting terminal lifetime through `ExplicitEndUT` so existing playback, spawn-timing, watch-protection, and timeline consumers naturally honor the extended end. Runtime/map handling stays on the existing single-orbit renderer path in v1, while focused unit/integration coverage was added for persistence, snapshotting, extrapolation, and scene-exit finalization seams.
+
+**Files:** `Source/Parsek/PatchedConicSnapshot.cs`, `Source/Parsek/BallisticExtrapolator.cs`, `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, plus the new focused tests in `Source/Parsek.Tests`.
+
+**Status:** DONE/CLOSED (2026-04-20). Fixed for `0.8.3`.
 
 ---
 

@@ -53,7 +53,8 @@ namespace Parsek.Tests
 
         private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, string body = "Kerbin",
             double inc = 28.5, double ecc = 0.01, double sma = 700000,
-            double lan = 90, double argPe = 45, double mna = 0.5, double epoch = 1000)
+            double lan = 90, double argPe = 45, double mna = 0.5, double epoch = 1000,
+            bool isPredicted = false)
         {
             return new OrbitSegment
             {
@@ -66,7 +67,8 @@ namespace Parsek.Tests
                 longitudeOfAscendingNode = lan,
                 argumentOfPeriapsis = argPe,
                 meanAnomalyAtEpoch = mna,
-                epoch = epoch
+                epoch = epoch,
+                isPredicted = isPredicted
             };
         }
 
@@ -101,6 +103,7 @@ namespace Parsek.Tests
             Assert.Equal(expected.argumentOfPeriapsis, actual.argumentOfPeriapsis);
             Assert.Equal(expected.meanAnomalyAtEpoch, actual.meanAnomalyAtEpoch);
             Assert.Equal(expected.epoch, actual.epoch);
+            Assert.Equal(expected.isPredicted, actual.isPredicted);
         }
 
         #endregion
@@ -609,6 +612,62 @@ namespace Parsek.Tests
             Assert.Single(loaded);
             Assert.Equal(500f, loaded[0].minAltitude);
             Assert.Equal(72000f, loaded[0].maxAltitude);
+        }
+
+        [Fact]
+        public void OrbitalCheckpoint_IsPredicted_RoundTrip()
+        {
+            var track = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 18000,
+                endUT = 19000,
+                checkpoints = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(18000, 19000, isPredicted: true)
+                },
+                frames = new List<TrajectoryPoint>()
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(node, new List<TrackSection> { track });
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(node, loaded);
+
+            Assert.Single(loaded);
+            Assert.Single(loaded[0].checkpoints);
+            Assert.True(loaded[0].checkpoints[0].isPredicted);
+        }
+
+        [Fact]
+        public void SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag()
+        {
+            var track = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 18000,
+                endUT = 19000,
+                checkpoints = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(18000, 19000, isPredicted: true)
+                },
+                frames = new List<TrajectoryPoint>()
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(
+                node,
+                new List<TrackSection> { track },
+                RecordingStore.LaunchToLaunchLoopIntervalFormatVersion);
+
+            ConfigNode tsNode = node.GetNode("TRACK_SECTION");
+            Assert.NotNull(tsNode);
+            ConfigNode checkpointNode = tsNode.GetNode("ORBIT_SEGMENT");
+            Assert.NotNull(checkpointNode);
+            Assert.Null(checkpointNode.GetValue("isPredicted"));
         }
 
         [Fact]

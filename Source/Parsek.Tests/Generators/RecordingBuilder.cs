@@ -115,7 +115,8 @@ namespace Parsek.Tests.Generators
             double lan = 0, double argPe = 0, double mna = 0, double epoch = 0,
             string body = "Kerbin",
             float ofrX = 0, float ofrY = 0, float ofrZ = 0, float ofrW = 0,
-            float avX = 0, float avY = 0, float avZ = 0)
+            float avX = 0, float avY = 0, float avZ = 0,
+            bool isPredicted = false)
         {
             var ic = CultureInfo.InvariantCulture;
             var seg = new ConfigNode("ORBIT_SEGMENT");
@@ -129,6 +130,7 @@ namespace Parsek.Tests.Generators
             seg.AddValue("mna", mna.ToString("R", ic));
             seg.AddValue("epoch", epoch.ToString("R", ic));
             seg.AddValue("body", body);
+            seg.AddValue("isPredicted", isPredicted ? "True" : "False");
             if (ofrX != 0 || ofrY != 0 || ofrZ != 0 || ofrW != 0)
             {
                 seg.AddValue("ofrX", ofrX.ToString("R", ic));
@@ -770,28 +772,28 @@ namespace Parsek.Tests.Generators
 
         /// <summary>
         /// Returns the loop interval in seconds for serialization. When loop playback is
-        /// enabled but the caller left the interval below <see cref="GhostPlaybackLogic.MinCycleDuration"/>
+        /// enabled but the caller left the interval below <see cref="LoopTiming.MinCycleDuration"/>
         /// (typically the builder's default of 0.0 — pre-#381 "relaunch with no gap"), auto-derive
         /// the period from trajectory duration so written fixtures never carry a degenerate value
         /// that would spam <c>ResolveLoopInterval</c>'s clamp warning at playback (#412).
         /// Mirrors the UI default where an unset period loops seamlessly at the recording's own
-        /// duration. Falls back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> if
+        /// duration. Falls back to <see cref="LoopTiming.DefaultLoopIntervalSeconds"/> if
         /// the trajectory is empty or still below the floor.
         /// </summary>
         public double GetLoopIntervalSeconds()
         {
             if (!loopPlayback)
                 return loopIntervalSeconds;
-            if (loopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration)
+            if (loopIntervalSeconds >= LoopTiming.MinCycleDuration)
                 return loopIntervalSeconds;
 
             if (points.Count >= 2)
             {
                 double duration = GetEndUT() - GetStartUT();
-                if (duration >= GhostPlaybackLogic.MinCycleDuration)
+                if (duration >= LoopTiming.MinCycleDuration)
                     return duration;
             }
-            return GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+            return LoopTiming.DefaultLoopIntervalSeconds;
         }
 
         /// <summary>Returns the raw loop interval field as set by the caller (no auto-derivation).</summary>

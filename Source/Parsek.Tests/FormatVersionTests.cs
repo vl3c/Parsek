@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is4()
+        public void CurrentRecordingFormatVersion_Is5()
         {
-            Assert.Equal(4, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(5, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -80,6 +80,123 @@ namespace Parsek.Tests
 
             var metadataNode = builder.BuildV3Metadata();
             Assert.Equal("42", metadataNode.GetValue("recordingFormatVersion"));
+        }
+
+        #endregion
+
+        #region Predicted format normalization
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionForPredictedSegments_NullRecording_NoOp()
+        {
+            logLines.Clear();
+
+            RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(null);
+
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionForPredictedSegments_VersionBelow2_DoesNotUpgrade()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "predicted-v1",
+                RecordingFormatVersion = 1
+            };
+            rec.OrbitSegments.Add(MakeOrbitSegment(100.0, 200.0, isPredicted: true));
+
+            logLines.Clear();
+            RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
+            Assert.Equal(1, rec.RecordingFormatVersion);
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("NormalizeRecordingFormatVersionForPredictedSegments"));
+        }
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionForPredictedSegments_AlreadyV5_DoesNotLog()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "predicted-v5",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+            };
+            rec.OrbitSegments.Add(MakeOrbitSegment(100.0, 200.0, isPredicted: true));
+
+            logLines.Clear();
+            RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("NormalizeRecordingFormatVersionForPredictedSegments"));
+        }
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionForPredictedSegments_NoPredictedSegments_DoesNotUpgrade()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "non-predicted-v4",
+                RecordingFormatVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion
+            };
+            rec.OrbitSegments.Add(MakeOrbitSegment(100.0, 200.0, isPredicted: false));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(100.0, 200.0, isPredicted: false)
+                }
+            });
+
+            logLines.Clear();
+            RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
+            Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, rec.RecordingFormatVersion);
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("NormalizeRecordingFormatVersionForPredictedSegments"));
+        }
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionForPredictedSegments_PredictedOnlyInTrackSections_UpgradesAndLogsCounts()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "checkpoint-only-predicted",
+                RecordingFormatVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = 100.0,
+                endUT = 300.0,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(100.0, 200.0, isPredicted: false),
+                    MakeOrbitSegment(200.0, 300.0, isPredicted: true)
+                }
+            });
+
+            logLines.Clear();
+            RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN]") &&
+                line.Contains("[RecordingStore]") &&
+                line.Contains("NormalizeRecordingFormatVersionForPredictedSegments") &&
+                line.Contains("recording=checkpoint-only-predicted") &&
+                line.Contains("version=4->5") &&
+                line.Contains("predictedOrbitSegments=0") &&
+                line.Contains("predictedCheckpoints=1"));
         }
 
         #endregion
@@ -371,6 +488,32 @@ namespace Parsek.Tests
             Assert.Equal(2, rec.TrackSections.Count);
             Assert.Equal(18320.0, rec.OrbitSegments[0].startUT);
             Assert.Equal(19820.0, rec.OrbitSegments[0].endUT);
+        }
+
+        [Fact]
+        public void DeserializeTrajectoryFrom_V4OrbitSegmentWithoutIsPredicted_DefaultsFalse()
+        {
+            var node = new ConfigNode("PARSEK_RECORDING");
+            node.AddValue("version", "4");
+            node.AddValue("recordingId", "legacy_v4");
+
+            var segNode = node.AddNode("ORBIT_SEGMENT");
+            segNode.AddValue("startUT", "100");
+            segNode.AddValue("endUT", "200");
+            segNode.AddValue("inc", "28.5");
+            segNode.AddValue("ecc", "0.01");
+            segNode.AddValue("sma", "700000");
+            segNode.AddValue("lan", "90");
+            segNode.AddValue("argPe", "45");
+            segNode.AddValue("mna", "0.2");
+            segNode.AddValue("epoch", "100");
+            segNode.AddValue("body", "Kerbin");
+
+            var rec = new Recording { RecordingId = "legacy_v4" };
+            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+
+            Assert.Single(rec.OrbitSegments);
+            Assert.False(rec.OrbitSegments[0].isPredicted);
         }
 
         [Fact]
@@ -692,7 +835,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, double semiMajorAxis)
+        private static OrbitSegment MakeOrbitSegment(
+            double startUT,
+            double endUT,
+            double semiMajorAxis,
+            bool isPredicted = false)
         {
             return new OrbitSegment
             {
@@ -705,8 +852,16 @@ namespace Parsek.Tests
                 argumentOfPeriapsis = 45.0,
                 meanAnomalyAtEpoch = 0.2,
                 epoch = startUT,
-                bodyName = "Kerbin"
+                bodyName = "Kerbin",
+                isPredicted = isPredicted
             };
+        }
+
+        private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, bool isPredicted)
+        {
+            var segment = MakeOrbitSegment(startUT, endUT, 700000.0);
+            segment.isPredicted = isPredicted;
+            return segment;
         }
 
         #endregion
