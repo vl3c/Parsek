@@ -140,16 +140,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SelectHighestPriorityLoopedGhostAudioSources_PrefersRocketsBeforeQuietAndJetSounds()
+        public void SelectHighestPriorityActiveLoopedGhostAudioSources_PrefersActiveRocketsBeforeQuietAndJetSounds()
         {
-            var selected = GhostPlaybackLogic.SelectHighestPriorityLoopedGhostAudioSources(
+            var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
                 new List<AudioGhostInfo>
                 {
-                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine },
-                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.QuietEngine },
-                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine },
-                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine },
-                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine }
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0.4f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.QuietEngine, currentPower = 0.7f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 1.0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0.8f }
                 },
                 maxSources: 3);
 
@@ -157,6 +157,24 @@ namespace Parsek.Tests
                 info => Assert.Equal(GhostAudioPriorityClass.RocketEngine, info.priorityClass),
                 info => Assert.Equal(GhostAudioPriorityClass.RocketEngine, info.priorityClass),
                 info => Assert.Equal(GhostAudioPriorityClass.QuietEngine, info.priorityClass));
+        }
+
+        [Fact]
+        public void SelectHighestPriorityActiveLoopedGhostAudioSources_IgnoresDormantHigherTierEngines()
+        {
+            var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
+                new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.RocketEngine, currentPower = 0f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.JetEngine, currentPower = 0.9f },
+                    new AudioGhostInfo { priorityClass = GhostAudioPriorityClass.QuietEngine, currentPower = 0.6f }
+                },
+                maxSources: 2);
+
+            Assert.Collection(selected,
+                info => Assert.Equal(GhostAudioPriorityClass.QuietEngine, info.priorityClass),
+                info => Assert.Equal(GhostAudioPriorityClass.JetEngine, info.priorityClass));
         }
 
         #endregion

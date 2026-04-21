@@ -2374,8 +2374,9 @@ namespace Parsek
 
         /// <summary>
         /// Build AudioSource components for engine and RCS modules on a ghost part.
-        /// Returns a list of AudioGhostInfo (one per engine + RCS module), capped at
-        /// MaxAudioSourcesPerGhost across the entire ghost.
+        /// Returns a list of AudioGhostInfo (one per engine module). Playback later
+        /// enforces the per-ghost concurrent looped-audio cap at runtime so engines
+        /// that activate later in the recording still have a source available.
         /// </summary>
         internal static List<AudioGhostInfo> TryBuildAudioFX(
             Part prefab, uint persistentId, string partName, GameObject ghostRoot)
