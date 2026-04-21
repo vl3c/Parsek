@@ -66,6 +66,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~493. `TrimBoringTail` treated identity terminal rotations as authored surface poses and refused to trim stable landed tails~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingOptimizerTests.TrimBoringTail_LandedStableTerminalState_StillTrims`.
+
+**Concern:** `TryGetTerminalSurfaceReference()` read `SurfacePosition.HasRecordedRotation`, which treats identity as recorded when `rotationRecorded` is absent. The later point matcher only treats non-identity rotations as meaningful, so a perfectly upright landed tail compared "recorded identity" on the terminal pose against "no meaningful rotation" on the tail points and bailed instead of trimming.
+
+**Fix:** `RecordingOptimizer` now normalizes terminal/surface poses the same way it already normalizes tail points: identity rotations are ignored for trim matching even when the serialized `SurfacePosition` reports them as recorded. The optimizer emits a focused `VERBOSE` line when it drops that identity rotation so the behavior stays pinned in tests.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
