@@ -71,6 +71,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Session-merge flat-copy preservation now requires a safe appended suffix beyond the rebuilt track-section payload, so duplicated or non-monotonic flat tails fall back to track-section rebuild instead of leaking bad copies into merged recordings.
 - Incomplete-ballistic scene-exit finalization now only caches permanent `FlightGlobals` probe failures, so a transient `ready=false` teardown frame cannot disable later live finalization in the same KSP session.
 - `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.
 - Patched-conic snapshot capture now fails closed when a predicted patch has no reference body or the private solver `patchLimit` hook is unavailable, logs those conditions explicitly, and reports truncation as a boolean tail flag instead of a pseudo-count.

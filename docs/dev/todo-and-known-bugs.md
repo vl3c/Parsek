@@ -18,6 +18,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
+
+**Concern:** `RecordingStore.FlatTrajectoryExtendsTrackSectionPayload()` accepted any longer flat copy whose prefix matched the rebuilt track-section payload. That let a malformed tail like `[0,10,20,0,10,20]` count as a valid extension, so merge preserved the bad flat copy instead of rebuilding from the authoritative sections.
+
+**Fix:** flat-tail preservation now requires a safe suffix boundary that appends new points / orbit segments after the rebuilt payload and remains monotonic after dedupe stitching. If the suffix cannot satisfy that shape, merge falls back to rebuilding the flat trajectory from track sections.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

@@ -3487,8 +3487,41 @@ namespace Parsek
                     return false;
             }
 
-            return flatPoints.Count > rebuiltPoints.Count
-                || flatOrbitSegments.Count > rebuiltOrbitSegments.Count;
+            bool pointsExtend = false;
+            if (flatPoints.Count > rebuiltPoints.Count)
+            {
+                int suffixStart = FindSafeTrajectoryPointSuffixStart(flatPoints, rebuiltPoints);
+                if (suffixStart < 0)
+                    return false;
+
+                var extendedPoints = new List<TrajectoryPoint>(rebuiltPoints);
+                AppendTrajectoryPointSuffix(extendedPoints, flatPoints, suffixStart);
+                if (!TrajectoryPointListIsMonotonicNonDecreasing(extendedPoints))
+                    return false;
+
+                pointsExtend = extendedPoints.Count > rebuiltPoints.Count;
+                if (!pointsExtend)
+                    return false;
+            }
+
+            bool orbitSegmentsExtend = false;
+            if (flatOrbitSegments.Count > rebuiltOrbitSegments.Count)
+            {
+                int suffixStart = FindSafeOrbitSegmentSuffixStart(flatOrbitSegments, rebuiltOrbitSegments);
+                if (suffixStart < 0)
+                    return false;
+
+                var extendedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
+                AppendOrbitSegmentSuffix(extendedOrbitSegments, flatOrbitSegments, suffixStart);
+                if (!OrbitSegmentListIsMonotonicNonDecreasing(extendedOrbitSegments))
+                    return false;
+
+                orbitSegmentsExtend = extendedOrbitSegments.Count > rebuiltOrbitSegments.Count;
+                if (!orbitSegmentsExtend)
+                    return false;
+            }
+
+            return pointsExtend || orbitSegmentsExtend;
         }
 
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
