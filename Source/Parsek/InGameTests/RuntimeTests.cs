@@ -978,7 +978,7 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
-        private static bool HasObservedActiveRecordingPoint(
+        internal static bool HasObservedActiveRecordingPoint(
             ParsekFlight flight,
             out int treePointCount,
             out int bufferedPointCount,
@@ -5028,7 +5028,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(
                     flight.ActiveTreeForSerialization.Recordings.TryGetValue(preRecId, out _),
                     $"Active tree must contain the active recording '{preRecId}' before F5");
-                HasObservedActiveRecordingPoint(
+                RuntimeTests.HasObservedActiveRecordingPoint(
                     flight,
                     out int preTreePointCount,
                     out int preBufferedPointCount,
@@ -6814,7 +6814,7 @@ namespace Parsek.InGameTests
                 terminalTerrainAlt = endAlt - surfaceClearance;
 
             VesselSpawner.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
-                -1, activeVessel.vesselName ?? "Runtime Test Vessel", landedRotation);
+                -1, activeVessel.vesselName ?? "Runtime Test Vessel", body, landedRotation);
             vesselSnapshot.SetValue("sit", "LANDED", true);
             vesselSnapshot.SetValue("landed", "True", true);
             vesselSnapshot.SetValue("splashed", "False", true);
