@@ -90,6 +90,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~502. Narrowed sea-level impact scans could end exactly on the predicted crossing and miss the sign-change bracket entirely~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_LongHorizonSeaLevelImpact_NarrowsSurfaceScan`.
+
+**Concern:** when `FindLocalCutoff()` found an analytic sea-level crossing, it narrowed the dense scan window to end exactly at that UT. If the analytic estimate landed slightly early, every sampled surface delta in the window could still stay positive, so `FindSurfaceCrossing()` never saw the `>0 -> <=0` bracket it needs and the extrapolator fell through to `Orbiting` instead of `Destroyed`.
+
+**Fix:** the sea-level narrowed window now extends one cutoff sample step past the predicted crossing while staying clamped to the requested `endUT`. That preserves the narrowing optimization but guarantees the sampler still has room to capture the sign-change bracket when the analytic crossing lands a little early.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
 
 **Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.

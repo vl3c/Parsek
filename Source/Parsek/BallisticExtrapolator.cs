@@ -629,7 +629,7 @@ namespace Parsek
             if (TryFindDescendingRadiusCrossingUT(orbit, startUT, endUT, body.Radius, out double seaLevelCrossingUT))
             {
                 sampleStartUT = Math.Max(startUT, seaLevelCrossingUT - LocalCutoffDenseWindowSeconds);
-                sampleEndUT = seaLevelCrossingUT;
+                sampleEndUT = Math.Min(endUT, seaLevelCrossingUT + DefaultCutoffSampleStep);
                 windowReason = "sea-level";
             }
             else if (TryGetNextPeriapsisUT(orbit, startUT, endUT, out double periapsisUT))
