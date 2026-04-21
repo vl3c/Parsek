@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -470,14 +471,8 @@ namespace Parsek.Tests
                 secondStartPosition,
                 secondStartVelocity);
 
-            Assert.Equal(frozenWorldRotation.x, startWorldRotation.x);
-            Assert.Equal(frozenWorldRotation.y, startWorldRotation.y);
-            Assert.Equal(frozenWorldRotation.z, startWorldRotation.z);
-            Assert.Equal(frozenWorldRotation.w, startWorldRotation.w);
-            Assert.Equal(firstBoundaryWorldRotation.x, secondStartWorldRotation.x);
-            Assert.Equal(firstBoundaryWorldRotation.y, secondStartWorldRotation.y);
-            Assert.Equal(firstBoundaryWorldRotation.z, secondStartWorldRotation.z);
-            Assert.Equal(firstBoundaryWorldRotation.w, secondStartWorldRotation.w);
+            AssertQuaternionEquivalent(frozenWorldRotation, startWorldRotation);
+            AssertQuaternionEquivalent(firstBoundaryWorldRotation, secondStartWorldRotation);
         }
 
         [Fact]
@@ -506,6 +501,110 @@ namespace Parsek.Tests
                 l.Contains("[Parsek][VERBOSE][Extrapolator]") &&
                 l.Contains("incomplete-ballistic finalization hook declined") &&
                 l.Contains("scene-exit-decline"));
+        }
+
+        private static void AssertQuaternionEquivalent(
+            Quaternion expected,
+            Quaternion actual,
+            float tolerance = 0.0001f)
+        {
+            expected = NormalizeAndCanonicalizeQuaternion(expected);
+            actual = NormalizeAndCanonicalizeQuaternion(actual);
+            float dot = Mathf.Abs(
+                (expected.x * actual.x)
+                + (expected.y * actual.y)
+                + (expected.z * actual.z)
+                + (expected.w * actual.w));
+            Assert.True(
+                1f - dot < tolerance,
+                $"dot={dot} expected={expected} actual={actual}");
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            float magnitude = Mathf.Sqrt(
+                quaternion.x * quaternion.x
+                + quaternion.y * quaternion.y
+                + quaternion.z * quaternion.z
+                + quaternion.w * quaternion.w);
+            if (magnitude > 1e-6f)
+            {
+                quaternion = new Quaternion(
+                    quaternion.x / magnitude,
+                    quaternion.y / magnitude,
+                    quaternion.z / magnitude,
+                    quaternion.w / magnitude);
+            }
+
+            if (quaternion.w < 0f
+                || (quaternion.w == 0f
+                    && (quaternion.z < 0f
+                        || (quaternion.z == 0f
+                            && (quaternion.y < 0f
+                                || (quaternion.y == 0f && quaternion.x < 0f))))))
+            {
+                quaternion = new Quaternion(
+                    -quaternion.x,
+                    -quaternion.y,
+                    -quaternion.z,
+                    -quaternion.w);
+            }
+
+            return quaternion;
+        }
+
+        [Fact]
+        public void TryApply_DefaultPath_FlightGlobalsUnavailable_DeclinesAndLogs()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-headless"
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]") &&
+                l.Contains("scene-exit-headless") &&
+                l.Contains("FlightGlobals runtime unavailable") &&
+                l.Contains("skipping default scene-exit extrapolation"));
+        }
+
+        [Fact]
+        public void IsFlightGlobalsRuntimeAvailable_TransientUnavailableProbe_IsNotCached()
+        {
+            int probeCount = 0;
+            IncompleteBallisticSceneExitFinalizer.FlightGlobalsRuntimeAvailabilityOverrideForTesting = () =>
+            {
+                probeCount++;
+                if (probeCount == 1)
+                    return (false, false, "fetch=true, ready=false");
+                return (true, true, "fetch=true, ready=true");
+            };
+
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("first"));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("second"));
+            Assert.Equal(2, probeCount);
+        }
+
+        [Fact]
+        public void IsFlightGlobalsRuntimeAvailable_PermanentFailureProbe_IsCached()
+        {
+            int probeCount = 0;
+            IncompleteBallisticSceneExitFinalizer.FlightGlobalsRuntimeAvailabilityOverrideForTesting = () =>
+            {
+                probeCount++;
+                return (false, true, "TypeInitializationException");
+            };
+
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("first"));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("second"));
+            Assert.Equal(1, probeCount);
         }
 
         [Fact]
