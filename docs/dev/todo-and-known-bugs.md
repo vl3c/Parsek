@@ -90,6 +90,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~495. Flat-binary fallback detection rejected valid predicted tails because it re-validated monotonicity across the already-matched track-section prefix~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** `FlatTrajectoryExtendsTrackSectionPayload()` first proves that the rebuilt track-section payload matches the flat trajectory prefix, then immediately re-checks monotonicity across the whole flat list. That can reject a valid extension case purely because the already-matched prefix has its own duplicated boundary shape, which means the code never reaches the intended flat-binary fallback path for a real predicted tail beyond the checkpoint payload.
+
+**Fix:** the extension detector now applies its monotonicity guard only from the first appended point / orbit segment beyond the rebuilt track-section payload, while still checking the stitched boundary against the last rebuilt element. That keeps the defense against non-monotonic appended tails without misclassifying legitimate fallback cases that only extend a known-good section-authoritative prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).

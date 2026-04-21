@@ -3482,8 +3482,8 @@ namespace Parsek
                     return false;
             }
 
-            if (!TrajectoryPointListIsMonotonicNonDecreasing(flatPoints)
-                || !OrbitSegmentListIsMonotonicNonDecreasing(flatOrbitSegments))
+            if (!TrajectoryPointListIsMonotonicNonDecreasing(flatPoints, rebuiltPoints.Count)
+                || !OrbitSegmentListIsMonotonicNonDecreasing(flatOrbitSegments, rebuiltOrbitSegments.Count))
             {
                 return false;
             }
@@ -3798,12 +3798,15 @@ namespace Parsek
             return true;
         }
 
-        private static bool TrajectoryPointListIsMonotonicNonDecreasing(List<TrajectoryPoint> points)
+        private static bool TrajectoryPointListIsMonotonicNonDecreasing(
+            List<TrajectoryPoint> points,
+            int startIndex = 1)
         {
             if (points == null)
                 return true;
 
-            for (int i = 1; i < points.Count; i++)
+            int firstIndexToCheck = Math.Max(1, startIndex);
+            for (int i = firstIndexToCheck; i < points.Count; i++)
             {
                 if (points[i].ut < points[i - 1].ut)
                     return false;
@@ -3828,12 +3831,15 @@ namespace Parsek
             return true;
         }
 
-        private static bool OrbitSegmentListIsMonotonicNonDecreasing(List<OrbitSegment> orbitSegments)
+        private static bool OrbitSegmentListIsMonotonicNonDecreasing(
+            List<OrbitSegment> orbitSegments,
+            int startIndex = 1)
         {
             if (orbitSegments == null)
                 return true;
 
-            for (int i = 1; i < orbitSegments.Count; i++)
+            int firstIndexToCheck = Math.Max(1, startIndex);
+            for (int i = firstIndexToCheck; i < orbitSegments.Count; i++)
             {
                 if (orbitSegments[i].startUT < orbitSegments[i - 1].startUT)
                     return false;
