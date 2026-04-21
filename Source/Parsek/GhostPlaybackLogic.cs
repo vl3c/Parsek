@@ -912,29 +912,13 @@ namespace Parsek
 
             if (result.audioInfos != null)
             {
-                // Cap audio sources per ghost to prevent channel exhaustion.
-                // Keeps the first N entries in build order (largest parts tend to be listed first
-                // in snapshot). No explicit sort — not worth the complexity for a 4-source cap.
-                var audioList = result.audioInfos;
-                if (audioList.Count > GhostAudioPresets.MaxAudioSourcesPerGhost)
-                {
-                    for (int i = GhostAudioPresets.MaxAudioSourcesPerGhost; i < audioList.Count; i++)
-                    {
-                        if (audioList[i].audioSource != null)
-                            UnityEngine.Object.Destroy(audioList[i].audioSource);
-                    }
-                    audioList = audioList.GetRange(0, GhostAudioPresets.MaxAudioSourcesPerGhost);
-                    ParsekLog.Verbose("GhostAudio",
-                        $"Capped audio sources to {GhostAudioPresets.MaxAudioSourcesPerGhost} " +
-                        $"(was {result.audioInfos.Count})");
-                }
-
                 state.audioInfos = new Dictionary<ulong, AudioGhostInfo>();
-                for (int i = 0; i < audioList.Count; i++)
+                for (int i = 0; i < result.audioInfos.Count; i++)
                 {
+                    result.audioInfos[i].selectionOrder = i;
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        audioList[i].partPersistentId, audioList[i].moduleIndex);
-                    state.audioInfos[key] = audioList[i];
+                        result.audioInfos[i].partPersistentId, result.audioInfos[i].moduleIndex);
+                    state.audioInfos[key] = result.audioInfos[i];
                 }
             }
 
@@ -970,13 +954,13 @@ namespace Parsek
                         {
                             kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
                             kvp.Value.audioSource.loop = true;
-                            if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
-                                kvp.Value.audioSource.Play();
                         }
                         ParsekLog.Verbose("GhostAudio",
                             $"Auto-started audio for orphan engine key={kvp.Key} " +
                             $"(no engine events in recording — likely debris booster)");
                     }
+
+                    EnforceLoopedAudioPlaybackCap(state);
                 }
 
                 // Engine FX auto-start
@@ -1404,10 +1388,10 @@ namespace Parsek
                     {
                         kvp.Value.audioSource.volume = 0f;
                         kvp.Value.audioSource.loop = true;
-                        if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
-                            kvp.Value.audioSource.Play();
                     }
                 }
+
+                EnforceLoopedAudioPlaybackCap(state);
             }
 
             if (state.engineInfos != null)
@@ -1860,7 +1844,7 @@ namespace Parsek
                     continue;
 
                 if (!active && info.audioSource.isPlaying)
-                    info.audioSource.Stop();
+                    StopLoopedGhostAudio(info, "part-inactive");
 
                 info.audioSource.gameObject.SetActive(active);
 
@@ -2302,6 +2286,163 @@ namespace Parsek
 
         #region Ghost Audio Control
 
+        internal static double ResolveAudioPriorityDistance(GhostPlaybackState state)
+        {
+            if (state == null)
+                return 0.0;
+
+            double distanceMeters = state.lastRenderDistance;
+            if (double.IsNaN(distanceMeters) || double.IsInfinity(distanceMeters) || distanceMeters < 0.0)
+                distanceMeters = state.lastDistance;
+            if (double.IsNaN(distanceMeters) || double.IsInfinity(distanceMeters) || distanceMeters < 0.0)
+                return 0.0;
+
+            return distanceMeters;
+        }
+
+        internal static void UpdateLoopedAudioPriority(GhostPlaybackState state, AudioGhostInfo info)
+        {
+            if (info == null || ReferenceEquals(info.audioSource, null))
+                return;
+
+            int priority = GhostAudioPresets.ComputeRuntimePriority(
+                info.priorityClass,
+                ResolveAudioPriorityDistance(state));
+            if (info.audioSource.priority != priority)
+                info.audioSource.priority = priority;
+        }
+
+        internal static List<AudioGhostInfo> SelectHighestPriorityActiveLoopedGhostAudioSources(
+            IList<AudioGhostInfo> audioInfos, int maxSources)
+        {
+            var result = new List<AudioGhostInfo>();
+            if (audioInfos == null || maxSources <= 0)
+                return result;
+
+            AudioGhostInfo first = null;
+            AudioGhostInfo second = null;
+            AudioGhostInfo third = null;
+            AudioGhostInfo fourth = null;
+            int firstOrder = int.MaxValue;
+            int secondOrder = int.MaxValue;
+            int thirdOrder = int.MaxValue;
+            int fourthOrder = int.MaxValue;
+            for (int i = 0; i < audioInfos.Count; i++)
+            {
+                AudioGhostInfo info = audioInfos[i];
+                if (info == null || info.currentPower <= 0f)
+                    continue;
+
+                InsertLoopedAudioSelectionCandidate(
+                    info,
+                    i,
+                    maxSources,
+                    ref first,
+                    ref firstOrder,
+                    ref second,
+                    ref secondOrder,
+                    ref third,
+                    ref thirdOrder,
+                    ref fourth,
+                    ref fourthOrder);
+            }
+
+            AppendIfNotNull(result, first);
+            if (maxSources > 1) AppendIfNotNull(result, second);
+            if (maxSources > 2) AppendIfNotNull(result, third);
+            if (maxSources > 3) AppendIfNotNull(result, fourth);
+
+            return result;
+        }
+
+        internal static void EnforceLoopedAudioPlaybackCap(GhostPlaybackState state)
+        {
+            if (state?.audioInfos == null)
+                return;
+
+            if (state.audioMuted || state.atmosphereFactor < 0.001f)
+            {
+                string stopReason = state.audioMuted ? "muted" : "vacuum";
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info != null && !ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                        StopLoopedGhostAudio(info, stopReason);
+                }
+                return;
+            }
+
+            AudioGhostInfo first = null;
+            AudioGhostInfo second = null;
+            AudioGhostInfo third = null;
+            AudioGhostInfo fourth = null;
+            int firstOrder = int.MaxValue;
+            int secondOrder = int.MaxValue;
+            int thirdOrder = int.MaxValue;
+            int fourthOrder = int.MaxValue;
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info == null || ReferenceEquals(info.audioSource, null))
+                    continue;
+
+                UpdateLoopedAudioPriority(state, info);
+
+                if (info.currentPower > 0f)
+                {
+                    InsertLoopedAudioSelectionCandidate(
+                        info,
+                        info.selectionOrder,
+                        GhostAudioPresets.MaxAudioSourcesPerGhost,
+                        ref first,
+                        ref firstOrder,
+                        ref second,
+                        ref secondOrder,
+                        ref third,
+                        ref thirdOrder,
+                        ref fourth,
+                        ref fourthOrder);
+                }
+                else if (info.audioSource.isPlaying)
+                {
+                    StopLoopedGhostAudio(info, "power=0");
+                }
+            }
+
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info == null || ReferenceEquals(info.audioSource, null) || info.currentPower <= 0f)
+                    continue;
+
+                float volume = ComputeGhostAudioVolume(
+                    info.volumeCurve.Evaluate(info.currentPower),
+                    state.atmosphereFactor);
+                if (!IsLoopedAudioSelectedForPlayback(info, first, second, third, fourth))
+                {
+                    if (info.audioSource.isPlaying)
+                        StopLoopedGhostAudio(info, "capped");
+                    continue;
+                }
+                if (volume <= 0f)
+                {
+                    if (info.audioSource.isPlaying)
+                        StopLoopedGhostAudio(info, "volume=0");
+                    continue;
+                }
+
+                if (info.audioSource.volume != volume)
+                    info.audioSource.volume = volume;
+
+                float pitch = info.pitchCurve.Evaluate(info.currentPower);
+                if (info.audioSource.pitch != pitch)
+                    info.audioSource.pitch = pitch;
+
+                if (!ReferenceEquals(info.audioSource.clip, info.clip))
+                    info.audioSource.clip = info.clip;
+
+                if (!info.audioSource.isPlaying && CanStartLoopedGhostAudio(info.audioSource))
+                    StartLoopedGhostAudio(info, volume, pitch);
+            }
+        }
+
         /// <summary>
         /// Set engine audio volume/pitch from recorded throttle power.
         /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
@@ -2309,58 +2450,22 @@ namespace Parsek
         internal static void SetEngineAudio(GhostPlaybackState state, PartEvent evt, float power)
         {
             if (state.audioInfos == null) return;
-            if (state.audioMuted)
-            {
-                // Ensure source is stopped if muted (e.g., during warp)
-                ulong mutedKey = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-                AudioGhostInfo mutedInfo;
-                if (state.audioInfos.TryGetValue(mutedKey, out mutedInfo) &&
-                    mutedInfo.audioSource != null && mutedInfo.audioSource.isPlaying)
-                    mutedInfo.audioSource.Stop();
-                return;
-            }
 
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             AudioGhostInfo info;
             if (!state.audioInfos.TryGetValue(key, out info)) return;
-            if (info.audioSource == null) return;
 
             info.currentPower = power;
-
-            if (power > 0f && state.atmosphereFactor > 0.001f)
+            if (state.audioMuted)
             {
-                float vol = ComputeGhostAudioVolume(
-                    info.volumeCurve.Evaluate(power), state.atmosphereFactor);
-                if (vol <= 0f) { if (info.audioSource.isPlaying) info.audioSource.Stop(); return; }
-                float pitch = info.pitchCurve.Evaluate(power);
-                info.audioSource.volume = vol;
-                info.audioSource.pitch = pitch;
-                if (!info.audioSource.isPlaying)
-                {
-                    info.audioSource.clip = info.clip;
-                    // Fresh ghosts stay inactive until they've been positioned at the
-                    // current playback UT. Defer looped audio start until the hierarchy
-                    // is active; RestoreDeferredRuntimeFxState will replay tracked power.
-                    if (!CanStartLoopedGhostAudio(info.audioSource))
-                        return;
+                // Keep tracked power in sync during warp so unmute resumes the correct state.
+                if (!ReferenceEquals(info.audioSource, null))
+                    StopLoopedGhostAudio(info, "muted");
+                return;
+            }
+            if (ReferenceEquals(info.audioSource, null)) return;
 
-                    info.audioSource.Play();
-                    ParsekLog.VerboseRateLimited("GhostAudio",
-                        $"audio-start-{evt.partPersistentId}-{evt.moduleIndex}",
-                        $"Engine audio started: pid={evt.partPersistentId} midx={evt.moduleIndex} " +
-                        $"power={power:F2} vol={vol:F2} pitch={pitch:F2}", 5.0);
-                }
-            }
-            else
-            {
-                if (info.audioSource.isPlaying)
-                {
-                    info.audioSource.Stop();
-                    ParsekLog.VerboseRateLimited("GhostAudio",
-                        $"audio-stop-{evt.partPersistentId}-{evt.moduleIndex}",
-                        $"Engine audio stopped: pid={evt.partPersistentId} midx={evt.moduleIndex}", 5.0);
-                }
-            }
+            EnforceLoopedAudioPlaybackCap(state);
         }
 
         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
@@ -2371,8 +2476,8 @@ namespace Parsek
         internal static bool CanStartLoopedGhostAudio(AudioSource audioSource)
         {
             return CanStartLoopedGhostAudio(
-                sourceExists: audioSource != null,
-                sourceIsActiveAndEnabled: audioSource != null && audioSource.isActiveAndEnabled);
+                sourceExists: !ReferenceEquals(audioSource, null),
+                sourceIsActiveAndEnabled: !ReferenceEquals(audioSource, null) && audioSource.isActiveAndEnabled);
         }
 
         /// <summary>
@@ -2387,7 +2492,7 @@ namespace Parsek
             {
                 if (info.partPersistentId != partPersistentId) continue;
                 if (info.audioSource != null && info.audioSource.isPlaying)
-                    info.audioSource.Stop();
+                    StopLoopedGhostAudio(info, "part-removed");
             }
         }
 
@@ -2411,6 +2516,9 @@ namespace Parsek
             float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
 
+            state.oneShotAudio.audioSource.priority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPresets.ClassifyOneShotPriority(eventType),
+                ResolveAudioPriorityDistance(state));
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
                 $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
@@ -2430,7 +2538,7 @@ namespace Parsek
                 foreach (var info in state.audioInfos.Values)
                 {
                     if (info.audioSource != null && info.audioSource.isPlaying)
-                        info.audioSource.Stop();
+                        StopLoopedGhostAudio(info, "muted");
                 }
             }
             if (state.oneShotAudio?.audioSource != null)
@@ -2555,21 +2663,154 @@ namespace Parsek
 
             state.atmosphereFactor = newFactor;
 
-            foreach (var info in state.audioInfos.Values)
-            {
-                if (info.audioSource == null) continue;
+            EnforceLoopedAudioPlaybackCap(state);
+        }
 
-                if (newFactor < 0.001f)
+        private static void AppendIfNotNull(List<AudioGhostInfo> result, AudioGhostInfo info)
+        {
+            if (info != null)
+                result.Add(info);
+        }
+
+        private static bool ShouldLoopedAudioCandidatePrecede(
+            AudioGhostInfo candidate, int candidateOrder, AudioGhostInfo current, int currentOrder)
+        {
+            if (candidate == null)
+                return false;
+            if (current == null)
+                return true;
+
+            int priorityCompare = GhostAudioPresets.GetBasePriority(candidate.priorityClass)
+                .CompareTo(GhostAudioPresets.GetBasePriority(current.priorityClass));
+            if (priorityCompare != 0)
+                return priorityCompare < 0;
+
+            int powerCompare = candidate.currentPower.CompareTo(current.currentPower);
+            if (powerCompare != 0)
+                return powerCompare > 0;
+
+            return candidateOrder < currentOrder;
+        }
+
+        private static void InsertLoopedAudioSelectionCandidate(
+            AudioGhostInfo candidate,
+            int candidateOrder,
+            int maxSources,
+            ref AudioGhostInfo first,
+            ref int firstOrder,
+            ref AudioGhostInfo second,
+            ref int secondOrder,
+            ref AudioGhostInfo third,
+            ref int thirdOrder,
+            ref AudioGhostInfo fourth,
+            ref int fourthOrder)
+        {
+            if (candidate == null || maxSources <= 0)
+                return;
+
+            if (ShouldLoopedAudioCandidatePrecede(candidate, candidateOrder, first, firstOrder))
+            {
+                if (maxSources > 3)
                 {
-                    if (info.audioSource.isPlaying)
-                        info.audioSource.Stop();
+                    fourth = third;
+                    fourthOrder = thirdOrder;
                 }
-                else if (info.currentPower > 0f && info.audioSource.isPlaying)
+                if (maxSources > 2)
                 {
-                    info.audioSource.volume = ComputeGhostAudioVolume(
-                        info.volumeCurve.Evaluate(info.currentPower), newFactor);
+                    third = second;
+                    thirdOrder = secondOrder;
                 }
+                if (maxSources > 1)
+                {
+                    second = first;
+                    secondOrder = firstOrder;
+                }
+                first = candidate;
+                firstOrder = candidateOrder;
+                return;
             }
+
+            if (maxSources <= 1)
+                return;
+
+            if (ShouldLoopedAudioCandidatePrecede(candidate, candidateOrder, second, secondOrder))
+            {
+                if (maxSources > 3)
+                {
+                    fourth = third;
+                    fourthOrder = thirdOrder;
+                }
+                if (maxSources > 2)
+                {
+                    third = second;
+                    thirdOrder = secondOrder;
+                }
+                second = candidate;
+                secondOrder = candidateOrder;
+                return;
+            }
+
+            if (maxSources <= 2)
+                return;
+
+            if (ShouldLoopedAudioCandidatePrecede(candidate, candidateOrder, third, thirdOrder))
+            {
+                if (maxSources > 3)
+                {
+                    fourth = third;
+                    fourthOrder = thirdOrder;
+                }
+                third = candidate;
+                thirdOrder = candidateOrder;
+                return;
+            }
+
+            if (maxSources <= 3)
+                return;
+
+            if (ShouldLoopedAudioCandidatePrecede(candidate, candidateOrder, fourth, fourthOrder))
+            {
+                fourth = candidate;
+                fourthOrder = candidateOrder;
+            }
+        }
+
+        private static bool IsLoopedAudioSelectedForPlayback(
+            AudioGhostInfo info,
+            AudioGhostInfo first,
+            AudioGhostInfo second,
+            AudioGhostInfo third,
+            AudioGhostInfo fourth)
+        {
+            return ReferenceEquals(info, first)
+                || ReferenceEquals(info, second)
+                || ReferenceEquals(info, third)
+                || ReferenceEquals(info, fourth);
+        }
+
+        private static void StartLoopedGhostAudio(AudioGhostInfo info, float volume, float pitch)
+        {
+            if (info == null || ReferenceEquals(info.audioSource, null))
+                return;
+
+            info.audioSource.Play();
+            ParsekLog.VerboseRateLimited("GhostAudio",
+                $"audio-start-{info.partPersistentId}-{info.moduleIndex}",
+                $"Engine audio started: pid={info.partPersistentId} midx={info.moduleIndex} " +
+                $"power={info.currentPower:F2} vol={volume:F2} pitch={pitch:F2}",
+                5.0);
+        }
+
+        private static void StopLoopedGhostAudio(AudioGhostInfo info, string reason)
+        {
+            if (info == null || ReferenceEquals(info.audioSource, null) || !info.audioSource.isPlaying)
+                return;
+
+            info.audioSource.Stop();
+            ParsekLog.VerboseRateLimited("GhostAudio",
+                $"audio-stop-{info.partPersistentId}-{info.moduleIndex}",
+                $"Engine audio stopped: pid={info.partPersistentId} midx={info.moduleIndex} reason={reason}",
+                5.0);
         }
 
         #endregion
