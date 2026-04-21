@@ -8463,14 +8463,11 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    try
-                    {
-                        FXMonger.Explode(null, pos, power);
-                    }
-                    catch (Exception ex)
+                    if (!GhostVisualBuilder.TryTriggerStockExplosionFx(pos, power, out string stockFxFailure))
                     {
                         ParsekLog.Warn("ExplosionFx",
-                            $"FXMonger.Explode threw for manual preview \"{previewRecording.VesselName}\"; falling back to custom FX: {ex.Message}");
+                            $"FXMonger.Explode did not queue stock FX for manual preview " +
+                            $"\"{previewRecording.VesselName}\"; falling back to custom FX: {stockFxFailure}");
                         GhostVisualBuilder.SpawnExplosionFx(pos, len);
                     }
                 }

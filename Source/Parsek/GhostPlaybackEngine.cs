@@ -3838,14 +3838,11 @@ namespace Parsek
                 $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                 10.0);
 
-            try
-            {
-                FXMonger.Explode(null, worldPos, power);
-            }
-            catch (Exception ex)
+            if (!GhostVisualBuilder.TryTriggerStockExplosionFx(worldPos, power, out string stockFxFailure))
             {
                 ParsekLog.Warn("ExplosionFx",
-                    $"FXMonger.Explode threw for ghost #{recIdx} \"{traj.VesselName}\"; falling back to custom FX: {ex.Message}");
+                    $"FXMonger.Explode did not queue stock FX for ghost #{recIdx} \"{traj.VesselName}\"; " +
+                    $"falling back to custom FX: {stockFxFailure}");
                 GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             }
 

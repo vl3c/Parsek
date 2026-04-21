@@ -6782,6 +6782,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tries to queue KSP's stock explosion effect.
+        /// Returns false when the stock controller is unavailable or the call throws.
+        /// </summary>
+        internal static bool TryTriggerStockExplosionFx(
+            Vector3 worldPosition,
+            double power,
+            out string failureReason,
+            System.Func<bool> isFxMongerAvailable = null,
+            System.Action<Vector3, double> explode = null)
+        {
+            bool stockFxAvailable = isFxMongerAvailable != null
+                ? isFxMongerAvailable()
+                : Object.FindObjectOfType<FXMonger>() != null;
+            if (!stockFxAvailable)
+            {
+                failureReason = "no live FXMonger instance";
+                return false;
+            }
+
+            try
+            {
+                if (explode != null)
+                    explode(worldPosition, power);
+                else
+                    FXMonger.Explode(null, worldPosition, power);
+
+                failureReason = null;
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Spawns a fire-and-forget explosion particle effect at the given world position.
         /// The returned GameObject auto-destroys after particles expire.
         /// Used when ghost playback reaches the end of a destroyed recording.
