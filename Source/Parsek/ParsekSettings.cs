@@ -130,10 +130,10 @@ namespace Parsek
 
         /// <summary>
         /// Default launch-to-launch period in seconds (#381) for recordings with
-        /// LoopTimeUnit.Auto. Must be &gt;= GhostPlaybackLogic.MinCycleDuration. Overlap
+        /// LoopTimeUnit.Auto. Must be &gt;= LoopTiming.MinCycleDuration. Overlap
         /// emerges when the period is shorter than the recording's duration.
         /// </summary>
-        public float autoLoopIntervalSeconds = (float)GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+        public float autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,

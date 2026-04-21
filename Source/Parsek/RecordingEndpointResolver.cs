@@ -14,7 +14,6 @@ namespace Parsek
 
             if (TryGetPersistedEndpointDecision(rec, out _, out bodyName))
                 return true;
-
             return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
         }
 

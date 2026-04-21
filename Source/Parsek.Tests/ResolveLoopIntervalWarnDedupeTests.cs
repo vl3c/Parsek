@@ -17,7 +17,7 @@ namespace Parsek.Tests
     public class ResolveLoopIntervalWarnDedupeTests : IDisposable
     {
         private const double DefaultInterval = 10.0;
-        private const double MinCycleDuration = GhostPlaybackLogic.MinCycleDuration;
+        private const double MinCycleDuration = LoopTiming.MinCycleDuration;
 
         private readonly List<string> logLines = new List<string>();
 

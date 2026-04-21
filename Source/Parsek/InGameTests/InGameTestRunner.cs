@@ -179,6 +179,22 @@ namespace Parsek.InGameTests
 
         public IReadOnlyList<InGameTestInfo> Tests => allTests;
 
+        internal static string FormatCoroutineState(
+            bool isRunning, bool hasBatchCoroutine, bool hasInnerCoroutine)
+        {
+            return $"isRunning={isRunning} " +
+                   $"batch={(hasBatchCoroutine ? "active" : "null")} " +
+                   $"inner={(hasInnerCoroutine ? "active" : "null")}";
+        }
+
+        internal string DescribeCoroutineState()
+        {
+            return FormatCoroutineState(
+                isRunning,
+                activeCoroutine != null,
+                activeInnerCoroutine != null);
+        }
+
         public InGameTestRunner(MonoBehaviour host)
         {
             coroutineHost = host;

@@ -48,16 +48,9 @@ namespace Parsek
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
 
-        // Loop constants are in GhostPlaybackLogic
-        // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
-        // well-behaved recordings, but pathological cases (very short duration, very negative
-        // interval) could spawn many before expiration catches up.
-        // #443: KSC cap lowered to 10 to match flight, in lockstep with
-        // GhostPlaybackLogic.ComputeEffectiveLaunchCadence — the cadence is
-        // raised to the minimum value that fits the concurrent-cycle count
-        // under this cap, so the cap is never exceeded and no cycle is ever
-        // silently culled.
-        private const int MaxOverlapGhostsPerRecording = 10;
+        // Tunables live in ParsekConfig.cs. KSC reuses the flight cap
+        // (GhostPlayback.MaxOverlapGhostsPerRecording) so the two scenes stay
+        // in lockstep.
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
@@ -179,7 +172,7 @@ namespace Parsek
                     {
                         kvp.Value.ghost.SetActive(false);
                         ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
+                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.GhostHide}x");
                     }
                 foreach (int key in new List<int>(kscOverlapGhosts.Keys))
                     DestroyAllKscOverlapGhosts(key);
@@ -234,7 +227,7 @@ namespace Parsek
                 if (rec.LoopPlayback)
                 {
                     double duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
-                    if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) continue;
+                    if (duration <= LoopTiming.MinLoopDurationSeconds) continue;
 
                     double intervalSeconds = GetLoopIntervalSeconds(rec);
                     if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
@@ -369,7 +362,7 @@ namespace Parsek
                 : "no adjustment";
             ParsekLog.Info("KSC",
                 $"Loop cadence #{recIdx} \"{vesselName}\": requested={userPeriod.ToString("F2", ic)}s " +
-                $"duration={duration.ToString("F2", ic)}s cap={MaxOverlapGhostsPerRecording} " +
+                $"duration={duration.ToString("F2", ic)}s cap={GhostPlayback.MaxOverlapGhostsPerRecording} " +
                 $"effective={effectiveCadence.ToString("F2", ic)}s (cycles={cycleCount}) {verdict}");
         }
 
@@ -513,14 +506,14 @@ namespace Parsek
             // culled mid-trajectory.
             double loopDuration = loopEndUT - loopStartUT;
             double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                intervalSeconds, loopDuration, MaxOverlapGhostsPerRecording);
+                intervalSeconds, loopDuration, GhostPlayback.MaxOverlapGhostsPerRecording);
             LogKscCadenceIfChanged(recIdx, rec, intervalSeconds, effectiveCadence, loopDuration);
 
-            double cycleDuration = Math.Max(effectiveCadence, GhostPlaybackLogic.MinCycleDuration);
+            double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, loopStartUT, loopEndUT,
-                effectiveCadence, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+                effectiveCadence, GhostPlayback.MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
             List<GhostPlaybackState> overlaps;
@@ -905,12 +898,12 @@ namespace Parsek
             if (currentUT < loopStart) return false;
 
             double duration = loopEnd - loopStart;
-            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
+            if (duration <= LoopTiming.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
             // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
             // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
-            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
@@ -918,7 +911,7 @@ namespace Parsek
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
             // Pause window only when period strictly exceeds duration.
-            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
+            if (intervalSeconds > duration && cycleTime > duration + LoopTiming.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;
@@ -931,15 +924,15 @@ namespace Parsek
 
         /// <summary>
         /// Get the loop interval for a recording. Returns the launch-to-launch period
-        /// in seconds (#381) — always &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// in seconds (#381) — always &gt;= LoopTiming.MinCycleDuration.
         /// Overlap emerges when period &lt; recording duration (see IsOverlapLoop).
         /// </summary>
         internal static double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
             return GhostPlaybackLogic.ResolveLoopInterval(
-                rec, globalInterval, GhostPlaybackLogic.DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+                rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
         }
 
         /// <summary>
@@ -958,7 +951,7 @@ namespace Parsek
                 state.explosionFired = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {GhostPlaybackLogic.FxSuppressWarpThreshold}x");
+                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {WarpThresholds.FxSuppress}x");
                 return;
             }
 
@@ -973,6 +966,7 @@ namespace Parsek
                 $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
+            // KSC scene has no FXMonger instance (it's a flight-scene MonoBehaviour); keep the custom FX here.
             var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)
                 Destroy(explosion, 6f);
@@ -1055,8 +1049,25 @@ namespace Parsek
                     double spawnLat, spawnLon, spawnAlt;
                     VesselSpawner.ResolveSpawnPosition(rec, recIdx, lastPt,
                         out spawnLat, out spawnLon, out spawnAlt);
-                    VesselSpawner.OverrideSnapshotPosition(spawnSnapshot, spawnLat, spawnLon, spawnAlt,
-                        recIdx, rec.VesselName, lastPt.rotation);
+                    if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                        rec, lastPt,
+                        out string rotationBodyName,
+                        out Quaternion rotationBodyRotation,
+                        out Quaternion surfaceRelativeRotation,
+                        out string rotationSource))
+                    {
+                        VesselSpawner.OverrideSnapshotPosition(spawnSnapshot, spawnLat, spawnLon, spawnAlt,
+                            recIdx, rec.VesselName,
+                            rotationBodyName,
+                            rotationBodyRotation,
+                            surfaceRelativeRotation,
+                            rotationSource);
+                    }
+                    else
+                    {
+                        VesselSpawner.OverrideSnapshotPosition(spawnSnapshot, spawnLat, spawnLon, spawnAlt,
+                            recIdx, rec.VesselName);
+                    }
                 }
 
                 uint spawnedPid = VesselSpawner.RespawnVessel(spawnSnapshot);

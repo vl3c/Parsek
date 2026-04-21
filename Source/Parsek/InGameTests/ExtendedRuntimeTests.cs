@@ -77,7 +77,7 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            int maxPerRec = GhostPlaybackEngine.MaxOverlapGhostsPerRecording;
+            int maxPerRec = GhostPlayback.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             int violations = 0;
 
@@ -96,29 +96,6 @@ namespace Parsek.InGameTests
 
             InGameAssert.AreEqual(0, violations,
                 $"{violations} recording(s) exceed overlap ghost cap of {maxPerRec}");
-        }
-
-        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
-            Description = "Active explosions list has no null/destroyed entries")]
-        public void ActiveExplosionsClean()
-        {
-            var flight = ParsekFlight.Instance;
-            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
-
-            var explosions = flight.Engine.activeExplosions;
-            int nullCount = 0;
-            foreach (var go in explosions)
-            {
-                if (go == null) nullCount++;
-            }
-
-            if (explosions.Count > 0)
-                ParsekLog.Verbose("TestRunner", $"Active explosions: {explosions.Count}, null={nullCount}");
-
-            InGameAssert.AreEqual(0, nullCount,
-                $"{nullCount} null/destroyed entries in activeExplosions list (leak)");
-            InGameAssert.IsTrue(explosions.Count <= GhostPlaybackEngine.MaxActiveExplosions,
-                $"Active explosions ({explosions.Count}) exceeds cap ({GhostPlaybackEngine.MaxActiveExplosions})");
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,

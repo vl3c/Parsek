@@ -6781,6 +6781,66 @@ namespace Parsek
             sparkPs.Play();
         }
 
+        // Cached FieldInfo for FXMonger's private static `fetch` singleton. Reading this
+        // field directly mirrors FXMonger.Explode's own null-check (`if (!(fetch != null)) return;`)
+        // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
+        private static System.Reflection.FieldInfo fxMongerFetchField;
+
+        private static bool IsFxMongerLive()
+        {
+            if (fxMongerFetchField == null)
+            {
+                fxMongerFetchField = typeof(FXMonger).GetField(
+                    "fetch",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                if (fxMongerFetchField == null)
+                    return false;
+            }
+            // Unity's == operator treats destroyed objects as null, so this stays correct
+            // across scene transitions that clear FXMonger.fetch in OnDestroy.
+            return (fxMongerFetchField.GetValue(null) as FXMonger) != null;
+        }
+
+        /// <summary>
+        /// Tries to queue KSP's stock explosion effect.
+        /// Returns false when the stock controller is unavailable or the call throws.
+        /// </summary>
+        internal static bool TryTriggerStockExplosionFx(
+            Vector3 worldPosition,
+            double power,
+            out string failureReason,
+            System.Func<bool> isFxMongerAvailable = null,
+            System.Action<Vector3, double> explode = null)
+        {
+            bool stockFxAvailable = isFxMongerAvailable != null
+                ? isFxMongerAvailable()
+                : IsFxMongerLive();
+            if (!stockFxAvailable)
+            {
+                failureReason = "no live FXMonger instance";
+                return false;
+            }
+
+            try
+            {
+                if (explode != null)
+                    explode(worldPosition, power);
+                else
+                    // Passing null for `source` is safe: decompiled FXMonger only stores the Part
+                    // in its queued ProtoExplosion.sources list for merge bookkeeping and never
+                    // dereferences it. Ghost explosions have no owning Part to supply.
+                    FXMonger.Explode(null, worldPosition, power);
+
+                failureReason = null;
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+        }
+
         /// <summary>
         /// Spawns a fire-and-forget explosion particle effect at the given world position.
         /// The returned GameObject auto-destroys after particles expire.
@@ -7033,9 +7093,13 @@ namespace Parsek
                 vesselNode.SetValue("alt", evt.altitude.ToString("R", ic), true);
                 vesselNode.SetValue("landedAt", body.name, true);
 
-                // Set surface-relative rotation
+                // Reconstruct world-space VESSEL.rot from the recorded surface-relative frame.
                 Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
-                vesselNode.SetValue("rot", KSPUtil.WriteQuaternion(surfRot), true);
+                VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+                    vesselNode,
+                    body,
+                    surfRot,
+                    "Flag spawn");
 
                 // Spawn via ProtoVessel
                 ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);

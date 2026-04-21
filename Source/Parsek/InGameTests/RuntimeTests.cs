@@ -14,6 +14,29 @@ namespace Parsek.InGameTests
     /// </summary>
     public class RuntimeTests
     {
+        internal const float TimeScalePositiveThreshold = 0.01f;
+        internal const int TimeScalePositiveProbeFrames = 8;
+
+        internal enum TimeScalePositiveProbeOutcome
+        {
+            Passed,
+            SkipStockPause,
+            SkipPauseProbeUnavailable,
+            FailZeroWithoutPause,
+        }
+
+        internal struct TimeScalePositiveProbeSample
+        {
+            public int SampleIndex;
+            public int FrameCount;
+            public float RealtimeSinceStartup;
+            public float TimeScale;
+            public bool? FlightDriverPause;
+            public string KspLoaderLastUpdate;
+            public string RunnerCoroutineState;
+            public string SceneName;
+        }
+
         private readonly InGameTestRunner runner;
         private static readonly System.Type FlightEvaType =
             typeof(Part).Assembly.GetType("FlightEVA", false);
@@ -336,9 +359,221 @@ namespace Parsek.InGameTests
         #region Unity Environment
 
         [InGameTest(Category = "Unity", Description = "Time.timeScale is positive (game not frozen)")]
-        public void TimeScalePositive()
+        public IEnumerator TimeScalePositive()
         {
-            InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
+            var samples = new List<TimeScalePositiveProbeSample>(TimeScalePositiveProbeFrames);
+            for (int i = 0; i < TimeScalePositiveProbeFrames; i++)
+            {
+                TimeScalePositiveProbeSample sample = CaptureTimeScalePositiveProbeSample(i);
+                samples.Add(sample);
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
+
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
+                {
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
+                            FormatTimeScalePositiveProbeSummary(samples));
+                        yield break;
+                }
+
+                if (i < TimeScalePositiveProbeFrames - 1)
+                    yield return null;
+            }
+
+            string summary = FormatTimeScalePositiveProbeSummary(samples);
+            switch (ClassifyTimeScalePositiveSamples(samples))
+            {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
+                case TimeScalePositiveProbeOutcome.SkipStockPause:
+                    InGameAssert.Skip(
+                        "stock pause menu open; Time.timeScale=0 is expected while paused | " +
+                        summary);
+                    break;
+
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
+                default:
+                    InGameAssert.Fail(
+                        "Time.timeScale hit <= " +
+                        TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                        " outside stock pause during probe | " +
+                        summary);
+                    break;
+            }
+        }
+
+        internal static TimeScalePositiveProbeOutcome ClassifyTimeScalePositiveSamples(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+            bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].TimeScale > TimeScalePositiveThreshold)
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
+
+                if (samples[i].FlightDriverPause == false)
+                    return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
+            }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
+        }
+
+        internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
+        {
+            return "sample=" + sample.SampleIndex.ToString(CultureInfo.InvariantCulture) +
+                   " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
+                   " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
+                   " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
+                   " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
+                   " runner=" + (sample.RunnerCoroutineState ?? "null") +
+                   " scene=" + (sample.SceneName ?? "null");
+        }
+
+        internal static string FormatTimeScalePositiveProbeSummary(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return "no samples";
+
+            return string.Join(
+                " | ",
+                samples.Select(FormatTimeScalePositiveProbeSample).ToArray());
+        }
+
+        private TimeScalePositiveProbeSample CaptureTimeScalePositiveProbeSample(int sampleIndex)
+        {
+            return new TimeScalePositiveProbeSample
+            {
+                SampleIndex = sampleIndex,
+                FrameCount = Time.frameCount,
+                RealtimeSinceStartup = Time.realtimeSinceStartup,
+                TimeScale = Time.timeScale,
+                FlightDriverPause = SafeReadFlightDriverPause(),
+                KspLoaderLastUpdate = DescribeKspLoaderLastUpdate(),
+                RunnerCoroutineState = runner != null ? runner.DescribeCoroutineState() : "runner=null",
+                SceneName = HighLogic.LoadedScene.ToString(),
+            };
+        }
+
+        private static bool? SafeReadFlightDriverPause()
+        {
+            try
+            {
+                return FlightDriver.Pause;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private static string DescribeKspLoaderLastUpdate()
+        {
+            try
+            {
+                System.Type loaderType = ResolveKspLoaderType();
+                if (loaderType == null)
+                    return "type-missing";
+
+                FieldInfo field = loaderType.GetField(
+                    "lastUpdate",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null)
+                    return "field-missing";
+
+                object value = field.GetValue(null);
+                return value != null ? value.ToString() : "null";
+            }
+            catch (System.Exception ex)
+            {
+                return "error:" + ex.GetType().Name;
+            }
+        }
+
+        private static System.Type ResolveKspLoaderType()
+        {
+            System.Reflection.Assembly[] assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Reflection.Assembly assembly = assemblies[i];
+                System.Type direct = assembly.GetType("KSPLoader", false);
+                if (direct != null)
+                    return direct;
+
+                try
+                {
+                    System.Type[] types = assembly.GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    System.Type[] types = ex.Types;
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+            }
+
+            return null;
         }
 
         [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
@@ -1873,15 +2108,15 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(index, ParsekFlight.Instance.WatchedRecordingIndex, "watching wrong index");
 
                 // --- Core assertions: tight angle check on canonical defaults ---
-                float expectedPitchRad = WatchModeController.DefaultWatchEntryPitch * Mathf.Deg2Rad;
+                float expectedPitchRad = WatchMode.EntryPitchDegrees * Mathf.Deg2Rad;
                 float actualPitchRad = FlightCamera.fetch.camPitch;
                 float actualHdgRad = FlightCamera.fetch.camHdg;
                 float pitchDeg = Mathf.Abs(actualPitchRad - expectedPitchRad) * Mathf.Rad2Deg;
-                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchModeController.DefaultWatchEntryHeading));
+                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchMode.EntryHeadingDegrees));
                 InGameAssert.IsTrue(pitchDeg < 1f,
-                    $"pitch should be near {WatchModeController.DefaultWatchEntryPitch} deg, got delta={pitchDeg:F2} deg");
+                    $"pitch should be near {WatchMode.EntryPitchDegrees} deg, got delta={pitchDeg:F2} deg");
                 InGameAssert.IsTrue(hdgDeg < 1f,
-                    $"heading should be near {WatchModeController.DefaultWatchEntryHeading} deg, got delta={hdgDeg:F2} deg");
+                    $"heading should be near {WatchMode.EntryHeadingDegrees} deg, got delta={hdgDeg:F2} deg");
 
                 // --- Safety-net assertion: no 180-degree camera flip ---
                 Vector3 cameraForwardAfter = FlightCamera.fetch.transform.forward;
@@ -1893,7 +2128,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Verbose("TestRunner",
                     $"WatchEntry_SameBody: index={index} body={state.lastInterpolatedBodyName} " +
                     $"camPitchDeg={actualPitchRad * Mathf.Rad2Deg:F2} camHdgDeg={actualHdgRad * Mathf.Rad2Deg:F2} " +
-                    $"expectedPitch={WatchModeController.DefaultWatchEntryPitch:F1} expectedHdg={WatchModeController.DefaultWatchEntryHeading:F1} " +
+                    $"expectedPitch={WatchMode.EntryPitchDegrees:F1} expectedHdg={WatchMode.EntryHeadingDegrees:F1} " +
                     $"worldDot={worldDot:F3}");
             }
             finally
@@ -2054,12 +2289,19 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(RecordingPaths.ValidateRecordingId("abc-123"),
                 "Simple alphanumeric ID should be valid");
 
-            // Invalid IDs
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(null),
+            // Invalid IDs are intentionally exercised in the test-only logging context
+            // so expected security rejections stay visible without polluting WARN triage.
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    null,
+                    RecordingIdValidationLogContext.Test),
                 "null ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(""),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "",
+                    RecordingIdValidationLogContext.Test),
                 "empty ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "../etc/passwd",
+                    RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
     }
@@ -5819,7 +6061,7 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"TerminalOrbitBody backfill verified: body={rec.TerminalOrbitBody} " +
-                $"sma={rec.TerminalOrbitSemiMajorAxis:F1}");
+                $"sma={rec.TerminalOrbitSemiMajorAxis.ToString("F1", CultureInfo.InvariantCulture)}");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
@@ -5865,7 +6107,7 @@ namespace Parsek.InGameTests
             }
 
             InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
-                "Existing TerminalOrbitBody should not be overwritten");
+                "Explicit endpoint metadata should keep the cached TerminalOrbitBody authoritative");
             InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
             string preserveLine = captured.LastOrDefault(line =>
                 line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
@@ -5882,7 +6124,172 @@ namespace Parsek.InGameTests
                 "Explicit recorded terminal-orbit data should preserve, not heal");
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody no-overwrite verified: body still Mun");
+                "TerminalOrbitBody explicit preserve verified: body still Mun");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit only when the cached tuple already matches")]
+        public void TerminalOrbitBackfill_AlreadyPopulatedMatchingTuple_NoOverwrite()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestNoOverwriteMatchingTuple",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Existing TerminalOrbitBody should not be overwritten when the full cached tuple already matches");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string preserveLine = captured.LastOrDefault(line =>
+                line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
+                && line.Contains("preserved cached terminal orbit")
+                && line.Contains("body=Kerbin")
+                && line.Contains("sma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(preserveLine),
+                "Expected preserve INFO log when cached tuple already matches endpoint-aligned segment");
+            InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
+                $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("healed stale cached terminal orbit")),
+                "Matching cached tuple should preserve, not heal");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody matching tuple preserve verified: body still Kerbin");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#484 review follow-up: endpoint-aligned backfill heals a stale same-body terminal-orbit tuple instead of preserving by body match alone")]
+        public void TerminalOrbitBackfill_StaleCachedSameBodyTuple_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleSameBodyTuple",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should keep the same body while healing stale tuple fields");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string healLine = captured.LastOrDefault(line =>
+                line.Contains("PopulateTerminalOrbitFromLastSegment")
+                && line.Contains("healed stale cached terminal orbit")
+                && line.Contains("previousBody=Kerbin")
+                && line.Contains("previousSma=250000.0")
+                && line.Contains("newBody=Kerbin")
+                && line.Contains("newSma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(healLine),
+                "Expected stale same-body tuple heal WARN log");
+            InGameAssert.IsTrue(healLine.Contains("[WARN][Flight]"),
+                $"Expected heal log to be WARN/[Flight], got: {healLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("preserved cached terminal orbit")),
+                "Stale cached tuple should heal, not preserve");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale same-body tuple heal verified: sma 250000 -> 700000");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#475/#484: endpoint-aligned backfill heals a stale cached terminal orbit body when the orbit endpoint extends past the last point")]
+        public void TerminalOrbitBackfill_StaleCachedBody_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleBody",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
@@ -6774,6 +7181,7 @@ namespace Parsek.InGameTests
             public string Diagnostic;
             public bool ShouldRetry;
             public bool HadProbeException;
+            public bool HadRetryableReadinessBlock;
         }
 
         private sealed class StrategySelectionResult
@@ -6781,7 +7189,8 @@ namespace Parsek.InGameTests
             public Strategies.Strategy Strategy;
             public string ConfigName;
             public string Diagnostic;
-            public bool SawProbeException;
+            public bool FinalProbeHadException;
+            public bool FinalProbeHadRetryableReadinessBlock;
         }
 
         private static StrategyProbeResult ProbeActivatableStockStrategy()
@@ -6790,21 +7199,20 @@ namespace Parsek.InGameTests
             {
                 Diagnostic = "no activatable stock strategy available",
                 ShouldRetry = false,
-                HadProbeException = false
+                HadProbeException = false,
+                HadRetryableReadinessBlock = false
             };
 
             var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            var list = system?.Strategies;
+            string globalReadinessReason =
+                StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(system, list);
+            if (!string.IsNullOrEmpty(globalReadinessReason))
             {
-                result.Diagnostic = "StrategySystem.Instance is null";
+                result.Diagnostic = globalReadinessReason;
                 result.ShouldRetry = true;
-                return result;
-            }
-            var list = system.Strategies;
-            if (list == null)
-            {
-                result.Diagnostic = "StrategySystem.Strategies is null";
-                result.ShouldRetry = true;
+                result.HadRetryableReadinessBlock = true;
+                StrategyLifecycleProbeSupport.LogReadinessWaiting(globalReadinessReason);
                 return result;
             }
 
@@ -6814,7 +7222,9 @@ namespace Parsek.InGameTests
             int namelessEntries = 0;
             int blockedEntries = 0;
             int probeThrows = 0;
-            string lastProbeFailure = null;
+            int firstProbeFailureIndex = -1;
+            string firstProbeFailureSummary = null;
+            string firstProbeFailureDetail = null;
             for (int i = 0; i < list.Count; i++)
             {
                 var s = list[i];
@@ -6826,6 +7236,7 @@ namespace Parsek.InGameTests
 
                 try
                 {
+                    string probeConfigName = null;
                     if (s.IsActive)
                     {
                         activeEntries++;
@@ -6839,8 +7250,8 @@ namespace Parsek.InGameTests
                         continue;
                     }
 
-                    string configName = config.Name;
-                    if (string.IsNullOrEmpty(configName))
+                    probeConfigName = config.Name;
+                    if (string.IsNullOrEmpty(probeConfigName))
                     {
                         namelessEntries++;
                         continue;
@@ -6854,32 +7265,48 @@ namespace Parsek.InGameTests
                     }
 
                     result.Strategy = s;
-                    result.ConfigName = configName;
-                    result.Diagnostic = $"selected activatable strategy '{configName}'";
+                    result.ConfigName = probeConfigName;
+                    result.Diagnostic = $"selected activatable strategy '{probeConfigName}'";
                     return result;
                 }
                 catch (System.Exception ex)
                 {
                     probeThrows++;
                     result.HadProbeException = true;
-                    lastProbeFailure = $"{ex.GetType().Name}: {ex.Message}";
-                    ParsekLog.Warn("TestRunner",
-                        $"StrategyLifecycle probe skipped strategy index {i} because readiness access threw: {lastProbeFailure}");
+                    if (firstProbeFailureSummary == null)
+                    {
+                        firstProbeFailureIndex = i;
+                        firstProbeFailureSummary =
+                            StrategyLifecycleProbeSupport.FormatExceptionSummary(ex);
+                        firstProbeFailureDetail = ex.ToString();
+                    }
+                    ParsekLog.Verbose("TestRunner",
+                        $"StrategyLifecycle probe exception: index={i} {ex}");
                 }
             }
 
-            result.Diagnostic =
-                $"no CanBeActivated-true stock strategy available (count={list.Count}, null={nullEntries}, " +
-                $"active={activeEntries}, configless={configlessEntries}, nameless={namelessEntries}, " +
-                $"blocked={blockedEntries}, " +
-                $"probeThrows={probeThrows}" +
-                (string.IsNullOrEmpty(lastProbeFailure)
-                    ? ")"
-                    : $", lastProbe='{lastProbeFailure}')");
+            if (probeThrows > 0)
+            {
+                StrategyLifecycleProbeSupport.LogPollExceptions(
+                    list.Count,
+                    probeThrows,
+                    firstProbeFailureIndex,
+                    firstProbeFailureSummary);
+            }
+
+            result.Diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(
+                list.Count,
+                nullEntries,
+                activeEntries,
+                configlessEntries,
+                namelessEntries,
+                blockedEntries,
+                probeThrows,
+                firstProbeFailureIndex,
+                firstProbeFailureSummary,
+                firstProbeFailureDetail);
             result.ShouldRetry =
-                system == null
-                || list == null
-                || configlessEntries > 0
+                configlessEntries > 0
                 || namelessEntries > 0
                 || probeThrows > 0;
             return result;
@@ -6893,18 +7320,23 @@ namespace Parsek.InGameTests
             result.Strategy = null;
             result.ConfigName = null;
             result.Diagnostic = "no activatable stock strategy available";
-            result.SawProbeException = false;
+            result.FinalProbeHadException = false;
+            result.FinalProbeHadRetryableReadinessBlock = false;
 
             for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
                 yield return null;
 
             string stableConfigName = null;
             int stableFrames = 0;
+            bool sawRetryableDelay = false;
             for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
             {
                 var probe = ProbeActivatableStockStrategy();
                 result.Diagnostic = probe.Diagnostic;
-                result.SawProbeException |= probe.HadProbeException;
+                // Track only the final retryable state. Early hydration waits or probe
+                // exceptions that later clear must not poison a later legitimate skip.
+                result.FinalProbeHadException = probe.HadProbeException;
+                result.FinalProbeHadRetryableReadinessBlock = probe.HadRetryableReadinessBlock;
                 if (probe.Strategy != null)
                 {
                     if (probe.ConfigName == stableConfigName)
@@ -6918,7 +7350,16 @@ namespace Parsek.InGameTests
                     result.Strategy = probe.Strategy;
                     result.ConfigName = probe.ConfigName;
                     if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                    {
+                        if (sawRetryableDelay)
+                        {
+                            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                                attempt + 1,
+                                StrategyLifecycleProbeRetryFrames,
+                                result.Diagnostic);
+                        }
                         yield break;
+                    }
 
                     yield return null;
                     continue;
@@ -6931,7 +7372,16 @@ namespace Parsek.InGameTests
                 if (!probe.ShouldRetry)
                     yield break;
 
+                sawRetryableDelay = true;
                 yield return null;
+            }
+
+            if (sawRetryableDelay && (result.Strategy == null || string.IsNullOrEmpty(result.ConfigName)))
+            {
+                StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                    StrategyLifecycleProbeRetryFrames,
+                    StrategyLifecycleProbeRetryFrames,
+                    result.Diagnostic);
             }
         }
 
@@ -6961,7 +7411,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -7017,7 +7469,7 @@ namespace Parsek.InGameTests
             catch (System.Exception ex)
             {
                 InGameAssert.Fail(
-                    $"Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                    $"Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                 yield break;
             }
             yield return null;
@@ -7093,7 +7545,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception innerEx)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx}");
                     }
                 }
                 ParsekLog.TestObserverForTesting = priorObserver;
@@ -7148,7 +7600,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex}");
                     }
                 }
                 ParsekLog.TestObserverForTesting = priorObserver;
@@ -7184,7 +7636,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -7224,7 +7678,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                     yield break;
                 }
                 if (!firstActivate)
@@ -7245,7 +7699,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Second Strategy.Activate threw {ex.GetType().Name} for already-active key='{configName}': {ex.Message}");
+                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
                     yield break;
                 }
                 InGameAssert.IsFalse(ok,
@@ -7277,7 +7731,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
                     }
                 }
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
@@ -7827,5 +8281,400 @@ namespace Parsek.InGameTests
         public double TerminalOrbitEpoch => 0;
         public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
         public string EndpointBodyName => null;
+    }
+
+    public class IncompleteBallisticRuntimeTests
+    {
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Plane-exit extrapolation keeps producing a ballistic tail until the ghost would despawn")]
+        public void ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(radius + 3000.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 250.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "low-altitude flying exit should terminate instead of orbit forever");
+            InGameAssert.IsTrue(result.terminalUT > start.ut,
+                "terminal UT should extend beyond the recorded exit");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "plane exit should produce at least one extrapolated segment");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Suborbital apoapsis extrapolation keeps the ghost on an orbital arc before termination")]
+        public void ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            BallisticStateVector start = MakeApoapsisState(
+                "Kerbin",
+                gravParameter,
+                apoapsisRadius: radius + 70500.0,
+                periapsisRadius: radius + 15000.0);
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "suborbital apoapsis should eventually terminate");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "suborbital apoapsis should produce at least one extrapolated coast segment");
+            InGameAssert.AreEqual("Kerbin", result.segments[0].bodyName,
+                "the first extrapolated segment should stay on Kerbin");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Hyperbolic extrapolation crosses the child SOI and continues on the parent body")]
+        public void ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Sun"] = MakeBody("Sun", 1.1723328e18, 261600000.0, sphereOfInfluence: 1.0e30),
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    3.5316e12,
+                    600000.0,
+                    atmosphereDepth: 0.0,
+                    sphereOfInfluence: 10000000.0,
+                    parentBodyName: "Sun",
+                    parentFrameState: FixedState(Vector3d.zero, new Vector3d(0.0, 9500.0, 0.0)),
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(9500000.0, 0.0, 0.0),
+                velocity = new Vector3d(1400.0, 800.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 1,
+                "hyperbolic exit should produce more than one segment");
+            InGameAssert.IsTrue(result.segments.Any(seg => seg.bodyName == "Sun"),
+                "hyperbolic exit should hand off onto the parent-body frame");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic flyby capture yields the same active body the map-view selector would draw")]
+        public void PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView()
+        {
+            var munPatch = MakePatch(200.0, 320.0, "Mun");
+            var kerbinPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Encounter);
+            kerbinPatch.NextPatch = munPatch;
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = kerbinPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "MunFlybyRuntime");
+
+            InGameAssert.AreEqual(2, snapshot.Segments.Count,
+                "flyby snapshot should capture the encounter and Mun leg");
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                snapshot.Segments,
+                250.0,
+                out OrbitSegment segment,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "Mun flyby segment should be selectable for map rendering");
+            InGameAssert.AreEqual("Mun", segment.bodyName,
+                "map selection should follow the captured Mun leg");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic capture strips planned maneuver nodes from the ghost trajectory")]
+        public void PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn()
+        {
+            var maneuverPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Maneuver);
+            maneuverPatch.NextPatch = MakePatch(200.0, 260.0, "Mun");
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = maneuverPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "ManeuverRuntime");
+
+            InGameAssert.AreEqual(1, snapshot.Segments.Count,
+                "capture should stop before the maneuver patch");
+            InGameAssert.IsTrue(snapshot.StoppedBeforeManeuver,
+                "snapshot should flag that it stopped before a maneuver");
+            InGameAssert.AreEqual("Kerbin", snapshot.Segments[0].bodyName,
+                "post-maneuver bodies should not leak into the captured chain");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector chooses the predicted/extrapolated segment after the recorded payload ends")]
+        public void MapRendering_V1_GhostDrawsLineFromExtrapolatedSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false),
+                MakeOrbitSegment(200.0, 500.0, "Kerbin", isPredicted: true)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                350.0,
+                out OrbitSegment segment,
+                out _,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "predicted tail should remain renderable after payload end");
+            InGameAssert.IsTrue(segment.isPredicted,
+                "map selection should choose the predicted tail segment after payload end");
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Equivalent same-body tails keep the v1 map line continuous across a recorded-data gap")]
+        public void MapRendering_V1_LineContinuesPastRecordedEnd()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Kerbin", isPredicted: true, sma: 700000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out OrbitSegment segment,
+                out double visibleStartUT,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out bool carriedAcrossGap);
+
+            InGameAssert.IsTrue(visible, "equivalent predicted tail should bridge the recorded-data gap");
+            InGameAssert.IsTrue(carriedAcrossGap,
+                "equivalent predicted tail should be carried across the gap");
+            InGameAssert.AreEqual("Kerbin", segment.bodyName,
+                "gap-carry should keep the active body on the same SOI");
+            InGameAssert.ApproxEqual(100.0, visibleStartUT, 0.001);
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector does not bridge across foreign-SOI segments")]
+        public void MapRendering_V1_ForeignSOISegmentsNotRendered()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Mun", isPredicted: true, sma: 250000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsFalse(visible,
+                "foreign-SOI segments should not render through a gap in the v1 selector");
+        }
+
+        private static BallisticStateVector MakeApoapsisState(
+            string bodyName,
+            double gravParameter,
+            double apoapsisRadius,
+            double periapsisRadius)
+        {
+            double semiMajorAxis = (apoapsisRadius + periapsisRadius) * 0.5;
+            double tangentialSpeed = System.Math.Sqrt(
+                gravParameter * ((2.0 / apoapsisRadius) - (1.0 / semiMajorAxis)));
+            return new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = bodyName,
+                position = new Vector3d(apoapsisRadius, 0.0, 0.0),
+                velocity = new Vector3d(0.0, tangentialSpeed, 0.0)
+            };
+        }
+
+        private static ExtrapolationBody MakeBody(
+            string name,
+            double gravParameter,
+            double radius,
+            double atmosphereDepth = 0.0,
+            double sphereOfInfluence = 0.0,
+            string parentBodyName = null,
+            TerrainAltitudeResolver terrainAltitude = null,
+            ParentFrameStateResolver parentFrameState = null,
+            SurfaceCoordinatesResolver surfaceCoordinates = null)
+        {
+            return new ExtrapolationBody
+            {
+                Name = name,
+                ParentBodyName = parentBodyName,
+                GravitationalParameter = gravParameter,
+                Radius = radius,
+                AtmosphereDepth = atmosphereDepth,
+                SphereOfInfluence = sphereOfInfluence,
+                TerrainAltitude = terrainAltitude,
+                ParentFrameState = parentFrameState,
+                SurfaceCoordinates = surfaceCoordinates
+            };
+        }
+
+        private static OrbitSegment MakeOrbitSegment(
+            double startUT,
+            double endUT,
+            string bodyName,
+            bool isPredicted,
+            double sma = 700000.0,
+            double ecc = 0.01)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                semiMajorAxis = sma,
+                eccentricity = ecc,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                isPredicted = isPredicted
+            };
+        }
+
+        private static ParentFrameStateResolver FixedState(Vector3d position, Vector3d velocity)
+        {
+            return (double ut, out Vector3d bodyPosition, out Vector3d bodyVelocity) =>
+            {
+                bodyPosition = position;
+                bodyVelocity = velocity;
+            };
+        }
+
+        private static bool FlatTerrain(double latitude, double longitude, out double altitude)
+        {
+            altitude = 0.0;
+            return true;
+        }
+
+        private static void ZeroSurfaceCoordinates(
+            double ut,
+            Vector3d position,
+            out double latitude,
+            out double longitude)
+        {
+            latitude = 0.0;
+            longitude = 0.0;
+        }
+
+        private static FakePatchedConicOrbitPatch MakePatch(
+            double startUT,
+            double endUT,
+            string bodyName,
+            PatchedConicTransitionType transition = PatchedConicTransitionType.Final)
+        {
+            return new FakePatchedConicOrbitPatch
+            {
+                StartUT = startUT,
+                EndUT = endUT,
+                BodyName = bodyName,
+                Inclination = 0.0,
+                Eccentricity = 0.01,
+                SemiMajorAxis = 700000.0,
+                LongitudeOfAscendingNode = 0.0,
+                ArgumentOfPeriapsis = 0.0,
+                MeanAnomalyAtEpoch = 0.0,
+                Epoch = startUT,
+                EndTransition = transition
+            };
+        }
+
+        private sealed class FakePatchedConicSnapshotSource : IPatchedConicSnapshotSource
+        {
+            private int patchLimit;
+
+            public FakePatchedConicSnapshotSource(int initialPatchLimit)
+            {
+                patchLimit = initialPatchLimit;
+            }
+
+            public string VesselName => "Runtime Fake Vessel";
+            public bool IsAvailable { get; set; } = true;
+            public bool HasPatchLimitAccess { get; set; } = true;
+            public IPatchedConicOrbitPatch RootPatch { get; set; }
+
+            public int PatchLimit
+            {
+                get => patchLimit;
+                set => patchLimit = value;
+            }
+
+            public void Update() { }
+        }
+
+        private sealed class FakePatchedConicOrbitPatch : IPatchedConicOrbitPatch
+        {
+            public double StartUT { get; set; }
+            public double EndUT { get; set; }
+            public double Inclination { get; set; }
+            public double Eccentricity { get; set; }
+            public double SemiMajorAxis { get; set; }
+            public double LongitudeOfAscendingNode { get; set; }
+            public double ArgumentOfPeriapsis { get; set; }
+            public double MeanAnomalyAtEpoch { get; set; }
+            public double Epoch { get; set; }
+            public string BodyName { get; set; }
+            public PatchedConicTransitionType EndTransition { get; set; }
+            public IPatchedConicOrbitPatch NextPatch { get; set; }
+        }
     }
 }

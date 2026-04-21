@@ -46,11 +46,11 @@ namespace Parsek
 
         public bool LoopPlayback;
         /// <summary>
-        /// Launch-to-launch period in seconds (#381). Must be &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// Launch-to-launch period in seconds (#381). Must be &gt;= LoopTiming.MinCycleDuration.
         /// When less than the recording duration, successive launches overlap (multi-ghost
         /// overlap path). When greater, there is a pause window between cycles.
         /// </summary>
-        public double LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel;
+        public double LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
         public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recording)
         public double LoopEndUT = double.NaN;    // NaN = use EndUT (loop entire recording)
@@ -201,9 +201,14 @@ namespace Parsek
         public string ParentBranchPointId;             // null for root recording
         public string ChildBranchPointId;              // null for leaf recordings
 
-        // Explicit UT range for recordings that may have no trajectory points
-        // (background-only recordings). When Points.Count > 0, these are ignored
-        // in favor of Points[0].ut / Points[last].ut.
+        // Explicit UT range for the recording's outer semantic boundary
+        // (background-only recordings, split/merge boundaries, etc.).
+        // These values may extend the computed payload bounds, but must never shrink them:
+        // StartUT only uses ExplicitStartUT when it is earlier than the actual trajectory
+        // start, and EndUT only uses ExplicitEndUT when it is later than the actual
+        // trajectory end. Ghost activation-start resolution depends on that ordering:
+        // it probes first playable payload separately and falls back to StartUT only
+        // when no playable payload exists at all.
         // Default is double.NaN (not set). 0.0 is a valid KSP UT.
         public double ExplicitStartUT = double.NaN;
         public double ExplicitEndUT = double.NaN;
@@ -280,7 +285,7 @@ namespace Parsek
 
         internal bool TryGetGhostActivationStartUT(out double startUT)
         {
-            if (TryGetGhostPlayablePayloadBounds(out startUT, out _))
+            if (PlaybackTrajectoryBoundsResolver.TryGetGhostPlayablePayloadBounds(this, out startUT, out _))
                 return true;
 
             if (!double.IsNaN(ExplicitStartUT))
@@ -329,42 +334,6 @@ namespace Parsek
             return found;
         }
 
-        private bool TryGetGhostPlayablePayloadBounds(out double startUT, out double endUT)
-        {
-            startUT = 0.0;
-            endUT = 0.0;
-            bool found = false;
-
-            if (Points != null && Points.Count > 0)
-            {
-                startUT = Points[0].ut;
-                endUT = Points[Points.Count - 1].ut;
-                found = true;
-            }
-
-            if (OrbitSegments != null && OrbitSegments.Count > 0)
-            {
-                double orbitStartUT = OrbitSegments[0].startUT;
-                double orbitEndUT = OrbitSegments[OrbitSegments.Count - 1].endUT;
-                if (!found || orbitStartUT < startUT)
-                    startUT = orbitStartUT;
-                if (!found || orbitEndUT > endUT)
-                    endUT = orbitEndUT;
-                found = true;
-            }
-
-            if (TryGetPlayableTrackSectionPayloadBounds(out double payloadStartUT, out double payloadEndUT))
-            {
-                if (!found || payloadStartUT < startUT)
-                    startUT = payloadStartUT;
-                if (!found || payloadEndUT > endUT)
-                    endUT = payloadEndUT;
-                found = true;
-            }
-
-            return found;
-        }
-
         private bool TryGetPlayableTrackSectionBounds(out double startUT, out double endUT)
         {
             startUT = 0.0;
@@ -375,7 +344,7 @@ namespace Parsek
             int firstPlayable = -1;
             for (int i = 0; i < TrackSections.Count; i++)
             {
-                if (HasPlayablePayload(TrackSections[i]))
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(TrackSections[i]))
                 {
                     firstPlayable = i;
                     break;
@@ -388,7 +357,7 @@ namespace Parsek
             int lastPlayable = -1;
             for (int i = TrackSections.Count - 1; i >= firstPlayable; i--)
             {
-                if (HasPlayablePayload(TrackSections[i]))
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(TrackSections[i]))
                 {
                     lastPlayable = i;
                     break;
@@ -401,51 +370,6 @@ namespace Parsek
             startUT = TrackSections[firstPlayable].startUT;
             endUT = TrackSections[lastPlayable].endUT;
             return true;
-        }
-
-        private bool TryGetPlayableTrackSectionPayloadBounds(out double startUT, out double endUT)
-        {
-            startUT = 0.0;
-            endUT = 0.0;
-            if (TrackSections == null || TrackSections.Count == 0)
-                return false;
-
-            bool found = false;
-            for (int i = 0; i < TrackSections.Count; i++)
-            {
-                TrackSection section = TrackSections[i];
-                if (!HasPlayablePayload(section))
-                    continue;
-
-                double candidateStartUT;
-                double candidateEndUT;
-                if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-                {
-                    candidateStartUT = section.checkpoints[0].startUT;
-                    candidateEndUT = section.checkpoints[section.checkpoints.Count - 1].endUT;
-                }
-                else
-                {
-                    candidateStartUT = section.frames[0].ut;
-                    candidateEndUT = section.frames[section.frames.Count - 1].ut;
-                }
-
-                if (!found || candidateStartUT < startUT)
-                    startUT = candidateStartUT;
-                if (!found || candidateEndUT > endUT)
-                    endUT = candidateEndUT;
-                found = true;
-            }
-
-            return found;
-        }
-
-        private static bool HasPlayablePayload(TrackSection section)
-        {
-            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-                return section.checkpoints != null && section.checkpoints.Count > 0;
-
-            return section.frames != null && section.frames.Count > 0;
         }
 
         /// <summary>

@@ -55,7 +55,8 @@ namespace Parsek
     public static class RecordingStore
     {
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
-        public const int CurrentRecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
+        public const int PredictedOrbitSegmentFormatVersion = 5;
+        public const int CurrentRecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -74,6 +75,7 @@ namespace Parsek
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
+        // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -3310,7 +3312,11 @@ namespace Parsek
             return pt;
         }
 
-        private static void SerializeOrbitSegment(ConfigNode parent, OrbitSegment seg, CultureInfo ic)
+        private static void SerializeOrbitSegment(
+            ConfigNode parent,
+            OrbitSegment seg,
+            CultureInfo ic,
+            int recordingFormatVersion = CurrentRecordingFormatVersion)
         {
             ConfigNode segNode = parent.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
@@ -3323,6 +3329,8 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
+            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
+                segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -3352,6 +3360,7 @@ namespace Parsek
             double.TryParse(segNode.GetValue("mna"), ns, ic, out seg.meanAnomalyAtEpoch);
             double.TryParse(segNode.GetValue("epoch"), ns, ic, out seg.epoch);
             seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+            bool.TryParse(segNode.GetValue("isPredicted"), out seg.isPredicted);
 
             float ofrX, ofrY, ofrZ, ofrW;
             if (float.TryParse(segNode.GetValue("ofrX"), ns, ic, out ofrX) &&
@@ -4091,6 +4100,7 @@ namespace Parsek
                 && a.meanAnomalyAtEpoch == b.meanAnomalyAtEpoch
                 && a.epoch == b.epoch
                 && a.bodyName == b.bodyName
+                && a.isPredicted == b.isPredicted
                 && a.orbitalFrameRotation.x == b.orbitalFrameRotation.x
                 && a.orbitalFrameRotation.y == b.orbitalFrameRotation.y
                 && a.orbitalFrameRotation.z == b.orbitalFrameRotation.z
@@ -4114,7 +4124,7 @@ namespace Parsek
                     SerializePoint(targetNode, rec.Points[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic);
+                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic, rec.RecordingFormatVersion);
             }
             else
             {
@@ -4162,7 +4172,7 @@ namespace Parsek
 
             // Serialize track sections (new recording system)
             if (rec.TrackSections != null && rec.TrackSections.Count > 0)
-                SerializeTrackSections(targetNode, rec.TrackSections);
+                SerializeTrackSections(targetNode, rec.TrackSections, rec.RecordingFormatVersion);
 
             if (!useSectionAuthoritative && rec.RecordingFormatVersion >= 1)
             {
@@ -4430,7 +4440,10 @@ namespace Parsek
         /// Each section carries its own environment classification, reference frame, and nested
         /// trajectory data (POINT nodes for Absolute/Relative, ORBIT_SEGMENT nodes for OrbitalCheckpoint).
         /// </summary>
-        internal static void SerializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
+        internal static void SerializeTrackSections(
+            ConfigNode parent,
+            List<TrackSection> tracks,
+            int recordingFormatVersion = CurrentRecordingFormatVersion)
         {
             if (tracks == null || tracks.Count == 0)
             {
@@ -4488,7 +4501,7 @@ namespace Parsek
                     if (checkpoints != null)
                     {
                         for (int s = 0; s < checkpoints.Count; s++)
-                            SerializeOrbitSegment(tsNode, checkpoints[s], ic);
+                            SerializeOrbitSegment(tsNode, checkpoints[s], ic, recordingFormatVersion);
                     }
                 }
 
@@ -5269,6 +5282,8 @@ namespace Parsek
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
         {
+            NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
             if (rec != null && rec.RecordingFormatVersion >= 2)
             {
                 TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
@@ -5282,6 +5297,63 @@ namespace Parsek
             precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
             SerializeTrajectoryInto(precNode, rec);
             SafeWriteConfigNode(precNode, path);
+        }
+
+        internal static void NormalizeRecordingFormatVersionForPredictedSegments(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion < 2
+                || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
+                return;
+
+            int predictedCheckpointCount;
+            int predictedOrbitSegmentCount = CountPredictedOrbitSegments(rec, out predictedCheckpointCount);
+            if (predictedOrbitSegmentCount == 0 && predictedCheckpointCount == 0)
+                return;
+
+            int originalVersion = rec.RecordingFormatVersion;
+            rec.RecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
+            if (!SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"NormalizeRecordingFormatVersionForPredictedSegments: recording={rec.RecordingId} " +
+                    $"version={originalVersion}->{rec.RecordingFormatVersion} " +
+                    $"predictedOrbitSegments={predictedOrbitSegmentCount} " +
+                    $"predictedCheckpoints={predictedCheckpointCount}");
+            }
+        }
+
+        internal static int CountPredictedOrbitSegments(Recording rec, out int predictedCheckpointCount)
+        {
+            int predictedOrbitSegmentCount = 0;
+            predictedCheckpointCount = 0;
+
+            if (rec?.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    if (rec.OrbitSegments[i].isPredicted)
+                        predictedOrbitSegmentCount++;
+                }
+            }
+
+            if (rec?.TrackSections == null)
+                return predictedOrbitSegmentCount;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                List<OrbitSegment> checkpoints = rec.TrackSections[i].checkpoints;
+                if (checkpoints == null)
+                    continue;
+
+                for (int j = 0; j < checkpoints.Count; j++)
+                {
+                    if (checkpoints[j].isPredicted)
+                        predictedCheckpointCount++;
+                }
+            }
+
+            return predictedOrbitSegmentCount;
         }
 
         internal static bool ShouldWriteReadableSidecarMirrors()
@@ -5604,7 +5676,11 @@ namespace Parsek
                 ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
                 if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
                 {
-                    Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
+                    Log(string.Format(CultureInfo.InvariantCulture,
+                        "[Parsek] Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
+                        rec.RecordingId,
+                        rec.TerminalOrbitBody,
+                        rec.TerminalOrbitSemiMajorAxis));
                 }
             }
 
@@ -5672,12 +5748,12 @@ namespace Parsek
 
         /// <summary>
         /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
-        /// <see cref="GhostPlaybackLogic.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
+        /// <see cref="LoopTiming.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
         /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every
         /// frame. Sources include old synthetic-fixture saves (pre-#412 the RecordingBuilder
         /// persisted <c>loopIntervalSeconds=0</c>) and any hand-edited save file. Auto-repair
         /// to the effective loop duration (seamless loop at the recording's own length), falling
-        /// back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> when the
+        /// back to <see cref="LoopTiming.DefaultLoopIntervalSeconds"/> when the
         /// trajectory can't supply a valid duration. <see cref="LoopTimeUnit.Auto"/> is left
         /// alone since the resolver pulls the value from the global slider instead.
         /// </summary>
@@ -5685,16 +5761,16 @@ namespace Parsek
         {
             if (rec == null || !rec.LoopPlayback) return;
             if (rec.LoopTimeUnit == LoopTimeUnit.Auto) return;
-            if (rec.LoopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration) return;
+            if (rec.LoopIntervalSeconds >= LoopTiming.MinCycleDuration) return;
 
             double originalInterval = rec.LoopIntervalSeconds;
             double effectiveLoopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
             bool durationUsable = !double.IsNaN(effectiveLoopDuration)
                 && !double.IsInfinity(effectiveLoopDuration)
-                && effectiveLoopDuration >= GhostPlaybackLogic.MinCycleDuration;
+                && effectiveLoopDuration >= LoopTiming.MinCycleDuration;
             double resolved = durationUsable
                 ? effectiveLoopDuration
-                : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                : LoopTiming.DefaultLoopIntervalSeconds;
 
             rec.LoopIntervalSeconds = resolved;
             if (!SuppressLogging)
@@ -5703,7 +5779,7 @@ namespace Parsek
                 ParsekLog.Warn("Loop",
                     $"NormalizeDegenerateLoopInterval: recording '{rec.VesselName}' had " +
                     $"loopIntervalSeconds={originalInterval.ToString("R", ic)} " +
-                    $"(below MinCycleDuration={GhostPlaybackLogic.MinCycleDuration.ToString("R", ic)}s); " +
+                    $"(below MinCycleDuration={LoopTiming.MinCycleDuration.ToString("R", ic)}s); " +
                     $"normalizing to {resolved.ToString("R", ic)}s " +
                     $"(effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s, " +
                     $"durationUsable={durationUsable}) — #412 auto-repair.");

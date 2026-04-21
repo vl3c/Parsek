@@ -256,6 +256,27 @@ namespace Parsek.Tests
             Assert.False(prepared);
         }
 
+        public void FormatCoroutineState_ReportsActiveAndIdleSlots()
+        {
+            string state = InGameTestRunner.FormatCoroutineState(
+                isRunning: true,
+                hasBatchCoroutine: true,
+                hasInnerCoroutine: false);
+
+            Assert.Equal("isRunning=True batch=active inner=null", state);
+        }
+
+        [Fact]
+        public void FormatCoroutineState_ReportsIdleRunnerWhenNothingIsRunning()
+        {
+            string state = InGameTestRunner.FormatCoroutineState(
+                isRunning: false,
+                hasBatchCoroutine: false,
+                hasInnerCoroutine: false);
+
+            Assert.Equal("isRunning=False batch=null inner=null", state);
+        }
+
         // ---- FormatResultsReport: multi-scene accumulation (per-scene history) ----
 
         private static InGameTestInfo MakeTest(string category, string name,

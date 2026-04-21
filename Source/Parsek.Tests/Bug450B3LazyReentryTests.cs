@@ -245,7 +245,7 @@ namespace Parsek.Tests
             // frameLazyReentryBuildDeferred counter would still be 3, but we'd lose
             // the `#N` data.
             var engine = new GhostPlaybackEngine(positioner: null);
-            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlaybackEngine.MaxLazyReentryBuildsPerFrame);
+            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlayback.MaxLazyReentryBuildsPerFrame);
 
             var state3 = BuildPendingState();
             var state4 = BuildPendingState();
@@ -273,7 +273,7 @@ namespace Parsek.Tests
 
             // Force the cap exhausted. Using a test-seam setter avoids the need to
             // actually fire TryBuildReentryFx (which requires a live Unity GameObject).
-            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlaybackEngine.MaxLazyReentryBuildsPerFrame);
+            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlayback.MaxLazyReentryBuildsPerFrame);
 
             engine.TryPerformLazyReentryBuildForTesting(
                 recIdx: 7, state, vesselName: "Excess", bodyName: "Kerbin", altitude: 50_000);
@@ -295,7 +295,7 @@ namespace Parsek.Tests
             state.heatInfos = null;  // Force the heatInfos-null defensive path for the actual attempt.
 
             // Frame 1: cap exhausted.
-            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlaybackEngine.MaxLazyReentryBuildsPerFrame);
+            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlayback.MaxLazyReentryBuildsPerFrame);
             engine.TryPerformLazyReentryBuildForTesting(
                 recIdx: 1, state, vesselName: "T", bodyName: "Kerbin", altitude: 50_000);
             Assert.True(state.reentryFxPendingBuild);  // throttled, flag stays
