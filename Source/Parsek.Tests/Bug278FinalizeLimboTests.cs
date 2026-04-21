@@ -111,6 +111,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_LeafWithOrbitOnlyEndpoint_HealsStaleTerminalOrbitBody()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "leaf-orbit-only-terminal-orbit",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000.0,
+                endUT = 2000.0,
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+            });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 2000.0, isSceneExit: false);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l =>
+                l.Contains("PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit") &&
+                l.Contains("leaf-orbit-only-terminal-orbit"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_NonLeaf_SkipsTerminalStateAssignment()
         {
             // Non-leaf recordings (those with a ChildBranchPointId — interior nodes

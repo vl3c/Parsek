@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
 - The last SOI attitude xUnit follow-up now compares normalized quaternion rotation equivalence by absolute dot product, so exact `q` / `-q` handoff matches no longer fail just because the same world rotation chose the opposite sign.

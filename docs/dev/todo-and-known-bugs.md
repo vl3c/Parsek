@@ -198,6 +198,20 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## 520. `FinalizeIndividualRecording` overwrites a correctly-set terminal orbit body when a same-UT orbit segment reports a different body, even if `Points` anchor the original body
+
+**Source:** port attempt from the superseded `Parsek-fix-batch-terminalorbit` on 2026-04-21. When its `FinalizeIndividualRecording_LeafWithExistingTerminalOrbit_DoesNotOverwriteFromLaterOrbitEndpoint` test was run against current `main`, the assertion `Assert.Equal("Mun", rec.TerminalOrbitBody)` failed with an actual value of `"Kerbin"`.
+
+**Concern:** with a leaf recording where `TerminalOrbitBody = "Mun"`, one `Points` entry at `ut=1000, bodyName="Mun"`, and one `OrbitSegment` on `"Kerbin"` spanning `startUT=1000, endUT=2000`, `FinalizeIndividualRecording` overwrites the cached terminal orbit from Mun to Kerbin. `RecordingEndpointResolver.TryGetExplicitEndpointBodyName` already returns `"Mun"` for this recording (the Points anchor wins over the segment body), but the finalize flow does not gate the overwrite on that anchor. Main's heal path is otherwise correct for the "orbit-only stale body" case (covered by the ported `LeafWithOrbitOnlyEndpoint_HealsStaleTerminalOrbitBody` test), so the gap is specific to "Points anchor one body, segment claims another at the same UT".
+
+**Next step:** decide whether Kerbin-wins-over-Mun is the intended behavior here or a bug. If the intent matches `#484` ("keep an already-correct cached orbit"), the overwrite should be gated on `TryGetExplicitEndpointBodyName` agreement with the new segment body, and a regression test can be added in that shape. If Kerbin-wins is the intended design (later authoritative artifact), add the opposite regression documenting that rule and revisit `#484`'s wording. Either outcome should land together with an explicit test, not just a prod change.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (around `FinalizeIndividualRecording` / `PopulateTerminalOrbitFromLastSegment`), `Source/Parsek/RecordingEndpointResolver.cs` (the existing `TryGetExplicitEndpointBodyName`), `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`.
+
+**Status:** OPEN. Discovered 2026-04-21.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
