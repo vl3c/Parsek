@@ -4662,13 +4662,13 @@ namespace Parsek.InGameTests
             bool autoRecordStateCaptured = false;
             bool throttleCaptured = false;
             var captured = new List<string>();
-            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorObserver = ParsekLog.TestSinkForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
 
             try
             {
                 ParsekLog.VerboseOverrideForTesting = true;
-                ParsekLog.TestObserverForTesting = line =>
+                ParsekLog.TestSinkForTesting = line =>
                 {
                     captured.Add(line);
                     priorObserver?.Invoke(line);
@@ -4765,7 +4765,7 @@ namespace Parsek.InGameTests
                     FlightInputHandler.state.mainThrottle = originalThrottle;
                 if (autoRecordStateCaptured && ParsekSettings.Current != null)
                     ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecordOnLaunch;
-                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.TestSinkForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
 
                 var cleanupFlight = ParsekFlight.Instance;
