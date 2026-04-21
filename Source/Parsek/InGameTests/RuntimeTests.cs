@@ -743,18 +743,51 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
+        private static bool HasObservedActiveRecordingPoint(
+            ParsekFlight flight,
+            out int treePointCount,
+            out int bufferedPointCount,
+            out double lastRecordedUT)
+        {
+            treePointCount = 0;
+            bufferedPointCount = 0;
+            lastRecordedUT = double.NaN;
+
+            if (flight == null)
+                return false;
+
+            var activeTree = flight.ActiveTreeForSerialization;
+            string activeRecId = activeTree?.ActiveRecordingId;
+            if (activeTree != null
+                && !string.IsNullOrEmpty(activeRecId)
+                && activeTree.Recordings.TryGetValue(activeRecId, out var rec)
+                && rec?.Points != null)
+            {
+                treePointCount = rec.Points.Count;
+            }
+
+            var activeRecorder = flight.ActiveRecorderForSerialization;
+            if (activeRecorder != null)
+            {
+                bufferedPointCount = activeRecorder.Recording?.Count ?? 0;
+                lastRecordedUT = activeRecorder.LastRecordedUT;
+            }
+
+            return treePointCount > 0
+                || bufferedPointCount > 0
+                || !double.IsNaN(lastRecordedUT);
+        }
+
         internal static IEnumerator WaitForActiveRecordingPoint(ParsekFlight flight, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
             while (Time.time < deadline)
             {
-                if (flight != null
-                    && flight.ActiveTreeForSerialization != null
-                    && !string.IsNullOrEmpty(flight.ActiveTreeForSerialization.ActiveRecordingId)
-                    && flight.ActiveTreeForSerialization.Recordings.TryGetValue(
-                        flight.ActiveTreeForSerialization.ActiveRecordingId, out var rec)
-                    && rec?.Points != null
-                    && rec.Points.Count > 0)
+                if (HasObservedActiveRecordingPoint(
+                    flight,
+                    out _,
+                    out _,
+                    out _))
                 {
                     yield break;
                 }
@@ -764,18 +797,13 @@ namespace Parsek.InGameTests
             }
 
             string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
-            int pointCount = 0;
-            if (flight?.ActiveTreeForSerialization != null
-                && !string.IsNullOrEmpty(activeRecId)
-                && flight.ActiveTreeForSerialization.Recordings.TryGetValue(activeRecId, out var timedOutRec)
-                && timedOutRec?.Points != null)
-            {
-                pointCount = timedOutRec.Points.Count;
-            }
+            HasObservedActiveRecordingPoint(flight, out int treePointCount, out int bufferedPointCount, out double lastRecordedUT);
 
             InGameAssert.Fail(
                 $"WaitForActiveRecordingPoint timed out after {timeoutSeconds:F0}s " +
-                $"(parsekFlight={(flight != null)}, activeRecId={activeRecId ?? "null"}, points={pointCount})");
+                $"(parsekFlight={(flight != null)}, activeRecId={activeRecId ?? "null"}, " +
+                $"treePoints={treePointCount}, bufferedPoints={bufferedPointCount}, " +
+                $"lastRecordedUT={(double.IsNaN(lastRecordedUT) ? "NaN" : lastRecordedUT.ToString("F2"))})");
         }
 
         internal static IEnumerator WaitForFlightInputStateReady(float timeoutSeconds)
@@ -4756,16 +4784,26 @@ namespace Parsek.InGameTests
                 string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
                 InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
                 InGameAssert.IsTrue(
-                    flight.ActiveTreeForSerialization.Recordings.TryGetValue(preRecId, out var preRec)
-                    && preRec.Points != null
-                    && preRec.Points.Count > 0,
-                    "Quickload mid-recording setup must capture at least one trajectory point before F5");
+                    flight.ActiveTreeForSerialization.Recordings.TryGetValue(preRecId, out _),
+                    $"Active tree must contain the active recording '{preRecId}' before F5");
+                HasObservedActiveRecordingPoint(
+                    flight,
+                    out int preTreePointCount,
+                    out int preBufferedPointCount,
+                    out double preLastRecordedUT);
+                InGameAssert.IsTrue(
+                    preTreePointCount > 0
+                    || preBufferedPointCount > 0
+                    || !double.IsNaN(preLastRecordedUT),
+                    "Quickload mid-recording setup must capture at least one live trajectory sample before F5");
                 int preFlightInstanceId = flight.GetInstanceID();
 
                 ParsekLog.Info("TestRunner",
                     $"Quickload mid-recording setup: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
                     $"situation={FlightGlobals.ActiveVessel?.situation} preRecId={preRecId} " +
-                    $"points={preRec.Points.Count} startedRecordingForTest={startedRecordingForTest}");
+                    $"treePoints={preTreePointCount} bufferedPoints={preBufferedPointCount} " +
+                    $"lastRecordedUT={(double.IsNaN(preLastRecordedUT) ? "NaN" : preLastRecordedUT.ToString("F2"))} " +
+                    $"startedRecordingForTest={startedRecordingForTest}");
 
                 // F5
                 Helpers.QuickloadResumeHelpers.TriggerQuicksave();
