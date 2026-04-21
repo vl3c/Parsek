@@ -74,6 +74,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Flat-trajectory extension detection now accepts a real appended orbit-segment suffix immediately after the rebuilt checkpoint payload, so current-format predicted tails beyond track sections still take the intended flat-binary fallback path while malformed suffixes keep failing closed.
 - Session-merge flat-copy preservation now requires a safe appended suffix beyond the rebuilt track-section payload, so duplicated or non-monotonic flat tails fall back to track-section rebuild instead of leaking bad copies into merged recordings.
 - Incomplete-ballistic scene-exit finalization now only caches permanent `FlightGlobals` probe failures, so a transient `ready=false` teardown frame cannot disable later live finalization in the same KSP session.
 - `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.

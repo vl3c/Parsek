@@ -66,6 +66,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~509. Safe flat-tail detection rejected the valid “predicted orbit segment appended after the checkpoint payload” shape~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the first safe-suffix hardening pass correctly rejected duplicated / non-monotonic tails, but it also rejected the valid current-format case where the flat trajectory only appends one new orbit segment immediately after the rebuilt checkpoint payload. That made the helper report no safe extension even though the writer should still use the flat-binary fallback path for the extra predicted segment.
+
+**Fix:** `FindSafeOrbitSegmentSuffixStart()` now accepts the immediate post-payload suffix slot directly when the remainder of the flat orbit-segment list is monotonic. That keeps malformed tails rejected while preserving the intended “extra predicted orbit tail” fallback contract.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

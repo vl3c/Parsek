@@ -4029,6 +4029,13 @@ namespace Parsek
                 if (flatOrbitSegments[start].startUT < minStartUT)
                     continue;
 
+                if (start == rebuiltOrbitSegments.Count)
+                {
+                    if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, start))
+                        continue;
+                    return start;
+                }
+
                 if (flatOrbitSegments[start].startUT == minStartUT
                     && !OrbitSegmentEquals(flatOrbitSegments[start], rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1]))
                 {
