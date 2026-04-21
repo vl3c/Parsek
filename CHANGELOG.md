@@ -12,7 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- Headless scene-exit finalization tests now skip the live incomplete-ballistic extrapolator when Unity `FlightGlobals` is unavailable, so xUnit keeps exercising the intended fallback paths instead of dying in engine startup.
+- Headless scene-exit finalization tests now skip the live incomplete-ballistic extrapolator when Unity `FlightGlobals` is unavailable, and escaped headless `SecurityException` / `TypeInitializationException` probes are now treated as the same guarded decline path so xUnit reaches its real fallback assertions instead of dying in engine startup.
 - Headless snapshot-validation tests now resolve snapshot `ORBIT.REF` through a test seam, so xUnit can verify endpoint-body repairs and mismatch rejection without booting Unity body registries.
 - Endpoint-aligned spawn-orbit tests now keep terminal-orbit fallback constrained to the resolved endpoint body, surface terminals no longer reuse stale terminal-orbit tuples, and spawn-validation logs include both the caller context and vessel name.
 - `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
