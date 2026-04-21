@@ -772,28 +772,28 @@ namespace Parsek.Tests.Generators
 
         /// <summary>
         /// Returns the loop interval in seconds for serialization. When loop playback is
-        /// enabled but the caller left the interval below <see cref="GhostPlaybackLogic.MinCycleDuration"/>
+        /// enabled but the caller left the interval below <see cref="LoopTiming.MinCycleDuration"/>
         /// (typically the builder's default of 0.0 — pre-#381 "relaunch with no gap"), auto-derive
         /// the period from trajectory duration so written fixtures never carry a degenerate value
         /// that would spam <c>ResolveLoopInterval</c>'s clamp warning at playback (#412).
         /// Mirrors the UI default where an unset period loops seamlessly at the recording's own
-        /// duration. Falls back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> if
+        /// duration. Falls back to <see cref="LoopTiming.DefaultLoopIntervalSeconds"/> if
         /// the trajectory is empty or still below the floor.
         /// </summary>
         public double GetLoopIntervalSeconds()
         {
             if (!loopPlayback)
                 return loopIntervalSeconds;
-            if (loopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration)
+            if (loopIntervalSeconds >= LoopTiming.MinCycleDuration)
                 return loopIntervalSeconds;
 
             if (points.Count >= 2)
             {
                 double duration = GetEndUT() - GetStartUT();
-                if (duration >= GhostPlaybackLogic.MinCycleDuration)
+                if (duration >= LoopTiming.MinCycleDuration)
                     return duration;
             }
-            return GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+            return LoopTiming.DefaultLoopIntervalSeconds;
         }
 
         /// <summary>Returns the raw loop interval field as set by the caller (no auto-derivation).</summary>

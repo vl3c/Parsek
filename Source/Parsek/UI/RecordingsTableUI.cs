@@ -3530,7 +3530,7 @@ namespace Parsek
                     var settings = ParsekSettings.Current;
                     double gv = settings != null
                         ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                        : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                        : LoopTiming.DefaultLoopIntervalSeconds;
                     var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                     disabledText = ParsekUI.FormatLoopValue(gv, gu) + UnitSuffix(gu);
                 }
@@ -3551,7 +3551,7 @@ namespace Parsek
                 var settings = ParsekSettings.Current;
                 double globalVal = settings != null
                     ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                    : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                    : LoopTiming.DefaultLoopIntervalSeconds;
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                 GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
@@ -3564,14 +3564,14 @@ namespace Parsek
                 bool displayClamped;
                 double displayedSeconds = ComputeDisplayedLoopPeriod(
                     rec.LoopIntervalSeconds, loopDuration,
-                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording,
+                    GhostPlayback.MaxOverlapGhostsPerRecording,
                     out displayClamped);
                 string displayText = FormatLoopPeriodDisplayText(
                     displayedSeconds, rec.LoopTimeUnit, displayClamped);
                 string clampTooltip = displayClamped
                     ? BuildLoopPeriodClampTooltip(
                         rec.LoopIntervalSeconds, displayedSeconds, loopDuration,
-                        GhostPlaybackEngine.MaxOverlapGhostsPerRecording)
+                        GhostPlayback.MaxOverlapGhostsPerRecording)
                     : string.Empty;
                 if (loopPeriodFocusedRi != ri)
                 {
@@ -3664,7 +3664,7 @@ namespace Parsek
         {
             double displayValue = ParsekUI.ConvertFromSeconds(storedSeconds, unit);
             if (double.IsNaN(displayValue) || double.IsInfinity(displayValue))
-                displayValue = ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit);
+                displayValue = ParsekUI.ConvertFromSeconds(LoopTiming.MinCycleDuration, unit);
             if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
                 return displayValue.ToString("G17", CultureInfo.InvariantCulture);
 
@@ -3683,10 +3683,10 @@ namespace Parsek
 
             bool invalidStored = double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds);
             double minAdjustedSeconds = invalidStored
-                ? GhostPlaybackLogic.MinCycleDuration
-                : Math.Max(storedSeconds, GhostPlaybackLogic.MinCycleDuration);
+                ? LoopTiming.MinCycleDuration
+                : Math.Max(storedSeconds, LoopTiming.MinCycleDuration);
             bool minAdjusted = invalidStored
-                || storedSeconds < GhostPlaybackLogic.MinCycleDuration - 1e-6;
+                || storedSeconds < LoopTiming.MinCycleDuration - 1e-6;
             bool capAdjusted = loopDurationSeconds > 0.0 && cap > 0
                 && effectiveSeconds - minAdjustedSeconds > 1e-6;
 
@@ -3695,7 +3695,7 @@ namespace Parsek
                 ? "invalid"
                 : storedSeconds.ToString("0.######", CultureInfo.InvariantCulture);
             string durationText = loopDurationSeconds.ToString("0.######", CultureInfo.InvariantCulture);
-            string minText = GhostPlaybackLogic.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
+            string minText = LoopTiming.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
 
             if (capAdjusted && minAdjusted)
             {
@@ -3752,14 +3752,14 @@ namespace Parsek
                 else
                 {
                     // Defensively clamp below-minimum to MinCycleDuration.
-                    if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                    if (newSeconds < LoopTiming.MinCycleDuration)
                     {
                         ParsekLog.Info("UI",
                             $"Recording '{rec.VesselName}' loop period clamped from " +
                             $"{newSeconds.ToString("F1", ic)}s to " +
-                            $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s " +
+                            $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s " +
                             "(MinCycleDuration)");
-                        newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                        newSeconds = LoopTiming.MinCycleDuration;
                     }
                     rec.LoopIntervalSeconds = newSeconds;
                     ParsekLog.Info("UI",

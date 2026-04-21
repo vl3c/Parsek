@@ -46,11 +46,11 @@ namespace Parsek
 
         public bool LoopPlayback;
         /// <summary>
-        /// Launch-to-launch period in seconds (#381). Must be &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// Launch-to-launch period in seconds (#381). Must be &gt;= LoopTiming.MinCycleDuration.
         /// When less than the recording duration, successive launches overlap (multi-ghost
         /// overlap path). When greater, there is a pause window between cycles.
         /// </summary>
-        public double LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel;
+        public double LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
         public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recording)
         public double LoopEndUT = double.NaN;    // NaN = use EndUT (loop entire recording)
