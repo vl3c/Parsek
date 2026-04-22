@@ -188,6 +188,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenStableAndDue_ReturnsTrue()
+        {
+            bool shouldAttempt = ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 9f);
+
+            Assert.True(shouldAttempt);
+        }
+
+        [Fact]
+        public void ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenBlockedOrThrottled_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: true,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: true,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.VesselSwitch,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 11f));
+        }
+
+        [Fact]
         public void Update_CallsMissedVesselSwitchRecoveryBeforeTreeHandlers()
         {
             string parsekFlightPath = LocateParsekFlightSource();

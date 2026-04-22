@@ -264,7 +264,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position
+## ~~525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position~~
 
 **Source:** user observed multiple "explosion happened underground" cases in watch mode. The current `2026-04-21_2335_live-collect-script` package did not capture the underground variant directly, but it did capture a watched destroyed ghost (`"x"`) exploding at 23:32:42 immediately after a terrain-correction log (`Ghost terrain clamp: alt=65.3 terrain=64.8 -> 66.8 (clearance=2.0m)`).
 
@@ -272,7 +272,11 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/TerrainCorrector.cs`, `Source/Parsek/ParsekFlight.cs`, plus a new in-game regression in the terrain/watch test coverage.
 
-**Status:** OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.
+**Fix (2026-04-22):** flight playback now routes destruction anchoring through the host positioner before spawning the explosion FX. `ParsekFlight` re-resolves the explosion anchor against the current body/PQS terrain and the same distance-aware watch clearance floor used by landed ghost terrain correction, then writes the corrected world position back to the ghost before the engine emits stock/custom explosion FX and the loop/overlap watch hold payloads. That keeps the visual blast and the watch camera bridge anchored to the same terrain-safe point instead of the raw buried root.
+
+**Verification:** added headless coverage for the body-name resolver that chooses the explosion-anchor body, and an in-game `TerrainClearance` regression that drives the loop-explosion engine path in Flight and asserts the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped position above `terrain + clearance`.
+
+**Status:** ~~OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.~~ Closed.
 
 ---
 
@@ -336,15 +340,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`
+## ~~531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`~~
 
 **Source:** the package's playback loop repeatedly logs `Spawn suppressed ... no vessel snapshot` for both committed recordings, even though the same session reports the timeline contains only destroyed recordings. The behavior is stable across many suppression cycles.
 
 **Concern:** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(...)` currently checks `rec.VesselSnapshot == null` before `rec.VesselDestroyed`, so destroyed recordings get the wrong suppression reason. This does not change the spawn outcome, but it hides the real state during FF/watch investigations and adds misleading playback noise.
 
-**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+**Fix:** `ShouldSpawnAtRecordingEnd(...)` now checks `rec.VesselDestroyed` before the missing-snapshot guard, so destroyed recordings without a preserved snapshot still report `vessel destroyed`. Focused regressions pin both the direct playback/rewind helper and the KSC wrapper with the exact `VesselDestroyed=true` + `VesselSnapshot=null` shape.
 
-**Status:** OPEN. Low-severity diagnostic correctness issue.
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
@@ -374,7 +380,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 534. Returning to a spawned chain-tip vessel can miss the vessel-switch restore and strand the next continuation outside the existing mission tree
+## ~~534. Returning to a spawned chain-tip vessel can miss the vessel-switch restore and strand the next continuation outside the existing mission tree~~
 
 **Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 23:56:39-00:00:38. When switching back to the spawned Mun-orbit `Kerbal X`, `ParsekScenario` logs `vesselSwitchPending flag stale ... treating FLIGHT→FLIGHT as quickload, not vessel switch`. The follow-up `OnFlightReady` state is still `mode=none tree=-`, even though scene entry active vessel pid `2641112149` is the already-spawned chain tip. The later Mun landing logs `OnVesselSituationChange: not a launch transition (SUB_ORBITAL -> LANDED)`, and the only new recording that starts afterward is a fresh single-node EVA tree for Bob Kerman.
 
@@ -382,7 +388,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`.
 
-**Status:** OPEN. Strong repro captured in-package.
+**Resolution:** fixed 2026-04-22 in the dedicated `bug/534-chain-tip-restore` worktree. The failing path was not a missing `LimboVesselSwitch` dispatch: by the time `OnFlightReady` ran, the pending tree was already gone and only the committed tree copy remained. `ParsekFlight` now detects that scene-entry active vessel PID against committed spawned recordings, pre-transitions the committed tree back into the same live vessel-switch shape the in-session path expects, clears any stale `BackgroundMap` entry still keyed by the recording's historical PID instead of the live spawned PID, detaches the matched tree from committed storage before restoring it live, and restores the tree immediately on `OnFlightReady` (with the existing Update-time recovery loop as a late-active-vessel safety net). Returns to a spawned background member promote cleanly after that stale-entry cleanup; returns to the committed active member resume that same recording directly; and the later recommit still goes through the normal uncommitted-tree path instead of tripping duplicate-tree guards. This keeps `#534` narrowly on the spawned-chain-tip restore path and leaves the broader first-meaningful-modification auto-resume gap to `#546`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
