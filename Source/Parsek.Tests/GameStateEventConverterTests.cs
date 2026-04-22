@@ -15,10 +15,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            GameStateStore.ResetForTesting();
+            GameStateStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -654,13 +658,14 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=50000;failFunds=12000;failRep=5");
+                detail: "title=Orbit the Mun;deadline=50000;type=ExploreBody;failFunds=12000;failRep=5");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
 
             Assert.NotNull(action);
             Assert.Equal(GameActionType.ContractAccept, action.Type);
             Assert.Equal("guid-1234", action.ContractId);
             Assert.Equal("Orbit the Mun", action.ContractTitle);
+            Assert.Equal("ExploreBody", action.ContractType);
             Assert.Equal(50000f, action.DeadlineUT);
             Assert.Equal(12000f, action.FundsPenalty);
             Assert.Equal(5f, action.RepPenalty);
@@ -703,13 +708,15 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
-                detail: "title=Test;deadline=50000;failFunds=1000;failRep=2");
+                detail: "title=Test;deadline=50000;type=PartTest;failFunds=1000;failRep=2");
             GameStateEventConverter.ConvertEvent(evt, "rec");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[GameStateEventConverter]") &&
                 l.Contains("structured format") &&
-                l.Contains("guid-1234"));
+                l.Contains("guid-1234") &&
+                l.Contains("type='PartTest'") &&
+                l.Contains("typeSource=detail"));
         }
 
         [Fact]
@@ -772,6 +779,27 @@ namespace Parsek.Tests
 
             Assert.NotNull(action);
             Assert.Equal(0f, action.AdvanceFunds);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_WhenDetailOmitsType_BackfillsFromSnapshot()
+        {
+            var snapshot = new ConfigNode("CONTRACT");
+            snapshot.AddValue("type", "PartTest");
+            GameStateStore.AddContractSnapshot("guid-snap", snapshot);
+
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-snap",
+                detail: "title=Test Part;deadline=NaN;funds=0;failFunds=3000;failRep=1");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-snap");
+
+            Assert.NotNull(action);
+            Assert.Equal("Test Part", action.ContractTitle);
+            Assert.Equal("PartTest", action.ContractType);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateEventConverter]") &&
+                l.Contains("guid-snap") &&
+                l.Contains("typeSource=snapshot"));
         }
 
         // ================================================================
