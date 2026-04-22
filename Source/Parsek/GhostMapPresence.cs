@@ -26,6 +26,7 @@ namespace Parsek
 
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         /// <summary>
         /// PID tracking set — the canonical ghost vessel identification.
@@ -82,6 +83,11 @@ namespace Parsek
         internal static bool IsIconSuppressed(uint persistentId)
         {
             return ghostsWithSuppressedIcon.Contains(persistentId);
+        }
+
+        private static double GetCurrentUTSafe()
+        {
+            return Planetarium.GetUniversalTime();
         }
 
         // ------------------------------------------------------------------
@@ -483,7 +489,7 @@ namespace Parsek
                 return;
             }
 
-            double currentUT = Planetarium.GetUniversalTime();
+            double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
 
@@ -830,23 +836,40 @@ namespace Parsek
         {
             segment = default(OrbitSegment);
             skipReason = null;
+            string recId = rec?.RecordingId ?? "(null)";
+
+            TrackingStationGhostSource ReturnDecision(
+                TrackingStationGhostSource source,
+                string reason,
+                string detail = null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "ResolveTrackingStationGhostSource: rec={0} currentUT={1:F1} source={2} reason={3}{4}",
+                        recId,
+                        currentUT,
+                        source,
+                        reason ?? "(none)",
+                        string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+                return source;
+            }
 
             if (rec == null)
             {
                 skipReason = "null";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "null recording");
             }
 
             if (rec.IsDebris)
             {
                 skipReason = "debris";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
             }
 
             if (isSuperseded)
             {
                 skipReason = "superseded";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuperseded=True");
             }
 
             // Only chain tips with orbital terminal state get ghosts.
@@ -858,7 +881,10 @@ namespace Parsek
                 && terminal.Value != TerminalState.Docked)
             {
                 skipReason = "terminal-" + terminal.Value;
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "terminal={0}", terminal.Value));
             }
 
             if (rec.HasOrbitSegments)
@@ -868,30 +894,52 @@ namespace Parsek
                 if (currentSegment.HasValue)
                 {
                     segment = currentSegment.Value;
-                    return TrackingStationGhostSource.Segment;
+                    return ReturnDecision(
+                        TrackingStationGhostSource.Segment,
+                        skipReason,
+                        string.Format(ic,
+                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                            segment.bodyName ?? "(null)",
+                            segment.startUT,
+                            segment.endUT));
                 }
             }
 
             if (!HasOrbitData(rec))
             {
                 skipReason = rec.HasOrbitSegments ? "no-current-segment" : "no-orbit-data";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments));
             }
 
             double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
             if (currentUT < activationStartUT)
             {
                 skipReason = "before-activation";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
             }
 
             if (currentUT < rec.EndUT)
             {
                 skipReason = "before-terminal-orbit";
-                return TrackingStationGhostSource.None;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "endUT={0:F1}", rec.EndUT));
             }
 
-            return TrackingStationGhostSource.TerminalOrbit;
+            return ReturnDecision(
+                TrackingStationGhostSource.TerminalOrbit,
+                skipReason,
+                string.Format(ic,
+                    "terminalBody={0} endUT={1:F1}",
+                    rec.TerminalOrbitBody ?? "(null)",
+                    rec.EndUT));
         }
 
         /// <summary>
@@ -942,8 +990,9 @@ namespace Parsek
             var superseded = FindSupersededRecordingIds(committed);
 
             int created = 0, skippedDebris = 0, skippedSuperseded = 0;
-            int skippedTerminal = 0, skippedNoOrbit = 0;
-            double currentUT = Planetarium.GetUniversalTime();
+            int skippedTerminal = 0, skippedBeforeActivation = 0;
+            int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
+            double currentUT = CurrentUTNow();
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -961,6 +1010,8 @@ namespace Parsek
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == "superseded") skippedSuperseded++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
+                    else if (skipReason == "before-activation") skippedBeforeActivation++;
+                    else if (skipReason == "before-terminal-orbit") skippedBeforeTerminalOrbit++;
                     else skippedNoOrbit++;
                     continue;
                 }
@@ -978,9 +1029,11 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5})",
+                    "(skipped: debris={2} superseded={3} terminal={4} beforeActivation={5} " +
+                    "beforeTerminalOrbit={6} noOrbit={7})",
                     created, committed.Count,
-                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit));
+                    skippedDebris, skippedSuperseded, skippedTerminal,
+                    skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit));
 
             return created;
         }
@@ -1202,6 +1255,7 @@ namespace Parsek
         /// </summary>
         internal static void ResetForTesting()
         {
+            CurrentUTNow = GetCurrentUTSafe;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();

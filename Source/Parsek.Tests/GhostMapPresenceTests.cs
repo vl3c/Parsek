@@ -12,6 +12,10 @@ namespace Parsek.Tests
         public GhostMapPresenceTests()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,6 +25,10 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -1095,6 +1103,11 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
             Assert.Equal("before-activation", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-activation"));
         }
 
         /// <summary>
@@ -1143,6 +1156,11 @@ namespace Parsek.Tests
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
             Assert.Equal("Kerbin", segment.bodyName);
             Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=Segment") &&
+                l.Contains("segmentBody=Kerbin"));
         }
 
         /// <summary>
@@ -1174,6 +1192,11 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
             Assert.Equal("before-terminal-orbit", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-terminal-orbit"));
         }
 
         /// <summary>
@@ -1204,6 +1227,71 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, source);
             Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=TerminalOrbit") &&
+                l.Contains("terminalBody=Mun"));
+        }
+
+        /// <summary>
+        /// Startup summary logging must keep future-tip skip buckets distinct so
+        /// before-activation and before-terminal-orbit don't disappear into noOrbit.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets()
+        {
+            GhostMapPresence.CurrentUTNow = () => 500.0;
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "future-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 1983.7, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 27996.3, bodyName = "Mun" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "in-progress-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "no-orbit",
+                    TerminalStateValue = null
+                });
+
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+                Assert.Equal(0, created);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 3 recordings") &&
+                    l.Contains("beforeActivation=1") &&
+                    l.Contains("beforeTerminalOrbit=1") &&
+                    l.Contains("noOrbit=1"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+                ParsekSettingsPersistence.ResetForTesting();
+            }
         }
 
         /// <summary>

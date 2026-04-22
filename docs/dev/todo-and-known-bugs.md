@@ -390,9 +390,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** Tracking Station was mixing the future chain tip's terminal orbit with the earlier active leg, so the vessel list could advertise a second `Kerbal X` as already "in Mun orbit" before the current ghost had actually reached the Mun. `CreateGhostVesselsFromCommittedRecordings()` instantiated tip recordings from `HasOrbitData(rec)` even when current UT was still on an earlier chain segment.
 
-**Fix:** tracking-station ghost creation now resolves a single source of truth per recording: use the currently visible orbit segment when one exists, skip future terminal-orbit tuples before the recording has activated or while it is still in progress, and only fall back to terminal orbit after the recording's own `EndUT`. Added headless regressions covering future-tip suppression, segment-vs-terminal precedence, and post-`EndUT` terminal fallback.
+**Fix:** tracking-station ghost creation now resolves a single source of truth per recording: use the currently visible orbit segment when one exists, skip future terminal-orbit tuples before the recording has activated or while it is still in progress, and only fall back to terminal orbit after the recording's own `EndUT`. The follow-up also restores the `KSP.log` trail for `ResolveTrackingStationGhostSource()` and splits `before-activation` / `before-terminal-orbit` out of the startup `noOrbit` summary bucket. Headless regressions now cover future-tip suppression, segment-vs-terminal precedence, post-`EndUT` terminal fallback, the decision logs, and the startup summary buckets.
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`. No `RuntimeTests` change landed here because the regression is fully covered at the pure decision/logging layer.
 
 **Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
