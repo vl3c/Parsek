@@ -514,6 +514,58 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## 546. Post-switch follow-up recording still lacks general first-modification triggers once Parsek is idle or tree context is lost
+
+**Source:** design/code read on 2026-04-22 after reviewing `docs/parsek-flight-recorder-design.md`, `docs/dev/done/recording-chaining.md`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/FlightRecorder.cs`, and the current auto-record/runtime tests. The design says focus-vessel recording should promote/demote across vessel switches and that physical state changes are what matter; current settings/UI still expose only `Auto-record on launch` and `Auto-record on EVA`.
+
+**Concern:** outside the narrow launch / pad-EVA / live-tree-promotion paths, there is still no general "switch to a real vessel, then make the first meaningful state change" arming path. `OnVesselSituationChange` only auto-starts from `PRELAUNCH` or settled `LANDED`, and `PromoteRecordingFromBackground(...)` only works while an active tree already exists and the switched-to PID is still in `BackgroundMap`. That leaves several follow-up cases uncaptured unless the user manually starts recording: orbital/suborbital engine or RCS burns that stay in the same situation, rover/base repositioning that remains `LANDED`, and switched-to vessel part/crew/resource mutations that do not pass through the current launch/EVA gates. `#534` is the spawned-chain-tip restore variant of this broader gap: once the return path misses promotion, later landing/burn follow-up never rejoins the existing mission tree because only launch/pad-EVA auto-start remain armed.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange`, `OnCrewOnEva`, `OnVesselSwitchComplete`, `PromoteRecordingFromBackground`), `Source/Parsek/FlightRecorder.cs` (`DecideOnVesselSwitch`), `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`. Related cluster: open `#534`.
+
+**Status:** TODO / larger feature gap. Needs an explicit design decision on whether to add generic first-modification auto-start triggers, harden spawned-vessel continuation restore, or both.
+
+---
+
+## 547. Recording optimizer should surface cross-body exo segments more clearly than the current first-body label
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), especially the traced Kerbin-launch-to-Mun-landing scenario.
+
+**Concern:** the optimizer only splits on environment-class changes, not body changes, so a long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
+
+**Files:** `Source/Parsek/RecordingOptimizer.cs`, `Source/Parsek/RecordingStore.cs`, timeline/recordings UI that renders `SegmentBodyName`, `docs/dev/recording-optimizer-review.md`.
+
+**Status:** TODO. Likely UX/research follow-up, not a v0.8.3 ship blocker.
+
+---
+
+## 548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issues 1 and 2.
+
+**Concern:** two related outputs are still structurally correct but awkward in the player-facing recordings list:
+- stationary landed background continuations can end up as `SurfacePosition`/time-range placeholders with no real ghost trail
+- all-boring surface leaf segments can survive optimizer trim because they still carry the final `VesselSnapshot`/spawn responsibility
+
+Both cases are valid data, but they clutter the UI and read like broken/empty ghosts. We should either collapse them visually, mark them explicitly as static/stationary, or trim them to a minimal terminal window while preserving their structural role.
+
+**Files:** `Source/Parsek/BackgroundRecorder.cs`, `Source/Parsek/RecordingOptimizer.cs`, recordings/timeline UI that lists committed segments, `docs/dev/recording-optimizer-review.md`.
+
+**Status:** TODO. UX cleanup / follow-up analysis.
+
+---
+
+## 549. Recording optimizer needs end-to-end branch-point coverage when tree recordings are split post-commit
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issue 5.
+
+**Concern:** the optimizer has unit coverage for split logic, but we still do not have a full tree-with-branch-points regression that proves post-commit environment splits preserve the intended branch linkage and chain navigation shape. The review did not find a live bug here, but this is exactly the seam most likely to regress silently when optimizer logic or branch-point rewrites change.
+
+**Files:** `Source/Parsek.Tests/RecordingOptimizer*`, `Source/Parsek.Tests/RecordingStore*`, any integration-style optimizer/tree fixture that exercises `RunOptimizationPass` on a multi-stage tree with branch points.
+
+**Status:** TODO. Medium-priority coverage gap.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
