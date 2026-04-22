@@ -175,7 +175,7 @@ The **Warp to Next Spawn** button at the bottom warps to whichever candidate spa
 
 ### Kerbals Window
 
-Click the "Kerbals (N)" button in the main Parsek window to open the Kerbals window. The count shows reserved slots + active stand-ins + retired stand-ins + mission-outcome rows combined. The window has two tabs:
+Click the "Kerbals" button in the main Parsek window to open the Kerbals window. The main button stays count-free; detailed roster state and mission-outcome totals live inside the window itself. The window has two tabs:
 
 - **Roster State** — per-owner collapsible tree of slots and their replacement chains.
   - Each top-level row is an original kerbal (Jeb, Bill, Val, ...); clicking the arrow expands the replacement chain underneath, labelled `(active)`, `(retired)`, or `(displaced)`. Reserved slots (waiting for a committed recording to spawn the real crew back in) show their reservation status inline.
@@ -186,7 +186,7 @@ The window is draggable and resizable. Fold/expand state is transient (resets wh
 
 ### Career State Window
 
-Click the "Career State" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
+Click the "Career" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
 
 - **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 at timeline end`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
 - **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same "current vs. at-timeline-end" split as Contracts when future activations are committed.

@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.9.0
 
+### Enhancements
+
+- `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
+
 ### Tests
 
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
@@ -19,6 +23,7 @@ All notable changes to Parsek are documented here.
 - `#496` Added headless coverage for the remaining thin IMGUI owners by extracting pure `TestRunnerPresentation`, `SettingsWindowPresentation`, `SpawnControlPresentation`, and `GroupPickerPresentation` helpers for test-runner labels/tooltips, Settings edit/default rules, Real Spawn Control sort/row-state decisions, and Group Picker selection/tree deltas.
 - `#497` Added explicit ownership-style builder suites for `EngineFxBuilder` and `GhostVisualBuilder`: the new headless seams cover effect-group filtering, config-entry parsing, fallback rotation-mode decisions, ghost snapshot/root selection, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Follow-up coverage now also captures seam-level `EngineFx` logs for guard/fallback branches and pins the malformed-`localRotation` fallback path, while live Unity object construction remains covered by in-game runtime tests and true visual confirmation still depends on runtime/manual evidence.
 - `#524` `TimelineWindowUITests` now pins the row-action width helper that all Timeline recording-row buttons use, so `W`, `FF`, `R`, and `L` stay aligned while `GoTo` remains intentionally wider for its label.
+- `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 
 ## 0.8.3
 
