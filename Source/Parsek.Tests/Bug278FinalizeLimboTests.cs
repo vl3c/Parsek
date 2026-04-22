@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Runtime.Serialization;
 using Parsek.InGameTests;
 using Xunit;
 
@@ -36,6 +34,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            TestBodyRegistry.Reset();
             VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -720,18 +719,9 @@ namespace Parsek.Tests
             orbitNode.AddValue("EPH", "123.0");
             orbitNode.AddValue("REF", "0");
 
-            CelestialBody body = CreateTestBody("Mun");
-            VesselSpawner.BodyIndexResolverForTesting = delegate(CelestialBody candidate, out int index)
-            {
-                if (object.ReferenceEquals(candidate, body))
-                {
-                    index = 1;
-                    return true;
-                }
-
-                index = -1;
-                return false;
-            };
+            TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            Assert.True(TestBodyRegistry.ResolveBodyByName("Mun", out CelestialBody body));
+            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
             ConfigNode normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
                 snapshot,
@@ -749,6 +739,10 @@ namespace Parsek.Tests
             Assert.Equal("0", normalizedOrbit.GetValue("MNA"));
             Assert.Equal("0", normalizedOrbit.GetValue("EPH"));
             Assert.Equal("1", normalizedOrbit.GetValue("REF"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ApplySurfaceOrbitToSnapshot")
+                && l.Contains("stable-terminal snapshot persistence")
+                && l.Contains("Mun"));
         }
 
         [Fact]
@@ -1439,14 +1433,5 @@ namespace Parsek.Tests
         }
 
         #endregion
-
-        private static CelestialBody CreateTestBody(string bodyName)
-        {
-            var body = (CelestialBody)FormatterServices.GetUninitializedObject(typeof(CelestialBody));
-            FieldInfo bodyNameField = typeof(CelestialBody).GetField("bodyName");
-            Assert.NotNull(bodyNameField);
-            bodyNameField.SetValue(body, bodyName);
-            return body;
-        }
     }
 }

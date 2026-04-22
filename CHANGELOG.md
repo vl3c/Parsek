@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#529` Live `BackupVessel()` snapshots now normalize landed/splashed `ORBIT` nodes through the shared backup path instead of only one finalize call site. Stable-terminal persistence, limbo pre-capture, split/chain snapshots, and other live snapshot users all get the canonical surface tuple for the live body, the rewrite logs explicitly, and spawn validation still self-heals older same-body stale surface sidecars from endpoint or snapshot coordinates.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
@@ -154,7 +155,6 @@ All notable changes to Parsek are documented here.
 - `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. KSC now latches the pause state before replaying runtime part events, so ghosts spawned while ESC is open stay silent instead of restarting looped engine/RCS audio or one-shot part-event audio; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
 - `#467` `ReputationChanged` no longer drops stock `+1`/`-1` reputation deltas that arrive as `0.9999995`/`-0.9999995` due to float rounding, so records-milestone reputation legs now reconcile instead of falsely warning as missing.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
-- `#529` Stable-terminal landed/splashed finalize re-snapshots now also rewrite the persisted `ORBIT` node to the canonical surface tuple for the live body, and surface spawn validation now heals same-body landed/splashed snapshots whose `ORBIT` block is still orbital. That keeps newly persisted sidecars internally consistent and lets older bad surface snapshots self-repair at spawn time.
 - Incomplete-ballistic scene-exit finalization now rejects unset/invalid terminal states and retrograde `terminalUT` results, logs real-hook declines, preserves hook-authored terminal-orbit metadata, and explains ghost-only surface metadata preservation instead of silently clearing it.
 - `#485` The SPACECENTER strategy-lifecycle readiness probe now waits for stock strategy hydration to settle before deciding whether to fail or skip, and it reports bounded settle/timeout summaries instead of per-strategy exception spam. Unexpected probe failures still log full stack traces.
 

@@ -318,11 +318,11 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** closed `#479` normalized unsafe `sit` values during stable-terminal persistence, but the current persistence path only rewrites situation metadata. The surface-orbit repair logic still lived only in spawn-time healing, so landed/splashed stable-terminal sidecars could remain internally contradictory until a later repair path touched them.
 
-**Fix:** stable-terminal finalize re-snapshots now normalize surface terminals through the `ORBIT` node too by rewriting landed/splashed snapshots to the canonical surface tuple for the live body before persistence. Spawn validation also treats same-body landed/splashed orbital tuples as malformed surface data and rewrites them from the recorded or snapshot surface coordinates, so older bad sidecars self-heal when they spawn.
+**Fix:** landed/splashed `BackupVessel()` snapshots now normalize through the shared live-backup path instead of only the stable-terminal finalize helper, so finalize persistence, limbo pre-capture, split/chain snapshots, and the other live snapshot call sites all rewrite stale `ORBIT` nodes to the canonical surface tuple for the live body. The rewrite is now logged explicitly, and spawn validation still treats same-body landed/splashed orbital tuples as malformed surface data and rewrites them from the recorded or snapshot surface coordinates so older bad sidecars self-heal when they spawn.
 
 **Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
 
 ---
 
