@@ -201,6 +201,10 @@ namespace Parsek
             }
 
             int sequence = 1;
+            int taggedMatches = 0;
+            int untaggedInWindow = 0;
+            int skippedCrossRecording = 0;
+            int skippedOutsideWindow = 0;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -221,6 +225,27 @@ namespace Parsek
                     continue;
                 }
 
+                if (!TryResolveScienceSubjectStartUt(
+                        subj,
+                        recordingId,
+                        startUT,
+                        endUT,
+                        out double resolvedStartUt,
+                        out bool matchedViaUntaggedWindow,
+                        out bool skippedDueToCrossRecording))
+                {
+                    if (skippedDueToCrossRecording)
+                        skippedCrossRecording++;
+                    else
+                        skippedOutsideWindow++;
+                    continue;
+                }
+
+                if (matchedViaUntaggedWindow)
+                    untaggedInWindow++;
+                else
+                    taggedMatches++;
+
                 result.Add(new GameAction
                 {
                     UT = endUT,
@@ -230,7 +255,7 @@ namespace Parsek
                     ScienceAwarded = subj.science,
                     Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
-                    StartUT = (float)ResolveScienceWindowStart(subj, recordingId, startUT, endUT),
+                    StartUT = (float)resolvedStartUt,
                     EndUT = (float)endUT,
                     Sequence = sequence++
                 });
@@ -238,34 +263,87 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"ConvertScienceSubjects: converted={result.Count} from {subjects.Count} subjects, " +
-                $"recordingId={recordingId ?? "(none)"}");
+                $"recordingId={recordingId ?? "(none)"}, tagged={taggedMatches}, " +
+                $"untaggedInWindow={untaggedInWindow}, skippedCrossRecording={skippedCrossRecording}, " +
+                $"skippedOutsideWindow={skippedOutsideWindow}");
 
             return result;
         }
 
-        private static double ResolveScienceWindowStart(
+        private static bool TryResolveScienceSubjectStartUt(
             PendingScienceSubject subject,
             string recordingId,
             double defaultStartUT,
-            double endUT)
+            double endUT,
+            out double resolvedStartUt,
+            out bool matchedViaUntaggedWindow,
+            out bool skippedDueToCrossRecording)
         {
-            if (!string.Equals(
-                    subject.recordingId ?? "",
-                    recordingId ?? "",
-                    StringComparison.Ordinal))
-                return defaultStartUT;
+            resolvedStartUt = defaultStartUT;
+            matchedViaUntaggedWindow = false;
+            skippedDueToCrossRecording = false;
+
+            string subjectRecordingId = subject.recordingId ?? "";
+            string ownerRecordingId = recordingId ?? "";
+            if (!string.IsNullOrEmpty(subjectRecordingId))
+            {
+                if (!string.Equals(subjectRecordingId, ownerRecordingId, StringComparison.Ordinal))
+                {
+                    skippedDueToCrossRecording = true;
+                    return false;
+                }
+
+                if (!TryResolveTaggedScienceWindowStart(subject, defaultStartUT, endUT, out resolvedStartUt))
+                    return false;
+
+                return true;
+            }
 
             double captureUt = subject.captureUT;
-            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
-                return defaultStartUT;
-            if (captureUt < 0.0)
-                return defaultStartUT;
-            if (captureUt == 0.0 && defaultStartUT > 0.0)
-                return defaultStartUT;
-            if (captureUt > endUT)
-                return defaultStartUT;
+            if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))
+                return false;
 
-            return captureUt;
+            matchedViaUntaggedWindow = true;
+            resolvedStartUt = captureUt;
+            return true;
+        }
+
+        private static bool TryResolveTaggedScienceWindowStart(
+            PendingScienceSubject subject,
+            double defaultStartUT,
+            double endUT,
+            out double resolvedStartUt)
+        {
+            resolvedStartUt = defaultStartUT;
+            double captureUt = subject.captureUT;
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return true;
+            if (captureUt < 0.0)
+                return true;
+            if (captureUt == 0.0 && defaultStartUT > 0.0)
+                return true;
+            if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))
+                return false;
+
+            resolvedStartUt = captureUt;
+            return true;
+        }
+
+        private static bool IsScienceCaptureWithinRecordingWindow(
+            double captureUt,
+            double startUT,
+            double endUT)
+        {
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return false;
+            if (captureUt < 0.0)
+                return false;
+            if (captureUt < startUT)
+                return false;
+            if (captureUt > endUT)
+                return false;
+
+            return true;
         }
 
         private static ScienceMethod ResolveScienceMethod(string reasonKey)

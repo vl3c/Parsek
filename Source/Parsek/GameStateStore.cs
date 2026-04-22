@@ -568,24 +568,54 @@ namespace Parsek
                 string id = pending[i].subjectId;
                 float science = pending[i].science;
 
-                float existing;
-                if (committedScienceSubjects.TryGetValue(id, out existing))
-                {
-                    if (science > existing)
-                    {
-                        committedScienceSubjects[id] = science;
-                        updated++;
-                    }
-                }
-                else
-                {
-                    committedScienceSubjects[id] = science;
-                    added++;
-                }
+                CommitScienceSubject(id, science, ref added, ref updated);
             }
 
             ParsekLog.Info("GameStateStore",
                 $"CommitScienceSubjects: {added} added, {updated} updated (total={committedScienceSubjects.Count})");
+        }
+
+        internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
+        {
+            if (actions == null || actions.Count == 0) return;
+
+            int added = 0, updated = 0, skipped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                CommitScienceSubject(action.SubjectId, action.ScienceAwarded, ref added, ref updated);
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"CommitScienceActions: {added} added, {updated} updated, skipped={skipped} " +
+                $"(total={committedScienceSubjects.Count})");
+        }
+
+        private static void CommitScienceSubject(string id, float science, ref int added, ref int updated)
+        {
+            float existing;
+            if (committedScienceSubjects.TryGetValue(id, out existing))
+            {
+                if (science > existing)
+                {
+                    committedScienceSubjects[id] = science;
+                    updated++;
+                }
+            }
+            else
+            {
+                committedScienceSubjects[id] = science;
+                added++;
+            }
         }
 
         /// <summary>

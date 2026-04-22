@@ -15,8 +15,8 @@ namespace Parsek.Tests
     /// The new invariant:
     /// "If PendingScienceSubjects were populated during recording, they remain
     /// readable until NotifyLedgerTreeCommitted (or CommitSegmentCore for chains)
-    /// clears them in a try/finally AFTER the orchestrator runs. The clear happens
-    /// even if OnRecordingCommitted throws."
+    /// either commits their science safely or, on failure, restores the still-
+    /// uncommitted subjects so a retry does not lose them."
     /// </summary>
     [Collection("Sequential")]
     public class PendingScienceSubjectsClearTests : IDisposable
@@ -41,6 +41,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
+            LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector = null;
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -73,21 +74,29 @@ namespace Parsek.Tests
                 RecordingStore.AddCommittedInternal(r);
         }
 
-        private static void SeedSubject(string subjectId, float science)
+        private static void SeedSubject(
+            string subjectId,
+            float science,
+            double captureUT = double.NaN,
+            string recordingId = "",
+            string reasonKey = "")
         {
             GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subjectId,
                 science = science,
-                subjectMaxValue = science + 10f
+                subjectMaxValue = science + 10f,
+                captureUT = captureUT,
+                recordingId = recordingId,
+                reasonKey = reasonKey
             });
         }
 
         [Fact]
         public void NotifyLedgerTreeCommitted_SingleRecording_SubjectsReadThenCleared()
         {
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f);
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-solo");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-solo");
 
             var rec = MakeRec("rec-solo", 100.0, 200.0);
             StageRecordings(rec);
@@ -117,20 +126,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NotifyLedgerTreeCommitted_MultiRecording_OnlyOneRecordingAbsorbsSubjects()
+        public void NotifyLedgerTreeCommitted_MultiRecording_DoesNotDuplicateSingleRecordingSubjects()
         {
             // Regression for codex review [P1] on PR #307: the previous implementation
             // had both recordings re-read PendingScienceSubjects and emit a full
             // ScienceEarning set each, causing ScienceModule to double-credit every
-            // subject. The fix: NotifyLedgerTreeCommitted snapshots once and picks
-            // exactly one recording (highest EndUT) to own the batch; siblings receive
-            // the empty sentinel.
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f);
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
-            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f);
+            // subject. The fix snapshots once and routes only the matching subset to
+            // each recording, so a batch that all belongs to rec-B still lands once.
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-B");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-B");
+            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, recordingId: "rec-B");
 
             var recA = MakeRec("rec-A", 100.0, 200.0);
-            var recB = MakeRec("rec-B", 200.0, 300.0);  // higher EndUT -> owner
+            var recB = MakeRec("rec-B", 200.0, 300.0);
             StageRecordings(recA, recB);
 
             var tree = new RecordingTree
@@ -150,7 +158,7 @@ namespace Parsek.Tests
             int recBScience = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.ScienceEarning && a.RecordingId == "rec-B");
 
-            // Only the owner (rec-B, higher EndUT) absorbs the 3 subjects.
+            // Only rec-B should receive the 3 subjects, and rec-A must stay empty.
             Assert.Equal(0, recAScience);
             Assert.Equal(3, recBScience);
 
@@ -163,63 +171,168 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PickScienceOwnerRecordingId_PicksHighestEndUT()
+        public void NotifyLedgerTreeCommitted_MultiRecording_RoutesMixedTaggedScienceWithoutDroppingEarlierSegments()
         {
+            SeedSubject(
+                "crewReport@KerbinSrfLanded",
+                2.5f,
+                captureUT: 150.0,
+                recordingId: "rec-A",
+                reasonKey: "ScienceTransmission");
+            SeedSubject(
+                "temperatureScan@MunFlyingHigh",
+                4.2f,
+                captureUT: 250.0,
+                recordingId: "rec-B",
+                reasonKey: "VesselRecovery");
+            SeedSubject(
+                "barometerScan@KerbinInSpaceLow",
+                1.8f,
+                captureUT: 150.0,
+                recordingId: "rec-B",
+                reasonKey: "ScienceTransmission");
+
             var recA = MakeRec("rec-A", 100.0, 200.0);
-            var recB = MakeRec("rec-B", 200.0, 500.0);  // highest EndUT
-            var recC = MakeRec("rec-C", 500.0, 450.0);
+            var recB = MakeRec("rec-B", 200.0, 300.0);
+            StageRecordings(recA, recB);
 
             var tree = new RecordingTree
             {
-                Id = "t",
-                ActiveRecordingId = "rec-A"
-            };
-            tree.Recordings[recA.RecordingId] = recA;
-            tree.Recordings[recB.RecordingId] = recB;
-            tree.Recordings[recC.RecordingId] = recC;
-
-            Assert.Equal("rec-B", LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
-        }
-
-        [Fact]
-        public void PickScienceOwnerRecordingId_EmptyTree_ReturnsNull()
-        {
-            var tree = new RecordingTree { Id = "empty" };
-            Assert.Null(LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
-        }
-
-        [Fact]
-        public void PickScienceOwnerRecordingId_NullTree_ReturnsNull()
-        {
-            Assert.Null(LedgerOrchestrator.PickScienceOwnerRecordingId(null));
-        }
-
-        [Fact]
-        public void PickScienceOwnerRecordingId_TieBreaksOnActiveRecording()
-        {
-            // Two recordings share the highest EndUT — the active one wins.
-            var recA = MakeRec("rec-A", 100.0, 300.0);
-            var recB = MakeRec("rec-B", 200.0, 300.0);  // tied on EndUT and is active
-
-            var tree = new RecordingTree
-            {
-                Id = "t",
-                ActiveRecordingId = "rec-B"
+                Id = "tree-mixed",
+                TreeName = "Mixed Tree",
+                RootRecordingId = recA.RecordingId,
+                ActiveRecordingId = recB.RecordingId
             };
             tree.Recordings[recA.RecordingId] = recA;
             tree.Recordings[recB.RecordingId] = recB;
 
-            Assert.Equal("rec-B", LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            var scienceActions = Ledger.Actions
+                .Where(a => a.Type == GameActionType.ScienceEarning)
+                .OrderBy(a => a.RecordingId, StringComparer.Ordinal)
+                .ThenBy(a => a.SubjectId, StringComparer.Ordinal)
+                .ToList();
+
+            Assert.Equal(2, scienceActions.Count);
+            Assert.Equal("rec-A", scienceActions[0].RecordingId);
+            Assert.Equal("crewReport@KerbinSrfLanded", scienceActions[0].SubjectId);
+            Assert.Equal(150.0f, scienceActions[0].StartUT);
+            Assert.Equal("rec-B", scienceActions[1].RecordingId);
+            Assert.Equal("temperatureScan@MunFlyingHigh", scienceActions[1].SubjectId);
+            Assert.Equal(250.0f, scienceActions[1].StartUT);
+
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "crewReport@KerbinSrfLanded",
+                out committedScience));
+            Assert.Equal(2.5f, committedScience, 0.001f);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@MunFlyingHigh",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                "barometerScan@KerbinInSpaceLow",
+                out committedScience));
         }
 
         [Fact]
-        public void NotifyLedgerTreeCommitted_SingleRecording_OwnerAbsorbsSubjects()
+        public void NotifyLedgerTreeCommitted_SingleRecording_SkipsPreStartUntaggedScience()
         {
-            // A single-recording tree: the sole recording IS the owner, and absorbs all
-            // subjects. No sibling comparison is needed — this is the degenerate case of
-            // the multi-recording attribution logic.
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
-            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f);
+            SeedSubject(
+                "crewReport@KerbinSrfLandedLaunchPad",
+                2.5f,
+                captureUT: 88.7,
+                recordingId: "",
+                reasonKey: "ScienceTransmission");
+            SeedSubject(
+                "temperatureScan@KerbinSrfLandedLaunchPad",
+                4.2f,
+                captureUT: 120.0,
+                recordingId: "",
+                reasonKey: "VesselRecovery");
+
+            var rec = MakeRec("rec-528", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-528",
+                TreeName = "Issue 528",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("temperatureScan@KerbinSrfLandedLaunchPad", action.SubjectId);
+            Assert.Equal(120.0f, action.StartUT);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@KerbinSrfLandedLaunchPad",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                "crewReport@KerbinSrfLandedLaunchPad",
+                out committedScience));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_SingleRecording_SkipsPreStartTaggedScience()
+        {
+            SeedSubject(
+                "crewReport@KerbinSrfLandedLaunchPad",
+                2.5f,
+                captureUT: 88.7,
+                recordingId: "rec-528-tagged",
+                reasonKey: "ScienceTransmission");
+            SeedSubject(
+                "temperatureScan@KerbinSrfLandedLaunchPad",
+                4.2f,
+                captureUT: 120.0,
+                recordingId: "rec-528-tagged",
+                reasonKey: "VesselRecovery");
+
+            var rec = MakeRec("rec-528-tagged", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-528-tagged",
+                TreeName = "Issue 528 Tagged",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("temperatureScan@KerbinSrfLandedLaunchPad", action.SubjectId);
+            Assert.Equal(120.0f, action.StartUT);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@KerbinSrfLandedLaunchPad",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                "crewReport@KerbinSrfLandedLaunchPad",
+                out committedScience));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_SingleRecording_RoutesAllSubjects()
+        {
+            // A single-recording tree routes the whole batch to that lone recording.
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-lone");
+            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, recordingId: "rec-lone");
 
             var rec = MakeRec("rec-lone", 100.0, 200.0);
             StageRecordings(rec);
@@ -242,15 +355,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NotifyLedgerTreeCommitted_OrchestratorThrows_StillClears()
+        public void NotifyLedgerTreeCommitted_OrchestratorThrows_RetainsPendingScience()
         {
-            // Invariant: the try/finally inside NotifyLedgerTreeCommitted clears
-            // PendingScienceSubjects even when OnRecordingCommitted throws. We use
-            // the LedgerOrchestrator.OnRecordingCommittedFaultInjector test hook to
-            // force a throw at the very start of OnRecordingCommitted, so the
-            // invariant is exercised against real code (not asserted by inspection).
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f);
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
+            // Invariant: a pre-ledger throw must NOT permanently drop captured
+            // PendingScienceSubjects. We use the fault injector at the very start of
+            // OnRecordingCommitted, before conversion or mirroring runs, so the test
+            // pins the exact failure path from the review finding.
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-good");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-good");
 
             var recGood = MakeRec("rec-good", 100.0, 200.0);
             StageRecordings(recGood);
@@ -280,13 +392,322 @@ namespace Parsek.Tests
                 LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
             }
 
-            // Even though OnRecordingCommitted threw at its entry point, the
-            // finally block must have cleared PendingScienceSubjects.
+            // Because the throw happened before science reached either the ledger or
+            // GameStateStore, the pending subjects must still be available for retry.
+            Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
+            Assert.Equal(
+                new[] { "crewReport@KerbinSrfLanded", "temperatureScan@MunFlyingHigh" },
+                GameStateRecorder.PendingScienceSubjects.Select(s => s.subjectId).ToArray());
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Empty(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+
+            // And the retention log line should have fired instead of a clear log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("retained PendingScienceSubjects after failure"));
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[LedgerOrchestrator]") && l.Contains("cleared PendingScienceSubjects"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_PostSciencePersistThrow_DoesNotRetainPendingScience()
+        {
+            SeedSubject(
+                "temperatureScan@MunFlyingHigh",
+                4.2f,
+                captureUT: 150.0,
+                recordingId: "rec-safe",
+                reasonKey: "ScienceTransmission");
+
+            var rec = MakeRec("rec-safe", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-safe",
+                TreeName = "Safe Persist Tree",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            var sentinel = new SentinelFaultException("forced after science persist");
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector =
+                    _ => throw sentinel;
+
+                var thrown = Assert.Throws<SentinelFaultException>(() =>
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree));
+                Assert.Same(sentinel, thrown);
+            }
+            finally
+            {
+                LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector = null;
+            }
+
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
 
-            // And the clear log line should have fired.
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("temperatureScan@MunFlyingHigh", action.SubjectId);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@MunFlyingHigh",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+
             Assert.Contains(logLines, l =>
-                l.Contains("[LedgerOrchestrator]") && l.Contains("cleared PendingScienceSubjects"));
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("already removed PendingScienceSubjects before failure"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("retained PendingScienceSubjects after failure"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_UnrelatedSuccess_DoesNotWipeEarlierRetainedScience()
+        {
+            SeedSubject(
+                "crewReport@KerbinSrfLanded",
+                2.5f,
+                captureUT: 150.0,
+                recordingId: "rec-failed",
+                reasonKey: "ScienceTransmission");
+
+            var failedRec = MakeRec("rec-failed", 100.0, 200.0);
+            StageRecordings(failedRec);
+
+            var failedTree = new RecordingTree
+            {
+                Id = "tree-failed",
+                TreeName = "Failed Tree",
+                RootRecordingId = failedRec.RecordingId,
+                ActiveRecordingId = failedRec.RecordingId
+            };
+            failedTree.Recordings[failedRec.RecordingId] = failedRec;
+
+            var sentinel = new SentinelFaultException("forced for test");
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = _ => throw sentinel;
+                var thrown = Assert.Throws<SentinelFaultException>(() =>
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(failedTree));
+                Assert.Same(sentinel, thrown);
+            }
+            finally
+            {
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
+            }
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal("crewReport@KerbinSrfLanded", GameStateRecorder.PendingScienceSubjects[0].subjectId);
+
+            SeedSubject(
+                "temperatureScan@MunFlyingHigh",
+                4.2f,
+                captureUT: 250.0,
+                recordingId: "rec-success",
+                reasonKey: "VesselRecovery");
+
+            var successRec = MakeRec("rec-success", 200.0, 300.0);
+            StageRecordings(successRec);
+
+            var successTree = new RecordingTree
+            {
+                Id = "tree-success",
+                TreeName = "Success Tree",
+                RootRecordingId = successRec.RecordingId,
+                ActiveRecordingId = successRec.RecordingId
+            };
+            successTree.Recordings[successRec.RecordingId] = successRec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(successTree);
+
+            var committedAction = Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.ScienceEarning &&
+                a.RecordingId == "rec-success"));
+            Assert.Equal("temperatureScan@MunFlyingHigh", committedAction.SubjectId);
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal("crewReport@KerbinSrfLanded", GameStateRecorder.PendingScienceSubjects[0].subjectId);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@MunFlyingHigh",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                "crewReport@KerbinSrfLanded",
+                out committedScience));
+        }
+
+        [Fact]
+        public void FinalizeScopedPendingScienceCommit_UnrelatedSuccess_DoesNotWipeEarlierRetainedScience()
+        {
+            // CommitSegmentCore and FallbackCommitSplitRecorder both delegate to this helper
+            // because the real standalone commit paths are not headless-testable without Unity.
+            SeedSubject(
+                "crewReport@KerbinSrfLanded",
+                2.5f,
+                captureUT: 150.0,
+                recordingId: "rec-failed",
+                reasonKey: "ScienceTransmission");
+
+            IReadOnlyList<PendingScienceSubject> failedPending =
+                LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                    GameStateRecorder.PendingScienceSubjects,
+                    "rec-failed",
+                    100.0,
+                    200.0);
+            LedgerOrchestrator.FinalizeScopedPendingScienceCommit(
+                "Chain",
+                "CommitSegmentCore",
+                pendingBefore: GameStateRecorder.PendingScienceSubjects.Count,
+                pendingForCommit: failedPending,
+                commitSucceeded: false,
+                scienceAddedToLedger: false);
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal("crewReport@KerbinSrfLanded", GameStateRecorder.PendingScienceSubjects[0].subjectId);
+
+            SeedSubject(
+                "temperatureScan@MunFlyingHigh",
+                4.2f,
+                captureUT: 250.0,
+                recordingId: "rec-success",
+                reasonKey: "VesselRecovery");
+
+            IReadOnlyList<PendingScienceSubject> successPending =
+                LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                    GameStateRecorder.PendingScienceSubjects,
+                    "rec-success",
+                    200.0,
+                    300.0);
+            var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                successPending,
+                "rec-success",
+                200.0,
+                300.0);
+            var committedAction = Assert.Single(scienceActions);
+            Assert.Equal("temperatureScan@MunFlyingHigh", committedAction.SubjectId);
+            GameStateStore.CommitScienceActions(scienceActions);
+
+            LedgerOrchestrator.FinalizeScopedPendingScienceCommit(
+                "Chain",
+                "CommitSegmentCore",
+                pendingBefore: GameStateRecorder.PendingScienceSubjects.Count,
+                pendingForCommit: successPending,
+                commitSucceeded: true,
+                scienceAddedToLedger: true);
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal("crewReport@KerbinSrfLanded", GameStateRecorder.PendingScienceSubjects[0].subjectId);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                "temperatureScan@MunFlyingHigh",
+                out committedScience));
+            Assert.Equal(4.2f, committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                "crewReport@KerbinSrfLanded",
+                out committedScience));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Chain]") &&
+                l.Contains("CommitSegmentCore: preserved unrelated PendingScienceSubjects after success"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_SecondRecordingThrows_LogsPartiallyRetainedPendingScience()
+        {
+            SeedSubject(
+                "crewReport@KerbinSrfLanded",
+                2.5f,
+                captureUT: 150.0,
+                recordingId: "rec-A",
+                reasonKey: "ScienceTransmission");
+            SeedSubject(
+                "temperatureScan@MunFlyingHigh",
+                4.2f,
+                captureUT: 250.0,
+                recordingId: "rec-B",
+                reasonKey: "VesselRecovery");
+
+            var recA = MakeRec("rec-A", 100.0, 200.0);
+            var recB = MakeRec("rec-B", 200.0, 300.0);
+            StageRecordings(recA, recB);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-partial-failure",
+                TreeName = "Partial Failure Tree",
+                RootRecordingId = recA.RecordingId,
+                ActiveRecordingId = recB.RecordingId
+            };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+
+            var subjectByRecording = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["rec-A"] = "crewReport@KerbinSrfLanded",
+                ["rec-B"] = "temperatureScan@MunFlyingHigh"
+            };
+            var scienceByRecording = new Dictionary<string, float>(StringComparer.Ordinal)
+            {
+                ["rec-A"] = 2.5f,
+                ["rec-B"] = 4.2f
+            };
+            var invocationOrder = new List<string>();
+            var sentinel = new SentinelFaultException("forced on second recording");
+
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = recordingId =>
+                {
+                    invocationOrder.Add(recordingId);
+                    if (invocationOrder.Count == 2)
+                        throw sentinel;
+                };
+
+                var thrown = Assert.Throws<SentinelFaultException>(() =>
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree));
+                Assert.Same(sentinel, thrown);
+            }
+            finally
+            {
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
+            }
+
+            Assert.Equal(2, invocationOrder.Count);
+            string committedRecordingId = invocationOrder[0];
+            string failedRecordingId = invocationOrder[1];
+            string committedSubjectId = subjectByRecording[committedRecordingId];
+            string failedSubjectId = subjectByRecording[failedRecordingId];
+
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal(committedRecordingId, action.RecordingId);
+            Assert.Equal(committedSubjectId, action.SubjectId);
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal(failedSubjectId, GameStateRecorder.PendingScienceSubjects[0].subjectId);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float committedScience;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience(
+                committedSubjectId,
+                out committedScience));
+            Assert.Equal(scienceByRecording[committedRecordingId], committedScience, 0.001f);
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience(
+                failedSubjectId,
+                out committedScience));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("partially retained PendingScienceSubjects after failure"));
         }
 
         [Fact]
@@ -321,10 +742,10 @@ namespace Parsek.Tests
             // No subjects to begin with, no subjects after.
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
 
-            // Clear log is NOT emitted when both pendingBefore and cleared are zero
+            // Clear log is NOT emitted when both pendingBefore and removedPending are zero
             // (noise reduction — see NotifyLedgerTreeCommitted impl).
             Assert.DoesNotContain(logLines,
-                l => l.Contains("cleared PendingScienceSubjects") && l.Contains("atClear="));
+                l => l.Contains("[LedgerOrchestrator]") && l.Contains("cleared PendingScienceSubjects"));
         }
     }
 }

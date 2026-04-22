@@ -525,22 +525,33 @@ namespace Parsek
             RecordingStore.CommitRecordingDirect(rec);
             RecordingStore.RunOptimizationPass();
             int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            IReadOnlyList<PendingScienceSubject> pendingForCommit =
+                LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                    GameStateRecorder.PendingScienceSubjects,
+                    recId,
+                    startUT,
+                    endUT);
+            bool commitSucceeded = false;
+            bool scienceAddedToLedger = false;
             try
             {
-                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                LedgerOrchestrator.OnRecordingCommitted(
+                    recId,
+                    startUT,
+                    endUT,
+                    pendingForCommit,
+                    ref scienceAddedToLedger);
+                commitSucceeded = true;
             }
             finally
             {
-                // #397: Clear PendingScienceSubjects after the orchestrator has read them
-                // for this segment. RecordingStore no longer clears inside CommitRecordingDirect,
-                // so this is the authoritative clear point for chain segments. The try/finally
-                // ensures the invariant holds even if OnRecordingCommitted throws.
-                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
-                GameStateRecorder.PendingScienceSubjects.Clear();
-                if (pendingBefore > 0 || cleared > 0)
-                    ParsekLog.Verbose("Chain",
-                        $"CommitSegmentCore: cleared PendingScienceSubjects " +
-                        $"(before={pendingBefore}, atClear={cleared})");
+                LedgerOrchestrator.FinalizeScopedPendingScienceCommit(
+                    "Chain",
+                    "CommitSegmentCore",
+                    pendingBefore,
+                    pendingForCommit,
+                    commitSucceeded,
+                    scienceAddedToLedger);
             }
             // #390: prune consumed events after milestone creation + ledger conversion
             GameStateStore.PruneProcessedEvents();

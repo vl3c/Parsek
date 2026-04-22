@@ -36,7 +36,8 @@ namespace Parsek
 
         /// <summary>
         /// Science subjects captured during the current recording session.
-        /// Transferred to GameStateStore.committedScienceSubjects on commit.
+        /// Converted into ScienceEarning actions and then mirrored into
+        /// GameStateStore.committedScienceSubjects on commit.
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
