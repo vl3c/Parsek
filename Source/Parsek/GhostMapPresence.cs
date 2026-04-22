@@ -24,6 +24,8 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
+        internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
+        internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
 
         /// <summary>
         /// PID tracking set — the canonical ghost vessel identification.
@@ -628,7 +630,6 @@ namespace Parsek
                 return;
 
             GhostPlaybackLogic.InvalidateVesselCache();
-            uint sceneEntryActiveVesselPid = RecordingStore.SceneEntryActiveVesselPid;
 
             for (int i = 0; i < eligibleIndices.Count; i++)
             {
@@ -636,9 +637,8 @@ namespace Parsek
                 Recording rec = committed[index];
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
-                bool bypassDedup = ShouldBypassTrackingStationRealVesselDedup(rec, sceneEntryActiveVesselPid);
 
-                if (realVesselExists && !bypassDedup)
+                if (realVesselExists)
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
@@ -953,18 +953,9 @@ namespace Parsek
                 return (false, TrackingStationSpawnSkipIntermediateChainSegment);
             var chainSuppressed = GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, rec);
             if (chainSuppressed.suppressed)
-                return (false, chainSuppressed.reason);
+                return (false, NormalizeTrackingStationSpawnSuppressionReason(chainSuppressed.reason));
 
             return spawnResult;
-        }
-
-        internal static bool ShouldBypassTrackingStationRealVesselDedup(
-            Recording rec,
-            uint sceneEntryActiveVesselPid)
-        {
-            return rec != null
-                && rec.VesselPersistentId != 0
-                && rec.VesselPersistentId == sceneEntryActiveVesselPid;
         }
 
         internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
@@ -979,6 +970,19 @@ namespace Parsek
             return chain != null
                 && !chain.IsTerminated
                 && chain.TipRecordingId == rec.RecordingId;
+        }
+
+        internal static string NormalizeTrackingStationSpawnSuppressionReason(string reason)
+        {
+            switch (reason)
+            {
+                case "intermediate ghost chain link":
+                    return TrackingStationSpawnSkipIntermediateGhostChainLink;
+                case "terminated ghost chain":
+                    return TrackingStationSpawnSkipTerminatedGhostChain;
+                default:
+                    return reason;
+            }
         }
 
         /// <summary>

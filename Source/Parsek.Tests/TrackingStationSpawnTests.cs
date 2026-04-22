@@ -146,27 +146,7 @@ namespace Parsek.Tests
                 chains);
 
             Assert.False(needsSpawn);
-            Assert.Contains("intermediate ghost chain link", reason);
-        }
-
-        [Fact]
-        public void ShouldBypassTrackingStationRealVesselDedup_MatchingSceneEntryPid_ReturnsTrue()
-        {
-            var rec = MakeEligibleTrackingStationRecording(pid: 777);
-
-            bool bypass = GhostMapPresence.ShouldBypassTrackingStationRealVesselDedup(rec, 777);
-
-            Assert.True(bypass);
-        }
-
-        [Fact]
-        public void ShouldBypassTrackingStationRealVesselDedup_NonMatchingSceneEntryPid_ReturnsFalse()
-        {
-            var rec = MakeEligibleTrackingStationRecording(pid: 777);
-
-            bool bypass = GhostMapPresence.ShouldBypassTrackingStationRealVesselDedup(rec, 888);
-
-            Assert.False(bypass);
+            Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink, reason);
         }
 
         [Fact]
