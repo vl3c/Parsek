@@ -250,15 +250,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 524. Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)
+## 524. ~~Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)~~
 
 **Source:** user observation plus code read in `Source/Parsek/UI/TimelineWindowUI.cs`.
 
 **Concern:** the row-action column visibly jitters because the watch, fast-forward, rewind, and loop buttons all use different hard-coded widths. The mismatch is cosmetic, but it makes dense Timeline rows harder to scan and undermines the otherwise deliberate table alignment.
 
-**Files:** `Source/Parsek/UI/TimelineWindowUI.cs` (make the row-action buttons share a single width constant, likely matching `FF`).
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
 
-**Status:** TODO / UI polish. Cheap fix, low risk.
+**Resolution (2026-04-22):** CLOSED. The current tree already had the short Timeline row actions (`W`, `FF`, `R`, `L`) aligned at the `FF` width (35px); this follow-up makes that existing contract explicit with a shared row-action width helper, keeps `GoTo` on its intentional wider width, and adds focused xUnit coverage so future UI edits cannot quietly drift the short buttons back apart.
+
+**Status:** ~~TODO / UI polish. Cheap fix, low risk.~~ Closed.
 
 ---
 
@@ -454,15 +456,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count
+## ~~541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count~~
 
 **Source:** user request from 2026-04-22 after a main-page UI wording pass.
 
 **Concern:** the main button column still renders `Kerbals ({total})` and `Career State`. For top-level navigation the count suffix is noise, and `Career State` is longer/more formal than the rest of the button labels. Requested wording: `Kerbals` with no trailing count, and `Career` instead of `Career State`. Any detailed counts can stay inside the destination windows rather than on the launch surface.
 
-**Files:** `Source/Parsek/ParsekUI.cs`, plus small regression coverage in `Source/Parsek.Tests/ParsekUITests.cs` or equivalent UI-label tests.
+**Fix:** `ParsekUI` now renders the launch-surface buttons as `Kerbals` and `Career`, removes the dynamic Kerbals aggregate count entirely from the main column, and leaves the detailed roster counts inside the Kerbals/Career destination windows. `ParsekUITests` now pin the short-label contract so a future refactor cannot quietly reintroduce the count suffix or the longer `Career State` button label.
 
-**Status:** TODO / UI polish. Cheap text-only cleanup.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
@@ -825,13 +827,11 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 **Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
 
-**Remaining gap after closure:**
-
-The next runtime scenario worth adding is no longer these synthetic canaries. It is the stock `record -> revert -> soft-unstash / no merge` flow, followed by the real non-revert scene-exit deferred merge path.
+**Historical next-gap note:** after this closure, the audit moved on to the stock `record -> revert -> soft-unstash / no merge` flow (`#490`) and then the real non-revert scene-exit deferred merge path (`#491`). Both are now closed below.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gaps are the stock revert soft-unstash transition and the non-revert deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch.
 
 ---
 
@@ -852,106 +852,99 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch. The then-open next player-flow gap (`#491`) is now closed below.
 
 ---
 
-## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+## ~~491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path~~
 
 **Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
 
-**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`), stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`), and the two manual-only `SceneExitMerge` stock save-and-exit canaries.
 
 **Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
 
-**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
+**Validation (2026-04-21):** the archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` closes the gap.
 
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
-
-Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+- `parsek-test-results.txt` records `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` as `SPACECENTER PASSED (9423.5ms)` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` as `SPACECENTER PASSED (9707.1ms)`.
+- `KSP.log` shows the real stock save-and-exit path surfacing `Showing deferred tree merge dialog in SPACECENTER`, then the discard branch logging `User chose: Tree Discard` plus `Scene-exit merge discard runtime: ... committedTreesAfter=0`, and later the merge branch logging `User chose: Tree Merge` plus `Scene-exit merge commit runtime: ... committedTreesAfter=1`.
+- Those runs exercise the shipped player flow: launch from `PRELAUNCH`, leave the pad, invoke stock `Space Center` exit semantics, and resolve the production `ParsekMerge` popup in `SPACECENTER` instead of a synthetic dialog path.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
-## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+## ~~492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence~~
 
 **Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
 
-**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+**Current state:** closed. `Source/Parsek/InGameTests/RuntimeTests.cs` contains `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` (the file is `RuntimeTests.cs`, but the owning/exported class name is `FlightIntegrationTests`). These deterministic `FLIGHT` runtime tests build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. Retained April 21, 2026 live bundles now show both tests passing in `FLIGHT`.
 
 **Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
 
-**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+**Evidence:**
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` records both `FlightIntegrationTests.PartEventTiming_*` rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` records the same two rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` records `Running`/`PASSED` for both canaries plus the `Applied 1 part events for ghost #902/#901` diagnostics at the event boundary
 
-Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+This closes the audit's first player-visible part-event timing gap for the light/deployable slice without requiring new live interaction in this worktree.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED - LIVE KSP VALIDATED (evidence retained in `C:\Users\vlad3\Documents\Code\Parsek\logs\`).
 
 ---
 
-## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
+## 493. Destructive FLIGHT runtime tests now have a stronger retained isolated batch path, but final live validation is still pending
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
-**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
+**Fix:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests.
+
+**Current state:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests. Retained evidence under sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` shows that path working on historical commit `80176033`: `parsek-test-results.txt` records `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
 - `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
 - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
-- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
 - `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
 - `FlightIntegrationTests.BridgeSurvivesSceneTransition`
 - `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
 - `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
+`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that retained session and skipped with `no same-body ghost available for watch-cleanup regression`; the isolated harness handled that skip cleanly, but the full widened cohort still has not been exercised end-to-end in one retained packet.
 
-Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
+**Caveat:** this retained batch evidence predates the later `#493` quickload hardening now documented in `CHANGELOG.md`, so it improves confidence but does not fully close the issue on its own. `SceneExitMerge` also intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both `SPACECENTER` scene-exit canaries passing, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch.
 
-**Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
+**Current follow-up:** re-capture retained `Run All + Isolated` / `Run+` evidence from the final quickload-hardened revision, with a same-body ghost available so the watch-cleanup regression runs instead of skipping. Keep `SceneExitMerge` manual-only until the post-run contamination is eliminated.
 
-**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
-
-**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, waits through transient-null `FlightInputHandler.state` until the input state stays stable, and then waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
-
-**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
-
-**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
-
-- the `[isolated]` tests above run in one session without manual reloads
-- the runner quickloads the baseline back between destructive tests
-- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
-- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
-
-**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** OPEN - PARTIAL RETAINED EVIDENCE EXISTS; FINAL-REVISION LIVE VALIDATION PENDING.
 
 ---
 
-## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+## ~~494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report~~ CLOSED 2026-04-22
 
 **Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` completed end-to-end and produced the first validated baseline coverage packet:
 
-**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+- restore/build succeeded for `Source/Parsek/Parsek.csproj` and `Source/Parsek.Tests/Parsek.Tests.csproj`
+- xUnit result: `Passed: 7730, Skipped: 2, Total: 7732`
+- Cobertura baseline: line `34220/82454 (41.50%)`, branch `15944/39907 (39.95%)`, method `56.28%`, `325` classes
+- generated artifacts: `coverage..cobertura.xml`, `coverage-summary.txt`, and `dotnet-test.log`
+- archived packet: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`
+- remaining non-blocking warnings: `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` (`xUnit1013`) and the two `KerbalsWindowUITests` substring assertions (`xUnit2009`)
 
-**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+**Why this matters:** the repo can now answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
 
-**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+**Follow-up:** future work should keep this packet shape repeatable, but the missing-baseline blocker itself is now closed. The next useful iteration is diff/CI retention, not more local runner churn.
 
-**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-22). Baseline captured and archived.
 
 ---
 
@@ -971,35 +964,29 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 ---
 
-## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+## ~~496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests~~
 
 **Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+**Concern:** after the first slice landed, `TestRunnerUI` and the Ctrl+Shift+T shortcut shared `TestRunnerPresentation`, but the other thin IMGUI owners (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) still kept meaningful parse/sort/selection/tree rules inside draw code. That left UI regressions disproportionately dependent on live KSP playtests instead of direct headless ownership tests.
 
-**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+**Fix:** the remaining IMGUI owners now delegate their meaningful non-Unity logic to pure helpers: `SettingsWindowPresentation` owns auto-loop/camera-cutoff edit parsing plus the Defaults payload, `SpawnControlPresentation` owns Real Spawn Control sorting and per-row warp/state decisions, and `GroupPickerPresentation` owns normalized selection, common-group intersection, tree building, toggle rules, new-group validation, and membership deltas. Added focused headless coverage in `Source/Parsek.Tests/SettingsWindowPresentationTests.cs`, `Source/Parsek.Tests/SpawnControlPresentationTests.cs`, and `Source/Parsek.Tests/GroupPickerPresentationTests.cs`, completing the audit target list alongside the earlier `TestRunnerPresentation` tests.
 
-**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+**Deferred micro-follow-up:** this branch intentionally still reuses three older shared helpers instead of re-extracting them into the presentation layer: `SettingsWindowPresentation.TryResolveAutoLoopEdit(...)` still delegates to `ParsekUI.TryParseLoopInput(...)` / `ParsekUI.ConvertToSeconds(...)`, and `SpawnControlPresentation.BuildRowPresentation(...)` still uses `SelectiveSpawnUI.FormatCountdown(...)`. That is now a consistency follow-up rather than an audit blocker.
 
-**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
-## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+## ~~497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles~~
 
 **Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. The earlier sidecar/generator ownership bundles are now matched by dedicated builder suites: `Source/Parsek.Tests/EngineFxBuilderTests.cs` owns headless-safe effect-group filtering, model/prefab config-entry parsing, fallback Euler selection, prefab rotation-mode decisions, and seam-level diagnostic log assertions for guard/fallback branches extracted from the runtime-heavy FX builder, and `Source/Parsek.Tests/GhostVisualBuilderTests.cs` now owns ghost snapshot selection/root parsing, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Live Unity object construction stays in the in-game runtime tests instead of xUnit, while true visual confirmation still relies on runtime/manual evidence rather than new headless assertions.
 
-**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/EngineFxBuilderTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`, `Source/Parsek.Tests/RecordingStoreTests.cs`, `Source/Parsek.Tests/GhostVisualFrameTests.cs`, `docs/dev/todo-and-known-bugs.md`.
 
-**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
-
-**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

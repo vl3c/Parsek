@@ -105,19 +105,19 @@ namespace Parsek
         private void CommitAutoLoopEdit(ParsekSettings s)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double parsed;
-            if (ParsekUI.TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
+            if (SettingsWindowPresentation.TryResolveAutoLoopEdit(
+                settingsAutoLoopText,
+                s.AutoLoopDisplayUnit,
+                out SettingsWindowPresentation.AutoLoopEditResolution resolution))
             {
-                double newSeconds = ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
                 // #381: defensively clamp to MinCycleDuration — matches per-recording UI.
-                if (newSeconds < LoopTiming.MinCycleDuration)
+                if (resolution.WasClamped)
                 {
                     ParsekLog.Info("UI",
-                        $"Auto-launch period clamped from {newSeconds.ToString("F1", ic)}s to " +
+                        $"Auto-launch period clamped from {resolution.RequestedSeconds.ToString("F1", ic)}s to " +
                         $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
-                    newSeconds = LoopTiming.MinCycleDuration;
                 }
-                s.autoLoopIntervalSeconds = (float)newSeconds;
+                s.autoLoopIntervalSeconds = resolution.AppliedSeconds;
                 ParsekLog.Info("UI",
                     $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", ic)}s");
             }
@@ -172,15 +172,17 @@ namespace Parsek
             if (GUILayout.Button("Defaults"))
             {
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
-                s.autoRecordOnLaunch = true;
-                s.autoRecordOnEva = true;
-                s.autoMerge = false;
-                s.verboseLogging = true;
-                s.writeReadableSidecarMirrors = true;
-                s.SamplingDensityLevel = SamplingDensity.Medium;
-                s.autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
-                s.autoLoopTimeUnit = 0;
-                s.showGhostsInTrackingStation = true;
+                SettingsWindowPresentation.SettingsDefaults defaults =
+                    SettingsWindowPresentation.BuildDefaults();
+                s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
+                s.autoRecordOnEva = defaults.AutoRecordOnEva;
+                s.autoMerge = defaults.AutoMerge;
+                s.verboseLogging = defaults.VerboseLogging;
+                s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
+                s.SamplingDensityLevel = defaults.SamplingDensityLevel;
+                s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
+                s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
+                s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
