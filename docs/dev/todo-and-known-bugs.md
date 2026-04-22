@@ -850,7 +850,7 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 - `SessionMerger.LooksLikeSaveLoadTeleportBoundary(...)` only tags overlap-derived restored seams. A normal runway surface→atmo handoff with no overlapping active section is not classified as `save-load-teleport`.
 - `RecordingOptimizer.FindSplitCandidatesForOptimizer(...)` still intentionally splits non-EVA surface→atmo boundaries once both halves exceed 5 seconds, so the final committed runway tree can still look like a short surface segment glued to an atmo segment even though the quickload discontinuity itself is gone.
 
-**Status:** CLOSED 2026-04-22 for the original seam/discontinuity bug. The follow-up diagnosis on 2026-04-22 was stale docs plus missing runway-specific regression coverage, not a new code gap on current `main`.
+**Status:** CLOSED 2026-04-22 for v0.9.0. The original seam/discontinuity bug remains fixed; the follow-up diagnosis on 2026-04-22 was stale docs plus missing runway-specific regression coverage, not a new code gap on current `main`.
 
 ---
 
