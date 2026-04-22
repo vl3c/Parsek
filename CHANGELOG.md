@@ -60,7 +60,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
-- `#538` Added a live `ReentryFx` runtime regression that builds the Unity fire particle system, drives `UpdateReentryFx` in atmosphere until the smoothed intensity rises, and asserts the emission rate can exceed the old `2000` particles/sec ceiling while the built particle-system cap stays on the tuned `2000`-particle headroom value.
+- `#538` Added deterministic headless coverage pinning the tuned `600-4000` reentry-fire emission range and `2000` cap, plus a live `ReentryFx` runtime regression that waits on elapsed realtime instead of a fixed frame count before asserting the emission rate can exceed the old `2000` particles/sec ceiling. The live runtime check still skips on non-atmospheric saves.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
 - The last SOI attitude xUnit follow-up now compares normalized quaternion rotation equivalence by absolute dot product, so exact `q` / `-q` handoff matches no longer fail just because the same world rotation chose the opposite sign.

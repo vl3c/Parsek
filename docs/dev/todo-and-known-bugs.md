@@ -426,9 +426,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Source:** user observed that the atmospheric drag/heating fire is too thin and should emit about twice as many particles. Current code still hardcodes a single fire-particle layer at `ReentryFireEmissionMin=300`, `ReentryFireEmissionMax=2000`, and `ReentryFireMaxParticles=1500`. The package's reentry run confirms the path is active (`Lazy reentry build fired`, later `rebuilt emission mesh ... and 105 fire shell meshes after decouple`), but does not measure visual density.
 
-**Fix:** kept the primary tuning surface in `DriveReentryLayers()` by doubling the fire-particle emission range from `300-2000` to `600-4000` particles/sec, then raised the build-time `ReentryFireMaxParticles` cap only from `1500` to `2000` so the denser stream does not clip at peak intensity. Added live runtime coverage that builds a real Unity reentry particle system, drives `UpdateReentryFx()` on an atmospheric body, and asserts the emission rate rises past the old `2000` particles/sec ceiling while the new `2000`-particle cap is applied to the built system.
+**Fix:** kept the primary tuning surface in `DriveReentryLayers()` by doubling the fire-particle emission range from `300-2000` to `600-4000` particles/sec, then raised the build-time `ReentryFireMaxParticles` cap only from `1500` to `2000` so the denser stream does not clip at peak intensity. Added deterministic headless coverage pinning the tuned emission range/cap, plus a live runtime regression that builds a real Unity reentry particle system, drives `UpdateReentryFx()` on an atmospheric body, and waits on elapsed realtime rather than a fixed frame count before asserting the emission rate rises past the old `2000` particles/sec ceiling. The live runtime check still skips on non-atmospheric saves.
 
-**Files:** `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+**Files:** `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`.
 
 **Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 

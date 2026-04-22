@@ -8732,7 +8732,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
-            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system.")]
+            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
         public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
         {
             Vessel activeVessel = FlightGlobals.ActiveVessel;
@@ -8799,9 +8799,15 @@ namespace Parsek.InGameTests
             };
 
             var engine = new GhostPlaybackEngine(positioner: null);
-            for (int i = 0; i < 12; i++)
+            const float emissionSettleTimeoutSeconds = 1.5f;
+            float deadline = Time.realtimeSinceStartup + emissionSettleTimeoutSeconds;
+            float actualRate = 0f;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 engine.UpdateReentryFx(recIdx: 538, state, vesselName: "Test538", warpRate: 1f);
+                actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
+                if (actualRate > 2000f)
+                    break;
                 yield return null;
             }
 
@@ -8814,11 +8820,10 @@ namespace Parsek.InGameTests
                 GhostVisualBuilder.ReentryFireEmissionMin,
                 GhostVisualBuilder.ReentryFireEmissionMax,
                 Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
-            float actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
             InGameAssert.ApproxEqual(expectedRate, actualRate, 0.5f,
                 "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
             InGameAssert.IsGreaterThan(actualRate, 2000.0,
-                "Bug #538 regression: tuned live emission rate should rise past the old 2000 particles/sec ceiling");
+                $"Bug #538 regression: tuned live emission rate should rise past the old 2000 particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
