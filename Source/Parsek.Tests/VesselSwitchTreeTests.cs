@@ -88,6 +88,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IdleSwitchToTrackedBackgroundMember_ArmsWatcherInsteadOfPromotingImmediately()
+        {
+            var tree = MakeTree("rec_active", (200, "rec_bg"));
+
+            var treeDecision = FlightRecorder.DecideOnVesselSwitch(
+                100,
+                200,
+                currentIsEva: false,
+                recordingStartedAsEva: false,
+                undockSiblingPid: 0,
+                activeTree: tree);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.PromoteFromBackground, treeDecision);
+
+            bool shouldArm = ParsekFlight.ShouldArmPostSwitchAutoRecord(
+                autoRecordOnFirstModificationAfterSwitchEnabled: true,
+                isRecording: false,
+                hasNewVessel: true,
+                newVesselIsGhost: false,
+                newVesselIsEva: false);
+            var armDecision = ParsekFlight.EvaluatePostSwitchAutoRecordArmDecision(
+                shouldArm,
+                trackedInActiveTree: tree.BackgroundMap.ContainsKey(200));
+
+            Assert.Equal(
+                ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember,
+                armDecision);
+        }
+
+        [Fact]
         public void DecideOnVesselSwitch_TreeActive_TargetNotInTree_ReturnsTransition()
         {
             var tree = MakeTree("rec_active", (300, "rec_bg"));

@@ -73,6 +73,36 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo ParsekScenarioShowDeferredMergeDialogMethod =
             typeof(ParsekScenario).GetMethod("ShowDeferredMergeDialog",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekFlightOnVesselSwitchCompleteMethod =
+            typeof(ParsekFlight).GetMethod("OnVesselSwitchComplete",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekFlightDisarmPostSwitchAutoRecordMethod =
+            typeof(ParsekFlight).GetMethod("DisarmPostSwitchAutoRecord",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo ParsekFlightPostSwitchAutoRecordField =
+            typeof(ParsekFlight).GetField("postSwitchAutoRecord",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly System.Type ParsekFlightPostSwitchAutoRecordStateType =
+            typeof(ParsekFlight).GetNestedType("PostSwitchAutoRecordState",
+                BindingFlags.NonPublic);
+        private static readonly FieldInfo PostSwitchAutoRecordBaselineCapturedField =
+            ParsekFlightPostSwitchAutoRecordStateType?.GetField("BaselineCaptured",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo PostSwitchAutoRecordComparisonsReadyUtField =
+            ParsekFlightPostSwitchAutoRecordStateType?.GetField("ComparisonsReadyUt",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo WheelDeploymentStateStringField =
+            typeof(ModuleWheels.ModuleWheelDeployment).GetField("stateString",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly PropertyInfo WheelDeploymentStateStringProperty =
+            typeof(ModuleWheels.ModuleWheelDeployment).GetProperty("stateString",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo VesselSetPositionMethod =
+            typeof(Vessel).GetMethod("SetPosition",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Vector3d) },
+                null);
         public RuntimeTests(InGameTestRunner runner)
         {
             this.runner = runner;
@@ -950,6 +980,377 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active landed vessel and nudges the craft to verify the LANDED-motion trigger. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Post-switch landed motion auto-record starts exactly once while the vessel stays LANDED")]
+        public IEnumerator AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA landed vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.LANDED)
+            {
+                InGameAssert.Skip(
+                    $"requires a LANDED active vessel for the post-switch landed-motion canary, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle landed vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalPostSwitchAutoRecord = ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                TryDisarmPostSwitchAutoRecord(flight, "runtime landed-motion canary setup");
+                if (!TrySimulatePostSwitchArm(flight, vessel, out string armSkipReason))
+                {
+                    InGameAssert.Skip(armSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchBaselineCapture(flight, vessel, 3f);
+                yield return WaitForPostSwitchComparisonsReady(flight, vessel, 8f);
+
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "The post-switch landed-motion canary must stay idle until the vessel actually moves");
+
+                if (!TryInduceLandedMotion(vessel, out string motionSkipReason))
+                {
+                    InGameAssert.Skip(motionSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchAutoRecordStart(5f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = CountPostSwitchAutoStartLogLines(captured);
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one post-switch auto-start log line, got {autoStartCount}");
+
+                Vessel postStartVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(postStartVessel,
+                    "Active vessel should still exist after the landed-motion post-switch auto-start");
+                InGameAssert.AreEqual(Vessel.Situations.LANDED, postStartVessel.situation,
+                    $"Expected landed-motion canary to stay LANDED, got {postStartVessel.situation}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Post-switch landed-motion auto-record: vessel='{postStartVessel.vesselName}' " +
+                    $"situation={postStartVessel.situation} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch =
+                        originalPostSwitchAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+                TryDisarmPostSwitchAutoRecord(cleanupFlight, "runtime landed-motion canary cleanup");
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active orbital vessel and then forces engine or sustained-RCS activity to verify the no-situation-change trigger. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Post-switch orbital engine or sustained RCS auto-record starts exactly once without a situation change")]
+        public IEnumerator AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA orbital vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.ORBITING)
+            {
+                InGameAssert.Skip(
+                    $"requires an ORBITING active vessel for the post-switch orbital canary, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle orbital vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalPostSwitchAutoRecord = ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            System.Action cleanupActivity = null;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                TryDisarmPostSwitchAutoRecord(flight, "runtime orbital canary setup");
+                if (!TrySimulatePostSwitchArm(flight, vessel, out string armSkipReason))
+                {
+                    InGameAssert.Skip(armSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchBaselineCapture(flight, vessel, 3f);
+
+                Vessel.Situations initialSituation = vessel.situation;
+                if (!TryInduceEngineOrSustainedRcsActivity(
+                        vessel,
+                        out cleanupActivity,
+                        out string activityMode,
+                        out string activitySkipReason))
+                {
+                    InGameAssert.Skip(activitySkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchAutoRecordStart(5f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = CountPostSwitchAutoStartLogLines(captured);
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one post-switch auto-start log line, got {autoStartCount}");
+
+                Vessel postStartVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(postStartVessel,
+                    "Active vessel should still exist after the orbital post-switch auto-start");
+                InGameAssert.AreEqual(initialSituation, postStartVessel.situation,
+                    $"Expected orbital post-switch {activityMode} canary to keep situation {initialSituation}, got {postStartVessel.situation}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Post-switch orbital auto-record: vessel='{postStartVessel.vesselName}' " +
+                    $"mode={activityMode} situation={postStartVessel.situation} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                cleanupActivity?.Invoke();
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch =
+                        originalPostSwitchAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+                TryDisarmPostSwitchAutoRecord(cleanupFlight, "runtime orbital canary cleanup");
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active landed vessel and toggles landing gear to verify a non-cosmetic part-state trigger. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Post-switch gear-toggle auto-record starts exactly once on a non-cosmetic part-state change")]
+        public IEnumerator AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA landed vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.LANDED)
+            {
+                InGameAssert.Skip(
+                    $"requires a LANDED active vessel for the post-switch gear-toggle canary, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle landed vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalPostSwitchAutoRecord = ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            System.Action cleanupGear = null;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                TryDisarmPostSwitchAutoRecord(flight, "runtime gear-toggle canary setup");
+                if (!TrySimulatePostSwitchArm(flight, vessel, out string armSkipReason))
+                {
+                    InGameAssert.Skip(armSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchBaselineCapture(flight, vessel, 3f);
+                yield return WaitForPostSwitchComparisonsReady(flight, vessel, 8f);
+
+                if (!TryToggleLandingGear(vessel, out cleanupGear, out string gearSkipReason))
+                {
+                    InGameAssert.Skip(gearSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchAutoRecordStart(5f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = CountPostSwitchAutoStartLogLines(captured);
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one post-switch auto-start log line, got {autoStartCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Post-switch gear-toggle auto-record: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
+                    $"autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                cleanupGear?.Invoke();
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch =
+                        originalPostSwitchAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+                TryDisarmPostSwitchAutoRecord(cleanupFlight, "runtime gear-toggle canary cleanup");
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active vessel and then intentionally does nothing to verify the negative case. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Post-switch idle no-op does not auto-start a recording")]
+        public IEnumerator AutoRecordOnPostSwitch_NoOp_DoesNotStart()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle active vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalPostSwitchAutoRecord = ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                TryDisarmPostSwitchAutoRecord(flight, "runtime no-op canary setup");
+                if (!TrySimulatePostSwitchArm(flight, vessel, out string armSkipReason))
+                {
+                    InGameAssert.Skip(armSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForPostSwitchBaselineCapture(flight, vessel, 3f);
+                if (vessel.situation == Vessel.Situations.LANDED || vessel.situation == Vessel.Situations.SPLASHED)
+                    yield return WaitForPostSwitchComparisonsReady(flight, vessel, 8f);
+
+                float idleDurationSeconds =
+                    vessel.situation == Vessel.Situations.LANDED || vessel.situation == Vessel.Situations.SPLASHED
+                        ? 1.0f
+                        : 1.5f;
+                yield return WaitForPostSwitchIdleNoStart(vessel, idleDurationSeconds);
+
+                int autoStartCount = CountPostSwitchAutoStartLogLines(captured);
+                InGameAssert.AreEqual(0, autoStartCount,
+                    $"Expected no post-switch auto-start log lines, got {autoStartCount}");
+                InGameAssert.IsFalse(ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording,
+                    "No-op post-switch canary must stay idle when nothing meaningful changes");
+                InGameAssert.IsTrue(ParsekFlight.Instance != null
+                        && ParsekFlight.Instance.IsPostSwitchAutoRecordArmedForPid(vessel.persistentId),
+                    "No-op post-switch canary should remain armed after an idle wait");
+
+                ParsekLog.Info("TestRunner",
+                    $"Post-switch no-op auto-record canary stayed idle for vessel '{vessel.vesselName}'");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnFirstModificationAfterSwitch =
+                        originalPostSwitchAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+                TryDisarmPostSwitchAutoRecord(cleanupFlight, "runtime no-op canary cleanup");
+            }
+        }
+
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -1101,6 +1502,516 @@ namespace Parsek.InGameTests
                 $"isRecording={timedOutFlight?.IsRecording == true}, " +
                 $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
                 $"isEva={timedOutVessel?.isEVA == true})");
+        }
+
+        private static bool TrySimulatePostSwitchArm(ParsekFlight flight, Vessel vessel, out string skipReason)
+        {
+            skipReason = null;
+
+            if (flight == null)
+            {
+                skipReason = "ParsekFlight.Instance is null";
+                return false;
+            }
+            if (vessel == null)
+            {
+                skipReason = "no active vessel";
+                return false;
+            }
+            if (ParsekFlightOnVesselSwitchCompleteMethod == null)
+            {
+                skipReason = "ParsekFlight.OnVesselSwitchComplete reflection surface unavailable";
+                return false;
+            }
+
+            try
+            {
+                ParsekFlightOnVesselSwitchCompleteMethod.Invoke(flight, new object[] { vessel });
+            }
+            catch (TargetInvocationException ex)
+            {
+                skipReason =
+                    $"ParsekFlight.OnVesselSwitchComplete threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}";
+                return false;
+            }
+
+            if (!flight.IsPostSwitchAutoRecordArmedForPid(vessel.persistentId))
+            {
+                skipReason =
+                    $"Post-switch watch did not arm for vessel '{vessel.vesselName}' pid={vessel.persistentId}";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void TryDisarmPostSwitchAutoRecord(ParsekFlight flight, string reason)
+        {
+            if (flight == null || ParsekFlightDisarmPostSwitchAutoRecordMethod == null)
+                return;
+
+            try
+            {
+                ParsekFlightDisarmPostSwitchAutoRecordMethod.Invoke(flight, new object[] { reason });
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool TryGetPostSwitchWatchState(
+            ParsekFlight flight,
+            out bool isArmed,
+            out bool baselineCaptured,
+            out double comparisonsReadyUt)
+        {
+            isArmed = false;
+            baselineCaptured = false;
+            comparisonsReadyUt = double.NaN;
+
+            if (flight == null || ParsekFlightPostSwitchAutoRecordField == null)
+                return false;
+
+            object state = ParsekFlightPostSwitchAutoRecordField.GetValue(flight);
+            if (state == null)
+                return false;
+
+            isArmed = true;
+            if (PostSwitchAutoRecordBaselineCapturedField != null)
+                baselineCaptured = (bool)PostSwitchAutoRecordBaselineCapturedField.GetValue(state);
+            if (PostSwitchAutoRecordComparisonsReadyUtField != null)
+            {
+                object readyValue = PostSwitchAutoRecordComparisonsReadyUtField.GetValue(state);
+                if (readyValue is double readyUt)
+                    comparisonsReadyUt = readyUt;
+            }
+
+            return true;
+        }
+
+        private static IEnumerator WaitForPostSwitchBaselineCapture(
+            ParsekFlight flight,
+            Vessel vessel,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                flight = ParsekFlight.Instance;
+                vessel = FlightGlobals.ActiveVessel;
+                if (flight != null && vessel != null)
+                    flight.OnPostSwitchAutoRecordPhysicsFrame(vessel);
+
+                if (TryGetPostSwitchWatchState(
+                        flight,
+                        out bool isArmed,
+                        out bool baselineCaptured,
+                        out double comparisonsReadyUt)
+                    && isArmed
+                    && baselineCaptured)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"Post-switch baseline captured in runtime canary: readyAt={comparisonsReadyUt:F2}");
+                    yield break;
+                }
+
+                yield return new WaitForFixedUpdate();
+            }
+
+            TryGetPostSwitchWatchState(
+                ParsekFlight.Instance,
+                out bool armed,
+                out bool captured,
+                out double readyAtTimedOut);
+            InGameAssert.Fail(
+                $"WaitForPostSwitchBaselineCapture timed out after {timeoutSeconds:F0}s " +
+                $"(armed={armed}, baselineCaptured={captured}, readyAt={readyAtTimedOut.ToString("F2", CultureInfo.InvariantCulture)}, " +
+                $"isRecording={ParsekFlight.Instance?.IsRecording == true}, " +
+                $"activeVessel='{FlightGlobals.ActiveVessel?.vesselName ?? "null"}')");
+        }
+
+        private static IEnumerator WaitForPostSwitchComparisonsReady(
+            ParsekFlight flight,
+            Vessel vessel,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                flight = ParsekFlight.Instance;
+                vessel = FlightGlobals.ActiveVessel;
+                if (flight != null && vessel != null)
+                    flight.OnPostSwitchAutoRecordPhysicsFrame(vessel);
+
+                if (TryGetPostSwitchWatchState(
+                        flight,
+                        out bool isArmed,
+                        out bool baselineCaptured,
+                        out double comparisonsReadyUt)
+                    && isArmed
+                    && baselineCaptured
+                    && !double.IsNaN(comparisonsReadyUt)
+                    && Planetarium.GetUniversalTime() >= comparisonsReadyUt)
+                {
+                    yield break;
+                }
+
+                yield return new WaitForFixedUpdate();
+            }
+
+            TryGetPostSwitchWatchState(
+                ParsekFlight.Instance,
+                out bool armed,
+                out bool captured,
+                out double readyAtTimedOut);
+            InGameAssert.Fail(
+                $"WaitForPostSwitchComparisonsReady timed out after {timeoutSeconds:F0}s " +
+                $"(armed={armed}, baselineCaptured={captured}, readyAt={readyAtTimedOut.ToString("F2", CultureInfo.InvariantCulture)}, " +
+                $"now={Planetarium.GetUniversalTime().ToString("F2", CultureInfo.InvariantCulture)})");
+        }
+
+        private static IEnumerator WaitForPostSwitchAutoRecordStart(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                if (flight != null && vessel != null)
+                    flight.OnPostSwitchAutoRecordPhysicsFrame(vessel);
+
+                if (flight != null && flight.IsRecording)
+                    yield break;
+
+                yield return new WaitForFixedUpdate();
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            string activeRecId = timedOutFlight?.ActiveTreeForSerialization?.ActiveRecordingId;
+            InGameAssert.Fail(
+                $"WaitForPostSwitchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecId={activeRecId ?? "null"}, activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static IEnumerator WaitForPostSwitchIdleNoStart(Vessel vessel, float durationSeconds)
+        {
+            float deadline = Time.time + durationSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                vessel = FlightGlobals.ActiveVessel ?? vessel;
+                if (flight != null && vessel != null)
+                    flight.OnPostSwitchAutoRecordPhysicsFrame(vessel);
+
+                InGameAssert.IsFalse(flight != null && flight.IsRecording,
+                    "Idle post-switch wait should not start recording before the negative-case assertion");
+                yield return new WaitForFixedUpdate();
+            }
+        }
+
+        private static int CountPostSwitchAutoStartLogLines(List<string> captured)
+        {
+            if (captured == null)
+                return 0;
+
+            return captured.Count(
+                line => line.Contains("[Flight]")
+                    && line.Contains("Auto-record started (post-switch "));
+        }
+
+        private static bool TryInduceLandedMotion(Vessel vessel, out string skipReason)
+        {
+            skipReason = null;
+            if (vessel == null)
+            {
+                skipReason = "no active vessel";
+                return false;
+            }
+
+            Part rootPart = vessel.rootPart;
+            if (rootPart == null)
+            {
+                skipReason = "active vessel has no rootPart";
+                return false;
+            }
+
+            Vector3 direction = rootPart.transform != null ? rootPart.transform.right : Vector3.right;
+            if (direction.sqrMagnitude < 0.001f)
+                direction = Vector3.right;
+            direction.Normalize();
+
+            Vector3d delta = new Vector3d(direction.x, direction.y, direction.z);
+            Vector3d targetPosition = vessel.GetWorldPos3D() + delta;
+
+            if (VesselSetPositionMethod != null)
+            {
+                VesselSetPositionMethod.Invoke(vessel, new object[] { targetPosition });
+                return true;
+            }
+
+            if (rootPart.rb != null)
+            {
+                rootPart.rb.position += direction;
+                return true;
+            }
+
+            if (rootPart.transform != null)
+            {
+                rootPart.transform.position += direction;
+                return true;
+            }
+
+            skipReason = "could not find a writable position surface for the landed vessel";
+            return false;
+        }
+
+        private static bool TryInduceEngineOrSustainedRcsActivity(
+            Vessel vessel,
+            out System.Action cleanup,
+            out string activityMode,
+            out string skipReason)
+        {
+            cleanup = null;
+            activityMode = null;
+            skipReason = null;
+
+            if (vessel == null || vessel.parts == null)
+            {
+                skipReason = "active vessel is missing parts";
+                return false;
+            }
+
+            float? originalMainThrottle = null;
+            if (FlightInputHandler.state != null)
+            {
+                originalMainThrottle = FlightInputHandler.state.mainThrottle;
+                FlightInputHandler.state.mainThrottle = 1f;
+            }
+
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part part = vessel.parts[i];
+                if (part == null)
+                    continue;
+
+                for (int m = 0; m < part.Modules.Count; m++)
+                {
+                    if (!(part.Modules[m] is ModuleEngines engine) || engine.EngineIgnited)
+                        continue;
+
+                    bool originalIgnited = engine.EngineIgnited;
+                    bool activated =
+                        TryInvokeAnyMethod(engine, "Activate", "ActivateAction", "ActionActivate")
+                        || TrySetMemberValue(engine, "EngineIgnited", true);
+                    if (!activated)
+                        continue;
+
+                    cleanup = () =>
+                    {
+                        TryInvokeAnyMethod(engine, "Shutdown", "ShutdownAction", "ActionShutdown");
+                        TrySetMemberValue(engine, "EngineIgnited", originalIgnited);
+                        if (originalMainThrottle.HasValue && FlightInputHandler.state != null)
+                            FlightInputHandler.state.mainThrottle = originalMainThrottle.Value;
+                    };
+                    activityMode = "engine";
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part part = vessel.parts[i];
+                if (part == null)
+                    continue;
+
+                for (int m = 0; m < part.Modules.Count; m++)
+                {
+                    if (!(part.Modules[m] is ModuleRCS rcs))
+                        continue;
+                    if (rcs.thrustForces == null || !rcs.thrustForces.Any())
+                        continue;
+                    if (rcs.rcs_active)
+                        continue;
+
+                    bool originalEnabled = rcs.rcsEnabled;
+                    bool originalActive = rcs.rcs_active;
+                    float originalPower = rcs.thrusterPower;
+
+                    rcs.rcsEnabled = true;
+                    rcs.rcs_active = true;
+                    if (rcs.thrusterPower <= 0f)
+                        rcs.thrusterPower = 1f;
+
+                    cleanup = () =>
+                    {
+                        rcs.rcsEnabled = originalEnabled;
+                        rcs.rcs_active = originalActive;
+                        rcs.thrusterPower = originalPower;
+                        if (originalMainThrottle.HasValue && FlightInputHandler.state != null)
+                            FlightInputHandler.state.mainThrottle = originalMainThrottle.Value;
+                    };
+                    activityMode = "sustained RCS";
+                    return true;
+                }
+            }
+
+            if (originalMainThrottle.HasValue && FlightInputHandler.state != null)
+                FlightInputHandler.state.mainThrottle = originalMainThrottle.Value;
+
+            skipReason = "active orbital vessel has no idle engine or RCS module that the canary can drive";
+            return false;
+        }
+
+        private static bool TryToggleLandingGear(
+            Vessel vessel,
+            out System.Action cleanup,
+            out string skipReason)
+        {
+            cleanup = null;
+            skipReason = null;
+
+            if (vessel == null || vessel.parts == null)
+            {
+                skipReason = "active vessel is missing parts";
+                return false;
+            }
+
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part part = vessel.parts[i];
+                if (part == null)
+                    continue;
+
+                ModuleWheels.ModuleWheelDeployment wheel =
+                    part.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>();
+                if (wheel == null)
+                    continue;
+
+                string originalState = GetGearStateString(wheel);
+                if (string.IsNullOrEmpty(originalState))
+                    continue;
+
+                FlightRecorder.ClassifyGearState(
+                    originalState,
+                    out bool isDeployed,
+                    out bool isRetracted);
+                if (!isDeployed && !isRetracted)
+                    continue;
+
+                string targetState = isDeployed ? "Retracted" : "Deployed";
+                bool toggled =
+                    (isDeployed
+                        && TryInvokeAnyMethod(wheel, "Retract", "RetractAction", "ActionRetract", "ActionToggle", "Toggle"))
+                    || (!isDeployed
+                        && TryInvokeAnyMethod(wheel, "Extend", "Deploy", "DeployAction", "ActionDeploy", "ActionToggle", "Toggle"))
+                    || TrySetGearStateString(wheel, targetState);
+                if (!toggled)
+                    continue;
+
+                cleanup = () => TrySetGearStateString(wheel, originalState);
+                return true;
+            }
+
+            skipReason = "active landed vessel has no deployable landing-gear module the canary can toggle";
+            return false;
+        }
+
+        private static string GetGearStateString(ModuleWheels.ModuleWheelDeployment wheel)
+        {
+            if (wheel == null)
+                return null;
+
+            if (WheelDeploymentStateStringProperty != null)
+                return WheelDeploymentStateStringProperty.GetValue(wheel, null) as string;
+            if (WheelDeploymentStateStringField != null)
+                return WheelDeploymentStateStringField.GetValue(wheel) as string;
+            return wheel.stateString;
+        }
+
+        private static bool TrySetGearStateString(
+            ModuleWheels.ModuleWheelDeployment wheel,
+            string stateString)
+        {
+            if (wheel == null)
+                return false;
+
+            if (WheelDeploymentStateStringProperty != null && WheelDeploymentStateStringProperty.CanWrite)
+            {
+                WheelDeploymentStateStringProperty.SetValue(wheel, stateString, null);
+                return true;
+            }
+            if (WheelDeploymentStateStringField != null)
+            {
+                WheelDeploymentStateStringField.SetValue(wheel, stateString);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryInvokeAnyMethod(object target, params string[] methodNames)
+        {
+            if (target == null || methodNames == null)
+                return false;
+
+            const BindingFlags Flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            for (int i = 0; i < methodNames.Length; i++)
+            {
+                string methodName = methodNames[i];
+                if (string.IsNullOrEmpty(methodName))
+                    continue;
+
+                MethodInfo method = target.GetType().GetMethod(
+                    methodName,
+                    Flags,
+                    null,
+                    System.Type.EmptyTypes,
+                    null);
+                if (method == null)
+                    continue;
+
+                try
+                {
+                    method.Invoke(target, null);
+                    return true;
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TrySetMemberValue(object target, string memberName, object value)
+        {
+            if (target == null || string.IsNullOrEmpty(memberName))
+                return false;
+
+            const BindingFlags Flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            PropertyInfo property = target.GetType().GetProperty(memberName, Flags);
+            if (property != null && property.CanWrite)
+            {
+                property.SetValue(target, value, null);
+                return true;
+            }
+
+            FieldInfo field = target.GetType().GetField(memberName, Flags);
+            if (field != null)
+            {
+                field.SetValue(target, value);
+                return true;
+            }
+
+            return false;
         }
 
         private static bool TryResolveFlightEva(out object flightEva, out string skipReason)

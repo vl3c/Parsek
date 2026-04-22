@@ -17,6 +17,7 @@ namespace Parsek
         {
             internal bool AutoRecordOnLaunch;
             internal bool AutoRecordOnEva;
+            internal bool AutoRecordOnFirstModificationAfterSwitch;
             internal bool AutoMerge;
             internal bool VerboseLogging;
             internal bool WriteReadableSidecarMirrors;
@@ -54,6 +55,7 @@ namespace Parsek
             {
                 AutoRecordOnLaunch = true,
                 AutoRecordOnEva = true,
+                AutoRecordOnFirstModificationAfterSwitch = true,
                 AutoMerge = false,
                 VerboseLogging = true,
                 WriteReadableSidecarMirrors = true,

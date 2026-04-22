@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
+- `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
 ### Tests
 
@@ -32,6 +33,11 @@ All notable changes to Parsek are documented here.
 - `#524` `TimelineWindowUITests` now pins the row-action width helper that all Timeline recording-row buttons use, so `W`, `FF`, `R`, and `L` stay aligned while `GoTo` remains intentionally wider for its label.
 - `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 - `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
+- `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
+
+### Documentation
+
+- `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
 
 ## 0.8.3
 

@@ -62,6 +62,7 @@ namespace Parsek.Tests
 
             Assert.True(defaults.AutoRecordOnLaunch);
             Assert.True(defaults.AutoRecordOnEva);
+            Assert.True(defaults.AutoRecordOnFirstModificationAfterSwitch);
             Assert.False(defaults.AutoMerge);
             Assert.True(defaults.VerboseLogging);
             Assert.True(defaults.WriteReadableSidecarMirrors);

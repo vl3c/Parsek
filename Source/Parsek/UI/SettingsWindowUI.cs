@@ -176,6 +176,8 @@ namespace Parsek
                     SettingsWindowPresentation.BuildDefaults();
                 s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
                 s.autoRecordOnEva = defaults.AutoRecordOnEva;
+                s.autoRecordOnFirstModificationAfterSwitch =
+                    defaults.AutoRecordOnFirstModificationAfterSwitch;
                 s.autoMerge = defaults.AutoMerge;
                 s.verboseLogging = defaults.VerboseLogging;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
@@ -246,6 +248,18 @@ namespace Parsek
             {
                 s.autoRecordOnEva = autoRecordOnEva;
                 ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
+            }
+
+            bool autoRecordOnFirstModificationAfterSwitch = GUILayout.Toggle(
+                s.autoRecordOnFirstModificationAfterSwitch,
+                new GUIContent(
+                    " Auto-record on first modification after switch",
+                    "Arm after switching to a real vessel and start recording on the first meaningful physical change"));
+            if (autoRecordOnFirstModificationAfterSwitch != s.autoRecordOnFirstModificationAfterSwitch)
+            {
+                s.autoRecordOnFirstModificationAfterSwitch = autoRecordOnFirstModificationAfterSwitch;
+                ParsekLog.Info("UI",
+                    $"Setting changed: autoRecordOnFirstModificationAfterSwitch={s.autoRecordOnFirstModificationAfterSwitch}");
             }
 
             bool autoMerge = GUILayout.Toggle(s.autoMerge,

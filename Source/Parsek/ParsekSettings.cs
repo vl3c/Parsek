@@ -37,6 +37,10 @@ namespace Parsek
             toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
         public bool autoRecordOnEva = true;
 
+        [GameParameters.CustomParameterUI("Auto-record on first modification after switch",
+            toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
+        public bool autoRecordOnFirstModificationAfterSwitch = true;
+
         [GameParameters.CustomParameterUI("Auto-merge recordings",
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
         public bool autoMerge = false;
