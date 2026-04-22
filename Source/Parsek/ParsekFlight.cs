@@ -30,6 +30,7 @@ namespace Parsek
             SkipBounce,
             SkipNotLaunchTransition,
             SkipDisabled,
+            SkipForwardJumpTransient,
             StartFromPrelaunch,
             StartFromSettledLanded
         }
@@ -4015,6 +4016,11 @@ namespace Parsek
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
             double currentUT = Planetarium.GetUniversalTime();
+            bool suppressLaunchAutoRecordForForwardJump =
+                TimeJumpManager.IsForwardJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsForwardJumpInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.ForwardJumpAutoRecordSuppressUntilFrame);
 
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
@@ -4030,7 +4036,8 @@ namespace Parsek
                 autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
                 lastLandedUt: lastLandedUT,
                 currentUt: currentUT,
-                landedSettleThreshold: LandedSettleThreshold);
+                landedSettleThreshold: LandedSettleThreshold,
+                suppressForForwardJumpTransient: suppressLaunchAutoRecordForForwardJump);
 
             switch (launchDecision)
             {
@@ -4057,6 +4064,11 @@ namespace Parsek
 
                 case AutoRecordLaunchDecision.SkipDisabled:
                     ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                    return;
+
+                case AutoRecordLaunchDecision.SkipForwardJumpTransient:
+                    ParsekLog.Verbose("Flight",
+                        $"OnVesselSituationChange: suppressing FF transient ({data.from} → {data.to}) for '{data.host?.vesselName ?? "null"}'");
                     return;
             }
 
@@ -4156,13 +4168,17 @@ namespace Parsek
             bool autoRecordOnLaunchEnabled,
             double lastLandedUt,
             double currentUt,
-            double landedSettleThreshold)
+            double landedSettleThreshold,
+            bool suppressForForwardJumpTransient)
         {
             if (isRecording)
                 return AutoRecordLaunchDecision.SkipAlreadyRecording;
 
             if (!isActiveVessel)
                 return AutoRecordLaunchDecision.SkipInactiveVessel;
+
+            if (suppressForForwardJumpTransient)
+                return AutoRecordLaunchDecision.SkipForwardJumpTransient;
 
             if (fromSituation == Vessel.Situations.PRELAUNCH)
             {

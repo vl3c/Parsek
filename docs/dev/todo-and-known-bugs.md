@@ -276,15 +276,19 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump
+## ~~526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump~~
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:32:24-23:32:25. After `Timeline FF button clicked: "x"` and `FastForwardToRecording: jumping to UT=102.9`, the real vessel `r0` is put on rails/unrails for the forward jump. Immediately after, Parsek starts a fresh tree recording on `r0`: `Recording started: vessel="r0"` plus `Auto-record started (PRELAUNCH -> FLYING)`. The new recording seeds `Start location captured: body=Kerbin, biome=Shores, situation=Flying, launchSite=Launch Pad`, then 0.5s later the recorder corrects back to `SurfaceStationary`.
 
 **Concern:** the FF/time-jump path transiently makes the real launchpad vessel look like a `PRELAUNCH -> FLYING` launch transition, so the normal auto-record logic creates a bogus recording even though the vessel is just sitting on the pad. This is a direct regression with a tight repro sequence in the collected package.
 
+**Fix:** `TimeJumpManager.ExecuteForwardJump()` now marks the forward jump as an FF-only launch-auto-record suppression window while the active vessel is rails-packed/unpacked and for the next couple of render frames immediately after the jump lands. `OnVesselSituationChange()` threads that suppression into `EvaluateAutoRecordLaunchDecision()`, so the transient FF callback is logged and ignored instead of starting a new tree recording on the real pad vessel. Follow-up hardening replaced the first absolute-`UT` deadline with this frame-bounded transient so rewinds / quickloads / earlier save loads cannot re-arm stale suppression against a real later launch. Added headless coverage for the new skip decision plus an isolated FLIGHT canary that fast-forwards from a real pad vessel and asserts no launch auto-record starts.
+
+**Resolution (2026-04-22):** CLOSED for v0.8.3. Investigation confirmed the bogus recording was not coming from post-switch auto-record or playback spawn ownership. The live log shows `ExecuteForwardJump()` packing/unpacking the active pad vessel, stock emitting a transient launch-style situation change during that same FF window, and `OnVesselSituationChange()` treating it as a real launch because it had no forward-jump context. The shipped fix is intentionally narrow to that FF transient and leaves normal launch auto-record behavior unchanged.
+
 **Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange` / `EvaluateAutoRecordLaunchDecision`), `Source/Parsek/TimeJumpManager.cs` (forward-jump rails/unrails path), `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`.
 
-**Status:** OPEN. Repro captured in-package.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

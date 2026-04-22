@@ -408,6 +408,46 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Forward-jump auto-record suppression
+
+        [Fact]
+        public void IsForwardJumpLaunchAutoRecordSuppressed_InProgress_ReturnsTrue()
+        {
+            bool suppressed = TimeJumpManager.IsForwardJumpLaunchAutoRecordSuppressed(
+                forwardJumpInProgress: true,
+                currentFrame: 100,
+                suppressUntilFrame: -1);
+
+            Assert.True(suppressed);
+        }
+
+        [Fact]
+        public void IsForwardJumpLaunchAutoRecordSuppressed_PostJumpFrameWindow_ReturnsTrue()
+        {
+            bool suppressed = TimeJumpManager.IsForwardJumpLaunchAutoRecordSuppressed(
+                forwardJumpInProgress: false,
+                currentFrame: 100,
+                suppressUntilFrame: 101);
+
+            Assert.True(suppressed);
+        }
+
+        [Fact]
+        public void IsForwardJumpLaunchAutoRecordSuppressed_FrameExpiry_DoesNotRearmOnEarlierUtRollback()
+        {
+            // The old UT-based suppression could become true again after a rollback to an
+            // earlier save. Frame-bounded suppression must stay expired once the transient
+            // frames have passed, regardless of any later UT value.
+            bool suppressedAfterTransient = TimeJumpManager.IsForwardJumpLaunchAutoRecordSuppressed(
+                forwardJumpInProgress: false,
+                currentFrame: 120,
+                suppressUntilFrame: 101);
+
+            Assert.False(suppressedAfterTransient);
+        }
+
+        #endregion
+
         #region CreateTimeJumpEvent
 
         /// <summary>

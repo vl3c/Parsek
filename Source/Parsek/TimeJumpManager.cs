@@ -15,7 +15,26 @@ namespace Parsek
     internal static class TimeJumpManager
     {
         private const string Tag = "TimeJump";
+        private const int ForwardJumpLaunchAutoRecordSuppressFrames = 2;
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        private static bool isForwardJumpInProgress;
+        // Frame-bounded rather than UT-bounded so rewinds/quickloads cannot revive stale suppression.
+        private static int forwardJumpAutoRecordSuppressUntilFrame = -1;
+
+        internal static bool IsForwardJumpInProgress
+            => isForwardJumpInProgress;
+
+        internal static int ForwardJumpAutoRecordSuppressUntilFrame
+            => forwardJumpAutoRecordSuppressUntilFrame;
+
+        internal static bool IsForwardJumpLaunchAutoRecordSuppressed(
+            bool forwardJumpInProgress,
+            int currentFrame,
+            int suppressUntilFrame)
+        {
+            return forwardJumpInProgress
+                || (suppressUntilFrame >= 0 && currentFrame <= suppressUntilFrame);
+        }
 
         /// <summary>
         /// Pure: compute the epoch-shifted mean anomaly for an orbit.
@@ -327,28 +346,40 @@ namespace Parsek
                     "Forward jump initiated: T0={0:F1} target={1:F1} delta={2:F1}s objects={3}",
                     t0, targetUT, jumpDelta, objectCount));
 
-            // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
-            // cause physics interactions during the jump.
-            var onRailsVessels = PutLoadedVesselsOnRails();
+            isForwardJumpInProgress = true;
+            try
+            {
+                // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
+                // cause physics interactions during the jump.
+                var onRailsVessels = PutLoadedVesselsOnRails();
 
-            // Advance UT — orbits propagate naturally (no epoch shift)
-            Planetarium.SetUniversalTime(targetUT);
+                // Advance UT — orbits propagate naturally (no epoch shift)
+                Planetarium.SetUniversalTime(targetUT);
+                forwardJumpAutoRecordSuppressUntilFrame =
+                    Time.frameCount + ForwardJumpLaunchAutoRecordSuppressFrames;
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "Forward jump: UT set to {0:F1}", targetUT));
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Forward jump: UT set to {0:F1}, suppressLaunchAutoRecordUntilFrame={1}",
+                        targetUT, forwardJumpAutoRecordSuppressUntilFrame));
 
-            // Fix resource converter timestamps to prevent burst production/consumption.
-            // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
-            // UT jump, converters see a massive deltaTime and drain/produce in one burst.
-            FixResourceConverterTimestamps(targetUT);
+                // Fix resource converter timestamps to prevent burst production/consumption.
+                // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
+                // UT jump, converters see a massive deltaTime and drain/produce in one burst.
+                FixResourceConverterTimestamps(targetUT);
 
-            // Take vessels off rails
-            TakeVesselsOffRails(onRailsVessels);
+                // Take vessels off rails
+                TakeVesselsOffRails(onRailsVessels);
 
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
-                    jumpDelta, onRailsVessels.Count));
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
+                        jumpDelta, onRailsVessels.Count));
+            }
+            finally
+            {
+                isForwardJumpInProgress = false;
+            }
         }
 
         /// <summary>

@@ -6612,6 +6612,105 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic timeline recording, fast-forwards UT on a real pad vessel, and verifies that FLIGHT does not start a bogus launch recording during the FF transient. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "#526: Timeline FF on a real pad vessel must not auto-start a bogus recording")]
+        public IEnumerator TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for the FF pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            uint originalPid = activeVessel.persistentId;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            RecordingTree tree = null;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.TestObserverForTesting =
+                    line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!TryBuildSyntheticKeepVesselTree(activeVessel, out tree,
+                    out Recording recording, out string skipReason))
+                {
+                    InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                    yield break;
+                }
+
+                RecordingStore.CommitTree(tree);
+                flight.FastForwardToRecording(recording);
+
+                yield return new WaitForSeconds(1f);
+
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "Timeline FF should not auto-start a new launch recording on the real pad vessel");
+
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(currentActive,
+                    "Active vessel should still exist after the FF pad transient canary");
+                InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
+                    "Timeline FF should keep the real pad vessel focused without replacing it");
+
+                int autoStartCount = captured.Count(
+                    line => line.Contains("[Flight]") && line.Contains("Auto-record started ("));
+                InGameAssert.AreEqual(0, autoStartCount,
+                    $"Expected zero launch auto-start log lines during FF transient, got {autoStartCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+
+                if (tree != null)
+                    RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
+        }
+
         // ======================= GhostAudio (#265) =======================
 
         [InGameTest(Category = "GhostAudio",
