@@ -422,15 +422,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 538. Atmospheric reentry fire still looks too sparse; tuning target is roughly 2x the current particle density
+## ~~538. Atmospheric reentry fire still looks too sparse; tuning target is roughly 2x the current particle density~~
 
 **Source:** user observed that the atmospheric drag/heating fire is too thin and should emit about twice as many particles. Current code still hardcodes a single fire-particle layer at `ReentryFireEmissionMin=300`, `ReentryFireEmissionMax=2000`, and `ReentryFireMaxParticles=1500`. The package's reentry run confirms the path is active (`Lazy reentry build fired`, later `rebuilt emission mesh ... and 105 fire shell meshes after decouple`), but does not measure visual density.
 
-**Concern:** reentry fire density is still tuned too low for the intended look. If the target is roughly "2x the current fire particles", the adjustment points live in `DriveReentryLayers()` emission-rate scaling plus the build-time reentry particle limits. This is a visual-tuning issue rather than a package-proven correctness regression, but it should be tracked explicitly as an atmospheric-FX follow-up.
+**Fix:** kept the primary tuning surface in `DriveReentryLayers()` by doubling the fire-particle emission range from `300-2000` to `600-4000` particles/sec, then raised the build-time `ReentryFireMaxParticles` cap only from `1500` to `2000` so the denser stream does not clip at peak intensity. Added live runtime coverage that builds a real Unity reentry particle system, drives `UpdateReentryFx()` on an atmospheric body, and asserts the emission rate rises past the old `2000` particles/sec ceiling while the new `2000`-particle cap is applied to the built system.
 
 **Files:** `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
 
-**Status:** OPEN. User-observed tuning bug; package confirms the path, not the exact multiplier.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

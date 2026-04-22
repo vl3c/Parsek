@@ -8732,6 +8732,96 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system.")]
+        public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(activeVessel, "Active vessel required for ReentryFx runtime coverage");
+
+            CelestialBody body = activeVessel.mainBody;
+            InGameAssert.IsNotNull(body, "Active vessel mainBody should not be null");
+            if (!body.atmosphere || body.atmosphereDepth <= 1000)
+                InGameAssert.Skip($"Active vessel body '{body.name}' has no usable atmosphere for reentry-FX coverage");
+
+            float targetAltitude = (float)System.Math.Min(body.atmosphereDepth - 500.0, body.atmosphereDepth * 0.25);
+            double pressure = body.GetPressure(targetAltitude);
+            double temperature = body.GetTemperature(targetAltitude);
+            double density = body.GetDensity(pressure, temperature);
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            InGameAssert.IsGreaterThan(pressure, 0.0,
+                $"Expected positive atmospheric pressure at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(temperature, 0.0,
+                $"Expected positive atmospheric temperature at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(density, 0.0,
+                $"Expected positive atmospheric density at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(speedOfSound, 0.0,
+                $"Expected positive speed of sound at {targetAltitude:F0} m on {body.name}");
+
+            float targetSurfaceSpeed = 1500f;
+            float rawIntensity = 0f;
+            while (targetSurfaceSpeed <= 10000f)
+            {
+                float machNumber = (float)(targetSurfaceSpeed / speedOfSound);
+                rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
+                    targetSurfaceSpeed, (float)density, machNumber);
+                if (rawIntensity >= 0.999f)
+                    break;
+                targetSurfaceSpeed += 500f;
+            }
+
+            InGameAssert.IsGreaterThan(rawIntensity, 0.99,
+                $"Expected near-max raw intensity inside atmosphere, got {rawIntensity:F3} at {targetSurfaceSpeed:F0} m/s");
+
+            var ghostRoot = new GameObject("ParsekTestGhost_538");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = activeVessel.transform.position;
+
+            ReentryFxInfo info = GhostVisualBuilder.TryBuildReentryFx(
+                ghostRoot,
+                new Dictionary<uint, HeatGhostInfo>(),
+                ghostIndex: 538,
+                vesselName: "Test538");
+
+            InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry density test");
+            InGameAssert.IsNotNull(info.fireParticles, "Reentry fire particle system should be created in live KSP");
+            InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
+                "Built reentry fire particle system should use the tuned max-particle cap");
+
+            Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostRoot.transform.position);
+            Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                reentryFxInfo = info,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = targetAltitude,
+                lastInterpolatedVelocity = rotatingFrameVelocity + desiredSurfaceVelocity,
+            };
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            for (int i = 0; i < 12; i++)
+            {
+                engine.UpdateReentryFx(recIdx: 538, state, vesselName: "Test538", warpRate: 1f);
+                yield return null;
+            }
+
+            InGameAssert.IsGreaterThan(info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
+                "Smoothed reentry intensity should cross the fire threshold before we assert the live emission rate");
+            InGameAssert.IsTrue(info.fireParticles.isPlaying,
+                "Reentry fire particles should be playing once the live intensity crosses the fire threshold");
+
+            float expectedRate = Mathf.Lerp(
+                GhostVisualBuilder.ReentryFireEmissionMin,
+                GhostVisualBuilder.ReentryFireEmissionMax,
+                Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
+            float actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
+            InGameAssert.ApproxEqual(expectedRate, actualRate, 0.5f,
+                "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
+            InGameAssert.IsGreaterThan(actualRate, 2000.0,
+                "Bug #538 regression: tuned live emission rate should rise past the old 2000 particles/sec ceiling");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
             Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
         public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
         {

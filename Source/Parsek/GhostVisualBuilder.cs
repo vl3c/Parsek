@@ -44,12 +44,15 @@ namespace Parsek
         internal const float ReentryLayerAThreshold = 0.02f;
         internal const float ReentryFireThreshold = 0.02f;
 
-        // Fire envelope particle configuration
+        // Fire envelope particle configuration. Bug #538 targets roughly 2x the
+        // previous visible density; emission is the primary dial, while the cap only
+        // needs enough extra headroom to avoid clipping the denser stream.
+        internal const float ReentryFireDensityMultiplier = 2f;
         internal const float ReentryFireLifetimeMin = 0.1f;
         internal const float ReentryFireLifetimeMax = 0.35f;
-        internal const int ReentryFireMaxParticles = 1500;
-        internal const float ReentryFireEmissionMin = 300f;
-        internal const float ReentryFireEmissionMax = 2000f;
+        internal const int ReentryFireMaxParticles = 2000;
+        internal const float ReentryFireEmissionMin = 300f * ReentryFireDensityMultiplier;
+        internal const float ReentryFireEmissionMax = 2000f * ReentryFireDensityMultiplier;
 
         // Fire shell overlay: ghost meshes drawn at offsets along velocity
         // Approximates KSP's FXCamera replacement shader (vertex displacement along airflow)
