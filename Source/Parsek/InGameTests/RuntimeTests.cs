@@ -5079,6 +5079,118 @@ namespace Parsek.InGameTests
                 $"expected >= {floor:F2} (got {clamped.altitude:F2})");
         }
 
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Loop explosion camera holds use the engine's terrain-clamped anchor instead of the buried raw root (#525)")]
+        public void ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                InGameAssert.Skip("needs ParsekFlight instance");
+                return;
+            }
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double terrainAlt = body.TerrainAltitude(lat, lon, true);
+            Vector3 rawWorldPos = body.GetWorldSurfacePosition(lat, lon, terrainAlt - 1.0);
+            double expectedClearance = ParsekFlight.ComputeTerrainClearance(
+                Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D()));
+
+            var ghostRoot = new GameObject("ParsekTestGhost_Bug525ExplosionAnchor");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = rawWorldPos;
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug525ExplosionAnchor",
+                ghost = ghostRoot,
+                loopCycleIndex = 0,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = terrainAlt - 1.0
+            };
+
+            var traj = new Recording
+            {
+                RecordingId = "bug525-loop-explosion-anchor",
+                VesselName = "Bug525ExplosionAnchor",
+                TerrainHeightAtEnd = terrainAlt,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 100.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt + 5.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt - 1.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+
+            var engine = new GhostPlaybackEngine(flight);
+            engine.ghostStates[525] = state;
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.UpdateLoopingPlaybackForTesting(
+                index: 525,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 210.0,
+                    warpRate = 1f,
+                    activeVesselPos = activeVessel.GetWorldPos3D(),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 100.0,
+                },
+                suppressGhosts: false,
+                suppressVisualFx: false);
+
+            InGameAssert.AreEqual(1, cameraEvents.Count,
+                "Loop cycle-change explosion should emit exactly one camera hold event");
+            InGameAssert.AreEqual(1, restartedEvents.Count,
+                "Loop cycle-change explosion should emit exactly one loop-restarted event");
+            InGameAssert.AreEqual(CameraActionType.ExplosionHoldStart, cameraEvents[0].Action,
+                "Destroyed loop cycle boundary must emit ExplosionHoldStart");
+            InGameAssert.IsTrue(restartedEvents[0].ExplosionFired,
+                "Loop restart event must mark the boundary explosion as fired");
+
+            double eventAnchorAlt = body.GetAltitude(cameraEvents[0].AnchorPosition);
+            double eventExplosionAlt = body.GetAltitude(restartedEvents[0].ExplosionPosition);
+
+            InGameAssert.IsGreaterThan(eventAnchorAlt, terrainAlt + expectedClearance - 0.001,
+                $"Explosion anchor must clamp above terrain+clearance before watch hold: expected >= {(terrainAlt + expectedClearance):F2}, got {eventAnchorAlt:F2}");
+            InGameAssert.IsLessThan(
+                System.Math.Abs(eventAnchorAlt - eventExplosionAlt), 0.01,
+                "Loop camera hold and loop-restart explosion payloads must reuse the same terrain-clamped anchor");
+        }
+
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
             Description = "Harmony physics frame patch is operational")]
         public void HarmonyPatchOperational()
