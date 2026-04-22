@@ -987,19 +987,15 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 ---
 
-## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+## ~~497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles~~
 
 **Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. The earlier sidecar/generator ownership bundles are now matched by dedicated builder suites: `Source/Parsek.Tests/EngineFxBuilderTests.cs` owns headless-safe effect-group filtering, model/prefab config-entry parsing, fallback Euler selection, and prefab rotation-mode decisions extracted from the runtime-heavy FX builder, and `Source/Parsek.Tests/GhostVisualBuilderTests.cs` now owns ghost snapshot selection/root parsing, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Live Unity object construction and true visual confirmation stay in the in-game runtime tests instead of xUnit.
 
-**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/EngineFxBuilderTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`, `Source/Parsek.Tests/RecordingStoreTests.cs`, `Source/Parsek.Tests/GhostVisualFrameTests.cs`, `docs/dev/todo-and-known-bugs.md`.
 
-**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
-
-**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

@@ -25,22 +25,153 @@ namespace Parsek
             { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
         private const double HotPathLogIntervalSeconds = 5.0;
 
+        internal struct ModelFxConfigEntry
+        {
+            public string nodeType;
+            public string transformName;
+            public string modelName;
+            public Vector3 localPos;
+            public string rawLocalRotation;
+            public bool useFallbackRotation;
+            public Vector3 fallbackEuler;
+            public string groupName;
+        }
+
+        internal struct PrefabFxConfigEntry
+        {
+            public string prefabName;
+            public string transformName;
+            public Vector3 localOffset;
+            public string rawLocalRotation;
+            public string groupName;
+        }
+
+        internal enum PrefabParticleRotationMode
+        {
+            UseConfiguredRotation,
+            UseIdentityRotation,
+            UseMinus90XRotation
+        }
+
         private static void LogHotPathVerbose(string rateLimitKey, string message)
         {
             ParsekLog.VerboseRateLimited("EngineFx", rateLimitKey, message, HotPathLogIntervalSeconds);
         }
 
-        private static bool TryGetFxModelFallbackRotation(string modelName, out Quaternion result)
+        internal static bool TryGetFxModelFallbackEuler(string modelName, out Vector3 result)
         {
-            result = Quaternion.identity;
+            result = Vector3.zero;
             if (string.IsNullOrEmpty(modelName))
                 return false;
 
             string normalized = modelName.Trim();
-            if (!fxModelRotationFallbackEuler.TryGetValue(normalized, out Vector3 fallbackEuler))
+            if (!fxModelRotationFallbackEuler.TryGetValue(normalized, out result))
+                return false;
+
+            return true;
+        }
+
+        internal static bool TryGetFxModelFallbackRotation(string modelName, out Quaternion result)
+        {
+            result = Quaternion.identity;
+            if (!TryGetFxModelFallbackEuler(modelName, out Vector3 fallbackEuler))
                 return false;
 
             result = Quaternion.Euler(fallbackEuler);
+            return true;
+        }
+
+        internal static void FilterEffectGroups(
+            ConfigNode[] allGroups,
+            string[] allGroupNames,
+            HashSet<string> moduleGroups,
+            out ConfigNode[] effectGroups,
+            out string[] effectGroupNames)
+        {
+            effectGroups = allGroups ?? new ConfigNode[0];
+            effectGroupNames = allGroupNames ?? new string[0];
+            if (effectGroups.Length == 0 ||
+                moduleGroups == null ||
+                moduleGroups.Count == 0)
+            {
+                return;
+            }
+
+            var filtered = new List<ConfigNode>();
+            var filteredNames = new List<string>();
+            for (int eg = 0; eg < effectGroups.Length; eg++)
+            {
+                string groupName = eg < effectGroupNames.Length ? effectGroupNames[eg] : "?";
+                if (!moduleGroups.Contains(groupName))
+                    continue;
+
+                filtered.Add(effectGroups[eg]);
+                filteredNames.Add(groupName);
+            }
+
+            if (filtered.Count == 0)
+                return;
+
+            effectGroups = filtered.ToArray();
+            effectGroupNames = filteredNames.ToArray();
+        }
+
+        internal static bool TryReadModelFxConfigEntry(
+            string nodeType,
+            ConfigNode modelNode,
+            string groupName,
+            out ModelFxConfigEntry entry)
+        {
+            entry = default(ModelFxConfigEntry);
+            if (modelNode == null)
+                return false;
+
+            string transformName = modelNode.GetValue("transformName");
+            if (string.IsNullOrEmpty(transformName))
+                return false;
+
+            entry.nodeType = nodeType;
+            entry.transformName = transformName;
+            entry.modelName = modelNode.GetValue("modelName") ?? string.Empty;
+            entry.groupName = groupName;
+            entry.rawLocalRotation = modelNode.GetValue("localRotation");
+
+            string localOffset = modelNode.GetValue("localPosition");
+            if (string.IsNullOrEmpty(localOffset))
+                localOffset = modelNode.GetValue("localOffset");
+            GhostVisualBuilder.TryParseVector3(localOffset, out entry.localPos);
+
+            entry.useFallbackRotation =
+                string.IsNullOrEmpty(entry.rawLocalRotation) &&
+                TryGetFxModelFallbackEuler(entry.modelName, out entry.fallbackEuler);
+            return true;
+        }
+
+        internal static bool TryReadPrefabParticleConfigEntry(
+            ConfigNode prefabNode,
+            string groupName,
+            out PrefabFxConfigEntry entry)
+        {
+            entry = default(PrefabFxConfigEntry);
+            if (prefabNode == null)
+                return false;
+
+            entry.prefabName = prefabNode.GetValue("prefabName");
+            entry.transformName = prefabNode.GetValue("transformName");
+            if (string.IsNullOrEmpty(entry.prefabName) || string.IsNullOrEmpty(entry.transformName))
+                return false;
+
+            string lower = entry.prefabName.ToLowerInvariant();
+            if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
+                return false;
+
+            entry.groupName = groupName;
+            entry.rawLocalRotation = prefabNode.GetValue("localRotation");
+
+            string offsetStr = prefabNode.GetValue("localOffset");
+            if (string.IsNullOrEmpty(offsetStr))
+                offsetStr = prefabNode.GetValue("localPosition");
+            GhostVisualBuilder.TryParseVector3(offsetStr, out entry.localOffset);
             return true;
         }
 
@@ -85,7 +216,7 @@ namespace Parsek
         /// Populates modelFxEntries with transform/model/offset/rotation tuples and extracts
         /// the first emission and speed curves found.
         /// </summary>
-        private static void ScanEffectsModelFxEntries(
+        internal static void ScanEffectsModelFxEntries(
             ConfigNode[] effectGroups, string[] effectGroupNames,
             List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
             ref FloatCurve emissionCurve,
@@ -100,28 +231,30 @@ namespace Parsek
                     ConfigNode[] modelNodes = effectGroups[g].GetNodes(nodeType);
                     for (int mp = 0; mp < modelNodes.Length; mp++)
                     {
-                        string transformName = modelNodes[mp].GetValue("transformName");
-                        string modelName = modelNodes[mp].GetValue("modelName");
-                        if (!string.IsNullOrEmpty(transformName))
+                        if (TryReadModelFxConfigEntry(
+                            nodeType,
+                            modelNodes[mp],
+                            groupName,
+                            out ModelFxConfigEntry entry))
                         {
-                            Vector3 mmpLocalPos = Vector3.zero;
-                            string mmpOffsetStr = modelNodes[mp].GetValue("localPosition");
-                            if (string.IsNullOrEmpty(mmpOffsetStr))
-                                mmpOffsetStr = modelNodes[mp].GetValue("localOffset");
-                            GhostVisualBuilder.TryParseVector3(mmpOffsetStr, out mmpLocalPos);
-
                             Quaternion mmpLocalRot = Quaternion.identity;
-                            string mmpRotStr = modelNodes[mp].GetValue("localRotation");
-                            if (!GhostVisualBuilder.TryParseFxLocalRotation(mmpRotStr, out mmpLocalRot))
+                            if (!GhostVisualBuilder.TryParseFxLocalRotation(entry.rawLocalRotation, out mmpLocalRot))
                             {
-                                if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
+                                if (entry.useFallbackRotation)
                                 {
-                                    LogHotPathVerbose($"model-rotation-fallback-{modelName}",
-                                        $"model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
+                                    mmpLocalRot = Quaternion.Euler(entry.fallbackEuler);
+                                    LogHotPathVerbose($"model-rotation-fallback-{entry.modelName}",
+                                        $"model rotation fallback: '{entry.modelName}' euler={mmpLocalRot.eulerAngles}");
                                 }
                             }
 
-                            modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot, groupName));
+                            modelFxEntries.Add((
+                                entry.nodeType,
+                                entry.transformName,
+                                entry.modelName,
+                                entry.localPos,
+                                mmpLocalRot,
+                                entry.groupName));
 
                             if (emissionCurve == null)
                             {
@@ -149,7 +282,7 @@ namespace Parsek
         /// Populates prefabFxEntries with prefab/transform/offset/rotation tuples.
         /// Skips flameout/sparks/debris prefabs -- only wants running FX.
         /// </summary>
-        private static void ScanEffectsPrefabParticleEntries(
+        internal static void ScanEffectsPrefabParticleEntries(
             ConfigNode[] effectGroups, string[] effectGroupNames,
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries)
         {
@@ -159,28 +292,51 @@ namespace Parsek
                 ConfigNode[] ppNodes = effectGroups[g].GetNodes("PREFAB_PARTICLE");
                 for (int pp = 0; pp < ppNodes.Length; pp++)
                 {
-                    string prefabName = ppNodes[pp].GetValue("prefabName");
-                    string transformName = ppNodes[pp].GetValue("transformName");
-                    if (string.IsNullOrEmpty(prefabName) || string.IsNullOrEmpty(transformName))
+                    if (!TryReadPrefabParticleConfigEntry(
+                        ppNodes[pp],
+                        groupName,
+                        out PrefabFxConfigEntry entry))
                         continue;
-
-                    string lower = prefabName.ToLowerInvariant();
-                    if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
-                        continue;
-
-                    Vector3 localOffset = Vector3.zero;
-                    string offsetStr = ppNodes[pp].GetValue("localOffset");
-                    if (string.IsNullOrEmpty(offsetStr))
-                        offsetStr = ppNodes[pp].GetValue("localPosition");
-                    GhostVisualBuilder.TryParseVector3(offsetStr, out localOffset);
 
                     Quaternion localRot = Quaternion.identity;
-                    string rotStr = ppNodes[pp].GetValue("localRotation");
-                    bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
+                    bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(entry.rawLocalRotation, out localRot);
 
-                    prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
+                    prefabFxEntries.Add((
+                        entry.prefabName,
+                        entry.transformName,
+                        entry.localOffset,
+                        localRot,
+                        hasLocalRot,
+                        entry.groupName));
                 }
             }
+        }
+
+        internal static PrefabParticleRotationMode ResolvePrefabParticleRotationMode(
+            bool hasLocalRotation,
+            Vector3 parentUp)
+        {
+            if (hasLocalRotation)
+                return PrefabParticleRotationMode.UseConfiguredRotation;
+
+            float yComponent = Mathf.Abs(parentUp.y);
+            return yComponent > 0.5f
+                ? PrefabParticleRotationMode.UseIdentityRotation
+                : PrefabParticleRotationMode.UseMinus90XRotation;
+        }
+
+        internal static Quaternion ResolvePrefabParticleLocalRotation(
+            bool hasLocalRotation,
+            Quaternion configuredLocalRotation,
+            Vector3 parentUp)
+        {
+            PrefabParticleRotationMode mode = ResolvePrefabParticleRotationMode(hasLocalRotation, parentUp);
+            if (mode == PrefabParticleRotationMode.UseConfiguredRotation)
+                return configuredLocalRotation;
+
+            return mode == PrefabParticleRotationMode.UseIdentityRotation
+                ? Quaternion.identity
+                : Quaternion.Euler(-90f, 0f, 0f);
         }
 
         /// <summary>
@@ -496,22 +652,10 @@ namespace Parsek
                     GameObject fxInstance = Object.Instantiate(fxPrefab);
                     fxInstance.transform.SetParent(ghostFxParent, false);
                     fxInstance.transform.localPosition = localOffset;
-                    if (hasLocalRot)
-                    {
-                        fxInstance.transform.localRotation = localRot;
-                    }
-                    else
-                    {
-                        // #242: PREFAB_PARTICLE emits along local +Y. If the parent transform's
-                        // +Y is already close to the thrust axis (world up at build time), identity
-                        // is correct (e.g. SSME's thrustTransformYup). Otherwise apply -90 X to
-                        // rotate emission from sideways +Y onto the thrust axis.
-                        float yComponent = Mathf.Abs(ghostFxParent.up.y);
-                        if (yComponent > 0.5f)
-                            fxInstance.transform.localRotation = Quaternion.identity;
-                        else
-                            fxInstance.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-                    }
+                    fxInstance.transform.localRotation = ResolvePrefabParticleLocalRotation(
+                        hasLocalRot,
+                        localRot,
+                        ghostFxParent.up);
 
                     if (isRapierWhiteFlame)
                     {
@@ -632,18 +776,12 @@ namespace Parsek
 
                     if (moduleGroups.Count > 0)
                     {
-                        var filtered = new List<ConfigNode>();
-                        var filteredNames = new List<string>();
-                        for (int eg = 0; eg < allGroups.Length; eg++)
-                        {
-                            if (moduleGroups.Contains(allGroupNames[eg]))
-                            {
-                                filtered.Add(allGroups[eg]);
-                                filteredNames.Add(allGroupNames[eg]);
-                            }
-                        }
-                        effectGroups = filtered.Count > 0 ? filtered.ToArray() : allGroups;
-                        effectGroupNames = filtered.Count > 0 ? filteredNames.ToArray() : allGroupNames;
+                        FilterEffectGroups(
+                            allGroups,
+                            allGroupNames,
+                            moduleGroups,
+                            out effectGroups,
+                            out effectGroupNames);
                         LogHotPathVerbose($"effects-filter-{partName}-{moduleIndex}",
                             $"'{partName}' midx={moduleIndex}: " +
                             $"filtered {allGroups.Length} EFFECTS groups to {effectGroups.Length} " +
