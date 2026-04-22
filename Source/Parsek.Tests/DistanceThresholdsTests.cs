@@ -30,17 +30,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WatchCutoffDefault_FlowsThroughSettingsHelper()
+        public void WatchCutoffDefault_IsFixedAtThreeHundredKilometers()
         {
-            var settings = new ParsekSettings();
-
-            Assert.Equal(DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm, settings.ghostCameraCutoffKm);
             Assert.Equal(
                 DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm,
-                DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(null));
+                DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm());
             Assert.Equal(
                 DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm * 1000.0,
-                DistanceThresholds.GhostFlight.GetWatchCameraCutoffMeters(settings));
+                DistanceThresholds.GhostFlight.GetWatchCameraCutoffMeters());
+        }
+
+        [Fact]
+        public void ParsekSettings_NoLongerExposesMutableWatchCutoffField()
+        {
+            Assert.Null(typeof(ParsekSettings).GetField("ghostCameraCutoffKm"));
         }
 
         [Fact]

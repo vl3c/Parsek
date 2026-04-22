@@ -2069,7 +2069,7 @@ namespace Parsek.InGameTests
 
             var committed = RecordingStore.CommittedRecordings;
             string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
 
             // --- Find a watchable same-body ghost ---
             int index = -1;
@@ -2165,7 +2165,7 @@ namespace Parsek.InGameTests
 
             var committed = RecordingStore.CommittedRecordings;
             string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
 
             foreach (var kvp in flight.Engine.ghostStates)
             {

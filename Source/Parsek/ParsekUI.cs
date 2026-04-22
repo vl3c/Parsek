@@ -138,6 +138,10 @@ namespace Parsek
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
 
+        internal static string GetKerbalsMainButtonLabel() => "Kerbals";
+
+        internal static string GetCareerMainButtonLabel() => "Career";
+
         /// <summary>
         /// Returns the resource budget.
         /// </summary>
@@ -160,7 +164,7 @@ namespace Parsek
             // Button order (separator groups requested by the player):
             //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
             //   2. Timeline / Recordings
-            //   3. Kerbals / Career State
+            //   3. Kerbals / Career
             //   4. Gloops Flight Recorder  (InFlight-only; trailing separator inside the block)
             //   5. Settings
 
@@ -198,79 +202,14 @@ namespace Parsek
 
             GUILayout.Space(SpacingLarge);
 
-            // Kerbals window button: count = visible_slots + orphan_retired + end_state_rows.
-            // visible_slots = slots that render in the topology section (excludes
-            // dead-and-empty slots which produce no meaningful row). orphan_retired is
-            // retired stand-ins not appearing in any slot's chain — those land in the
-            // Unlinked Retired section. end_state_rows is one per committed crew fate.
-            string kerbalsLabel = "Kerbals";
-            var kerbalsModule = LedgerOrchestrator.Kerbals;
-            if (kerbalsModule != null)
-            {
-                int visibleSlots = 0;
-                int orphanRetired = 0;
-                var chainNames = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var slot in kerbalsModule.Slots.Values)
-                {
-                    if (slot == null) continue;
-                    int nonNullChain = 0;
-                    if (slot.Chain != null)
-                    {
-                        for (int c = 0; c < slot.Chain.Count; c++)
-                        {
-                            if (!string.IsNullOrEmpty(slot.Chain[c])) nonNullChain++;
-                        }
-                    }
-                    // Dead-and-empty slots are skipped by the topology renderer, so they
-                    // don't contribute to the count — and we don't need their (empty)
-                    // chain names for orphan detection either.
-                    if (slot.OwnerPermanentlyGone && nonNullChain == 0) continue;
-                    visibleSlots++;
-                    if (slot.Chain != null)
-                    {
-                        for (int c = 0; c < slot.Chain.Count; c++)
-                        {
-                            string n = slot.Chain[c];
-                            if (!string.IsNullOrEmpty(n)) chainNames.Add(n);
-                        }
-                    }
-                }
-                var retiredList = kerbalsModule.GetRetiredKerbals();
-                if (retiredList != null)
-                {
-                    for (int r = 0; r < retiredList.Count; r++)
-                    {
-                        string n = retiredList[r];
-                        if (!string.IsNullOrEmpty(n) && !chainNames.Contains(n))
-                            orphanRetired++;
-                    }
-                }
-                int endStateRows = 0;
-                var recs = RecordingStore.CommittedRecordings;
-                if (recs != null)
-                {
-                    for (int i = 0; i < recs.Count; i++)
-                    {
-                        var rec = recs[i];
-                        if (rec == null) continue;
-                        if (!rec.CrewEndStatesResolved) continue;
-                        if (rec.CrewEndStates == null) continue;
-                        foreach (var kvp in rec.CrewEndStates)
-                        {
-                            if (!string.IsNullOrEmpty(kvp.Key)) endStateRows++;
-                        }
-                    }
-                }
-                int total = visibleSlots + orphanRetired + endStateRows;
-                kerbalsLabel = $"Kerbals ({total})";
-            }
-            if (GUILayout.Button(kerbalsLabel))
+            // Keep top-level launch-surface labels short; detailed counts stay inside the window.
+            if (GUILayout.Button(GetKerbalsMainButtonLabel()))
             {
                 kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
             }
 
-            if (GUILayout.Button("Career State"))
+            if (GUILayout.Button(GetCareerMainButtonLabel()))
             {
                 careerStateUI.IsOpen = !careerStateUI.IsOpen;
             }

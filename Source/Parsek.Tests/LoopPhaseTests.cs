@@ -297,6 +297,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeOverlapCyclePlaybackUT_UsesScheduleStartSeparateFromPlaybackStart()
+        {
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                currentUT: 145.0,
+                scheduleStartUT: 130.0,
+                playbackStartUT: 110.0,
+                duration: 50.0,
+                intervalSeconds: 90.0,
+                loopCycleIndex: 0);
+
+            Assert.Equal(125.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackPhase_UsesScheduleStartForCyclePhase()
+        {
+            bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackPhase(
+                currentUT: 145.0,
+                scheduleStartUT: 130.0,
+                duration: 50.0,
+                intervalSeconds: 90.0,
+                out double playbackPhase,
+                out long cycleIndex,
+                out bool inPauseWindow);
+
+            Assert.True(ok);
+            Assert.Equal(15.0, playbackPhase, 6);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPauseWindow);
+        }
+
+        [Fact]
         public void BoundaryConsistency_WithTryComputeLoopPlaybackUT()
         {
             // #410: ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT must agree on the

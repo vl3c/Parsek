@@ -30,19 +30,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetStoredGhostCameraCutoffKm_DefaultsNull()
-        {
-            Assert.Null(ParsekSettingsPersistence.GetStoredGhostCameraCutoffKm());
-        }
-
-        [Fact]
-        public void SetStoredGhostCameraCutoffKm_RoundTrips()
-        {
-            ParsekSettingsPersistence.SetStoredGhostCameraCutoffKmForTesting(1234.5f);
-            Assert.Equal(1234.5f, ParsekSettingsPersistence.GetStoredGhostCameraCutoffKm());
-        }
-
-        [Fact]
         public void GetStoredReadableSidecarMirrors_DefaultsNull()
         {
             Assert.Null(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors());
@@ -58,14 +45,12 @@ namespace Parsek.Tests
         [Fact]
         public void ResetForTesting_ClearsStoredValue()
         {
-            ParsekSettingsPersistence.SetStoredGhostCameraCutoffKmForTesting(500f);
             ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
             ParsekSettingsPersistence.ResetForTesting();
-            Assert.Null(ParsekSettingsPersistence.GetStoredGhostCameraCutoffKm());
             Assert.Null(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors());
         }
 
-        // Tests for ApplyTo / RecordGhostCameraCutoff that touch ParsekSettings.Current
+        // Tests for ApplyTo that touch ParsekSettings.Current
         // or hit disk are deliberately omitted — ParsekSettings.Current requires a live
         // HighLogic.CurrentGame (Unity/KSP runtime), and Save() writes to GameData which
         // isn't present in CI. The store's pure state transitions above cover the
