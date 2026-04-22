@@ -60,6 +60,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#537` Added headless Tracking Station spawn-policy coverage for orbital handoff eligibility, scene-entry PID dedup bypass, preserve-identity chain-tip decisions, and suppression of already-materialized map ghosts.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
@@ -124,6 +125,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#537` Tracking Station now runs the real-vessel end-of-recording handoff for eligible recordings instead of stopping at ghost ProtoVessels. Eligible orbital handoffs now materialize directly through `VesselSpawner` in Tracking Station, dedup against already-live real vessels, and remove terminal-orbit ghosts once the recording is already materialized.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

@@ -412,15 +412,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 537. Tracking Station never runs the real-vessel spawn handoff that flight/map playback does
+## 537. ~~Tracking Station never runs the real-vessel spawn handoff that flight/map playback does~~
 
 **Source:** user observed the missing Mun-orbit materialization in Tracking Station; the same package shows the contrast directly. In TRACKSTATION, the host only initializes and updates ghost ProtoVessels (`ParsekTrackingStation initialized`, atmospheric markers, ghost create/remove). Later in FLIGHT/map playback, the same recording `#3` does execute the normal handoff: `Spawn #3 (Kerbal X) ... body=Mun` followed by `SpawnAtPosition: vessel spawned (sit=ORBITING, pid=3724180956, body=Mun, alt=63723m)`.
 
-**Concern:** Tracking Station currently has ghost list/map presence, but not the matching chain-tip real-vessel spawn path that flight playback runs. That makes Tracking Station playback/list state diverge from map view exactly at the moment the ghost should materialize into the real vessel.
+**Concern:** fixed on `2026-04-22`. `GhostMapPresence` now runs a Tracking Station end-of-recording handoff that reuses the shared spawn eligibility rules, dedups against already-live real vessels, and calls `VesselSpawner` directly for eligible recordings instead of waiting for a later FLIGHT/map scene. The same pass now also suppresses/removes already-materialized terminal-orbit ghosts so stale map entries do not linger after the handoff.
 
-**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek/VesselSpawner.cs`.
+**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
 
-**Status:** OPEN. Cross-scene behavior gap confirmed by the package.
+**Status:** CLOSED. Tracking Station now materializes eligible real vessels directly and clears the stale spawned-ghost edge that was keeping terminal orbit ghosts around.
 
 ---
 

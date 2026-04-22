@@ -1129,7 +1129,43 @@ namespace Parsek.Tests
             };
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, true, 1000);
             Assert.False(should);
-            Assert.Equal("suppressed", reason);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipSuppressed, reason);
+        }
+
+        /// <summary>
+        /// Already materialized recordings must not recreate a tracking-station ghost.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_AlreadySpawned_Skipped()
+        {
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, reason);
+        }
+
+        /// <summary>
+        /// A persisted spawned PID also suppresses ghost recreation after scene reload.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_SpawnedPidSet_Skipped()
+        {
+            var rec = new Recording
+            {
+                SpawnedVesselPersistentId = 424242,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, reason);
         }
 
         /// <summary>
@@ -1723,7 +1759,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldDrawAtmosphericMarker_Superseded_Filtered()
+        public void ShouldDrawAtmosphericMarker_Suppressed_Filtered()
         {
             var rec = new Recording
             {
@@ -1734,8 +1770,8 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
                 }
             };
-            var superseded = new HashSet<string> { "superseded-1" };
-            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, superseded);
+            var suppressed = new HashSet<string> { "superseded-1" };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, suppressed);
             Assert.False(result);
         }
 
