@@ -69,28 +69,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRequestAdministrationUi_MissingAdministrationInCareerSpaceCenter_ReturnsTrue()
+        public void ShouldHydrateAdministrationSingleton_MissingAdministrationInCareerSpaceCenter_ReturnsTrue()
         {
-            bool shouldRequest = StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+            bool shouldHydrate = StrategyLifecycleProbeSupport.ShouldHydrateAdministrationSingleton(
                 administrationAvailable: false,
                 isSpaceCenterScene: true,
                 isCareerMode: true);
 
-            Assert.True(shouldRequest);
+            Assert.True(shouldHydrate);
         }
 
         [Fact]
-        public void ShouldRequestAdministrationUi_NonCareerOrNonSpaceCenter_ReturnsFalse()
+        public void ShouldHydrateAdministrationSingleton_NonSpaceCenter_ReturnsFalse()
         {
-            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+            Assert.False(StrategyLifecycleProbeSupport.ShouldHydrateAdministrationSingleton(
                 administrationAvailable: false,
                 isSpaceCenterScene: false,
                 isCareerMode: true));
-            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+        }
+
+        [Fact]
+        public void ShouldHydrateAdministrationSingleton_NonCareer_ReturnsFalse()
+        {
+            Assert.False(StrategyLifecycleProbeSupport.ShouldHydrateAdministrationSingleton(
                 administrationAvailable: false,
                 isSpaceCenterScene: true,
                 isCareerMode: false));
-            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+        }
+
+        [Fact]
+        public void ShouldHydrateAdministrationSingleton_AlreadyAvailable_ReturnsFalse()
+        {
+            Assert.False(StrategyLifecycleProbeSupport.ShouldHydrateAdministrationSingleton(
                 administrationAvailable: true,
                 isSpaceCenterScene: true,
                 isCareerMode: true));
@@ -171,42 +181,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LogAdministrationUiSpawnRequested_EmitsInfo()
+        public void BuildAdministrationHydrationTimeoutDiagnostic_ExplainsHiddenCanvasWait()
         {
-            StrategyLifecycleProbeSupport.LogAdministrationUiSpawnRequested();
+            Assert.Equal(
+                "Administration.Instance stayed null after hidden Administration canvas hydration wait (30/30 frames)",
+                StrategyLifecycleProbeSupport.BuildAdministrationHydrationTimeoutDiagnostic(
+                    waitedFrames: 30,
+                    maxFrames: 30));
+        }
+
+        [Fact]
+        public void LogAdministrationHydrationReady_EmitsInfo()
+        {
+            StrategyLifecycleProbeSupport.LogAdministrationHydrationReady(
+                waitedFrames: 2,
+                maxFrames: 30);
 
             Assert.Single(logLines);
             Assert.Equal(
                 "[Parsek][INFO][TestRunner] " +
-                StrategyLifecycleProbeSupport.AdministrationUiSpawnRequestedReason,
+                "StrategyLifecycle: hidden Administration canvas hydrated after 2/30 frames",
                 logLines[0]);
         }
 
         [Fact]
-        public void LogAdministrationUiReady_EmitsInfo()
+        public void LogAdministrationHydrationTimeout_EmitsWarn()
         {
-            StrategyLifecycleProbeSupport.LogAdministrationUiReady(
-                attemptCount: 2,
-                maxAttempts: 30);
-
-            Assert.Single(logLines);
-            Assert.Equal(
-                "[Parsek][INFO][TestRunner] " +
-                "StrategyLifecycle: Administration UI hydrated after 2/30 attempts",
-                logLines[0]);
-        }
-
-        [Fact]
-        public void LogAdministrationUiTimeout_EmitsWarn()
-        {
-            StrategyLifecycleProbeSupport.LogAdministrationUiTimeout(
-                attemptCount: 30,
-                maxAttempts: 30);
+            StrategyLifecycleProbeSupport.LogAdministrationHydrationTimeout(
+                waitedFrames: 30,
+                maxFrames: 30);
 
             Assert.Single(logLines);
             Assert.Equal(
                 "[Parsek][WARN][TestRunner] " +
-                "StrategyLifecycle: Administration UI failed to hydrate after 30/30 attempts",
+                "StrategyLifecycle: hidden Administration canvas failed to hydrate after 30/30 frames",
                 logLines[0]);
         }
 

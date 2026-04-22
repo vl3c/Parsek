@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using KSP.UI;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -8103,6 +8104,7 @@ namespace Parsek.InGameTests
 
         private const int StrategyLifecycleProbeWarmupFrames = 3;
         private const int StrategyLifecycleProbeRetryFrames = 30;
+        private const int StrategyLifecycleAdministrationHydrationFrames = 30;
         private const int StrategyLifecycleProbeStableFrames = 2;
         private const int StrategyLifecycleActivateSettleFrames = 2;
 
@@ -8123,7 +8125,31 @@ namespace Parsek.InGameTests
             public string Diagnostic;
             public bool FinalProbeHadException;
             public bool FinalProbeHadRetryableReadinessBlock;
-            public bool OpenedAdministrationUiForTest;
+            public Canvas HiddenAdministrationCanvasForTest;
+        }
+
+        private static void DestroyHiddenAdministrationCanvasForTest(
+            StrategySelectionResult result,
+            string context)
+        {
+            if (result?.HiddenAdministrationCanvasForTest == null)
+                return;
+
+            try
+            {
+                ParsekLog.Verbose("TestRunner",
+                    $"StrategyLifecycle: destroying hidden Administration canvas ({context})");
+                UnityEngine.Object.Destroy(result.HiddenAdministrationCanvasForTest.gameObject);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner",
+                    $"StrategyLifecycle hidden Administration cleanup threw during {context}: {ex}");
+            }
+            finally
+            {
+                result.HiddenAdministrationCanvasForTest = null;
+            }
         }
 
         private static StrategyProbeResult ProbeActivatableStockStrategy()
@@ -8255,39 +8281,114 @@ namespace Parsek.InGameTests
             result.Diagnostic = "no activatable stock strategy available";
             result.FinalProbeHadException = false;
             result.FinalProbeHadRetryableReadinessBlock = false;
-            result.OpenedAdministrationUiForTest = false;
+            result.HiddenAdministrationCanvasForTest = null;
 
-            if (StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+            if (StrategyLifecycleProbeSupport.ShouldHydrateAdministrationSingleton(
                 administrationAvailable: KSP.UI.Screens.Administration.Instance != null,
                 isSpaceCenterScene: HighLogic.LoadedScene == GameScenes.SPACECENTER,
                 isCareerMode: HighLogic.CurrentGame != null
                     && HighLogic.CurrentGame.Mode == Game.Modes.CAREER))
             {
-                result.OpenedAdministrationUiForTest = true;
-                StrategyLifecycleProbeSupport.LogAdministrationUiSpawnRequested();
-                GameEvents.onGUIAdministrationFacilitySpawn.Fire();
-
-                for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
+                var uiMaster = UIMasterController.Instance;
+                if (uiMaster == null)
                 {
+                    result.Diagnostic =
+                        "UIMasterController.Instance is null (cannot create hidden Administration canvas)";
+                    result.FinalProbeHadException = false;
+                    result.FinalProbeHadRetryableReadinessBlock = true;
+                    ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                    yield break;
+                }
+                if (uiMaster.mainCanvas == null)
+                {
+                    result.Diagnostic =
+                        "UIMasterController.Instance.mainCanvas is null (cannot parent hidden Administration canvas)";
+                    result.FinalProbeHadException = false;
+                    result.FinalProbeHadRetryableReadinessBlock = true;
+                    ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                    yield break;
+                }
+
+                var administrationSpawner =
+                    UnityEngine.Object.FindObjectOfType<KSP.UI.Screens.AdministrationSceneSpawner>();
+                if (administrationSpawner == null)
+                {
+                    result.Diagnostic =
+                        "AdministrationSceneSpawner is null (cannot create hidden Administration canvas)";
+                    result.FinalProbeHadException = false;
+                    result.FinalProbeHadRetryableReadinessBlock = true;
+                    ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                    yield break;
+                }
+
+                var administrationScreenPrefab = administrationSpawner.AdministrationScreenPrefab;
+                if (administrationScreenPrefab == null)
+                {
+                    result.Diagnostic =
+                        "AdministrationSceneSpawner.AdministrationScreenPrefab is null";
+                    result.FinalProbeHadException = false;
+                    result.FinalProbeHadRetryableReadinessBlock = true;
+                    ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                    yield break;
+                }
+
+                var administrationCanvasPrefab = administrationScreenPrefab.canvas;
+                if (administrationCanvasPrefab == null)
+                {
+                    result.Diagnostic =
+                        "AdministrationSceneSpawner.AdministrationScreenPrefab.canvas is null";
+                    result.FinalProbeHadException = false;
+                    result.FinalProbeHadRetryableReadinessBlock = true;
+                    ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                    yield break;
+                }
+
+                ParsekLog.Info("TestRunner",
+                    "StrategyLifecycle: creating hidden Administration canvas for readiness probe");
+
+                var hiddenAdministrationCanvas = UnityEngine.Object.Instantiate(administrationCanvasPrefab);
+                hiddenAdministrationCanvas.enabled = false;
+                hiddenAdministrationCanvas.gameObject.name =
+                    string.IsNullOrEmpty(administrationScreenPrefab.canvasName)
+                        ? administrationCanvasPrefab.gameObject.name
+                        : administrationScreenPrefab.canvasName;
+
+                var hiddenAdministrationTransform = (RectTransform)hiddenAdministrationCanvas.transform;
+                hiddenAdministrationTransform.SetParent(
+                    uiMaster.mainCanvas.transform,
+                    worldPositionStays: false);
+                hiddenAdministrationTransform.SetAsLastSibling();
+                result.HiddenAdministrationCanvasForTest = hiddenAdministrationCanvas;
+
+                for (int waitedFrames = 1;
+                    waitedFrames <= StrategyLifecycleAdministrationHydrationFrames;
+                    waitedFrames++)
+                {
+                    yield return null;
+
                     if (KSP.UI.Screens.Administration.Instance != null)
                     {
-                        StrategyLifecycleProbeSupport.LogAdministrationUiReady(
-                            attempt + 1,
-                            StrategyLifecycleProbeRetryFrames);
+                        StrategyLifecycleProbeSupport.LogAdministrationHydrationReady(
+                            waitedFrames,
+                            StrategyLifecycleAdministrationHydrationFrames);
                         break;
                     }
-
-                    yield return null;
                 }
 
                 if (KSP.UI.Screens.Administration.Instance == null)
                 {
-                    result.Diagnostic = StrategyLifecycleProbeSupport.AdministrationNotReadyReason;
+                    result.Diagnostic =
+                        StrategyLifecycleProbeSupport.BuildAdministrationHydrationTimeoutDiagnostic(
+                            StrategyLifecycleAdministrationHydrationFrames,
+                            StrategyLifecycleAdministrationHydrationFrames);
                     result.FinalProbeHadException = false;
                     result.FinalProbeHadRetryableReadinessBlock = true;
-                    StrategyLifecycleProbeSupport.LogAdministrationUiTimeout(
-                        StrategyLifecycleProbeRetryFrames,
-                        StrategyLifecycleProbeRetryFrames);
+                    StrategyLifecycleProbeSupport.LogAdministrationHydrationTimeout(
+                        StrategyLifecycleAdministrationHydrationFrames,
+                        StrategyLifecycleAdministrationHydrationFrames);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        result,
+                        "readiness-timeout");
                     yield break;
                 }
             }
@@ -8374,25 +8475,28 @@ namespace Parsek.InGameTests
             // DO NOT silently convert persistent probe exceptions into a skip. If
             // readiness never settles after the retry window, fail with diagnostics.
             var selection = new StrategySelectionResult();
-            try
-            {
-                yield return WaitForStableActivatableStockStrategy(selection);
-                var strategy = selection.Strategy;
-                var configName = selection.ConfigName;
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
 
-                if (strategy == null || string.IsNullOrEmpty(configName))
+            if (strategy == null || string.IsNullOrEmpty(configName))
+            {
+                DestroyHiddenAdministrationCanvasForTest(
+                    selection,
+                    "unsuccessful-readiness-probe");
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
-                    if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                        selection.FinalProbeHadException,
-                        selection.FinalProbeHadRetryableReadinessBlock))
-                    {
-                        InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
-                        yield break;
-                    }
-                    InGameAssert.Skip(selection.Diagnostic);
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
                 }
+                InGameAssert.Skip(selection.Diagnostic);
+                yield break;
+            }
 
+            try
+            {
                 var strategyConfig = strategy.Config;
                 InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
                 InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
@@ -8439,6 +8543,13 @@ namespace Parsek.InGameTests
                 }
                 catch (System.Exception ex)
                 {
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "activate-throw");
                     InGameAssert.Fail(
                         $"Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                     yield break;
@@ -8523,6 +8634,9 @@ namespace Parsek.InGameTests
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
                     Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "mid-test-exception");
                     throw;
                 }
 
@@ -8582,25 +8696,16 @@ namespace Parsek.InGameTests
                     // truncations are silent no-ops if nothing was added.
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
                     Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "post-lifecycle-assertions");
                 }
             }
             finally
             {
-                if (selection.OpenedAdministrationUiForTest
-                    && KSP.UI.Screens.Administration.Instance != null)
-                {
-                    try
-                    {
-                        ParsekLog.Info("TestRunner",
-                            "StrategyLifecycle: closing stock Administration UI opened for test");
-                        GameEvents.onGUIAdministrationFacilityDespawn.Fire();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle administration-ui teardown threw: {ex}");
-                    }
-                }
+                DestroyHiddenAdministrationCanvasForTest(
+                    selection,
+                    "activate-deactivate-outer-guard");
             }
         }
 
@@ -8620,138 +8725,141 @@ namespace Parsek.InGameTests
             }
 
             var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
+
+            if (strategy == null || string.IsNullOrEmpty(configName))
+            {
+                DestroyHiddenAdministrationCanvasForTest(
+                    selection,
+                    "unsuccessful-readiness-probe");
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
+                {
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
+                    yield break;
+                }
+                InGameAssert.Skip(selection.Diagnostic);
+                yield break;
+            }
+
+            var strategyConfig = strategy.Config;
+            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
+            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
+                "Selected strategy must have a non-empty Config.Name");
+
+            // Snapshot financials — the first (successful) Activate below will
+            // spend setup costs that we must restore in teardown.
+            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            // Snapshot event and ledger-action counts for cleanup. Set before
+            // the try so the finally always sees a valid baseline (matches
+            // pre-activation state, so truncation purges BOTH the first
+            // Activate and the failed second Activate from the save).
+            int preTestEventCount = GameStateStore.EventCount;
+            int preTestLedgerCount = Ledger.Actions.Count;
+
             try
             {
-                yield return WaitForStableActivatableStockStrategy(selection);
-                var strategy = selection.Strategy;
-                var configName = selection.ConfigName;
+                // Activate the strategy FIRST so the second Activate hits the
+                // already-active short-circuit and returns false.
+                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                    yield return null;
 
-                if (strategy == null || string.IsNullOrEmpty(configName))
+                bool firstActivate;
+                try
                 {
-                    if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                        selection.FinalProbeHadException,
-                        selection.FinalProbeHadRetryableReadinessBlock))
-                    {
-                        InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
-                        yield break;
-                    }
-                    InGameAssert.Skip(selection.Diagnostic);
+                    firstActivate = strategy.Activate();
+                }
+                catch (System.Exception ex)
+                {
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "initial-activate-throw");
+                    InGameAssert.Fail(
+                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                    yield break;
+                }
+                if (!firstActivate)
+                {
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "initial-activate-false");
+                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
                     yield break;
                 }
 
-                var strategyConfig = strategy.Config;
-                InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
-                InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
-                    "Selected strategy must have a non-empty Config.Name");
+                int eventCountBefore = GameStateStore.EventCount;
 
-                // Snapshot financials — the first (successful) Activate below will
-                // spend setup costs that we must restore in teardown.
-                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
-
-                // Snapshot event and ledger-action counts for cleanup. Set before
-                // the try so the finally always sees a valid baseline (matches
-                // pre-activation state, so truncation purges BOTH the first
-                // Activate and the failed second Activate from the save).
-                int preTestEventCount = GameStateStore.EventCount;
-                int preTestLedgerCount = Ledger.Actions.Count;
-
+                // Second Activate — KSP short-circuits when IsActive is true and
+                // returns false. The postfix should detect __result=false and skip.
+                bool ok;
                 try
                 {
-                    // Activate the strategy FIRST so the second Activate hits the
-                    // already-active short-circuit and returns false.
-                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                        yield return null;
-
-                    bool firstActivate;
-                    try
-                    {
-                        firstActivate = strategy.Activate();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        InGameAssert.Fail(
-                            $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
-                        yield break;
-                    }
-                    if (!firstActivate)
-                    {
-                        InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                        yield break;
-                    }
-
-                    int eventCountBefore = GameStateStore.EventCount;
-
-                    // Second Activate — KSP short-circuits when IsActive is true and
-                    // returns false. The postfix should detect __result=false and skip.
-                    bool ok;
-                    try
-                    {
-                        ok = strategy.Activate();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        InGameAssert.Fail(
-                            $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
-                        yield break;
-                    }
-                    InGameAssert.IsFalse(ok,
-                        "Strategy.Activate should return false when already active");
-
-                    // Walk the tail slice — must find NO StrategyActivated events
-                    // with matching key.
-                    for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
-                    {
-                        var evt = GameStateStore.Events[i];
-                        if (evt.eventType == GameStateEventType.StrategyActivated
-                            && evt.key == configName)
-                        {
-                            InGameAssert.Fail(
-                                $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
-                                $"(found StrategyActivated at tail index {i} for key='{configName}')");
-                        }
-                    }
-
-                    ParsekLog.Verbose("TestRunner",
-                        $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
-                        $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+                    ok = strategy.Activate();
                 }
-                finally
+                catch (System.Exception ex)
                 {
-                    if (strategy.IsActive)
-                    {
-                        try { strategy.Deactivate(); }
-                        catch (System.Exception ex)
-                        {
-                            ParsekLog.Warn("TestRunner",
-                                $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
-                        }
-                    }
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    // Purge test-generated events and ledger actions so the save
-                    // stays save-neutral across repeated category runs. See
-                    // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
-                    // teardown for the same pattern.
                     GameStateStore.TruncateEventsForTesting(preTestEventCount);
                     Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                    DestroyHiddenAdministrationCanvasForTest(
+                        selection,
+                        "second-activate-throw");
+                    InGameAssert.Fail(
+                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
+                    yield break;
                 }
+                InGameAssert.IsFalse(ok,
+                    "Strategy.Activate should return false when already active");
+
+                // Walk the tail slice — must find NO StrategyActivated events
+                // with matching key.
+                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyActivated
+                        && evt.key == configName)
+                    {
+                        InGameAssert.Fail(
+                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                    }
+                }
+
+                ParsekLog.Verbose("TestRunner",
+                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
             }
             finally
             {
-                if (selection.OpenedAdministrationUiForTest
-                    && KSP.UI.Screens.Administration.Instance != null)
+                if (strategy.IsActive)
                 {
-                    try
-                    {
-                        ParsekLog.Info("TestRunner",
-                            "StrategyLifecycle: closing stock Administration UI opened for test");
-                        GameEvents.onGUIAdministrationFacilityDespawn.Fire();
-                    }
+                    try { strategy.Deactivate(); }
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle administration-ui teardown threw: {ex}");
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
                     }
                 }
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                // Purge test-generated events and ledger actions so the save
+                // stays save-neutral across repeated category runs. See
+                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                // teardown for the same pattern.
+                GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                DestroyHiddenAdministrationCanvasForTest(
+                    selection,
+                    "failed-activation-teardown");
             }
         }
 

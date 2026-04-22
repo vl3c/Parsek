@@ -11,8 +11,6 @@ namespace Parsek.InGameTests
         internal const string StrategyListNotReadyReason = "StrategySystem.Strategies is null";
         internal const string AdministrationNotReadyReason =
             "Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)";
-        internal const string AdministrationUiSpawnRequestedReason =
-            "StrategyLifecycle: Administration UI not open in SPACECENTER; firing stock spawn event";
 
         internal static string GetGlobalReadinessBlockReason(
             Strategies.StrategySystem system,
@@ -42,7 +40,7 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        internal static bool ShouldRequestAdministrationUi(
+        internal static bool ShouldHydrateAdministrationSingleton(
             bool administrationAvailable,
             bool isSpaceCenterScene,
             bool isCareerMode)
@@ -87,23 +85,25 @@ namespace Parsek.InGameTests
             return $"StrategyLifecycle readiness waiting: {NormalizeDiagnostic(readinessReason)}";
         }
 
-        internal static string BuildAdministrationUiSpawnRequestedSummary()
+        internal static string BuildAdministrationHydrationReadySummary(
+            int waitedFrames,
+            int maxFrames)
         {
-            return AdministrationUiSpawnRequestedReason;
+            return $"StrategyLifecycle: hidden Administration canvas hydrated after {waitedFrames}/{maxFrames} frames";
         }
 
-        internal static string BuildAdministrationUiReadySummary(
-            int attemptCount,
-            int maxAttempts)
+        internal static string BuildAdministrationHydrationTimeoutSummary(
+            int waitedFrames,
+            int maxFrames)
         {
-            return $"StrategyLifecycle: Administration UI hydrated after {attemptCount}/{maxAttempts} attempts";
+            return $"StrategyLifecycle: hidden Administration canvas failed to hydrate after {waitedFrames}/{maxFrames} frames";
         }
 
-        internal static string BuildAdministrationUiTimeoutSummary(
-            int attemptCount,
-            int maxAttempts)
+        internal static string BuildAdministrationHydrationTimeoutDiagnostic(
+            int waitedFrames,
+            int maxFrames)
         {
-            return $"StrategyLifecycle: Administration UI failed to hydrate after {attemptCount}/{maxAttempts} attempts";
+            return $"Administration.Instance stayed null after hidden Administration canvas hydration wait ({waitedFrames}/{maxFrames} frames)";
         }
 
         internal static string BuildProbeDiagnostic(
@@ -185,27 +185,22 @@ namespace Parsek.InGameTests
                 BuildReadinessWaitingSummary(readinessReason));
         }
 
-        internal static void LogAdministrationUiSpawnRequested()
-        {
-            ParsekLog.Info("TestRunner", BuildAdministrationUiSpawnRequestedSummary());
-        }
-
-        internal static void LogAdministrationUiReady(
-            int attemptCount,
-            int maxAttempts)
+        internal static void LogAdministrationHydrationReady(
+            int waitedFrames,
+            int maxFrames)
         {
             ParsekLog.Info(
                 "TestRunner",
-                BuildAdministrationUiReadySummary(attemptCount, maxAttempts));
+                BuildAdministrationHydrationReadySummary(waitedFrames, maxFrames));
         }
 
-        internal static void LogAdministrationUiTimeout(
-            int attemptCount,
-            int maxAttempts)
+        internal static void LogAdministrationHydrationTimeout(
+            int waitedFrames,
+            int maxFrames)
         {
             ParsekLog.Warn(
                 "TestRunner",
-                BuildAdministrationUiTimeoutSummary(attemptCount, maxAttempts));
+                BuildAdministrationHydrationTimeoutSummary(waitedFrames, maxFrames));
         }
 
         internal static void LogPollExceptions(

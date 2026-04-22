@@ -242,23 +242,25 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
 
-**Root cause (2026-04-22):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, created by `AdministrationSceneSpawner` only after `GameEvents.onGUIAdministrationFacilitySpawn` opens the stock Administration canvas. `Strategies.Strategy.CanBeActivated()` and `Strategy.Activate()` both dereference that UI singleton, so the existing test harness was waiting forever for a value that never appears in plain SPACECENTER unless the Administration UI is explicitly opened.
+**Root cause (2026-04-22, refined 2026-04-23):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, and `Strategies.Strategy.CanBeActivated()` / `Strategy.Activate()` both dereference it. In plain SPACECENTER that singleton does not exist until the Administration canvas is instantiated. Follow-up decompile of `KSP.UI.Screens.AdministrationSceneSpawner` also showed that the stock `onGUIAdministrationFacilityDespawn` path is not test-neutral: it overwrites `persistent.sfs` via `GamePersistence.SaveGame("persistent", ..., OVERWRITE)` and calls `MusicLogic.fetch.UnpauseWithCrossfade()`.
 
 **Fix:**
 
-- `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now opens the stock Administration UI when the SPACECENTER career tests need strategy readiness and the UI is not already present.
-- The helper waits for `Administration.Instance` to hydrate, keeps the existing bounded readiness probe on top of that stock context, and closes the Administration UI in teardown only when the test opened it.
-- `StrategyLifecycleProbeSupport` now logs the Administration UI spawn/ready/timeout transitions, and the corresponding xUnit coverage pins the new request decision and log messages.
+- `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now creates a hidden stock Administration canvas when the SPACECENTER career tests need strategy readiness and `Administration.Instance` is still null.
+- The helper uses its own bounded hydration-frame wait, keeps the existing readiness probe on top of that stock singleton, and destroys the hidden canvas directly in teardown instead of firing the stock despawn event.
+- `StrategyLifecycleProbeSupport` now uses dedicated hydration diagnostics/logs (including a precise timeout reason), and the xUnit coverage splits the request predicate cases instead of packing three false cases into one `[Fact]`.
 
-**Validation (2026-04-22):**
+**Validation (2026-04-23):**
 
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`19` tests).
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`42` tests).
-- `dotnet build Source/Parsek/Parsek.csproj --no-restore` is blocked locally by missing `.NETFramework,Version=v4.7.2` reference assemblies; this is an environment issue, not a repo compile regression. The `dotnet test` runs above did build `Source/Parsek/Parsek.csproj` successfully as part of the test project restore/build path.
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`21` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`44` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`7846` passed, `2` skipped, `7848` total).
+- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — passed cleanly (`0` warnings, `0` errors).
+- Live SPACECENTER rerun was not executed from this worktree because the repo only exposes the in-game runner via manual KSP GUI interaction (`Ctrl+Shift+T` in SPACECENTER); there is no non-interactive launcher/test harness path to drive that run from this terminal session.
 
-**Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, and possibly `Source/Parsek/ParsekKSC.cs` if the KSC/test startup ordering needs an explicit hook.
+**Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`, `Source/Parsek/Parsek.csproj`.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.9.0. Live SPACECENTER rerun still pending from this worktree.
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0. Headless validation is clean; live SPACECENTER evidence still requires a manual KSP run.
 
 ---
 
