@@ -2161,6 +2161,16 @@ namespace Parsek
             return true;
         }
 
+        internal static Func<ParsekFlight, bool> TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting;
+
+        private bool TryRestoreCommittedTreeForSpawnedActiveVesselFromPostSwitchTrigger()
+        {
+            if (TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting != null)
+                return TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting(this);
+
+            return TryRestoreCommittedTreeForSpawnedActiveVessel();
+        }
+
         private bool ResumeCommittedActiveRecording(string recordingId, Vessel activeVessel)
         {
             if (activeTree == null || activeVessel == null || string.IsNullOrEmpty(recordingId))
@@ -4525,7 +4535,7 @@ namespace Parsek
             uint activeVesselPid,
             bool hasActiveTree,
             bool activeVesselTrackedInBackground,
-            bool canRestorePendingTrackedTree,
+            bool canRestoreTrackedTree,
             bool suppressStart)
         {
             if (suppressStart || armedVesselPid == 0 || activeVesselPid == 0
@@ -4533,9 +4543,27 @@ namespace Parsek
                 return PostSwitchAutoRecordStartDecision.None;
             if (hasActiveTree && activeVesselTrackedInBackground)
                 return PostSwitchAutoRecordStartDecision.PromoteTrackedRecording;
-            if (canRestorePendingTrackedTree)
+            if (canRestoreTrackedTree)
                 return PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording;
             return PostSwitchAutoRecordStartDecision.StartFreshRecording;
+        }
+
+        internal static bool CanRestoreTrackedTreeOnPostSwitchTrigger(
+            bool hasActiveTree,
+            bool hasPendingTree,
+            bool hasScheduledRestore,
+            uint activeVesselPid,
+            IReadOnlyList<RecordingTree> committedTrees)
+        {
+            return !hasActiveTree
+                && !hasPendingTree
+                && !hasScheduledRestore
+                && activeVesselPid != 0
+                && TryFindCommittedTreeForSpawnedVessel(
+                    committedTrees,
+                    activeVesselPid,
+                    out _,
+                    out _);
         }
 
         private bool HasPendingPostSwitchAutoRecordTransition()
@@ -4989,12 +5017,19 @@ namespace Parsek
         {
             bool activeVesselTrackedInBackground = activeTree != null
                 && activeTree.BackgroundMap.ContainsKey(v.persistentId);
+            bool canRestoreTrackedTree = CanRestoreTrackedTreeOnPostSwitchTrigger(
+                activeTree != null,
+                RecordingStore.HasPendingTree,
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady
+                    != ParsekScenario.ActiveTreeRestoreMode.None,
+                v.persistentId,
+                RecordingStore.CommittedTrees);
             var decision = EvaluatePostSwitchAutoRecordStartDecision(
                 state.VesselPid,
                 v.persistentId,
                 activeTree != null,
                 activeVesselTrackedInBackground,
-                canRestorePendingTrackedTree: false,
+                canRestoreTrackedTree,
                 suppressStart: false);
 
             ParsekLog.Info("Flight",
@@ -5013,9 +5048,17 @@ namespace Parsek
                     break;
 
                 case PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording:
-                    ParsekLog.Verbose("Flight",
-                        "Post-switch trigger hit restore-and-promote seam, but #534 restore wiring is gated on this branch");
-                    return false;
+                    // Late #534 fallback: if the scene-entry restore missed, the first
+                    // meaningful post-switch modification must still reclaim the existing
+                    // committed mission tree instead of starting a fresh outsider recording.
+                    if (!TryRestoreCommittedTreeForSpawnedActiveVesselFromPostSwitchTrigger())
+                    {
+                        ParsekLog.Warn("Flight",
+                            $"Post-switch trigger could not restore committed tracked tree for " +
+                            $"vessel '{v.vesselName}' pid={v.persistentId}");
+                        return false;
+                    }
+                    break;
 
                 case PostSwitchAutoRecordStartDecision.StartFreshRecording:
                     PrepareActiveTreeForFreshPostSwitchRecording(v, state, currentUT);

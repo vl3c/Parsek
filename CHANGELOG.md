@@ -37,7 +37,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
+- `#546` Updated the auto-record manual checklist and the todo cross-reference for the separate spawned-chain-tip restore follow-up.
 
 ## 0.8.3
 
@@ -111,7 +111,7 @@ All notable changes to Parsek are documented here.
 - `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
 - `#467` Added `GameStateRecorder` regression coverage for near-threshold `ReputationChanged` deltas, including the stock-rounded `+/-0.9999995` shape and a control case that still ignores clearly sub-threshold reputation noise.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
-- `#534` Added committed-tree vessel-switch restore regressions so returns to spawned mission-tree vessels now pin both restore shapes and the ownership seam: pre-transitioning the former active recording back into `BackgroundMap`, clearing stale recorded-PID background entries for the returned spawned leaf, detaching the matched tree from committed storage before it becomes live again, and preserving a normal later recommit.
+- `#534` Added committed-tree vessel-switch restore regressions so returns to spawned mission-tree vessels now pin both the immediate scene-entry reclaim and the late post-switch trigger fallback, along with the ownership seam: pre-transitioning the former active recording back into `BackgroundMap`, clearing stale recorded-PID background entries for the returned spawned leaf, detaching the matched tree from committed storage before it becomes live again, and preserving a normal later recommit.
 
 ### Documentation
 
@@ -122,7 +122,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch/scene reload now rehydrates the matching committed mission tree from the active vessel's spawned PID, preserves the previously-active recording in `BackgroundMap`, clears stale recorded-PID background entries for the returned spawned leaf, detaches the tree from committed storage before making it live again, and then promotes or resumes that vessel immediately instead of stranding the next continuation in a fresh single-node tree.
+- `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch/scene reload now rehydrates the matching committed mission tree from the active vessel's spawned PID, preserves the previously-active recording in `BackgroundMap`, clears stale recorded-PID background entries for the returned spawned leaf, detaches the tree from committed storage before making it live again, and then promotes or resumes that vessel immediately. If the immediate scene-entry reclaim still misses, the first post-switch trigger now retries that committed-tree restore before Parsek falls back to a fresh outsider continuation.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

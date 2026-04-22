@@ -1,10 +1,30 @@
+using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
 {
-    public class PostSwitchAutoRecordTests
+    [Collection("Sequential")]
+    public class PostSwitchAutoRecordTests : IDisposable
     {
+        public PostSwitchAutoRecordTests()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting = null;
+            ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                ParsekScenario.ActiveTreeRestoreMode.None;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting = null;
+            ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                ParsekScenario.ActiveTreeRestoreMode.None;
+        }
+
         [Theory]
         [InlineData(true, false, true, false, false, true)]
         [InlineData(false, false, true, false, false, false)]
@@ -270,7 +290,7 @@ namespace Parsek.Tests
                 activeVesselPid: 42,
                 hasActiveTree: true,
                 activeVesselTrackedInBackground: true,
-                canRestorePendingTrackedTree: false,
+                canRestoreTrackedTree: false,
                 suppressStart: false);
 
             Assert.Equal(
@@ -286,7 +306,7 @@ namespace Parsek.Tests
                 activeVesselPid: 42,
                 hasActiveTree: true,
                 activeVesselTrackedInBackground: false,
-                canRestorePendingTrackedTree: false,
+                canRestoreTrackedTree: false,
                 suppressStart: false);
 
             Assert.Equal(
@@ -302,10 +322,228 @@ namespace Parsek.Tests
                 activeVesselPid: 42,
                 hasActiveTree: true,
                 activeVesselTrackedInBackground: true,
-                canRestorePendingTrackedTree: false,
+                canRestoreTrackedTree: false,
                 suppressStart: true);
 
             Assert.Equal(ParsekFlight.PostSwitchAutoRecordStartDecision.None, result);
+        }
+
+        [Fact]
+        public void EvaluatePostSwitchAutoRecordStartDecision_CommittedSpawnedReturn_RestoresTrackedTree()
+        {
+            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+                armedVesselPid: 42,
+                activeVesselPid: 42,
+                hasActiveTree: false,
+                activeVesselTrackedInBackground: false,
+                canRestoreTrackedTree: true,
+                suppressStart: false);
+
+            Assert.Equal(
+                ParsekFlight.PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording,
+                result);
+        }
+
+        [Fact]
+        public void CanRestoreTrackedTreeOnPostSwitchTrigger_CommittedSpawnedMatchWithoutLiveTree_ReturnsTrue()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_restore",
+                TreeName = "Committed Mission"
+            };
+            tree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 17,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42
+            };
+
+            bool result = ParsekFlight.CanRestoreTrackedTreeOnPostSwitchTrigger(
+                hasActiveTree: false,
+                hasPendingTree: false,
+                hasScheduledRestore: false,
+                activeVesselPid: 42,
+                committedTrees: new List<RecordingTree> { tree });
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void CanRestoreTrackedTreeOnPostSwitchTrigger_LiveTreeSuppressesCommittedRestore()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_restore",
+                TreeName = "Committed Mission"
+            };
+            tree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 17,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42
+            };
+
+            bool result = ParsekFlight.CanRestoreTrackedTreeOnPostSwitchTrigger(
+                hasActiveTree: true,
+                hasPendingTree: false,
+                hasScheduledRestore: false,
+                activeVesselPid: 42,
+                committedTrees: new List<RecordingTree> { tree });
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void CanRestoreTrackedTreeOnPostSwitchTrigger_PendingRestoreGuard_BlocksCommittedRestore()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_restore",
+                TreeName = "Committed Mission"
+            };
+            tree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 17,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42
+            };
+
+            bool pendingTreeResult = ParsekFlight.CanRestoreTrackedTreeOnPostSwitchTrigger(
+                hasActiveTree: false,
+                hasPendingTree: true,
+                hasScheduledRestore: false,
+                activeVesselPid: 42,
+                committedTrees: new List<RecordingTree> { tree });
+            bool scheduledRestoreResult = ParsekFlight.CanRestoreTrackedTreeOnPostSwitchTrigger(
+                hasActiveTree: false,
+                hasPendingTree: false,
+                hasScheduledRestore: true,
+                activeVesselPid: 42,
+                committedTrees: new List<RecordingTree> { tree });
+
+            Assert.False(pendingTreeResult);
+            Assert.False(scheduledRestoreResult);
+        }
+
+        [Fact]
+        public void TryStartPostSwitchAutoRecord_LateCommittedRestoreBranch_RestoresAndDisarmsWatch()
+        {
+            var committedTree = new RecordingTree
+            {
+                Id = "tree_restore",
+                TreeName = "Committed Mission"
+            };
+            committedTree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 17,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42
+            };
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            object state = CreatePostSwitchState(42, "Kerbal X");
+            SetInstanceField(host, "postSwitchAutoRecord", state);
+
+            bool restoreCalled = false;
+            ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVesselOverrideForTesting = flight =>
+            {
+                restoreCalled = true;
+                SetInstanceField(flight, "activeTree", committedTree);
+                SetInstanceField(flight, "recorder", new FlightRecorder { IsRecording = true });
+                return true;
+            };
+
+            MethodInfo method = typeof(ParsekFlight).GetMethod(
+                "TryStartPostSwitchAutoRecord",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            bool started = (bool)method.Invoke(
+                host,
+                new object[]
+                {
+                    CreateVessel(42, "Kerbal X"),
+                    state,
+                    ParsekFlight.PostSwitchAutoRecordTrigger.OrbitChange,
+                    123.0
+                });
+
+            Assert.True(started);
+            Assert.True(restoreCalled);
+            Assert.True(host.IsRecording);
+            Assert.Null(GetInstanceField<object>(host, "postSwitchAutoRecord"));
+        }
+
+        private static object CreatePostSwitchState(uint vesselPid, string vesselName)
+        {
+            Type stateType = typeof(ParsekFlight).GetNestedType(
+                "PostSwitchAutoRecordState",
+                BindingFlags.NonPublic);
+            Assert.NotNull(stateType);
+
+            object state = Activator.CreateInstance(stateType, nonPublic: true);
+            SetMemberValue(stateType, state, "VesselPid", vesselPid);
+            SetMemberValue(stateType, state, "VesselName", vesselName);
+            return state;
+        }
+
+        private static Vessel CreateVessel(uint persistentId, string vesselName)
+        {
+            var vessel = (Vessel)FormatterServices.GetUninitializedObject(typeof(Vessel));
+            SetMemberValue(typeof(Vessel), vessel, "persistentId", persistentId);
+            SetMemberValue(typeof(Vessel), vessel, "vesselName", vesselName);
+            return vessel;
+        }
+
+        private static void SetInstanceField(object instance, string fieldName, object value)
+        {
+            FieldInfo field = instance.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(instance, value);
+        }
+
+        private static T GetInstanceField<T>(object instance, string fieldName) where T : class
+        {
+            FieldInfo field = instance.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return field.GetValue(instance) as T;
+        }
+
+        private static void SetMemberValue(Type type, object instance, string memberName, object value)
+        {
+            FieldInfo field = type.GetField(
+                memberName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (field != null)
+            {
+                field.SetValue(instance, value);
+                return;
+            }
+
+            PropertyInfo property = type.GetProperty(
+                memberName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (property != null)
+            {
+                property.SetValue(instance, value, null);
+                return;
+            }
+
+            Assert.True(false, $"Member '{memberName}' not found on {type.FullName}.");
         }
     }
 }
