@@ -2071,7 +2071,14 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                RemoveCommittedTreeById(tree.Id);
+                if (!RecordingStore.RemoveCommittedTreeById(
+                        tree.Id,
+                        logContext: "TryRestoreActiveTreeNode"))
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) needed detaching");
+                }
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
@@ -2468,34 +2475,6 @@ namespace Parsek
             }
 
             return items.Count != originalCount;
-        }
-
-        /// <summary>
-        /// Removes a committed tree from <see cref="RecordingStore.CommittedTrees"/>
-        /// (and its recordings from the flat committed list) if a tree with the given id
-        /// exists. Used by the active-tree restore path to prevent duplicate-id collisions
-        /// when a prior TS/SPC commit left the tree in committedTrees at the same time
-        /// the disk save had it flagged active.
-        /// </summary>
-        private static void RemoveCommittedTreeById(string treeId)
-        {
-            if (string.IsNullOrEmpty(treeId)) return;
-
-            var committed = RecordingStore.CommittedTrees;
-            for (int i = committed.Count - 1; i >= 0; i--)
-            {
-                if (committed[i].Id != treeId) continue;
-
-                var stale = committed[i];
-                // Remove the tree's recordings from the flat CommittedRecordings list
-                foreach (var rec in stale.Recordings.Values)
-                    RecordingStore.RemoveCommittedInternal(rec);
-
-                committed.RemoveAt(i);
-                ParsekLog.Info("Scenario",
-                    $"RemoveCommittedTreeById: removed stale committed copy of tree '{stale.TreeName}' " +
-                    $"(id={treeId}, {stale.Recordings.Count} recording(s)) — active-tree restore takes precedence");
-            }
         }
 
         internal static bool ShouldKeepPendingTreeAfterHydrationFailure(
