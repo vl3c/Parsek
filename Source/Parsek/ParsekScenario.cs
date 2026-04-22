@@ -2071,9 +2071,14 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                RecordingStore.RemoveCommittedTreeById(
-                    tree.Id,
-                    logContext: "TryRestoreActiveTreeNode");
+                if (!RecordingStore.RemoveCommittedTreeById(
+                        tree.Id,
+                        logContext: "TryRestoreActiveTreeNode"))
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) needed detaching");
+                }
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
