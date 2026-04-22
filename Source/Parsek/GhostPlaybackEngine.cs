@@ -1749,6 +1749,10 @@ namespace Parsek
                 LoopTiming.MinCycleDuration);
             double anchorUT = autoLoopQueueScratch[0].PlaybackStartUT;
             double cadenceSeconds = launchGapSeconds * autoLoopQueueScratch.Count;
+            ParsekLog.Verbose("Engine",
+                $"Auto loop queue rebuilt: count={autoLoopQueueScratch.Count} " +
+                $"anchorUT={anchorUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"cadence={cadenceSeconds.ToString("R", CultureInfo.InvariantCulture)}s");
             for (int slot = 0; slot < autoLoopQueueScratch.Count; slot++)
             {
                 var candidate = autoLoopQueueScratch[slot];
