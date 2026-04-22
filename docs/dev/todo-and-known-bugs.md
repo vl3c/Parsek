@@ -514,15 +514,24 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 546. Post-switch follow-up recording still lacks general first-modification triggers once Parsek is idle or tree context is lost
+## ~~546. Post-switch follow-up recording still lacks general first-modification triggers once Parsek is idle or tree context is lost~~
 
 **Source:** design/code read on 2026-04-22 after reviewing `docs/parsek-flight-recorder-design.md`, `docs/dev/done/recording-chaining.md`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/FlightRecorder.cs`, and the current auto-record/runtime tests. The design says focus-vessel recording should promote/demote across vessel switches and that physical state changes are what matter; current settings/UI still expose only `Auto-record on launch` and `Auto-record on EVA`.
 
-**Concern:** outside the narrow launch / pad-EVA / live-tree-promotion paths, there is still no general "switch to a real vessel, then make the first meaningful state change" arming path. `OnVesselSituationChange` only auto-starts from `PRELAUNCH` or settled `LANDED`, and `PromoteRecordingFromBackground(...)` only works while an active tree already exists and the switched-to PID is still in `BackgroundMap`. That leaves several follow-up cases uncaptured unless the user manually starts recording: orbital/suborbital engine or RCS burns that stay in the same situation, rover/base repositioning that remains `LANDED`, and switched-to vessel part/crew/resource mutations that do not pass through the current launch/EVA gates. `#534` is the spawned-chain-tip restore variant of this broader gap: once the return path misses promotion, later landing/burn follow-up never rejoins the existing mission tree because only launch/pad-EVA auto-start remain armed.
+**Concern:** outside the narrow launch / pad-EVA / live-tree-promotion paths, there was no general "switch to a real vessel, then make the first meaningful state change" arming path. `OnVesselSituationChange` only auto-started from `PRELAUNCH` or settled `LANDED`, and `PromoteRecordingFromBackground(...)` only worked while an active tree already existed and the switched-to PID was still in `BackgroundMap`. That left several follow-up cases uncaptured unless the user manually started recording: orbital/suborbital engine or RCS burns that stay in the same situation, rover/base repositioning that remains `LANDED`, and switched-to vessel part/crew/resource mutations that do not pass through the current launch/EVA gates. `#534` is the spawned-chain-tip restore variant of this broader gap.
 
-**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange`, `OnCrewOnEva`, `OnVesselSwitchComplete`, `PromoteRecordingFromBackground`), `Source/Parsek/FlightRecorder.cs` (`DecideOnVesselSwitch`), `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`. Related cluster: open `#534` is the narrow spawned-chain-tip restore seam; `#546` is the broader idle-after-switch first-modification gap.
+**Fix:** idle switches to real non-ghost vessels now arm a dedicated post-switch watcher instead of starting on switch alone. The watcher captures its baseline on the first stable physics frame after the switch, reuses the existing landed settle threshold before comparing landed vessels, and starts exactly once on the first meaningful physical change:
 
-**Status:** TODO / larger feature gap. Plan: `docs/dev/plans/fix-546-post-switch-first-modification-autorecord.md`. Remaining work: implement the post-switch arming/trigger policy and runtime coverage, keeping `#534` separate unless the restore fix is intentionally folded in.
+- landed motion / orbital state change
+- engine ignition or sustained RCS activity
+- crew/resource/inventory delta
+- non-cosmetic part-state change (gear and similar authored physical state)
+
+Observation-only / cosmetic-only changes stay ignored. Checks are suppressed while restore is running, while split/dock/boarding transitions are pending, during regular or physics warp, for packed/on-rails vessels, for ghost-map vessels, and when the active vessel no longer matches the armed PID. A new setting, `Auto-record on first modification after switch`, ships enabled by default alongside the other auto-record toggles. The outsider/start-fresh path and tracked-background-member promote-on-trigger path are both implemented here. The restore-and-promote tracked seam remains intentionally gated behind open `#534` on this branch.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/Patches/PhysicsFramePatch.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek.Tests/PostSwitchAutoRecordTests.cs`, `Source/Parsek.Tests/MissedVesselSwitchRecoveryTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`, `CHANGELOG.md`. Related cluster: open `#534` is still the narrow spawned-chain-tip restore seam; `#547` / `#548` / `#549` remain separate follow-ups.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3 with the post-switch arming / trigger policy, headless helper coverage, and isolated runtime canaries. Remaining gate: `#534` restore-and-promote for the spawned-chain-tip return seam stays open and separate.
 
 ---
 

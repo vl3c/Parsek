@@ -38,6 +38,10 @@ namespace Parsek.Patches
 
         static void Postfix(VesselPrecalculate __instance)
         {
+            ParsekFlight flight = ParsekFlight.Instance;
+            bool hasPostSwitchAutoRecordWatch =
+                flight != null && flight.HasArmedPostSwitchAutoRecordWatch;
+
             if (ActiveRecorder != lastObservedRecorder)
             {
                 if (ActiveRecorder == null)
@@ -56,22 +60,20 @@ namespace Parsek.Patches
                 lastObservedGloopsRecorder = GloopsRecorderInstance;
             }
 
-            if (ActiveRecorder == null && GloopsRecorderInstance == null && BackgroundRecorderInstance == null)
+            if (ActiveRecorder == null
+                && GloopsRecorderInstance == null
+                && BackgroundRecorderInstance == null
+                && !hasPostSwitchAutoRecordWatch)
                 return;
 
             // VesselPrecalculate.vessel is protected; resolve the vessel
             // via the GameObject instead.
             Vessel v = FlightGlobals.ActiveVessel;
 
-            // Active vessel recording path
-            if (ActiveRecorder != null)
+            if (v != null && __instance.gameObject == v.gameObject)
             {
-                if (v == null)
-                {
-                    ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
-                        "Skipping physics callback: active vessel is null", 5.0);
-                }
-                else if (__instance.gameObject == v.gameObject)
+                // Active vessel recording path
+                if (ActiveRecorder != null)
                 {
                     recordingStopwatch.Restart();
                     ActiveRecorder.OnPhysicsFrame(v);
@@ -82,15 +84,22 @@ namespace Parsek.Patches
 
                     DiagnosticsComputation.CheckRecordingBudgetThreshold(elapsedUs, v.vesselName);
                 }
-            }
 
-            // Gloops recorder runs in parallel with the active recorder on the same vessel
-            if (GloopsRecorderInstance != null)
-            {
-                if (v != null && __instance.gameObject == v.gameObject)
+                if (hasPostSwitchAutoRecordWatch)
+                {
+                    flight.OnPostSwitchAutoRecordPhysicsFrame(v);
+                }
+
+                // Gloops recorder runs in parallel with the active recorder on the same vessel
+                if (GloopsRecorderInstance != null)
                 {
                     GloopsRecorderInstance.OnPhysicsFrame(v);
                 }
+            }
+            else if (hasPostSwitchAutoRecordWatch && v == null)
+            {
+                ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
+                    "Skipping post-switch auto-record watch: active vessel is null", 5.0);
             }
 
             // Background physics recording for loaded vessels in tree
