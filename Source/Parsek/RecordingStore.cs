@@ -440,6 +440,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes a committed tree by id, including its recordings from the flat
+        /// committed list, so a live restore can take ownership without duplicate-id
+        /// collisions or "still committed" semantics.
+        /// </summary>
+        internal static bool RemoveCommittedTreeById(string treeId, string logContext = null)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+
+            bool removed = false;
+            for (int i = committedTrees.Count - 1; i >= 0; i--)
+            {
+                if (committedTrees[i].Id != treeId)
+                    continue;
+
+                RecordingTree stale = committedTrees[i];
+                foreach (Recording rec in stale.Recordings.Values)
+                    RemoveCommittedInternal(rec);
+
+                committedTrees.RemoveAt(i);
+                removed = true;
+                ParsekLog.Info("RecordingStore",
+                    $"{logContext ?? "RemoveCommittedTreeById"}: removed committed tree " +
+                    $"'{stale.TreeName}' (id={treeId}, {stale.Recordings.Count} recording(s))");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
         /// Clears all recordings from the internal committed list.
         /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
         /// </summary>

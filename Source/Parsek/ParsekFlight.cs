@@ -1968,26 +1968,12 @@ namespace Parsek
             if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
                 return false;
 
-            if (!TryFindCommittedTreeForSpawnedVessel(
-                    RecordingStore.CommittedTrees,
+            if (!TryTakeCommittedTreeForSpawnedVesselRestore(
                     activeVesselPid,
                     out RecordingTree committedTree,
-                    out string targetRecordingId))
-            {
+                    out string targetRecordingId,
+                    out CommittedSpawnedVesselRestoreAction action))
                 return false;
-            }
-
-            var action = PrepareCommittedTreeRestoreForSpawnedVessel(
-                committedTree,
-                targetRecordingId,
-                activeVesselPid);
-            if (action == CommittedSpawnedVesselRestoreAction.None)
-            {
-                ParsekLog.Warn("Flight",
-                    $"TryRestoreCommittedTreeForSpawnedActiveVessel: matched tree '{committedTree.TreeName}' " +
-                    $"recording '{targetRecordingId}' for pid={activeVesselPid}, but could not prepare a restore action");
-                return false;
-            }
 
             activeTree = committedTree;
             chainManager.ActiveTreeId = activeTree.Id;
@@ -6732,6 +6718,57 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(
+            uint activeVesselPid,
+            out RecordingTree tree,
+            out string recordingId,
+            out CommittedSpawnedVesselRestoreAction action)
+        {
+            tree = null;
+            recordingId = null;
+            action = CommittedSpawnedVesselRestoreAction.None;
+
+            if (!TryFindCommittedTreeForSpawnedVessel(
+                    RecordingStore.CommittedTrees,
+                    activeVesselPid,
+                    out RecordingTree committedTree,
+                    out string targetRecordingId))
+            {
+                return false;
+            }
+
+            CommittedSpawnedVesselRestoreAction preparedAction =
+                PrepareCommittedTreeRestoreForSpawnedVessel(
+                    committedTree,
+                    targetRecordingId,
+                    activeVesselPid);
+            if (preparedAction == CommittedSpawnedVesselRestoreAction.None)
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
+                    $"recording '{targetRecordingId}' for pid={activeVesselPid}, but could not prepare a restore action");
+                return false;
+            }
+
+            // Detach the tree from committed storage before making it live again. The
+            // active-flight path depends on "live tree != committed tree" for patch
+            // deferral and for the later commit to run its full side effects.
+            if (!RecordingStore.RemoveCommittedTreeById(
+                    committedTree.Id,
+                    logContext: "TryTakeCommittedTreeForSpawnedVesselRestore"))
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
+                    $"(id={committedTree.Id}) but could not detach it from committed storage");
+                return false;
+            }
+
+            tree = committedTree;
+            recordingId = targetRecordingId;
+            action = preparedAction;
+            return true;
         }
 
         internal static CommittedSpawnedVesselRestoreAction PrepareCommittedTreeRestoreForSpawnedVessel(

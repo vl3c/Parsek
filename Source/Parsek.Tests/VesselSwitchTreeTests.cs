@@ -68,6 +68,13 @@ namespace Parsek.Tests
             return tree;
         }
 
+        private static void AddTreeToCommittedStore(RecordingTree tree)
+        {
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+        }
+
         #region DecideOnVesselSwitch with tree parameter
 
         [Fact]
@@ -301,6 +308,48 @@ namespace Parsek.Tests
             Assert.Single(tree.BackgroundMap);
             Assert.Equal("rec_bg", tree.BackgroundMap[300]);
             Assert.DoesNotContain("rec_active", tree.BackgroundMap.Values);
+        }
+
+        [Fact]
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_DetachesTreeAndAllowsRecommit()
+        {
+            var tree = MakeTree("rec_active", (20, "rec_tip"));
+            tree.Id = "tree_restore";
+            tree.RootRecordingId = "rec_active";
+
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 100;
+
+            tree.Recordings["rec_tip"].TreeId = tree.Id;
+            tree.Recordings["rec_tip"].VesselPersistentId = 20;
+            tree.Recordings["rec_tip"].VesselSpawned = true;
+            tree.Recordings["rec_tip"].SpawnedVesselPersistentId = 200;
+            tree.Recordings["rec_tip"].TerminalStateValue = TerminalState.Orbiting;
+
+            AddTreeToCommittedStore(tree);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                activeVesselPid: 200,
+                out RecordingTree liveTree,
+                out string matchedRecordingId,
+                out ParsekFlight.CommittedSpawnedVesselRestoreAction action);
+
+            Assert.True(taken);
+            Assert.Same(tree, liveTree);
+            Assert.Equal("rec_tip", matchedRecordingId);
+            Assert.Equal(
+                ParsekFlight.CommittedSpawnedVesselRestoreAction.PromoteFromBackground,
+                action);
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+
+            RecordingStore.CommitTree(liveTree);
+
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Equal(tree.Id, RecordingStore.CommittedTrees[0].Id);
+            Assert.Equal(liveTree.Recordings.Count, RecordingStore.CommittedRecordings.Count);
         }
 
         #endregion
