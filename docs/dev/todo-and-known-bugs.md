@@ -898,44 +898,28 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 ---
 
-## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
+## ~~493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode~~
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
-**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
+**Fix:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests.
+
+**Live evidence:** `logs/2026-04-21_2041_live-collect-now` captured the widened restore-backed cohort in one disposable `FLIGHT` session. Its `KSP.log` shows a single baseline captured for 9 restore-after-run tests, a restore back to that baseline after each destructive pass, and a clean batch finish at `153 passed, 0 failed, 29 skipped`. Its `parsek-test-results.txt` records `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
 - `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
 - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
-- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
 - `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
 - `FlightIntegrationTests.BridgeSurvivesSceneTransition`
 - `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
 - `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
+`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that retained session and skipped with `no same-body ghost available for watch-cleanup regression`; the isolated harness still handled it cleanly inside the same batch run.
 
-Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
+**Caveat:** `SceneExitMerge` intentionally remains manual-only. `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` shows both `SPACECENTER` scene-exit canaries passing, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch.
 
-**Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
-
-**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
-
-**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, waits through transient-null `FlightInputHandler.state` until the input state stays stable, and then waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
-
-**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
-
-**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
-
-- the `[isolated]` tests above run in one session without manual reloads
-- the runner quickloads the baseline back between destructive tests
-- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
-- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
-
-**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED 2026-04-22. Fixed/documented for `v0.8.3`.
 
 ---
 
