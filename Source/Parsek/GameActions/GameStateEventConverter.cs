@@ -10,8 +10,8 @@ namespace Parsek
     /// events that are purely informational (resource deltas, status changes) are skipped.
     ///
     /// Also converts <see cref="PendingScienceSubject"/> entries into ScienceEarning actions.
-    ///
-    /// Pure static — no KSP state access.
+    /// ContractAccepted backfill may consult the stored contract snapshot when older event
+    /// detail rows predate newer fields.
     /// </summary>
     internal static class GameStateEventConverter
     {
@@ -405,24 +405,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/advance/penalties from detail).
-        /// New format (v3): "title=...;deadline=...;funds=...;failFunds=...;failRep=..."
+        /// ContractAccepted -> ContractAccept (contractId=key, title/type/deadline/advance/penalties from detail).
+        /// New format (v4): "title=...;deadline=...;type=...;funds=...;failFunds=...;failRep=..."
+        /// v3 (no type= key): backward compatible via snapshot fallback.
         /// v2 (no funds= key): backward compatible, advance defaults to 0.
         /// Legacy (v1): plain title string (no semicolons). Backward compatible.
         /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
             string title;
+            string contractType = null;
             float deadlineUT = float.NaN;
             float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
+            bool structured = evt.detail != null && evt.detail.Contains(";");
+            string typeSource = "missing";
 
             // Detect structured vs legacy format by checking for semicolons
-            if (evt.detail != null && evt.detail.Contains(";"))
+            if (structured)
             {
                 // Structured format: extract fields
                 title = ExtractDetail(evt.detail, "title") ?? "";
+                contractType = ExtractDetail(evt.detail, "type");
+                if (!string.IsNullOrEmpty(contractType))
+                    typeSource = "detail";
 
                 string deadlineStr = ExtractDetail(evt.detail, "deadline");
                 if (deadlineStr != null && deadlineStr != "NaN")
@@ -441,20 +448,29 @@ namespace Parsek
                 string failRepStr = ExtractDetail(evt.detail, "failRep");
                 if (failRepStr != null)
                     float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
-
-                ParsekLog.Verbose(Tag,
-                    $"ConvertContractAccepted: structured format contractId='{evt.key}' " +
-                    $"title='{title}' deadline={deadlineUT} advance={advanceFunds} " +
-                    $"failFunds={fundsPenalty} failRep={repPenalty}");
             }
             else
             {
                 // Legacy format: entire detail is the title
                 title = evt.detail ?? "";
-
-                ParsekLog.Verbose(Tag,
-                    $"ConvertContractAccepted: legacy format contractId='{evt.key}' title='{title}'");
             }
+
+            if (string.IsNullOrEmpty(contractType))
+            {
+                ConfigNode snapshot = GameStateStore.GetContractSnapshot(evt.key);
+                if (snapshot != null)
+                {
+                    contractType = snapshot.GetValue("type");
+                    if (!string.IsNullOrEmpty(contractType))
+                        typeSource = "snapshot";
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ConvertContractAccepted: {(structured ? "structured" : "legacy")} format " +
+                $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
+                $"typeSource={typeSource} deadline={deadlineUT} advance={advanceFunds} " +
+                $"failFunds={fundsPenalty} failRep={repPenalty}");
 
             return new GameAction
             {
@@ -463,6 +479,7 @@ namespace Parsek
                 RecordingId = recordingId,
                 ContractId = evt.key,
                 ContractTitle = title,
+                ContractType = contractType,
                 DeadlineUT = deadlineUT,
                 AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,

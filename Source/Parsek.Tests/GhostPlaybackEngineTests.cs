@@ -134,6 +134,13 @@ namespace Parsek.Tests
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = PrimedPosition;
+                return true;
+            }
+
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
                 IPlaybackTrajectory traj, double distance, int protectedIndex)
             {
