@@ -334,7 +334,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
