@@ -354,15 +354,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands
+## ~~532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands~~
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` shows `basicRocketry` being allowed, then `PatchScience: 17.1 -> 22.1`, and only later the matching `TechResearched` ledger event. The same pattern repeats for `engineering101`: allow tech, patch science back up, then record the action later.
 
 **Concern:** during bursty R&D activity, KSP's science pool is being patched upward in the gap between stock unlock and the recorder/ledger catching up. That means the player can briefly see refunded science or even try to re-spend it while the action stream is still converging.
 
-**Files:** `Source/Parsek/Patches/TechResearchPatch.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`.
+**Fix:** `LedgerOrchestrator` now measures the recent unmatched `ScienceChanged(RnDTechResearch)` debit against landed KSC `ScienceSpending` actions in the same 0.1s window, and `KspStatePatcher.PatchScience()` subtracts that live-only gap from its upward patch target. The pool stays at the already-deducted stock value until the matching `TechResearched` action lands, instead of briefly refunding the gap.
 
-**Status:** OPEN. Visible resource-state bug captured in-package.
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `Source/Parsek.Tests/LedgerOrchestratorTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 

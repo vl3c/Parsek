@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#532` `PatchScience` now holds back recent unmatched `RnDTechResearch` debits when KSP has already deducted science but the matching KSC `TechResearched` action has not landed in the ledger yet, so same-UT tech unlock bursts no longer momentarily refund science back into the pool.
 - `#535` Tracking Station ghost creation now prefers the recording's currently visible orbit segment over any later terminal-orbit tuple, and it only falls back to terminal orbit after that recording has actually reached its own end UT. `KSP.log` now also records each source decision and splits `before-activation` / `before-terminal-orbit` skips out of the startup `noOrbit` bucket, so future-tip suppression is diagnosable instead of looking like generic missing orbit data.
 - `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
 - `#531` Destroyed recordings without a preserved vessel snapshot now diagnose as `vessel destroyed` instead of the misleading `no vessel snapshot`, so playback/rewind/KSC spawn suppression logs report the real terminal state.
@@ -42,6 +43,7 @@ All notable changes to Parsek are documented here.
 - `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 - `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
+- `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 
 ### Documentation
 
