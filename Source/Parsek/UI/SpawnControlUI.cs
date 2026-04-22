@@ -19,8 +19,7 @@ namespace Parsek
         private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
-        private enum SpawnSortColumn { Name, Distance, SpawnTime }
-        private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
+        private SpawnControlSortColumn spawnSortColumn = SpawnControlSortColumn.Distance;
         private bool spawnSortAscending = true;
         private bool isResizingSpawnControlWindow;
         private Vector2 spawnControlScrollPos;
@@ -29,7 +28,7 @@ namespace Parsek
         private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
         private int cachedCandidateCount = -1;
         private int cachedProximityGeneration = -1;
-        private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
+        private SpawnControlSortColumn cachedSortColumn = SpawnControlSortColumn.Distance;
         private bool cachedSortAscending = true;
 
         // Window drag tracking for position logging
@@ -129,41 +128,22 @@ namespace Parsek
             spawnControlWindowHasInputLock = false;
         }
 
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
+        private void DrawSpawnSortableHeader(string label, SpawnControlSortColumn col, float width)
         {
             DrawSpawnSortableHeader(label, col, false, width);
         }
 
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand)
+        private void DrawSpawnSortableHeader(string label, SpawnControlSortColumn col, bool expand)
         {
             DrawSpawnSortableHeader(label, col, expand, 0);
         }
 
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
+        private void DrawSpawnSortableHeader(string label, SpawnControlSortColumn col, bool expand, float width)
         {
             parentUI.DrawSortableHeaderCore(label, col, ref spawnSortColumn, ref spawnSortAscending, width, expand, () =>
             {
                 ParsekLog.Verbose("UI", $"Spawn sort changed: column={spawnSortColumn}, ascending={spawnSortAscending}");
             });
-        }
-
-        private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
-        {
-            int cmp;
-            switch (spawnSortColumn)
-            {
-                case SpawnSortColumn.Name:
-                    cmp = string.Compare(a.vesselName, b.vesselName,
-                        System.StringComparison.OrdinalIgnoreCase);
-                    break;
-                case SpawnSortColumn.SpawnTime:
-                    cmp = a.endUT.CompareTo(b.endUT);
-                    break;
-                default: // Distance
-                    cmp = a.distance.CompareTo(b.distance);
-                    break;
-            }
-            return spawnSortAscending ? cmp : -cmp;
         }
 
         private void DrawSpawnControlWindow(int windowID, ParsekFlight flight)
@@ -186,10 +166,10 @@ namespace Parsek
 
             // Header row with sortable columns
             GUILayout.BeginHorizontal();
-            DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
-            DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
-            DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
-            DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
+            DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
+            DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
+            DrawSpawnSortableHeader("Spawns at", SpawnControlSortColumn.SpawnTime, SpawnColW_SpawnTime);
+            DrawSpawnSortableHeader("In T-", SpawnControlSortColumn.SpawnTime, SpawnColW_Countdown);
             GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
@@ -201,10 +181,10 @@ namespace Parsek
                 || spawnSortColumn != cachedSortColumn
                 || spawnSortAscending != cachedSortAscending)
             {
-                cachedSortedCandidates.Clear();
-                for (int ci = 0; ci < candidates.Count; ci++)
-                    cachedSortedCandidates.Add(candidates[ci]);
-                cachedSortedCandidates.Sort(CompareSpawnCandidates);
+                cachedSortedCandidates = SpawnControlPresentation.SortCandidates(
+                    candidates,
+                    spawnSortColumn,
+                    spawnSortAscending);
                 cachedCandidateCount = candidates.Count;
                 cachedProximityGeneration = gen;
                 cachedSortColumn = spawnSortColumn;
@@ -227,7 +207,8 @@ namespace Parsek
             {
                 var cand = sorted[i];
                 double delta = cand.endUT - currentUT;
-                bool canWarp = cand.endUT > currentUT;
+                SpawnCandidateRowPresentation row =
+                    SpawnControlPresentation.BuildRowPresentation(cand, currentUT);
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
@@ -242,20 +223,13 @@ namespace Parsek
                     GUILayout.Width(SpawnColW_Countdown));
 
                 // State column: departure info
-                if (cand.willDepart)
+                if (row.StateTone != SpawnCandidateStateTone.None)
                 {
-                    double depDelta = cand.departureUT - currentUT;
-                    string stateText;
-                    if (depDelta <= 0)
-                        stateText = string.Format(ic, "Departing \u2192 {0}", cand.destination ?? "?");
-                    else
-                        stateText = string.Format(ic, "Departs {0}",
-                            SelectiveSpawnUI.FormatCountdown(depDelta));
                     var prevColor = GUI.contentColor;
-                    GUI.contentColor = depDelta <= 0
+                    GUI.contentColor = row.StateTone == SpawnCandidateStateTone.DepartingNow
                         ? new Color(1f, 0.65f, 0.2f) // orange
                         : new Color(1f, 1f, 0.4f);    // yellow
-                    GUILayout.Label(stateText, GUILayout.Width(SpawnColW_State));
+                    GUILayout.Label(row.StateText, GUILayout.Width(SpawnColW_State));
                     GUI.contentColor = prevColor;
                 }
                 else
@@ -264,11 +238,10 @@ namespace Parsek
                 }
 
                 // Warp button: "FF-Depart" for departing, "FF-Spawn" for normal
-                if (cand.willDepart)
+                GUI.enabled = row.WarpButtonEnabled;
+                if (GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp)))
                 {
-                    bool canWarpDep = cand.departureUT > currentUT;
-                    GUI.enabled = canWarpDep;
-                    if (GUILayout.Button("FF-Depart", GUILayout.Width(SpawnColW_Warp)))
+                    if (row.UsesDepartureWarp)
                     {
                         ParsekLog.Info("UI",
                             string.Format(ic,
@@ -276,12 +249,7 @@ namespace Parsek
                                 cand.vesselName, cand.recordingIndex, cand.departureUT));
                         flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
                     }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUI.enabled = canWarp;
-                    if (GUILayout.Button("FF-Spawn", GUILayout.Width(SpawnColW_Warp)))
+                    else
                     {
                         ParsekLog.Info("UI",
                             string.Format(ic,
@@ -289,8 +257,8 @@ namespace Parsek
                                 cand.vesselName, cand.recordingIndex));
                         flight.WarpToRecordingEnd(cand.recordingIndex);
                     }
-                    GUI.enabled = true;
                 }
+                GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndVertical();
