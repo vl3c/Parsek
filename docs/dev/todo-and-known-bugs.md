@@ -447,7 +447,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --no-restore --filter "FullyQualifiedName~GhostPlaybackEngineTests"` passed (`109` passed, `0` failed, `0` skipped) and the full restore-backed `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` compile+run reached the xUnit runner, but still hit one unrelated existing environment-state failure in `SyntheticRecordingTests.InjectAllRecordings` (`Expected exactly 283 .prec files ... found 540`, orphan sidecars from a prior inject run). The new runtime regression compiles as part of the referenced `Parsek` project but still needs live KSP execution via `Ctrl+Shift+T` for full runtime evidence.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
