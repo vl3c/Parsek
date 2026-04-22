@@ -13,8 +13,10 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
+            GhostMapPresence.ResetForTesting();
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -23,6 +25,8 @@ namespace Parsek.Tests
         {
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            GhostMapPresence.ResetForTesting();
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -122,6 +126,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtTrackingStationEnd_PidClaimedByGhostChain_ReturnsFalse()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-claimed", pid: 555);
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                [555] = new GhostChain
+                {
+                    OriginalVesselPid = 555,
+                    SpawnUT = rec.EndUT + 10,
+                    TipRecordingId = "other-tip",
+                    IsTerminated = false
+                }
+            };
+
+            var (needsSpawn, reason) = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                rec,
+                rec.EndUT + 1,
+                chains);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("intermediate ghost chain link", reason);
+        }
+
+        [Fact]
         public void ShouldBypassTrackingStationRealVesselDedup_MatchingSceneEntryPid_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
@@ -205,6 +233,20 @@ namespace Parsek.Tests
                 realVesselExists: false);
 
             Assert.False(preserveIdentity);
+        }
+
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_ShowGhostsDisabled_DoesNotMaterializeRecording()
+        {
+            var rec = MakeEligibleTrackingStationRecording();
+            RecordingStore.AddCommittedInternal(rec);
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+
+            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+            Assert.Equal(0, created);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }
     }
 }

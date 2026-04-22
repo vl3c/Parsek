@@ -40,7 +40,10 @@ namespace Parsek
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
-            nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+            // Run the first lifecycle tick on the first Update after all scene Start
+            // methods have completed, so real-vessel handoff sees the loaded vessel list
+            // instead of the earlier SpaceTracking.Awake precreate state.
+            nextLifecycleCheckTime = 0f;
             atmosCachedIndices.Clear();
             lastKnownCommittedCount = RecordingStore.CommittedRecordings?.Count ?? 0;
 

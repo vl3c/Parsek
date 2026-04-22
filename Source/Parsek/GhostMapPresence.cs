@@ -951,7 +951,6 @@ namespace Parsek
 
             if (RecordingStore.IsChainMidSegment(rec))
                 return (false, TrackingStationSpawnSkipIntermediateChainSegment);
-
             var chainSuppressed = GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, rec);
             if (chainSuppressed.suppressed)
                 return (false, chainSuppressed.reason);
