@@ -1794,6 +1794,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SubSurfaceOrbitSegment_DoesNotLogSkippedOrbitPrecedence()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                VesselName = "SubSurfaceSurfaceGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 100000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.SurfaceMobile,
+                        startUT = 100,
+                        endUT = 110
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("SubSurfaceSurfaceGhost")
+                && l.Contains("surface track section active, skipping orbit precedence"));
+        }
+
+        [Fact]
         public void TryResolvePendingPlaybackInterpolation_SurfaceOnlyTrajectory_UsesSurfaceBody()
         {
             var traj = new MockTrajectory

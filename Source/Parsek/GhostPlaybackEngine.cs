@@ -3426,20 +3426,18 @@ namespace Parsek
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
-                bool hasActiveOrbitSegment =
-                    traj.OrbitSegments != null
-                    && traj.OrbitSegments.Count > 0
-                    && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
-                if (surfaceSkip && hasActiveOrbitSegment)
+                bool canUseOrbitPrecedence = TryResolvePendingOrbitSegmentInterpolation(
+                    traj, playbackUT, applySubSurfaceGuard: true, out InterpolationResult orbitSegmentResult);
+                if (surfaceSkip && canUseOrbitPrecedence)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
                     ParsekLog.Verbose("Engine", FormattableString.Invariant(
                         $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
                 }
 
-                if (!surfaceSkip && TryResolvePendingOrbitSegmentInterpolation(
-                    traj, playbackUT, applySubSurfaceGuard: true, out result))
+                if (!surfaceSkip && canUseOrbitPrecedence)
                 {
+                    result = orbitSegmentResult;
                     return LogPendingPlaybackInterpolationResolved(
                         traj, playbackUT, result, "active orbit segment");
                 }
