@@ -642,7 +642,7 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Recovered
             };
             string text = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text, StringComparison.Ordinal);
             // And the body itself (after the indent) is the unchanged FormatEndStateRow output.
             Assert.Equal(
                 KerbalsWindowUI.SubitemIndent + KerbalsWindowUI.FormatEndStateRow(entry),
@@ -665,8 +665,8 @@ namespace Parsek.Tests
             string mid = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: false);
             string last = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
 
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid, StringComparison.Ordinal);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last, StringComparison.Ordinal);
             Assert.Contains("\u251c\u2500", mid);   // mid-child branch char (├─)
             Assert.Contains("\u2514\u2500", last);  // last-child branch char (└─)
             Assert.Contains(KerbalsWindowUI.FormatChainMember(member), mid);
