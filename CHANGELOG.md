@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
+- `#542` Ghost watch range is now a fixed 300 km config default instead of a user-editable setting. Watch eligibility, watch-mode auto-exit, and watched-ghost full-fidelity checks now all read the shared config constant directly; the Settings window and persistence layer no longer expose or restore a mutable camera-cutoff override.
 
 ### Tests
 
@@ -24,6 +25,7 @@ All notable changes to Parsek are documented here.
 - `#497` Added explicit ownership-style builder suites for `EngineFxBuilder` and `GhostVisualBuilder`: the new headless seams cover effect-group filtering, config-entry parsing, fallback rotation-mode decisions, ghost snapshot/root selection, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Follow-up coverage now also captures seam-level `EngineFx` logs for guard/fallback branches and pins the malformed-`localRotation` fallback path, while live Unity object construction remains covered by in-game runtime tests and true visual confirmation still depends on runtime/manual evidence.
 - `#524` `TimelineWindowUITests` now pins the row-action width helper that all Timeline recording-row buttons use, so `W`, `FF`, `R`, and `L` stay aligned while `GoTo` remains intentionally wider for its label.
 - `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
+- `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 
 ## 0.8.3
 

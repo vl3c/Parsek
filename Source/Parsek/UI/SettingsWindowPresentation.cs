@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Parsek
 {
     /// <summary>
@@ -15,11 +13,6 @@ namespace Parsek
             internal bool WasClamped;
         }
 
-        internal struct CameraCutoffEditResolution
-        {
-            internal float Kilometers;
-        }
-
         internal struct SettingsDefaults
         {
             internal bool AutoRecordOnLaunch;
@@ -30,7 +23,6 @@ namespace Parsek
             internal SamplingDensity SamplingDensityLevel;
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
-            internal float GhostCameraCutoffKm;
             internal bool ShowGhostsInTrackingStation;
         }
 
@@ -56,24 +48,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool TryResolveCameraCutoffEdit(
-            string text,
-            out CameraCutoffEditResolution resolution)
-        {
-            resolution = default;
-
-            if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
-                return false;
-            if (parsed < 10f || parsed > 10000f)
-                return false;
-
-            resolution = new CameraCutoffEditResolution
-            {
-                Kilometers = parsed
-            };
-            return true;
-        }
-
         internal static SettingsDefaults BuildDefaults()
         {
             return new SettingsDefaults
@@ -86,7 +60,6 @@ namespace Parsek
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
                 AutoLoopDisplayUnit = LoopTimeUnit.Sec,
-                GhostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm,
                 ShowGhostsInTrackingStation = true
             };
         }

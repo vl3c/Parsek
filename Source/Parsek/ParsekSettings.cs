@@ -141,9 +141,6 @@ namespace Parsek
             toolTip = "Volume multiplier for ghost vessel audio (engines, decouplers, explosions). 0 = muted.")]
         public float ghostAudioVolume = 0.7f;
 
-        // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
-        public float ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
-
         public LoopTimeUnit AutoLoopDisplayUnit
         {
             get => autoLoopTimeUnit == 1 ? LoopTimeUnit.Min

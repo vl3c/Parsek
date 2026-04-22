@@ -55,31 +55,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveCameraCutoffEdit_ValidRange_ReturnsParsedValue()
-        {
-            bool ok = SettingsWindowPresentation.TryResolveCameraCutoffEdit(
-                "1234.5",
-                out SettingsWindowPresentation.CameraCutoffEditResolution resolution);
-
-            Assert.True(ok);
-            Assert.Equal(1234.5, (double)resolution.Kilometers, 6);
-        }
-
-        [Theory]
-        [InlineData("9.9")]
-        [InlineData("10000.1")]
-        [InlineData("abc")]
-        public void TryResolveCameraCutoffEdit_InvalidOrOutOfRange_ReturnsFalse(string text)
-        {
-            bool ok = SettingsWindowPresentation.TryResolveCameraCutoffEdit(
-                text,
-                out SettingsWindowPresentation.CameraCutoffEditResolution resolution);
-
-            Assert.False(ok);
-            Assert.Equal(0.0, (double)resolution.Kilometers, 6);
-        }
-
-        [Fact]
         public void BuildDefaults_MatchesSettingsWindowResetValues()
         {
             SettingsWindowPresentation.SettingsDefaults defaults =
@@ -93,7 +68,6 @@ namespace Parsek.Tests
             Assert.Equal(SamplingDensity.Medium, defaults.SamplingDensityLevel);
             Assert.Equal((double)(float)LoopTiming.DefaultLoopIntervalSeconds, (double)defaults.AutoLoopIntervalSeconds, 6);
             Assert.Equal(LoopTimeUnit.Sec, defaults.AutoLoopDisplayUnit);
-            Assert.Equal((double)DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm, (double)defaults.GhostCameraCutoffKm, 6);
             Assert.True(defaults.ShowGhostsInTrackingStation);
         }
     }
