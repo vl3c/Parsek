@@ -466,15 +466,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 542. Ghost watch camera cutoff should stop being user-editable and become a fixed 300 km config default
+## ~~542. Ghost watch camera cutoff should stop being user-editable and become a fixed 300 km config default~~
 
 **Source:** user request from 2026-04-22 plus current code read of `SettingsWindowUI` / `ParsekConfig`.
 
-**Concern:** the `Ghosts` settings pane still exposes `Camera cutoff` as a persisted text field even though the current 300 km default is already the preferred behavior. Requested direction: remove the UI setting and persistence plumbing, keep the runtime cutoff fixed at `DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm = 300f`, and simplify watch-mode callers to read the config constant instead of a mutable per-save setting.
+**Fix:** removed the `Ghosts -> Camera cutoff` field from the settings window, dropped `ghostCameraCutoffKm` from `ParsekSettings` and `ParsekSettingsPersistence`, and made watch eligibility / watch exit / watched-full-fidelity callers read the fixed `DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm = 300f` helper directly. Old persisted cutoff values are now ignored, so legacy overrides stop leaking into current watch behavior.
 
 **Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/ParsekConfig.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/ParsekSettingsPersistence.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/DistanceThresholdsTests.cs`, `Source/Parsek.Tests/ParsekSettingsPersistenceTests.cs`.
 
-**Status:** TODO. Behavior simplification + UI removal.
+**Status:** DONE. Fixed in `0.8.3`.
 
 ---
 
