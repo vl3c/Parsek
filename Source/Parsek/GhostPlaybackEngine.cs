@@ -53,6 +53,7 @@ namespace Parsek
         // buffers used below.
         private static readonly long MaxSpawnTimelineBuildTicksPerAdvance =
             (long)(Stopwatch.Frequency * (GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
+        private const double DefaultPendingOrbitBodyRadiusMeters = 600000.0;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -2721,7 +2722,17 @@ namespace Parsek
             };
 
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
+            {
                 state.SetInterpolated(initialPlayback);
+                string seededBodyName = initialPlayback.bodyName ?? "(null)";
+                ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                    $"Pending spawn interpolation seed: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1} body='{seededBodyName}' altitude={initialPlayback.altitude:F1}"));
+            }
+            else
+            {
+                ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                    $"Pending spawn interpolation seed unavailable: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1}"));
+            }
 
             return state;
         }
@@ -3409,14 +3420,25 @@ namespace Parsek
         {
             result = InterpolationResult.Zero;
             if (traj == null)
-                return false;
+                return LogPendingPlaybackInterpolationUnresolved(
+                    null, playbackUT, "null trajectory");
 
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
+                if (surfaceSkip)
+                {
+                    string vesselName = traj.VesselName ?? "Unknown";
+                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
+                }
+
                 if (!surfaceSkip && TryResolvePendingOrbitSegmentInterpolation(
                     traj, playbackUT, applySubSurfaceGuard: true, out result))
-                    return true;
+                {
+                    return LogPendingPlaybackInterpolationResolved(
+                        traj, playbackUT, result, "active orbit segment");
+                }
 
                 int cachedIndex = 0;
                 if (!TrajectoryMath.InterpolatePoints(
@@ -3426,12 +3448,14 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(before.bodyName))
                     {
                         result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
-                        return true;
+                        return LogPendingPlaybackInterpolationResolved(
+                            traj, playbackUT, result, "before-start point fallback");
                     }
                 }
                 else
                 {
                     bool useBeforePoint = t == 0f && before.ut == after.ut;
+                    bool afterEndClamp = playbackUT > after.ut;
                     string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
                     if (!string.IsNullOrEmpty(bodyName))
                     {
@@ -3441,7 +3465,13 @@ namespace Parsek
                             useBeforePoint
                                 ? before.altitude
                                 : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
-                        return true;
+                        string pointSource = useBeforePoint
+                            ? "same-UT point segment"
+                            : afterEndClamp
+                                ? "point after-end clamp"
+                                : "point interpolation";
+                        return LogPendingPlaybackInterpolationResolved(
+                            traj, playbackUT, result, pointSource);
                     }
                 }
             }
@@ -3450,7 +3480,8 @@ namespace Parsek
             {
                 SurfacePosition surface = traj.SurfacePos.Value;
                 result = new InterpolationResult(Vector3.zero, surface.body, surface.altitude);
-                return true;
+                return LogPendingPlaybackInterpolationResolved(
+                    traj, playbackUT, result, "surface metadata");
             }
 
             if (traj.Points != null && traj.Points.Count == 1)
@@ -3458,26 +3489,54 @@ namespace Parsek
                 if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT)
                     && TryResolvePendingOrbitSegmentInterpolation(
                         traj, playbackUT, applySubSurfaceGuard: false, out result))
-                    return true;
+                {
+                    return LogPendingPlaybackInterpolationResolved(
+                        traj, playbackUT, result, "single-point orbit segment");
+                }
 
                 TrajectoryPoint point = traj.Points[0];
                 if (!string.IsNullOrEmpty(point.bodyName))
                 {
                     result = new InterpolationResult(point.velocity, point.bodyName, point.altitude);
-                    return true;
+                    return LogPendingPlaybackInterpolationResolved(
+                        traj, playbackUT, result, "single-point fallback");
                 }
             }
 
             if (TryResolvePendingOrbitSegmentInterpolation(
                 traj, playbackUT, applySubSurfaceGuard: false, out result))
-                return true;
+            {
+                return LogPendingPlaybackInterpolationResolved(
+                    traj, playbackUT, result, "fallback orbit segment");
+            }
 
             if (!string.IsNullOrEmpty(traj.EndpointBodyName))
             {
                 result = new InterpolationResult(Vector3.zero, traj.EndpointBodyName, 0.0);
-                return true;
+                return LogPendingPlaybackInterpolationResolved(
+                    traj, playbackUT, result, "endpoint body fallback");
             }
 
+            return LogPendingPlaybackInterpolationUnresolved(
+                traj, playbackUT, "no points, surface metadata, orbit segment, or endpoint body");
+        }
+
+        private static bool LogPendingPlaybackInterpolationResolved(
+            IPlaybackTrajectory traj, double playbackUT, InterpolationResult result, string source)
+        {
+            string vesselName = traj?.VesselName ?? "Unknown";
+            string bodyName = result.bodyName ?? "(null)";
+            ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} resolved from {source} body='{bodyName}' altitude={result.altitude:F1}"));
+            return true;
+        }
+
+        private static bool LogPendingPlaybackInterpolationUnresolved(
+            IPlaybackTrajectory traj, double playbackUT, string reason)
+        {
+            string vesselName = traj?.VesselName ?? "Unknown";
+            ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} unresolved ({reason})"));
             return false;
         }
 
@@ -3528,7 +3587,7 @@ namespace Parsek
             {
             }
 
-            return 600000;
+            return DefaultPendingOrbitBodyRadiusMeters;
         }
 
         private void TrackGhostAppearance(
