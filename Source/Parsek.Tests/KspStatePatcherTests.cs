@@ -28,10 +28,16 @@ namespace Parsek.Tests
 
             // FindObjectsOfType crashes outside Unity
             KspStatePatcher.SuppressUnityCallsForTesting = true;
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
         }
 
         public void Dispose()
         {
+            LedgerOrchestrator.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            GameStateStore.SuppressLogging = false;
             KspStatePatcher.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -70,6 +76,79 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("null ScienceModule"));
+        }
+
+        [Fact]
+        public void AdjustSciencePatchTargetForPendingRecentTechResearch_HoldsBackUnmatchedDebit()
+        {
+            try
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = () => 250.0;
+
+                var evt = new GameStateEvent
+                {
+                    ut = 250.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 35.0,
+                    valueAfter = 10.0
+                };
+                GameStateStore.AddEvent(ref evt);
+                Ledger.AddAction(new GameAction
+                {
+                    UT = 250.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 10f
+                });
+
+                double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingRecentTechResearch(
+                    targetScience: 25.0,
+                    currentScience: 10f);
+
+                Assert.Equal(10.0, adjusted, 3);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[KspStatePatcher]") &&
+                    l.Contains("holding back 15.0 pending tech-unlock science"));
+            }
+            finally
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void AdjustSciencePatchTargetForPendingRecentTechResearch_PreservesNonTechRefundPortion()
+        {
+            try
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = () => 300.0;
+
+                var evt = new GameStateEvent
+                {
+                    ut = 300.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 20.0,
+                    valueAfter = 10.0
+                };
+                GameStateStore.AddEvent(ref evt);
+                Ledger.AddAction(new GameAction
+                {
+                    UT = 300.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 5f
+                });
+
+                double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingRecentTechResearch(
+                    targetScience: 18.0,
+                    currentScience: 10f);
+
+                Assert.Equal(13.0, adjusted, 3);
+            }
+            finally
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
         }
 
         // ================================================================

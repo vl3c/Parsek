@@ -2948,6 +2948,7 @@ namespace Parsek
         /// <c>TransactionReasons.VesselRecovery.ToString()</c> — drift logs WARN.
         /// </summary>
         internal const string VesselRecoveryReasonKey = "VesselRecovery";
+        internal const string TechResearchScienceReasonKey = "RnDTechResearch";
 
         /// <summary>
         /// Dedup fingerprints of FundsChanged(VesselRecovery) events already consumed by
@@ -3747,7 +3748,7 @@ namespace Parsek
                         Class = KscReconcileClass.Untransformed,
                         ScienceLeg = CreateExpectationLeg(
                             GameStateEventType.ScienceChanged,
-                            "RnDTechResearch",
+                            TechResearchScienceReasonKey,
                             -action.Cost)
                     };
 
@@ -5656,6 +5657,76 @@ namespace Parsek
             if (provider != null)
                 return provider();
             return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>
+        /// Pure helper for the live KSC tech-unlock race: when KSP has already applied a
+        /// recent <c>ScienceChanged(RnDTechResearch)</c> debit but the matching
+        /// <c>TechResearched -> ScienceSpending</c> action has not landed in the ledger yet,
+        /// this returns the unmatched science amount that would otherwise be refunded by
+        /// <see cref="KspStatePatcher.PatchScience"/>.
+        /// </summary>
+        internal static double ComputePendingRecentKscTechResearchScienceDebit(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            double nowUt)
+        {
+            double observedDebit = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var evt = events[i];
+                    if (evt.eventType != GameStateEventType.ScienceChanged)
+                        continue;
+                    if (!string.Equals(evt.key, TechResearchScienceReasonKey, StringComparison.Ordinal))
+                        continue;
+                    if (evt.valueAfter >= evt.valueBefore)
+                        continue;
+                    if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    observedDebit += evt.valueBefore - evt.valueAfter;
+                }
+            }
+
+            if (observedDebit <= 0.1)
+                return 0.0;
+
+            double committedDebit = 0.0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action == null)
+                        continue;
+                    if (action.Type != GameActionType.ScienceSpending)
+                        continue;
+                    if (!string.IsNullOrEmpty(action.RecordingId))
+                        continue;
+                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    committedDebit += action.Cost;
+                }
+            }
+
+            double pendingDebit = observedDebit - committedDebit;
+            return pendingDebit > 0.1 ? pendingDebit : 0.0;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingRecentKscTechResearchScienceDebit"/>.
+        /// Uses the current GameStateStore / ledger state and the affordability "now UT"
+        /// seam so both production and tests evaluate the same recent-action window.
+        /// </summary>
+        internal static double GetPendingRecentKscTechResearchScienceDebit()
+        {
+            return ComputePendingRecentKscTechResearchScienceDebit(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GetNowUT());
         }
 
         /// <summary>
