@@ -825,13 +825,11 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 **Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
 
-**Remaining gap after closure:**
-
-The next runtime scenario worth adding is no longer these synthetic canaries. It is the stock `record -> revert -> soft-unstash / no merge` flow, followed by the real non-revert scene-exit deferred merge path.
+**Historical next-gap note:** after this closure, the audit moved on to the stock `record -> revert -> soft-unstash / no merge` flow (`#490`) and then the real non-revert scene-exit deferred merge path (`#491`). Both are now closed below.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gaps are the stock revert soft-unstash transition and the non-revert deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch.
 
 ---
 
@@ -852,28 +850,27 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch. The then-open next player-flow gap (`#491`) is now closed below.
 
 ---
 
-## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+## ~~491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path~~
 
 **Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
 
-**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`), stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`), and the two manual-only `SceneExitMerge` stock save-and-exit canaries.
 
 **Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
 
-**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
+**Validation (2026-04-21):** the archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` closes the gap.
 
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
-
-Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+- `parsek-test-results.txt` records `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` as `SPACECENTER PASSED (9423.5ms)` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` as `SPACECENTER PASSED (9707.1ms)`.
+- `KSP.log` shows the real stock save-and-exit path surfacing `Showing deferred tree merge dialog in SPACECENTER`, then the discard branch logging `User chose: Tree Discard` plus `Scene-exit merge discard runtime: ... committedTreesAfter=0`, and later the merge branch logging `User chose: Tree Merge` plus `Scene-exit merge commit runtime: ... committedTreesAfter=1`.
+- Those runs exercise the shipped player flow: launch from `PRELAUNCH`, leave the pad, invoke stock `Space Center` exit semantics, and resolve the production `ParsekMerge` popup in `SPACECENTER` instead of a synthetic dialog path.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

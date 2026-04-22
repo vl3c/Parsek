@@ -492,12 +492,12 @@ The later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` reru
 - `KSP.log` shows the expected #434 sequence in one live run: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then the final `Revert flow runtime: ... committedBefore=2 committedAfter=2` assertion log and `PASSED:` line
 - there is no `ParsekMerge` popup line in the validated revert window, and the test confirms the reverted mission did not increase either `CommittedRecordings` or `CommittedTrees`
 
-The branch now also contains the next two manual-only scene-exit canaries for the remaining merge-dialog gap, but these are not live-validated yet:
+The later archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` closes that remaining merge-dialog gap too:
 
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`, which starts a real recording in `FLIGHT`, stages the vessel off the pad, drives stock `Space Center` save-and-exit semantics, waits for the deferred `ParsekMerge` popup in `SPACECENTER`, presses `Merge to Timeline`, and asserts the pending tree commits into `CommittedTrees` / `CommittedRecordings`
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`, which drives the same stock exit path but presses `Discard` and asserts the pending tree clears without changing either committed collection
-- both new tests are `AllowBatchExecution = false` because they mutate the live session, cross from `FLIGHT` into `SPACECENTER`, and use the real deferred merge dialog rather than a synthetic popup invocation
-- the supporting helper now mirrors stock `PauseMenu.saveAndExit(...)` more closely by firing `onSceneConfirmExit`, invoking `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saving `persistent`, and only then loading `SPACECENTER`
+- `parsek-test-results.txt` records `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` as `SPACECENTER PASSED (9423.5ms)` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` as `SPACECENTER PASSED (9707.1ms)`
+- `KSP.log` shows the shipped non-revert path end-to-end twice in one disposable session: `Showing deferred tree merge dialog in SPACECENTER`, then `User chose: Tree Discard ...` with `Scene-exit merge discard runtime: ... committedTreesAfter=0`, and later `User chose: Tree Merge ...` with `Scene-exit merge commit runtime: ... committedTreesAfter=1`
+- these rows come from the real stock `Space Center` exit path, not the synthetic FLIGHT popup smoke test; both canaries remain `AllowBatchExecution = false` because they still launch the active vessel, cross from `FLIGHT` into `SPACECENTER`, and exercise the production deferred merge dialog
+- the supporting helper mirrors stock `PauseMenu.saveAndExit(...)` closely enough to validate the real player flow: it fires `onSceneConfirmExit`, invokes `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saves `persistent`, and only then loads `SPACECENTER`
 
 The branch also now contains the first deterministic timing-sensitive part-event canaries, likewise still awaiting live evidence:
 
@@ -519,9 +519,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Live-validate the new isolated batch mode**
    Build this worktree, enter a disposable `FLIGHT` session, and use `Run All + Isolated` or per-category `Run+` to confirm the new `[isolated]` tests complete without manual reloads and that the runner reliably quickloads the baseline back between destructive tests.
-2. **Live-validate the two new non-revert scene-exit canaries**
-   Still from a disposable prelaunch flight, run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually and capture the resulting `KSP.log` / `parsek-test-results.txt`.
-3. **Live-validate the first timing-sensitive part-event canaries**
+2. **Live-validate the first timing-sensitive part-event canaries**
    In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
 4. **Build on the now-validated local coverage path**
    The next useful output is not more local runner churn; it is keeping the baseline packet repeatable and deciding whether CI/diff retention should join the workflow.
@@ -532,10 +530,8 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 The first scripted runtime scenarios I would validate/add next are:
 
-1. **Non-revert scene-exit deferred merge flow**
-   The commit/discard canaries are now implemented locally; the next task is live validation in KSP so the remaining merge-dialog gap is backed by real logs instead of compile-only evidence.
-2. **Part-event timing showcase**
-   The first light/deployable timing canaries are now implemented locally; the next task is live validation, then deciding whether fairing/RCS timing needs the same treatment.
+1. **Part-event timing showcase**
+   The non-revert scene-exit merge/discard canaries now have archived live validation, so the next runtime gap to promote is the first light/deployable timing pair and then deciding whether fairing/RCS timing needs the same treatment.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
