@@ -97,6 +97,23 @@ namespace Parsek.Tests
             Assert.Contains("vessel destroyed", reason);
         }
 
+        [Fact]
+        public void ShouldSpawn_DestroyedWithoutSnapshot_ReturnsDestroyedReason()
+        {
+            var rec = new Recording
+            {
+                VesselSnapshot = null,
+                VesselSpawned = false,
+                VesselDestroyed = true
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.False(needsSpawn);
+            Assert.Equal("vessel destroyed", reason);
+        }
+
         #endregion
 
         #region ShouldSpawnAtRecordingEnd — Branch Suppression

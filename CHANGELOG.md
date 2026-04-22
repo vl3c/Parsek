@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#531` Destroyed recordings without a preserved vessel snapshot now diagnose as `vessel destroyed` instead of the misleading `no vessel snapshot`, so playback/rewind/KSC spawn suppression logs report the real terminal state.
 - `#525` Flight ghost explosions now resolve a clearance-checked anchor before spawning FX or emitting the watch hold position. If a watched ghost root is momentarily below PQS terrain at destruction time, the explosion and the watch camera now use the same terrain-safe anchor instead of burying both effects at the raw root transform.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
