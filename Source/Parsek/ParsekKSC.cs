@@ -41,6 +41,9 @@ namespace Parsek
         // (recording index, userPeriod, effectiveCadence, duration) tuple.
         private Dictionary<int, (double userPeriod, double effectiveCadence, double duration)>
             lastLoggedKscCadence = new Dictionary<int, (double, double, double)>();
+        private readonly Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>
+            autoLoopLaunchSchedules = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>();
+        private readonly List<AutoLoopQueueCandidate> autoLoopQueueScratch = new List<AutoLoopQueueCandidate>();
 
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
@@ -55,6 +58,43 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
+
+        private readonly struct AutoLoopQueueCandidate
+        {
+            internal AutoLoopQueueCandidate(
+                int recordingIndex,
+                double playbackStartUT,
+                double playbackEndUT,
+                string recordingId)
+            {
+                RecordingIndex = recordingIndex;
+                PlaybackStartUT = playbackStartUT;
+                PlaybackEndUT = playbackEndUT;
+                RecordingId = recordingId ?? string.Empty;
+            }
+
+            internal int RecordingIndex { get; }
+            internal double PlaybackStartUT { get; }
+            internal double PlaybackEndUT { get; }
+            internal string RecordingId { get; }
+        }
+
+        private static int CompareAutoLoopQueueCandidates(AutoLoopQueueCandidate a, AutoLoopQueueCandidate b)
+        {
+            int cmp = a.PlaybackStartUT.CompareTo(b.PlaybackStartUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = a.PlaybackEndUT.CompareTo(b.PlaybackEndUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.RecordingId, b.RecordingId);
+            if (cmp != 0)
+                return cmp;
+
+            return a.RecordingIndex.CompareTo(b.RecordingIndex);
+        }
 
         void Start()
         {
@@ -160,6 +200,7 @@ namespace Parsek
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
+            RebuildAutoLoopLaunchScheduleCache(committed);
 
             if (suppressGhosts)
             {
@@ -229,13 +270,14 @@ namespace Parsek
                     double duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
                     if (duration <= LoopTiming.MinLoopDurationSeconds) continue;
 
-                    double intervalSeconds = GetLoopIntervalSeconds(rec, i);
+                    double intervalSeconds = GetLoopIntervalSeconds(rec, i, autoLoopLaunchSchedules);
                     if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
                     {
                         // Period < duration: successive launches overlap, multi-ghost path.
                         if (TryGetLoopSchedule(
                                 rec,
                                 i,
+                                autoLoopLaunchSchedules,
                                 out double playbackStartUT,
                                 out double scheduleStartUT,
                                 out _,
@@ -261,7 +303,7 @@ namespace Parsek
                     long cycleIndex;
                     bool inPauseWindow;
                     bool inRange = TryComputeLoopUT(rec, currentUT,
-                        out targetUT, out cycleIndex, out inPauseWindow, i);
+                        out targetUT, out cycleIndex, out inPauseWindow, i, autoLoopLaunchSchedules);
 
                     UpdateSingleGhostKsc(i, rec, currentUT, targetUT, cycleIndex,
                         inRange, inPauseWindow, suppressVisualFx);
@@ -273,6 +315,51 @@ namespace Parsek
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                     UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false, suppressVisualFx);
                 }
+            }
+        }
+
+        private void RebuildAutoLoopLaunchScheduleCache(IReadOnlyList<Recording> recordings)
+        {
+            autoLoopLaunchSchedules.Clear();
+            autoLoopQueueScratch.Clear();
+            if (recordings == null || recordings.Count == 0)
+                return;
+
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording recording = recordings[i];
+                if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(recording))
+                    continue;
+
+                autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
+                    i,
+                    GhostPlaybackEngine.EffectiveLoopStartUT(recording),
+                    GhostPlaybackEngine.EffectiveLoopEndUT(recording),
+                    recording.RecordingId));
+            }
+
+            if (autoLoopQueueScratch.Count == 0)
+                return;
+
+            autoLoopQueueScratch.Sort(CompareAutoLoopQueueCandidates);
+            double launchGapSeconds = GhostPlaybackLogic.ResolveLoopInterval(
+                recordings[autoLoopQueueScratch[0].RecordingIndex],
+                globalInterval,
+                LoopTiming.DefaultLoopIntervalSeconds,
+                LoopTiming.MinCycleDuration);
+            double anchorUT = autoLoopQueueScratch[0].PlaybackStartUT;
+            double cadenceSeconds = launchGapSeconds * autoLoopQueueScratch.Count;
+            for (int slot = 0; slot < autoLoopQueueScratch.Count; slot++)
+            {
+                AutoLoopQueueCandidate candidate = autoLoopQueueScratch[slot];
+                autoLoopLaunchSchedules[candidate.RecordingIndex] =
+                    new GhostPlaybackLogic.AutoLoopLaunchSchedule(
+                        anchorUT + (slot * launchGapSeconds),
+                        cadenceSeconds,
+                        slot,
+                        autoLoopQueueScratch.Count);
             }
         }
 
@@ -897,6 +984,7 @@ namespace Parsek
         private static bool TryGetLoopSchedule(
             Recording rec,
             int recIdx,
+            IReadOnlyDictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> autoLoopScheduleCache,
             out double playbackStartUT,
             out double scheduleStartUT,
             out double duration,
@@ -921,7 +1009,16 @@ namespace Parsek
             scheduleStartUT = playbackStartUT;
             intervalSeconds = baseIntervalSeconds;
 
-            if (recIdx >= 0)
+            if (recIdx >= 0
+                && autoLoopScheduleCache != null
+                && autoLoopScheduleCache.TryGetValue(recIdx, out var cachedSchedule))
+            {
+                scheduleStartUT = cachedSchedule.LaunchStartUT;
+                intervalSeconds = cachedSchedule.LaunchCadenceSeconds;
+                return true;
+            }
+
+            if (recIdx >= 0 && GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(rec))
             {
                 var committed = RecordingStore.CommittedRecordings;
                 var trajectories = new List<IPlaybackTrajectory>(committed.Count);
@@ -942,6 +1039,24 @@ namespace Parsek
             return true;
         }
 
+        private static bool TryGetLoopSchedule(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
+        {
+            return TryGetLoopSchedule(
+                rec,
+                recIdx,
+                null,
+                out playbackStartUT,
+                out scheduleStartUT,
+                out duration,
+                out intervalSeconds);
+        }
+
         internal static bool TryComputeLoopUT(
             Recording rec,
             double currentUT,
@@ -950,11 +1065,32 @@ namespace Parsek
             out bool inPauseWindow,
             int recIdx = -1)
         {
+            return TryComputeLoopUT(
+                rec,
+                currentUT,
+                out loopUT,
+                out cycleIndex,
+                out inPauseWindow,
+                recIdx,
+                null);
+        }
+
+        internal static bool TryComputeLoopUT(
+            Recording rec,
+            double currentUT,
+            out double loopUT,
+            out long cycleIndex,
+            out bool inPauseWindow,
+            int recIdx,
+            IReadOnlyDictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> autoLoopScheduleCache)
+        {
             cycleIndex = 0;
             inPauseWindow = false;
             loopUT = 0.0;
             if (!TryGetLoopSchedule(
-                    rec, recIdx,
+                    rec,
+                    recIdx,
+                    autoLoopScheduleCache,
                     out double playbackStartUT,
                     out double scheduleStartUT,
                     out double duration,
@@ -979,17 +1115,28 @@ namespace Parsek
         /// </summary>
         internal static double GetLoopIntervalSeconds(Recording rec, int recIdx = -1)
         {
-            if (!TryGetLoopSchedule(
-                    rec, recIdx,
-                    out _, out _, out _, out double intervalSeconds))
-            {
-                double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                        ?? LoopTiming.DefaultLoopIntervalSeconds;
-                return GhostPlaybackLogic.ResolveLoopInterval(
-                    rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
-            }
+            return GetLoopIntervalSeconds(rec, recIdx, null);
+        }
 
-            return intervalSeconds;
+        internal static double GetLoopIntervalSeconds(
+            Recording rec,
+            int recIdx,
+            IReadOnlyDictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> autoLoopScheduleCache)
+        {
+            if (TryGetLoopSchedule(
+                    rec,
+                    recIdx,
+                    autoLoopScheduleCache,
+                    out _,
+                    out _,
+                    out _,
+                    out double intervalSeconds))
+                return intervalSeconds;
+
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
+            return GhostPlaybackLogic.ResolveLoopInterval(
+                rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
         }
 
         /// <summary>
