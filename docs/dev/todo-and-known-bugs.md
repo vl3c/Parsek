@@ -896,13 +896,13 @@ This closes the audit's first player-visible part-event timing gap for the light
 
 ---
 
-## 493. Destructive FLIGHT runtime tests now have a stronger retained isolated batch path, but final live validation is still pending
+## ~~493. Destructive FLIGHT runtime tests now have a stronger retained isolated batch path, but final live validation is still pending~~
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
 **Fix:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests.
 
-**Current state:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests. Retained evidence under sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` shows that path working on historical commit `80176033`: `parsek-test-results.txt` records `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
+**Current state:** closed. The in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests. Retained evidence under sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` showed that path working on historical commit `80176033`: `parsek-test-results.txt` recorded `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
@@ -913,13 +913,19 @@ This closes the audit's first player-visible part-event timing gap for the light
 - `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
 - `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that retained session and skipped with `no same-body ghost available for watch-cleanup regression`; the isolated harness handled that skip cleanly, but the full widened cohort still has not been exercised end-to-end in one retained packet.
+`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that earlier retained session and skipped with `no same-body ghost available for watch-cleanup regression`, so the final widened cohort remained open until a fresh same-body packet was captured from the quickload-hardened revision.
 
-**Caveat:** this retained batch evidence predates the later `#493` quickload hardening now documented in `CHANGELOG.md`, so it improves confidence but does not fully close the issue on its own. `SceneExitMerge` also intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both `SPACECENTER` scene-exit canaries passing, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch.
+**Validation (2026-04-22):** sibling-workspace bundle `../logs/2026-04-22_2118_validate-493-watch-cleanup-pass/` closes the final live-validation gap. That packet is tied to commit `24963d87` (`test: isolate explicit finalize-backfill runtime canary`), a test-only follow-up that does not alter production FLIGHT behavior.
 
-**Current follow-up:** re-capture retained `Run All + Isolated` / `Run+` evidence from the final quickload-hardened revision, with a same-body ghost available so the watch-cleanup regression runs instead of skipping. Keep `SceneExitMerge` manual-only until the post-run contamination is eliminated.
+- `parsek-test-results.txt` records `FLIGHT captured=190 Passed=154 Failed=0 Skipped=36` and `SPACECENTER captured=91 Passed=70 Failed=0 Skipped=21`.
+- `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId` passed in `FLIGHT (6739.3ms)`.
+- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` passed in `FLIGHT (531.2ms)` once the retained session had a same-body ghost available.
+- `KSP.log` records the intended cleanup order for the watch regression: `PerformBetweenRunCleanup: begin reason=ingame-watch-cleanup-regression`, then `Exiting watch mode before timeline ghost cleanup`, then `DestroyAllGhosts: clearing 1 primary + 0 overlap entries`.
+- The same `KSP.log` contains no `Sun.LateUpdate`, `FlightGlobals.UpdateInformation`, or `NullReferenceException` signatures, and `log-validation.txt` passed.
 
-**Status:** OPEN - PARTIAL RETAINED EVIDENCE EXISTS; FINAL-REVISION LIVE VALIDATION PENDING.
+**Caveat:** `SceneExitMerge` intentionally remains manual-only because the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch. That is a separate caveat from the destructive FLIGHT harness gap this item tracked.
+
+**Status:** CLOSED (2026-04-22). Final live validation retained for v0.9.0.
 
 ---
 
