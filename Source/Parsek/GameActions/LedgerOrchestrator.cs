@@ -208,9 +208,9 @@ namespace Parsek
         /// Test-only fault injector fired after a recording's science actions have been
         /// persisted to both the ledger and committed-science store, but before
         /// <see cref="OnRecordingCommitted"/> returns to the caller. Used to verify that
-        /// post-persist failures do not retain pending science for retry and cannot leave
-        /// ledger/store ownership split apart.
-        /// Reset to null in test Dispose / <see cref="ResetForTesting"/>.
+        /// post-persist failures do not leave pending science behind and cannot leave
+        /// ledger/store ownership split apart. Reset to null in test Dispose /
+        /// <see cref="ResetForTesting"/>.
         /// </summary>
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
 
@@ -228,38 +228,6 @@ namespace Parsek
             public string RecordingId;
             public double StartUT;
             public double EndUT;
-        }
-
-        internal static void OnRecordingCommitted(string recordingId, double startUT, double endUT)
-        {
-            bool ignoredScienceAddedToLedger = false;
-            OnRecordingCommitted(
-                recordingId,
-                startUT,
-                endUT,
-                pendingScienceOverride: null,
-                ref ignoredScienceAddedToLedger);
-        }
-
-        /// <summary>
-        /// Processes a single recording commit. When <paramref name="pendingScienceOverride"/>
-        /// is non-null, it is used as the pending-science source instead of the static
-        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. This lets tree commits
-        /// hand each recording only the subset of the shared snapshot that belongs to that
-        /// recording, so valid mixed-recording science is preserved without duplicating
-        /// <see cref="GameActionType.ScienceEarning"/> actions.
-        /// </summary>
-        internal static void OnRecordingCommitted(
-            string recordingId, double startUT, double endUT,
-            IReadOnlyList<PendingScienceSubject> pendingScienceOverride)
-        {
-            bool ignoredScienceAddedToLedger = false;
-            OnRecordingCommitted(
-                recordingId,
-                startUT,
-                endUT,
-                pendingScienceOverride,
-                ref ignoredScienceAddedToLedger);
         }
 
         internal static void OnRecordingCommitted(
@@ -5948,7 +5916,9 @@ namespace Parsek
                 // #397 / #528 follow-up: successful routed subsets are removed from the
                 // global pending list as they become safe to discard. Unrelated retained
                 // science from earlier failures stays pending across later successful
-                // commits, and failing subsets are left in place for retry.
+                // commits, and failing subsets stay visible so the caller can decide how
+                // to recover; current production callers surface the exception instead of
+                // retrying the whole commit batch.
                 int remainingPending = GameStateRecorder.PendingScienceSubjects.Count;
                 if (commitSucceeded)
                 {
@@ -6201,6 +6171,37 @@ namespace Parsek
                 : (IReadOnlyList<PendingScienceSubject>)routed;
         }
 
+        /// <summary>
+        /// Returns the commit-window start UT for a direct single-recording commit.
+        /// Chain continuations can have optimizer-introduced gaps between segments; when
+        /// the immediate predecessor is already committed, extend the window backward to
+        /// that predecessor's EndUT so the standalone path matches tree-commit routing.
+        /// </summary>
+        internal static double ResolveStandaloneCommitWindowStartUt(Recording rec, double startUT)
+        {
+            if (rec == null ||
+                !rec.IsChainRecording ||
+                rec.ChainIndex <= 0 ||
+                string.IsNullOrEmpty(rec.ParentRecordingId))
+            {
+                return startUT;
+            }
+
+            var predecessor = FindRecordingById(rec.ParentRecordingId);
+            if (predecessor == null ||
+                !string.Equals(predecessor.ChainId ?? "", rec.ChainId ?? "", StringComparison.Ordinal) ||
+                predecessor.ChainIndex != rec.ChainIndex - 1)
+            {
+                return startUT;
+            }
+
+            var chainEndUTs = new Dictionary<string, double>
+            {
+                { $"{rec.ChainId}:{predecessor.ChainIndex}", predecessor.EndUT }
+            };
+            return AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+        }
+
         internal static int RemovePendingSubjectsFromStatic(
             IReadOnlyList<PendingScienceSubject> processedPending)
         {
@@ -6211,7 +6212,9 @@ namespace Parsek
         /// Finalizes a standalone recording commit's scoped pending-science subset.
         /// Successful commits (or failures after science already reached the ledger)
         /// discard only the subset routed to that recording. Pre-ledger failures keep
-        /// the subset pending so a retry can still consume it.
+        /// the subset pending so the caller can decide how to recover without losing the
+        /// science data. Current production callers surface the exception instead of
+        /// retrying the whole commit batch.
         /// </summary>
         internal static void FinalizeScopedPendingScienceCommit(
             string logTag,

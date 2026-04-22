@@ -15,8 +15,8 @@ namespace Parsek.Tests
     /// The new invariant:
     /// "If PendingScienceSubjects were populated during recording, they remain
     /// readable until NotifyLedgerTreeCommitted (or CommitSegmentCore for chains)
-    /// either commits their science safely or, on failure, restores the still-
-    /// uncommitted subjects so a retry does not lose them."
+    /// either commits their science safely or, on failure, leaves the still-
+    /// uncommitted subjects pending so the data is not lost."
     /// </summary>
     [Collection("Sequential")]
     public class PendingScienceSubjectsClearTests : IDisposable
@@ -95,8 +95,8 @@ namespace Parsek.Tests
         [Fact]
         public void NotifyLedgerTreeCommitted_SingleRecording_SubjectsReadThenCleared()
         {
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-solo");
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-solo");
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, captureUT: 120.0, recordingId: "rec-solo");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, captureUT: 150.0, recordingId: "rec-solo");
 
             var rec = MakeRec("rec-solo", 100.0, 200.0);
             StageRecordings(rec);
@@ -133,9 +133,9 @@ namespace Parsek.Tests
             // ScienceEarning set each, causing ScienceModule to double-credit every
             // subject. The fix snapshots once and routes only the matching subset to
             // each recording, so a batch that all belongs to rec-B still lands once.
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-B");
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-B");
-            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, recordingId: "rec-B");
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, captureUT: 220.0, recordingId: "rec-B");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, captureUT: 250.0, recordingId: "rec-B");
+            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, captureUT: 280.0, recordingId: "rec-B");
 
             var recA = MakeRec("rec-A", 100.0, 200.0);
             var recB = MakeRec("rec-B", 200.0, 300.0);
@@ -331,8 +331,8 @@ namespace Parsek.Tests
         public void NotifyLedgerTreeCommitted_SingleRecording_RoutesAllSubjects()
         {
             // A single-recording tree routes the whole batch to that lone recording.
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-lone");
-            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, recordingId: "rec-lone");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, captureUT: 120.0, recordingId: "rec-lone");
+            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f, captureUT: 150.0, recordingId: "rec-lone");
 
             var rec = MakeRec("rec-lone", 100.0, 200.0);
             StageRecordings(rec);
@@ -361,8 +361,8 @@ namespace Parsek.Tests
             // PendingScienceSubjects. We use the fault injector at the very start of
             // OnRecordingCommitted, before conversion or mirroring runs, so the test
             // pins the exact failure path from the review finding.
-            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, recordingId: "rec-good");
-            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, recordingId: "rec-good");
+            SeedSubject("crewReport@KerbinSrfLanded", 2.5f, captureUT: 120.0, recordingId: "rec-good");
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f, captureUT: 150.0, recordingId: "rec-good");
 
             var recGood = MakeRec("rec-good", 100.0, 200.0);
             StageRecordings(recGood);
@@ -393,7 +393,7 @@ namespace Parsek.Tests
             }
 
             // Because the throw happened before science reached either the ledger or
-            // GameStateStore, the pending subjects must still be available for retry.
+            // GameStateStore, the pending subjects must still remain visible afterward.
             Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
             Assert.Equal(
                 new[] { "crewReport@KerbinSrfLanded", "temperatureScan@MunFlyingHigh" },

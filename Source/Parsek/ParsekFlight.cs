@@ -2781,12 +2781,13 @@ namespace Parsek
             double sUT = rec.StartUT;
             double eUT = rec.EndUT;
             RecordingStore.CommitRecordingDirect(rec);
+            double ledgerStartUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(rec, sUT);
             int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
             IReadOnlyList<PendingScienceSubject> pendingForCommit =
                 LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
                     GameStateRecorder.PendingScienceSubjects,
                     recId,
-                    sUT,
+                    ledgerStartUT,
                     eUT);
             bool commitSucceeded = false;
             bool scienceAddedToLedger = false;
@@ -2794,7 +2795,7 @@ namespace Parsek
             {
                 LedgerOrchestrator.OnRecordingCommitted(
                     recId,
-                    sUT,
+                    ledgerStartUT,
                     eUT,
                     pendingForCommit,
                     ref scienceAddedToLedger);

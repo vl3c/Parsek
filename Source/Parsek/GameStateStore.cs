@@ -554,27 +554,6 @@ namespace Parsek
 
         #region Committed Science Subjects
 
-        /// <summary>
-        /// Merges pending science subjects into the committed store.
-        /// For each subject, keeps the maximum science value (handles partial experiments).
-        /// </summary>
-        internal static void CommitScienceSubjects(List<PendingScienceSubject> pending)
-        {
-            if (pending == null || pending.Count == 0) return;
-
-            int added = 0, updated = 0;
-            for (int i = 0; i < pending.Count; i++)
-            {
-                string id = pending[i].subjectId;
-                float science = pending[i].science;
-
-                CommitScienceSubject(id, science, ref added, ref updated);
-            }
-
-            ParsekLog.Info("GameStateStore",
-                $"CommitScienceSubjects: {added} added, {updated} updated (total={committedScienceSubjects.Count})");
-        }
-
         internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {
             if (actions == null || actions.Count == 0) return;

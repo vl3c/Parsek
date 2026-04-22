@@ -317,9 +317,9 @@ namespace Parsek
             resolvedStartUt = defaultStartUT;
             double captureUt = subject.captureUT;
             if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
-                return true;
+                return false;
             if (captureUt < 0.0)
-                return true;
+                return false;
             if (captureUt == 0.0 && defaultStartUT > 0.0)
                 return true;
             if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))

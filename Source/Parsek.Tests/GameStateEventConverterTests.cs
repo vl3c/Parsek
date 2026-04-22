@@ -485,6 +485,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureNaN_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = double.NaN,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureInfinity_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = double.PositiveInfinity,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureNegative_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = -1.0,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
         public void ConvertScienceSubjects_CrossRecordingCapture_IsSkipped()
         {
             var subjects = new List<PendingScienceSubject>
