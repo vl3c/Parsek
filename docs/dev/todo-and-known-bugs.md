@@ -971,19 +971,17 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 ---
 
-## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+## ~~496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests~~
 
 **Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+**Concern:** after the first slice landed, `TestRunnerUI` and the Ctrl+Shift+T shortcut shared `TestRunnerPresentation`, but the other thin IMGUI owners (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) still kept meaningful parse/sort/selection/tree rules inside draw code. That left UI regressions disproportionately dependent on live KSP playtests instead of direct headless ownership tests.
 
-**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+**Fix:** the remaining IMGUI owners now delegate their meaningful non-Unity logic to pure helpers: `SettingsWindowPresentation` owns auto-loop/camera-cutoff edit parsing plus the Defaults payload, `SpawnControlPresentation` owns Real Spawn Control sorting and per-row warp/state decisions, and `GroupPickerPresentation` owns normalized selection, common-group intersection, tree building, toggle rules, new-group validation, and membership deltas. Added focused headless coverage in `Source/Parsek.Tests/SettingsWindowPresentationTests.cs`, `Source/Parsek.Tests/SpawnControlPresentationTests.cs`, and `Source/Parsek.Tests/GroupPickerPresentationTests.cs`, completing the audit target list alongside the earlier `TestRunnerPresentation` tests.
 
-**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+**Deferred micro-follow-up:** this branch intentionally still reuses three older shared helpers instead of re-extracting them into the presentation layer: `SettingsWindowPresentation.TryResolveAutoLoopEdit(...)` still delegates to `ParsekUI.TryParseLoopInput(...)` / `ParsekUI.ConvertToSeconds(...)`, and `SpawnControlPresentation.BuildRowPresentation(...)` still uses `SelectiveSpawnUI.FormatCountdown(...)`. That is now a consistency follow-up rather than an audit blocker.
 
-**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
