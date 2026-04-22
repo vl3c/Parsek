@@ -250,15 +250,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 524. Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)
+## 524. ~~Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)~~
 
 **Source:** user observation plus code read in `Source/Parsek/UI/TimelineWindowUI.cs`.
 
 **Concern:** the row-action column visibly jitters because the watch, fast-forward, rewind, and loop buttons all use different hard-coded widths. The mismatch is cosmetic, but it makes dense Timeline rows harder to scan and undermines the otherwise deliberate table alignment.
 
-**Files:** `Source/Parsek/UI/TimelineWindowUI.cs` (make the row-action buttons share a single width constant, likely matching `FF`).
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
 
-**Status:** TODO / UI polish. Cheap fix, low risk.
+**Resolution (2026-04-22):** CLOSED. The current tree already had the short Timeline row actions (`W`, `FF`, `R`, `L`) aligned at the `FF` width (35px); this follow-up makes that existing contract explicit with a shared row-action width helper, keeps `GoTo` on its intentional wider width, and adds focused xUnit coverage so future UI edits cannot quietly drift the short buttons back apart.
+
+**Status:** ~~TODO / UI polish. Cheap fix, low risk.~~ Closed.
 
 ---
 

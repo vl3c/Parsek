@@ -18,6 +18,7 @@ All notable changes to Parsek are documented here.
 - `#494` `pwsh -File scripts/test-coverage.ps1` is now validated end-to-end on the current tree: it restored and ran `Parsek.Tests` (`Passed: 7730, Skipped: 2, Total: 7732`) and emitted the first baseline Cobertura packet at `41.50%` line / `39.95%` branch / `56.28%` method coverage across `325` classes.
 - `#496` Added headless coverage for the remaining thin IMGUI owners by extracting pure `TestRunnerPresentation`, `SettingsWindowPresentation`, `SpawnControlPresentation`, and `GroupPickerPresentation` helpers for test-runner labels/tooltips, Settings edit/default rules, Real Spawn Control sort/row-state decisions, and Group Picker selection/tree deltas.
 - `#497` Added explicit ownership-style builder suites for `EngineFxBuilder` and `GhostVisualBuilder`: the new headless seams cover effect-group filtering, config-entry parsing, fallback rotation-mode decisions, ghost snapshot/root selection, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Follow-up coverage now also captures seam-level `EngineFx` logs for guard/fallback branches and pins the malformed-`localRotation` fallback path, while live Unity object construction remains covered by in-game runtime tests and true visual confirmation still depends on runtime/manual evidence.
+- `#524` `TimelineWindowUITests` now pins the row-action width helper that all Timeline recording-row buttons use, so `W`, `FF`, `R`, and `L` stay aligned while `GoTo` remains intentionally wider for its label.
 
 ## 0.8.3
 
