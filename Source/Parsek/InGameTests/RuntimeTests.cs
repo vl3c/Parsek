@@ -8735,15 +8735,32 @@ namespace Parsek.InGameTests
             Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
         public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
         {
+            const int ghostIndex = 538;
+            const string vesselName = "Test538";
+            const float minimumUsableAtmosphereDepthMeters = 1000f;
+            const double targetAltitudeMarginMeters = 500.0;
+            const double targetAltitudeAtmosphereFraction = 0.25;
+            const float initialSweepSurfaceSpeedMetersPerSecond = 1500f;
+            const float maxSweepSurfaceSpeedMetersPerSecond = 10_000f;
+            const float sweepStepMetersPerSecond = 500f;
+            const float rawIntensitySaturationTarget = 0.999f;
+            const float requiredNearMaxRawIntensity = 0.99f;
+            const float legacyEmissionRateCeiling = 2000f;
+            const float emissionSettleTimeoutSeconds = 1.5f;
+            const float expectedEmissionRateTolerance = 0.5f;
+            const float warpRate = 1f;
+
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             InGameAssert.IsNotNull(activeVessel, "Active vessel required for ReentryFx runtime coverage");
 
             CelestialBody body = activeVessel.mainBody;
             InGameAssert.IsNotNull(body, "Active vessel mainBody should not be null");
-            if (!body.atmosphere || body.atmosphereDepth <= 1000)
+            if (!body.atmosphere || body.atmosphereDepth <= minimumUsableAtmosphereDepthMeters)
                 InGameAssert.Skip($"Active vessel body '{body.name}' has no usable atmosphere for reentry-FX coverage");
 
-            float targetAltitude = (float)System.Math.Min(body.atmosphereDepth - 500.0, body.atmosphereDepth * 0.25);
+            float targetAltitude = (float)System.Math.Min(
+                body.atmosphereDepth - targetAltitudeMarginMeters,
+                body.atmosphereDepth * targetAltitudeAtmosphereFraction);
             double pressure = body.GetPressure(targetAltitude);
             double temperature = body.GetTemperature(targetAltitude);
             double density = body.GetDensity(pressure, temperature);
@@ -8757,20 +8774,47 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(speedOfSound, 0.0,
                 $"Expected positive speed of sound at {targetAltitude:F0} m on {body.name}");
 
-            float targetSurfaceSpeed = 1500f;
+            float targetSurfaceSpeed = initialSweepSurfaceSpeedMetersPerSecond;
             float rawIntensity = 0f;
-            while (targetSurfaceSpeed <= 10000f)
+            float machNumber = 0f;
+            bool rawIntensitySaturated = false;
+            while (targetSurfaceSpeed <= maxSweepSurfaceSpeedMetersPerSecond)
             {
-                float machNumber = (float)(targetSurfaceSpeed / speedOfSound);
+                machNumber = (float)(targetSurfaceSpeed / speedOfSound);
                 rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
                     targetSurfaceSpeed, (float)density, machNumber);
-                if (rawIntensity >= 0.999f)
+                if (rawIntensity >= rawIntensitySaturationTarget)
+                {
+                    rawIntensitySaturated = true;
                     break;
-                targetSurfaceSpeed += 500f;
+                }
+
+                targetSurfaceSpeed += sweepStepMetersPerSecond;
             }
 
-            InGameAssert.IsGreaterThan(rawIntensity, 0.99,
-                $"Expected near-max raw intensity inside atmosphere, got {rawIntensity:F3} at {targetSurfaceSpeed:F0} m/s");
+            string rawIntensitySweepSummary =
+                $"body={body.name} altitude={targetAltitude.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"density={density.ToString("F6", CultureInfo.InvariantCulture)} " +
+                $"speedOfSound={speedOfSound.ToString("F1", CultureInfo.InvariantCulture)}m/s " +
+                $"lastSpeed={targetSurfaceSpeed.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"lastMach={machNumber.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"rawIntensity={rawIntensity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"saturated={rawIntensitySaturated} " +
+                $"saturationTarget={rawIntensitySaturationTarget.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"sweepStart={initialSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepStep={sweepStepMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepCeiling={maxSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s";
+
+            if (!rawIntensitySaturated && rawIntensity <= requiredNearMaxRawIntensity)
+            {
+                InGameAssert.Fail(
+                    "Reentry intensity speed sweep exhausted before reaching the near-max raw-intensity floor. " +
+                    rawIntensitySweepSummary);
+            }
+
+            InGameAssert.IsGreaterThan(rawIntensity, requiredNearMaxRawIntensity,
+                "Expected near-max raw intensity inside atmosphere before the live emission assertion. " +
+                rawIntensitySweepSummary);
 
             var ghostRoot = new GameObject("ParsekTestGhost_538");
             runner.TrackForCleanup(ghostRoot);
@@ -8779,8 +8823,8 @@ namespace Parsek.InGameTests
             ReentryFxInfo info = GhostVisualBuilder.TryBuildReentryFx(
                 ghostRoot,
                 new Dictionary<uint, HeatGhostInfo>(),
-                ghostIndex: 538,
-                vesselName: "Test538");
+                ghostIndex: ghostIndex,
+                vesselName: vesselName);
 
             InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry density test");
             InGameAssert.IsNotNull(info.fireParticles, "Reentry fire particle system should be created in live KSP");
@@ -8799,14 +8843,13 @@ namespace Parsek.InGameTests
             };
 
             var engine = new GhostPlaybackEngine(positioner: null);
-            const float emissionSettleTimeoutSeconds = 1.5f;
             float deadline = Time.realtimeSinceStartup + emissionSettleTimeoutSeconds;
             float actualRate = 0f;
             while (Time.realtimeSinceStartup < deadline)
             {
-                engine.UpdateReentryFx(recIdx: 538, state, vesselName: "Test538", warpRate: 1f);
+                engine.UpdateReentryFx(recIdx: ghostIndex, state, vesselName: vesselName, warpRate: warpRate);
                 actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
-                if (actualRate > 2000f)
+                if (actualRate > legacyEmissionRateCeiling)
                     break;
                 yield return null;
             }
@@ -8820,10 +8863,10 @@ namespace Parsek.InGameTests
                 GhostVisualBuilder.ReentryFireEmissionMin,
                 GhostVisualBuilder.ReentryFireEmissionMax,
                 Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
-            InGameAssert.ApproxEqual(expectedRate, actualRate, 0.5f,
+            InGameAssert.ApproxEqual(expectedRate, actualRate, expectedEmissionRateTolerance,
                 "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
-            InGameAssert.IsGreaterThan(actualRate, 2000.0,
-                $"Bug #538 regression: tuned live emission rate should rise past the old 2000 particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
+            InGameAssert.IsGreaterThan(actualRate, legacyEmissionRateCeiling,
+                $"Bug #538 regression: tuned live emission rate should rise past the old {legacyEmissionRateCeiling.ToString("F0", CultureInfo.InvariantCulture)} particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
