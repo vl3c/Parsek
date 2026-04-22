@@ -454,6 +454,66 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## 541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count
+
+**Source:** user request from 2026-04-22 after a main-page UI wording pass.
+
+**Concern:** the main button column still renders `Kerbals ({total})` and `Career State`. For top-level navigation the count suffix is noise, and `Career State` is longer/more formal than the rest of the button labels. Requested wording: `Kerbals` with no trailing count, and `Career` instead of `Career State`. Any detailed counts can stay inside the destination windows rather than on the launch surface.
+
+**Files:** `Source/Parsek/ParsekUI.cs`, plus small regression coverage in `Source/Parsek.Tests/ParsekUITests.cs` or equivalent UI-label tests.
+
+**Status:** TODO / UI polish. Cheap text-only cleanup.
+
+---
+
+## 542. Ghost watch camera cutoff should stop being user-editable and become a fixed 300 km config default
+
+**Source:** user request from 2026-04-22 plus current code read of `SettingsWindowUI` / `ParsekConfig`.
+
+**Concern:** the `Ghosts` settings pane still exposes `Camera cutoff` as a persisted text field even though the current 300 km default is already the preferred behavior. Requested direction: remove the UI setting and persistence plumbing, keep the runtime cutoff fixed at `DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm = 300f`, and simplify watch-mode callers to read the config constant instead of a mutable per-save setting.
+
+**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/ParsekConfig.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/ParsekSettingsPersistence.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/DistanceThresholdsTests.cs`, `Source/Parsek.Tests/ParsekSettingsPersistenceTests.cs`.
+
+**Status:** TODO. Behavior simplification + UI removal.
+
+---
+
+## 543. Auto-loop recordings need a global launch queue instead of per-recording independent cadence
+
+**Source:** user request from 2026-04-22. Current code in `GhostPlaybackLogic.ResolveLoopInterval(...)` gives every `LoopTimeUnit.Auto` recording the same global period, but each recording still schedules its own cycles independently from its own start UT.
+
+**Concern:** with multiple recordings on `Auto`, the current behavior can still produce simultaneous or visually clumped relaunches because "Auto" is only a shared interval value, not a shared queue. Requested behavior: treat all looped recordings whose unit is `Auto` as one launch queue ordered by launch sequence, with the gap between launches equal to the global Auto setting. Example: three Auto recordings with Auto = 30s should launch A, then B after 30s, then C after 30s, then continue cycling through that queue instead of each recording relaunching on its own independent cadence.
+
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/Recording.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek.Tests/AutoLoopTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** TODO. New loop-scheduler semantics; medium design work.
+
+---
+
+## 544. Rewind-to-launch should give 15 seconds of lead time instead of 10
+
+**Source:** user request from 2026-04-22 plus current code read in `RecordingStore.InitiateRewind`.
+
+**Concern:** the rewind preprocessing path still winds UT back by only `10.0` seconds (`rewindLeadTime`) before restoring the stripped launch save. That is not enough setup time on many launches. Requested change: increase the lead time to 15 seconds and update the related tests/logging assumptions that currently pin the 10-second value.
+
+**Files:** `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/RewindLoggingTests.cs`, `Source/Parsek.Tests/RewindPrelaunchStripTests.cs`, `Source/Parsek.Tests/RewindTreeLookupTests.cs`.
+
+**Status:** TODO. Small behavior tweak.
+
+---
+
+## 545. Timeline should squash adjacent near-duplicate milestone rows into one richer entry
+
+**Source:** user request from 2026-04-22 plus current code read in `TimelineBuilder` / `TimelineEntryDisplay`.
+
+**Concern:** the Timeline currently formats each milestone action independently, so near-neighbor rows can read like duplicates when they describe the same milestone with slightly different reward payloads (for example one row with funds only and a sibling row with funds + rep). `TimelineBuilder` already filters exact ledger-vs-legacy duplicates, but it does not run a second pass that compares `Prev - Current - Next` for "same milestone, same moment, richer combined message" cases. Requested behavior: add a compaction/squash pass that detects adjacent similar milestone rows and merges them into a single entry with the union of the useful reward details instead of showing multiple nearly-identical lines.
+
+**Files:** `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek.Tests/CrossTierIntegrationTests.cs` (or new dedicated timeline-builder coverage). Related cluster: open `#522`.
+
+**Status:** TODO. Timeline presentation cleanup; likely the next concrete follow-up for the "looks double-counted" reports.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
