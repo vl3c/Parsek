@@ -50,6 +50,23 @@ namespace Parsek.Tests
                     new FacilitiesModule(), new MilestonesModule());
         }
 
+        private static CareerStateWindowUI.CareerStateViewModel CachedVm(
+            double liveUT,
+            double nextRelevantActionUT = double.PositiveInfinity,
+            Game.Modes mode = Game.Modes.CAREER,
+            bool isTransientFallback = false)
+        {
+            return new CareerStateWindowUI.CareerStateViewModel
+            {
+                Mode = mode,
+                LiveUT = liveUT,
+                TerminalUT = liveUT,
+                NextRelevantActionUT = nextRelevantActionUT,
+                HasDivergence = false,
+                IsTransientFallback = isTransientFallback
+            };
+        }
+
         private static GameAction Accept(string contractId, double ut, string title = null, bool effective = true)
         {
             return new GameAction
@@ -171,6 +188,7 @@ namespace Parsek.Tests
             Assert.Empty(vm.Milestones.Rows);
             // Facilities tab still emits the 9-row default inventory.
             Assert.Equal(9, vm.Facilities.Rows.Count);
+            Assert.True(double.IsPositiveInfinity(vm.NextRelevantActionUT));
             Assert.False(vm.HasDivergence);
         }
 
@@ -466,6 +484,39 @@ namespace Parsek.Tests
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.False(vm.Contracts.CurrentRows[0].IsPendingAccept);
+        }
+
+        [Fact]
+        public void Build_NextRelevantActionUT_TracksFirstFutureProjectedAction()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("ctr-now", ut: 100.0, title: "Explore Mun"),
+                Complete("ctr-now", ut: 123.75),
+                Accept("ctr-later", ut: 200.0, title: "Rescue Kerbal")
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 123.4,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Equal(123.75, vm.NextRelevantActionUT);
+        }
+
+        [Fact]
+        public void Build_NextRelevantActionUT_ScienceSandbox_IgnoresHiddenCareerActions()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("ctr-hidden", ut: 123.4, title: "Hidden Contract"),
+                Upgrade("MissionControl", toLevel: 2, ut: 150.0)
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 100.0,
+                Game.Modes.SCIENCE_SANDBOX, c, s, f, m);
+
+            Assert.Equal(150.0, vm.NextRelevantActionUT);
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -945,6 +996,170 @@ namespace Parsek.Tests
             Assert.Null(ui.CachedVMForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]") && l.Contains("CareerStateWindow: cache invalidated"));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_NullCache_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                cachedVM: null,
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.4));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_ModeChanged_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.4, mode: Game.Modes.CAREER),
+                currentMode: Game.Modes.SCIENCE_SANDBOX,
+                liveUT: 123.5));
+        }
+
+        [Theory]
+        [InlineData(123.4, 123L)]
+        [InlineData(123.5, 124L)]
+        [InlineData(124.5, 125L)]
+        [InlineData(125.5, 126L)]
+        [InlineData(-124.5, -125L)]
+        public void GetDisplayedUtValue_MatchesWindowF0Rounding(double liveUt, long expected)
+        {
+            Assert.Equal(
+                liveUt.ToString("F0", CultureInfo.InvariantCulture),
+                CareerStateWindowUI.GetDisplayedUtText(liveUt));
+            Assert.Equal(expected, CareerStateWindowUI.GetDisplayedUtValue(liveUt));
+            Assert.Equal(
+                expected,
+                long.Parse(
+                    liveUt.ToString("F0", CultureInfo.InvariantCulture),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture));
+        }
+
+        [Fact]
+        public void GetDisplayedUtHelpers_NonFiniteInput_DoNotThrow()
+        {
+            Assert.Equal(
+                double.NaN.ToString("F0", CultureInfo.InvariantCulture),
+                CareerStateWindowUI.GetDisplayedUtText(double.NaN));
+            Assert.Equal(0L, CareerStateWindowUI.GetDisplayedUtValue(double.NaN));
+
+            Assert.Equal(
+                double.PositiveInfinity.ToString("F0", CultureInfo.InvariantCulture),
+                CareerStateWindowUI.GetDisplayedUtText(double.PositiveInfinity));
+            Assert.Equal(long.MaxValue, CareerStateWindowUI.GetDisplayedUtValue(double.PositiveInfinity));
+
+            Assert.Equal(
+                double.NegativeInfinity.ToString("F0", CultureInfo.InvariantCulture),
+                CareerStateWindowUI.GetDisplayedUtText(double.NegativeInfinity));
+            Assert.Equal(long.MinValue, CareerStateWindowUI.GetDisplayedUtValue(double.NegativeInfinity));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_BeforeNextRelevantActionAndSameDisplayedUt_ReturnsFalse()
+        {
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.1, nextRelevantActionUT: 123.45),
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.4));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_DisplayedUtChangesWithinSameActionGap_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.4, nextRelevantActionUT: 200.0),
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.6));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_AtNextRelevantActionWithinSameDisplayedUt_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.1, nextRelevantActionUT: 123.4),
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.4));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_TimeGoesBackwardWithinSameDisplayedUt_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.4, nextRelevantActionUT: 200.0),
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.1));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_PositiveInfinitySentinelBoundary_ReturnsFalse()
+        {
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(double.PositiveInfinity, nextRelevantActionUT: double.PositiveInfinity),
+                currentMode: Game.Modes.CAREER,
+                liveUT: double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_ScienceSandbox_DisplayedUtChangeWithinSameActionGap_ReturnsFalse()
+        {
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.4, nextRelevantActionUT: 200.0, mode: Game.Modes.SCIENCE_SANDBOX),
+                currentMode: Game.Modes.SCIENCE_SANDBOX,
+                liveUT: 123.6));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_ScienceSandbox_VisibleActionBoundary_ReturnsTrue()
+        {
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.1, nextRelevantActionUT: 123.4, mode: Game.Modes.SCIENCE_SANDBOX),
+                currentMode: Game.Modes.SCIENCE_SANDBOX,
+                liveUT: 123.4));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_Sandbox_ActionBoundary_ReturnsFalse()
+        {
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.1, nextRelevantActionUT: 123.4, mode: Game.Modes.SANDBOX),
+                currentMode: Game.Modes.SANDBOX,
+                liveUT: 123.4));
+        }
+
+        [Fact]
+        public void Build_NullModulesFallback_RebuildsOnNextDrawUntilModulesRecover()
+        {
+            var fallbackVm = CareerStateWindowUI.Build(
+                actions: Array.Empty<GameAction>(),
+                liveUT: 123.4,
+                mode: Game.Modes.CAREER,
+                contracts: null,
+                strategies: null,
+                facilities: null,
+                milestones: null);
+
+            Assert.True(fallbackVm.IsTransientFallback);
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                fallbackVm,
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.4));
+
+            var (contracts, strategies, facilities, milestones) = Modules();
+            var recoveredVm = CareerStateWindowUI.Build(
+                actions: Array.Empty<GameAction>(),
+                liveUT: 123.4,
+                mode: Game.Modes.CAREER,
+                contracts: contracts,
+                strategies: strategies,
+                facilities: facilities,
+                milestones: milestones);
+
+            Assert.False(recoveredVm.IsTransientFallback);
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                recoveredVm,
+                currentMode: Game.Modes.CAREER,
+                liveUT: 123.4));
         }
 
         // ──────────────────────────────────────────────────────────────────

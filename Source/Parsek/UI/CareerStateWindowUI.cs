@@ -167,7 +167,9 @@ namespace Parsek
             public Game.Modes Mode;
             public double LiveUT;
             public double TerminalUT;
+            public double NextRelevantActionUT;
             public bool HasDivergence;
+            public bool IsTransientFallback;
         }
 
         internal struct ContractsTabVM
@@ -303,14 +305,12 @@ namespace Parsek
             FacilitiesModule facilities,
             MilestonesModule milestones)
         {
-            var ic = CultureInfo.InvariantCulture;
-
             if (contracts == null || strategies == null || facilities == null
                 || milestones == null || actions == null)
             {
                 ParsekLog.Warn("UI",
                     "CareerStateWindow: Build called with null module or actions; returning empty VM");
-                return EmptyVM(liveUT, mode);
+                return EmptyVM(liveUT, mode, isTransientFallback: true);
             }
 
             // Terminal-state accumulators, walked forward through the action list.
@@ -320,6 +320,13 @@ namespace Parsek
             var creditedMilestonesTerm = new HashSet<string>(StringComparer.Ordinal);
             var allMilestoneRows = new List<MilestoneRow>();
 
+            // Mode gating (design doc E1/E2). These flags drive both row visibility
+            // and which future actions can visibly change the cached window.
+            bool contractsVisible = mode == Game.Modes.CAREER;
+            bool strategiesVisible = mode == Game.Modes.CAREER;
+            bool facilitiesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
+            bool milestonesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
+
             // "Current" snapshots — populated when we cross the liveUT boundary.
             Dictionary<string, ContractAcc> activeContractsCurSnap = null;
             Dictionary<string, StrategyAcc> activeStrategiesCurSnap = null;
@@ -327,6 +334,7 @@ namespace Parsek
             HashSet<string> creditedMilestonesCurSnap = null;
 
             double terminalUT = liveUT;
+            double nextRelevantActionUT = double.PositiveInfinity;
 
             // Walk actions, snapshotting current-state the moment we pass liveUT.
             // An action with UT <= liveUT counts as already-applied, so the snapshot is
@@ -351,6 +359,11 @@ namespace Parsek
                 switch (a.Type)
                 {
                     case GameActionType.ContractAccept:
+                        if (contractsVisible
+                            && double.IsPositiveInfinity(nextRelevantActionUT)
+                            && a.UT > liveUT
+                            && a.Effective)
+                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("ContractAccept", "Ineffective", a);
@@ -370,6 +383,11 @@ namespace Parsek
                     case GameActionType.ContractComplete:
                     case GameActionType.ContractFail:
                     case GameActionType.ContractCancel:
+                        if (contractsVisible
+                            && double.IsPositiveInfinity(nextRelevantActionUT)
+                            && a.UT > liveUT
+                            && a.Effective)
+                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip(a.Type.ToString(), "Ineffective", a);
@@ -379,6 +397,11 @@ namespace Parsek
                         break;
 
                     case GameActionType.StrategyActivate:
+                        if (strategiesVisible
+                            && double.IsPositiveInfinity(nextRelevantActionUT)
+                            && a.UT > liveUT
+                            && a.Effective)
+                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("StrategyActivate", "Ineffective", a);
@@ -397,6 +420,11 @@ namespace Parsek
                         break;
 
                     case GameActionType.StrategyDeactivate:
+                        if (strategiesVisible
+                            && double.IsPositiveInfinity(nextRelevantActionUT)
+                            && a.UT > liveUT
+                            && a.Effective)
+                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("StrategyDeactivate", "Ineffective", a);
@@ -407,6 +435,11 @@ namespace Parsek
 
                     case GameActionType.FacilityUpgrade:
                         {
+                            if (facilitiesVisible
+                                && double.IsPositiveInfinity(nextRelevantActionUT)
+                                && a.UT > liveUT
+                                && a.Effective)
+                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityUpgrade", "Ineffective", a);
@@ -423,6 +456,11 @@ namespace Parsek
 
                     case GameActionType.FacilityDestruction:
                         {
+                            if (facilitiesVisible
+                                && double.IsPositiveInfinity(nextRelevantActionUT)
+                                && a.UT > liveUT
+                                && a.Effective)
+                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityDestruction", "Ineffective", a);
@@ -439,6 +477,11 @@ namespace Parsek
 
                     case GameActionType.FacilityRepair:
                         {
+                            if (facilitiesVisible
+                                && double.IsPositiveInfinity(nextRelevantActionUT)
+                                && a.UT > liveUT
+                                && a.Effective)
+                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityRepair", "Ineffective", a);
@@ -455,6 +498,11 @@ namespace Parsek
 
                     case GameActionType.MilestoneAchievement:
                         {
+                            if (milestonesVisible
+                                && double.IsPositiveInfinity(nextRelevantActionUT)
+                                && a.UT > liveUT
+                                && a.Effective)
+                                nextRelevantActionUT = a.UT;
                             string mid = a.MilestoneId ?? "";
                             if (!a.Effective)
                             {
@@ -498,12 +546,6 @@ namespace Parsek
                 facilityStateCurSnap = CopyFacilities(facilityStateTerm);
                 creditedMilestonesCurSnap = new HashSet<string>(creditedMilestonesTerm, StringComparer.Ordinal);
             }
-
-            // --- Mode gating (design doc E1/E2) ---
-            bool contractsVisible = mode == Game.Modes.CAREER;
-            bool strategiesVisible = mode == Game.Modes.CAREER;
-            bool facilitiesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
-            bool milestonesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
 
             // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities:1440-1446) ---
             // Contracts draw slots from MissionControl level; Strategies draw from Administration level.
@@ -694,13 +736,15 @@ namespace Parsek
                 Mode = mode,
                 LiveUT = liveUT,
                 TerminalUT = terminalUT,
-                HasDivergence = divergence
+                NextRelevantActionUT = nextRelevantActionUT,
+                HasDivergence = divergence,
+                IsTransientFallback = false
             };
 
             ParsekLog.Verbose("UI",
                 "CareerStateWindow: rebuilt VM "
-                + $"liveUT={liveUT.ToString("F0", ic)} "
-                + $"terminalUT={terminalUT.ToString("F0", ic)} "
+                + $"liveUT={GetDisplayedUtText(liveUT)} "
+                + $"terminalUT={GetDisplayedUtText(terminalUT)} "
                 + $"divergence={divergence} "
                 + $"mode={mode} "
                 + $"contracts={contractsVM.CurrentActive}/{contractsVM.ProjectedActive} "
@@ -715,7 +759,10 @@ namespace Parsek
         // Helpers
         // ================================================================
 
-        private static CareerStateViewModel EmptyVM(double liveUT, Game.Modes mode)
+        private static CareerStateViewModel EmptyVM(
+            double liveUT,
+            Game.Modes mode,
+            bool isTransientFallback = false)
         {
             return new CareerStateViewModel
             {
@@ -742,8 +789,64 @@ namespace Parsek
                 Mode = mode,
                 LiveUT = liveUT,
                 TerminalUT = liveUT,
-                HasDivergence = false
+                NextRelevantActionUT = double.PositiveInfinity,
+                HasDivergence = false,
+                IsTransientFallback = isTransientFallback
             };
+        }
+
+        internal static bool ShouldRebuildCachedVM(
+            CareerStateViewModel? cachedVM,
+            Game.Modes currentMode,
+            double liveUT)
+        {
+            if (cachedVM == null)
+                return true;
+
+            var vm = cachedVM.Value;
+            if (vm.Mode != currentMode)
+                return true;
+
+            if (vm.IsTransientFallback)
+                return true;
+
+            bool displaysLiveUT = currentMode == Game.Modes.CAREER;
+            bool hasVisibleTimelineState =
+                currentMode == Game.Modes.CAREER || currentMode == Game.Modes.SCIENCE_SANDBOX;
+
+            // #521 review follow-up: only expire the cache on boundaries that can
+            // actually change the rendered window for the active mode.
+            if (hasVisibleTimelineState && liveUT < vm.LiveUT)
+                return true;
+
+            if (displaysLiveUT && GetDisplayedUtText(vm.LiveUT) != GetDisplayedUtText(liveUT))
+                return true;
+
+            return hasVisibleTimelineState
+                && !double.IsPositiveInfinity(vm.NextRelevantActionUT)
+                && liveUT >= vm.NextRelevantActionUT;
+        }
+
+        internal static string GetDisplayedUtText(double liveUT)
+        {
+            return liveUT.ToString("F0", CultureInfo.InvariantCulture);
+        }
+
+        internal static long GetDisplayedUtValue(double liveUT)
+        {
+            if (double.IsNaN(liveUT))
+                return 0L;
+
+            if (double.IsPositiveInfinity(liveUT))
+                return long.MaxValue;
+
+            if (double.IsNegativeInfinity(liveUT))
+                return long.MinValue;
+
+            return long.Parse(
+                GetDisplayedUtText(liveUT),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture);
         }
 
         private static Dictionary<string, ContractAcc> CopyContracts(
@@ -1085,12 +1188,7 @@ namespace Parsek
             var currentMode = currentGame.Mode;
             double liveUT = Planetarium.GetUniversalTime();
 
-            // Rebuild if no cache, if mode changed, or if UT has advanced (including
-            // while the window was open, or between close and reopen — otherwise the
-            // banner and current-vs-pending partition stay frozen at the cached UT).
-            if (cachedVM == null
-                || cachedVM.Value.Mode != currentMode
-                || cachedVM.Value.LiveUT != liveUT)
+            if (ShouldRebuildCachedVM(cachedVM, currentMode, liveUT))
             {
                 cachedVM = Build(
                     Ledger.Actions,
@@ -1147,14 +1245,13 @@ namespace Parsek
 
         private void DrawModeBanner(CareerStateViewModel vm)
         {
-            var ic = CultureInfo.InvariantCulture;
             string line;
             if (vm.Mode == Game.Modes.CAREER)
             {
-                line = $"Career mode - UT {vm.LiveUT.ToString("F0", ic)}";
+                line = $"Career mode - UT {GetDisplayedUtText(vm.LiveUT)}";
                 if (vm.HasDivergence)
                 {
-                    line += $"  (timeline ends at UT {vm.TerminalUT.ToString("F0", ic)})";
+                    line += $"  (timeline ends at UT {GetDisplayedUtText(vm.TerminalUT)})";
                 }
             }
             else if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)

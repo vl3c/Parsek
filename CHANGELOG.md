@@ -121,6 +121,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#521` Career State no longer rebuilds its cached view model on every sub-frame `Planetarium` UT delta while the window is open. The UI now keeps the cached VM only until the next observable boundary: either the banner's displayed `F0` live-UT value changes or the next projected career action crosses from future into current. Explicit cache invalidation, mode changes, and backwards time jumps still rebuild immediately, which removes the draw-cadence churn behind the visible main-window flicker while avoiding stale banner/current-vs-pending state inside a coarse time bucket.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

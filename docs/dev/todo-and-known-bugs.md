@@ -214,15 +214,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 521. Main Parsek page can visibly flicker while clicking around the Parsek windows
+## ~~521. Main Parsek page can visibly flicker while clicking around the Parsek windows~~
 
 **Source:** user observation from `logs/2026-04-21_2335_live-collect-script`. The package does not contain a screenshot/video, but `KSP.log` shows `CareerStateWindow: rebuilt VM ...` being emitted every ~16-25 ms for long stretches even when the data is stable (for example around 23:29:45-23:29:57 with `contracts=2/2`, `strategies=0/0`, `facilities=9`, `milestones=4/4` unchanged). The same session also keeps logging `Main window position: x=20 y=100 w=250 h=0`.
 
-**Concern:** this does not look like the old transparent-window path from closed `#487`; it looks like the Career State VM and/or the shared main window layout is rebuilding at draw cadence instead of only on cache invalidation. That would explain why the main Parsek page flickers when the user clicks controls in Parsek-owned windows even though the underlying data is not changing.
+**Concern:** this did not look like the old transparent-window path from closed `#487`; it looked like the Career State VM and/or the shared main window layout was rebuilding at draw cadence instead of only on cache invalidation. That would explain why the main Parsek page flickered when the user clicked controls in Parsek-owned windows even though the underlying data was not changing.
 
-**Files:** `Source/Parsek/UI/CareerStateWindowUI.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek.Tests/CareerStateWindowUITests.cs`.
+**Fix:** `CareerStateWindowUI` was comparing the cached VM against the raw `double` live UT from `Planetarium.GetUniversalTime()`, so the supposedly cached VM rebuilt every draw frame while time advanced. The cache now expires on the next observable UI boundary instead of on every sub-frame delta: when the banner's displayed `F0` live-UT value changes or when the next projected career action crosses from future into current (the build path uses exact `<= liveUT` classification, so action boundaries have to invalidate precisely). Explicit cache invalidation, game-mode changes, and backwards time jumps (rewind/load) still rebuild immediately. Added headless regression coverage for the display-rounding boundary, the next-relevant-action boundary, and the rewind/mode-change cases. The `Main window position ... h=0` breadcrumb turned out to be incidental logging noise, not the visual driver.
 
-**Status:** OPEN. User-observed; current package provides redraw/rebuild breadcrumbs but not a visual capture.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
