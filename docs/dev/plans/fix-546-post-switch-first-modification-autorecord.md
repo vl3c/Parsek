@@ -105,6 +105,8 @@ Arm it from these paths:
 - `RestoreActiveTreeFromPendingForVesselSwitch` when the restore completes in outsider state instead of promoting
 - any future explicit outsider recovery path that intentionally leaves Parsek idle on the new active vessel
 
+Do not arm at all if the switched-to object is a ghost map vessel; the existing `GhostMapPresence.IsGhostMapVessel(...)` guard on the switch seam remains authoritative.
+
 Disarm it when:
 
 - recording starts by any path
@@ -117,7 +119,7 @@ Baseline capture needs an explicit rule so the watcher does not self-trigger on 
 
 - arm immediately on the switch / restore seam, but do **not** compare digests yet
 - capture the baseline on the first stable physics frame where the armed PID is still active, the vessel is unpacked, and no transient guard is active
-- for landed vessels, require a short settle window after that baseline frame before motion/resource/part-state comparisons are allowed
+- for landed vessels, reuse the existing `LandedSettleThreshold` concept from `EvaluateAutoRecordLaunchDecision(...)` after the baseline frame before motion/resource/part-state comparisons are allowed, unless later measurements prove a separate threshold is necessary
 - keep the digest surface intentionally narrow: crew manifest, resource manifest, and non-cosmetic module states that already imply authored physical change (for example gear, cargo bay, ladder / deployable, robotic motion). Exclude lights and other purely cosmetic toggles from the idle-to-live trigger surface even if the live recorder can serialize them later
 
 ### 3. Add a lightweight first-modification detector instead of starting on every switch
@@ -139,7 +141,7 @@ Suppression classes should be spelled out rather than hidden under "transient gu
 - restore coroutine in progress
 - regular time warp or physics warp
 - packed / on-rails vessels
-- active-vessel mismatch after the switch
+- `FlightGlobals.ActiveVessel == null` or `FlightGlobals.ActiveVessel.persistentId != armedVesselPid`
 - first-frame switch settling before the baseline has been captured
 
 ### 4. Centralize the first-trigger start decision
@@ -199,7 +201,7 @@ Add a new setting in `ParsekSettings` and `SettingsWindowUI`, for example:
 
 Do not hide this behind `autoRecordOnLaunch`; the semantics are different and the behavior is materially broader. Recommended default: `true`, because the current gap loses mission history and the design docs already lean toward continuity. If rollout caution is preferred during implementation, flipping the default is a one-line follow-up.
 
-Upgrade behavior needs to be explicit: for existing saves/settings blobs that do not yet have the new field, seed it from the user's current launch auto-record preference instead of blindly opting every legacy install into the broader behavior. Fresh saves can still default to `true`.
+Keep the setting behavior simple: default the new field to `true` the same way the existing launch/EVA auto-record toggles do, and do not add special migration logic unless rollout experience proves the broader default is too surprising in practice.
 
 ### 7. Logging requirements
 
@@ -228,7 +230,7 @@ Add a focused pure-helper test file, for example `Source/Parsek.Tests/PostSwitch
   - crew / resource / non-cosmetic part-state digests changing
   - cosmetic-only changes being ignored
 - first-trigger decision routing:
-  - tracked background member -> promote (only for the narrow suppressed-promotion seam)
+  - tracked background member + immediate-promotion suppression guard active -> deferred promote
   - pending tracked restore available -> restore and promote
   - outsider / not tracked -> fresh recording
 
@@ -264,7 +266,7 @@ When the implementation lands:
 
 - mark `#546` done in `docs/dev/todo-and-known-bugs.md`
 - keep `#534` separate unless that branch also lands and closes it independently
-- add a `0.8.3` changelog line describing the new post-switch auto-record coverage
+- add a changelog line under the current unreleased version describing the new post-switch auto-record coverage
 - update the manual auto-record checklist
 
 During implementation, keep `docs/dev/todo-and-known-bugs.md` and the changelog in sync **per commit**, not only at final close-out. If the implementation narrows to outsider-only first because `#534` is still open, the docs must say exactly that on the intermediate commit.
