@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
@@ -56,7 +57,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
 
 ### Tests
 
