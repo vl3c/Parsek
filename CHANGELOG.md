@@ -123,7 +123,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#486` Quickload after a runway takeoff no longer leaves stale future samples or fake save/load discontinuity warnings in the merged recording tree.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.
@@ -133,6 +132,7 @@ All notable changes to Parsek are documented here.
 - Incomplete-ballistic scene-exit finalization now only caches permanent `FlightGlobals` probe failures, so a transient `ready=false` teardown frame cannot disable later live finalization in the same KSP session.
 - `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.
 - Patched-conic snapshot capture now fails closed when a predicted patch has no reference body or the private solver `patchLimit` hook is unavailable, logs those conditions explicitly, and reports truncation as a boolean tail flag instead of a pseudo-count.
+- `#486` Quickload after a runway takeoff no longer leaves stale future samples or fake save/load discontinuity warnings in the merged recording tree.
 - `#482` KSP.log no longer accumulates spurious recording-id rejection WARN lines during test runs, while real invalid ids in live save/load/delete paths still log at `WARN`.
 - Real-vessel spawn now reconstructs world-space `VESSEL.rot` explicitly from format-v0 surface-relative recording data before `ProtoVessel.Load()`, so `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns all use `body.bodyTransform.rotation * srfRelRotation` instead of writing raw recorded quaternions. Surface-only fallback selection now leaves orbital snapshot rotations untouched.
 - `#487` The Ctrl+Shift+T test runner window now defers opaque-style rebuilds until the destination scene's IMGUI skin exposes a real normal window background, and any lagging hover/focus/active variants fall back to that ready background instead of being cached as transparent states. Scene-reset cleanup also destroys the copied opaque textures before rebuilding to avoid leaking them across repeated transitions.
