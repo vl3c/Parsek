@@ -936,19 +936,26 @@ Local verification on this combined branch is now healthy enough to be useful: `
 
 ---
 
-## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+## ~~494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report~~ CLOSED 2026-04-22
 
 **Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` completed end-to-end and produced the first validated baseline coverage packet:
 
-**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+- restore/build succeeded for `Source/Parsek/Parsek.csproj` and `Source/Parsek.Tests/Parsek.Tests.csproj`
+- xUnit result: `Passed: 7730, Skipped: 2, Total: 7732`
+- Cobertura baseline: line `34220/82454 (41.50%)`, branch `15944/39907 (39.95%)`, method `56.28%`, `325` classes
+- generated artifacts: `coverage..cobertura.xml`, `coverage-summary.txt`, and `dotnet-test.log`
+- archived packet: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`
+- remaining non-blocking warnings: `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` (`xUnit1013`) and the two `KerbalsWindowUITests` substring assertions (`xUnit2009`)
 
-**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+**Why this matters:** the repo can now answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
 
-**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+**Follow-up:** future work should keep this packet shape repeatable, but the missing-baseline blocker itself is now closed. The next useful iteration is diff/CI retention, not more local runner churn.
 
-**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-22). Baseline captured and archived.
 
 ---
 
@@ -968,35 +975,29 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 ---
 
-## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+## ~~496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests~~
 
 **Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+**Concern:** after the first slice landed, `TestRunnerUI` and the Ctrl+Shift+T shortcut shared `TestRunnerPresentation`, but the other thin IMGUI owners (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) still kept meaningful parse/sort/selection/tree rules inside draw code. That left UI regressions disproportionately dependent on live KSP playtests instead of direct headless ownership tests.
 
-**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+**Fix:** the remaining IMGUI owners now delegate their meaningful non-Unity logic to pure helpers: `SettingsWindowPresentation` owns auto-loop/camera-cutoff edit parsing plus the Defaults payload, `SpawnControlPresentation` owns Real Spawn Control sorting and per-row warp/state decisions, and `GroupPickerPresentation` owns normalized selection, common-group intersection, tree building, toggle rules, new-group validation, and membership deltas. Added focused headless coverage in `Source/Parsek.Tests/SettingsWindowPresentationTests.cs`, `Source/Parsek.Tests/SpawnControlPresentationTests.cs`, and `Source/Parsek.Tests/GroupPickerPresentationTests.cs`, completing the audit target list alongside the earlier `TestRunnerPresentation` tests.
 
-**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+**Deferred micro-follow-up:** this branch intentionally still reuses three older shared helpers instead of re-extracting them into the presentation layer: `SettingsWindowPresentation.TryResolveAutoLoopEdit(...)` still delegates to `ParsekUI.TryParseLoopInput(...)` / `ParsekUI.ConvertToSeconds(...)`, and `SpawnControlPresentation.BuildRowPresentation(...)` still uses `SelectiveSpawnUI.FormatCountdown(...)`. That is now a consistency follow-up rather than an audit blocker.
 
-**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
-## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+## ~~497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles~~
 
 **Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. The earlier sidecar/generator ownership bundles are now matched by dedicated builder suites: `Source/Parsek.Tests/EngineFxBuilderTests.cs` owns headless-safe effect-group filtering, model/prefab config-entry parsing, fallback Euler selection, prefab rotation-mode decisions, and seam-level diagnostic log assertions for guard/fallback branches extracted from the runtime-heavy FX builder, and `Source/Parsek.Tests/GhostVisualBuilderTests.cs` now owns ghost snapshot selection/root parsing, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Live Unity object construction stays in the in-game runtime tests instead of xUnit, while true visual confirmation still relies on runtime/manual evidence rather than new headless assertions.
 
-**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/EngineFxBuilderTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`, `Source/Parsek.Tests/RecordingStoreTests.cs`, `Source/Parsek.Tests/GhostVisualFrameTests.cs`, `docs/dev/todo-and-known-bugs.md`.
 
-**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
-
-**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
