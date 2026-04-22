@@ -507,20 +507,21 @@ The branch also now contains the first deterministic timing-sensitive part-event
 - `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` also records the `Running`/`PASSED` lines plus the `Applied 1 part events for ghost #902/#901` diagnostics when each canary reaches its authored event boundary
 - unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note, and the retained April 21 evidence now closes that first light/deployable timing gap
 
-The branch now also contains a first pass at making destructive FLIGHT runtime tests batchable without repeated manual game reloads:
+The branch now also contains a stronger but still not final retained-validation path for batching destructive FLIGHT runtime tests without repeated manual game reloads:
 
-- the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
-- the first isolated-batch cohort is `AutoRecordOnLaunch_StartsExactlyOnce`, `AutoRecordOnEvaFromPad_StartsExactlyOnce`, `TreeMergeDialog_DiscardButton_ClearsPendingTree`, `TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`, `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`, and `KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
-- the stock-transition canaries still intentionally remain manual-only: the two `QuickloadResume` tests, `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`, and the two `SceneExitMerge` tests still exercise the same stock restore/exit paths the isolated harness would depend on if they failed
-- this means the remaining workflow pain is narrower now: the user still needs manual single-run passes for stock quickload / revert / save-and-exit, but the rest of the destructive FLIGHT slice should be able to run in one disposable session once the new harness is live-validated
-- local CLI build verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore problems, so the immediate next confidence step is live KSP validation plus code review rather than a healthy local `dotnet build`
+- the in-game runner exposes explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
+- the retained sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` (pinned only to historical commit `80176033`) shows that widened path running in one disposable `FLIGHT` session with a baseline captured for 9 restore-after-run tests and a clean finish in `parsek-test-results.txt` at `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`
+- that same live batch includes passing `AutoRecord`, FLIGHT merge-dialog, `Keep Vessel`, `BridgeSurvivesSceneTransition`, `Quickload_MidRecording_ResumesSameActiveRecordingId`, and `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` restore-backed canaries; the watch-cleanup regression remains save-dependent and skipped in that retained session because no same-body ghost was available
+- because that retained packet predates the later StageManager/live-log-observer/first-real-point hardening now documented for `#493`, it improves confidence but does not fully close the follow-up on its own; the batch evidence still needs to be re-captured from the final revision with the save-dependent watch-cleanup canary actually exercised
+- `SceneExitMerge` still intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both exit-to-KSC canaries passing separately, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so that path is still too state-dirty to trust inside the isolated FLIGHT batch
+- local CLI build/test verification is still environment-dependent on this workstation (`.NETFramework,Version=v4.7.2` reference assemblies are missing here), so fresh retained KSP bundles remain the decisive confidence signal for this slice
 
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
-1. **Live-validate the new isolated batch mode**
-   Build this worktree, enter a disposable `FLIGHT` session, and use `Run All + Isolated` or per-category `Run+` to confirm the new `[isolated]` tests complete without manual reloads and that the runner reliably quickloads the baseline back between destructive tests.
+1. **Re-capture the isolated batch evidence on the final quickload-hardened revision**
+   The retained April 21 packet is useful, but it predates the latest `#493` hardening and still leaves the save-dependent watch-cleanup canary skipped. Rerun `Run All + Isolated` or per-category `Run+` from a disposable prelaunch `FLIGHT` session, ensure a same-body ghost is available for the watch-cleanup regression, and retain fresh `KSP.log` / `parsek-test-results.txt` evidence pinned to the current commit.
 2. **Build on the now-validated local coverage path**
    The next useful output is not more local runner churn; it is keeping the baseline packet repeatable and deciding whether CI/diff retention should join the workflow.
 3. **After that, broaden the part-event timing slice if needed**
@@ -530,8 +531,10 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 The first scripted runtime scenarios I would validate/add next are:
 
-1. **Part-event timing showcase**
-   The non-revert scene-exit merge/discard canaries and the first light/deployable timing pair now have archived live validation, so the next runtime timing gap to promote is deciding whether fairing disappearance or RCS FX onset needs the same treatment.
+1. **Isolated destructive FLIGHT batch refresh**
+   The next runtime packet to promote is a fresh current-HEAD `Run All + Isolated` / `Run+` rerun that includes the save-dependent watch-cleanup case and confirms the quickload-hardening changes on retained evidence.
+2. **Part-event timing showcase**
+   The first light/deployable timing pair now has archived live validation, so the next runtime timing gap to promote is deciding whether fairing disappearance or RCS FX onset needs the same treatment.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
