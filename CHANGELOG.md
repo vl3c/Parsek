@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.0
+
+### Enhancements
+
+- `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
+
 ## 0.8.3
 
 ### Features
@@ -14,7 +20,6 @@ All notable changes to Parsek are documented here.
 ### Enhancements
 
 - Ghost vessel explosions in flight now use KSP's stock explosion effects and bundled audio, matching stock vessel destruction; KSC keeps the prior custom renderer since the stock system is flight-scene-only.
-- `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
 - Raised the per-recording concurrent-ghost hard cap from 10 to 20 in both the flight and KSC scenes. The cap bounds how many live clones of the same recording (primary + overlap) can coexist while looping; each clone is its own GameObject/renderer/FX/audio stack (mesh vertex data is still shared via Unity `sharedMesh`, so per-frame cost scales with the clone count, not with vertex budget). Because `GhostPlaybackLogic.ComputeEffectiveLaunchCadence` enforces the cap as `ceil(duration/cadence) <= cap`, doubling the cap halves the minimum effective looping interval (floor = `duration / cap`) - e.g., a 60-second recording's floor drops from 6s to 3s before the runtime-cadence clamp kicks in. Distance-based LOD (full-fidelity inside the 2.3km physics bubble, simplified out to 50km, hidden beyond 120km) is independent of this cap and unchanged.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
