@@ -712,6 +712,11 @@ namespace Parsek
 
         public static void SpawnOrRecoverIfTooClose(Recording rec, int index)
         {
+            SpawnOrRecoverIfTooClose(rec, index, preserveIdentity: false);
+        }
+
+        public static void SpawnOrRecoverIfTooClose(Recording rec, int index, bool preserveIdentity)
+        {
             const int maxSpawnAttempts = 3;
             string logContext = $"recording #{index} ({rec?.VesselName ?? "(unknown)"})";
             if (rec.SpawnAttempts >= maxSpawnAttempts)
@@ -729,7 +734,8 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
                     logContext,
-                    excludeCrew);
+                    excludeCrew,
+                    preserveIdentity: preserveIdentity);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -760,7 +766,8 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
                     logContext,
-                    excludeCrew);
+                    excludeCrew,
+                    preserveIdentity: preserveIdentity);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -981,6 +988,7 @@ namespace Parsek
 
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
                     validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                    preserveIdentity: preserveIdentity,
                     terminalState: rec.TerminalStateValue,
                     surfaceRelativeRotation: surfaceRelativeRotationArg,
                     orbitOverride: orbitalSpawnOrbit);
@@ -1008,7 +1016,8 @@ namespace Parsek
             rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                 rec,
                 logContext,
-                excludeCrew);
+                excludeCrew,
+                preserveIdentity: preserveIdentity);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
