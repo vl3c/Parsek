@@ -1150,8 +1150,8 @@ namespace Parsek.Tests
         [Fact]
         public void ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents()
         {
-            // Bug #450 B2 (pure-logic replacement for the Unity-gated
-            // UpdateLoopingPlayback_PendingCycleBoundary_* test above): when the
+            // Bug #450 B2 (pure-logic counterpart to the Unity-gated pending
+            // loop-cycle boundary regression): when the
             // reuse path is entered on a state whose ghost has never materialised
             // (pending split-build), it must advance loopCycleIndex and emit
             // zero restart / camera events for a ghost that never spawned.
