@@ -465,12 +465,19 @@ namespace Parsek
 
         // Accessors for WatchModeController (delegates need host services)
         internal bool ShouldLoopPlaybackForWatch(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
-        internal double GetLoopIntervalSecondsForWatch(Recording rec)
+        internal double GetLoopIntervalSecondsForWatch(Recording rec, int recIdx = -1)
         {
-            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            return GetLoopIntervalSeconds(rec, recIdx);
         }
+        internal bool TryGetLoopScheduleForWatch(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
+            => TryGetLoopSchedule(rec, recIdx,
+                out playbackStartUT, out scheduleStartUT, out duration, out intervalSeconds);
         internal bool TryComputeLoopPlaybackUTForWatch(
             Recording rec, double currentUT,
             out double loopUT, out long cycleIndex, out bool inPauseWindow,
@@ -4100,15 +4107,24 @@ namespace Parsek
                     continue;
 
                 double currentUT = Planetarium.GetUniversalTime();
-                double interval = GetLoopIntervalSeconds(rec);
-                double effectiveStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-                double effectiveEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
-                var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                    currentUT, effectiveStart, effectiveEnd, interval);
-
-                ParsekLog.Info("Loop",
-                    $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
-                    $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
+                if (TryComputeLoopPlaybackUT(rec, currentUT,
+                        out double loopUT, out long cycleIndex, out bool isInPause, i))
+                {
+                    ParsekLog.Info("Loop",
+                        $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
+                        $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
+                }
+                else if (TryGetLoopSchedule(
+                             rec, i,
+                             out _,
+                             out double scheduleStartUT,
+                             out _,
+                             out double intervalSeconds))
+                {
+                    ParsekLog.Info("Loop",
+                        $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
+                        $"queued launch pending scheduleStartUT={scheduleStartUT:F2} interval={intervalSeconds:F2}");
+                }
 
                 // The loop playback system in GhostPlaybackEngine.UpdateLoopingPlayback
                 // will pick up this recording on the next Update frame and spawn the
@@ -9726,11 +9742,65 @@ namespace Parsek
             return false;
         }
 
-        private double GetLoopIntervalSeconds(Recording rec)
+        private bool TryGetLoopSchedule(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
         {
+            playbackStartUT = 0.0;
+            scheduleStartUT = 0.0;
+            duration = 0.0;
+            intervalSeconds = 0.0;
+            if (rec == null || !GhostPlaybackEngine.ShouldLoopPlayback(rec))
+                return false;
+
+            playbackStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            if (duration <= LoopTiming.MinLoopDurationSeconds)
+                return false;
+
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            double baseIntervalSeconds = engine.GetLoopIntervalSeconds(rec, globalInterval);
+            scheduleStartUT = playbackStartUT;
+            intervalSeconds = baseIntervalSeconds;
+
+            if (recIdx >= 0)
+            {
+                cachedTrajectories.Clear();
+                var committed = RecordingStore.CommittedRecordings;
+                for (int i = 0; i < committed.Count; i++)
+                    cachedTrajectories.Add(committed[i]);
+
+                if (GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                        cachedTrajectories,
+                        recIdx,
+                        baseIntervalSeconds,
+                        out var autoSchedule))
+                {
+                    scheduleStartUT = autoSchedule.LaunchStartUT;
+                    intervalSeconds = autoSchedule.LaunchCadenceSeconds;
+                }
+            }
+
+            return true;
+        }
+
+        private double GetLoopIntervalSeconds(Recording rec, int recIdx = -1)
+        {
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out _, out _, out _, out double intervalSeconds))
+            {
+                double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                        ?? LoopTiming.DefaultLoopIntervalSeconds;
+                return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            }
+
+            return intervalSeconds;
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -9738,10 +9808,33 @@ namespace Parsek
             out double loopUT, out long cycleIndex, out bool inPauseWindow,
             int recIdx = -1)
         {
-            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.TryComputeLoopPlaybackUT(rec, currentUT, globalInterval,
-                out loopUT, out cycleIndex, out inPauseWindow, recIdx);
+            loopUT = 0.0;
+            cycleIndex = 0;
+            inPauseWindow = false;
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
+                return false;
+
+            double phaseOffset;
+            if (recIdx >= 0 && engine.loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
+            {
+                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                scheduleStartUT -= phaseOffset;
+            }
+
+            if (!GhostPlaybackLogic.TryComputeLoopPlaybackPhase(
+                    currentUT, scheduleStartUT, duration, intervalSeconds,
+                    out double playbackPhase, out cycleIndex, out inPauseWindow))
+            {
+                return false;
+            }
+
+            loopUT = playbackStartUT + playbackPhase;
+            return true;
         }
 
 

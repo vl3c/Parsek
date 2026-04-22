@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
 - `#542` Ghost watch range is now a fixed 300 km config default instead of a user-editable setting. Watch eligibility, watch-mode auto-exit, and watched-ghost full-fidelity checks now all read the shared config constant directly; the Settings window and persistence layer no longer expose or restore a mutable camera-cutoff override.
+- `#543` `LoopTimeUnit.Auto` now uses one global launch queue instead of per-recording independent cadence. Flight playback, KSC playback, and watch-mode loop reconstruction all schedule Auto recordings from the shared queue order, so the global Auto interval is the gap between successive launches across the queue and each recording's relaunch cadence scales by queue length instead of clumping at each recording's own start UT.
 
 ### Tests
 

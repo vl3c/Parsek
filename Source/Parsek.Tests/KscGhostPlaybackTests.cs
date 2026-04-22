@@ -21,6 +21,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            ParsekSettings.CurrentOverrideForTesting = null;
             RecordingStore.ResetForTesting();
         }
 
@@ -407,6 +408,76 @@ namespace Parsek.Tests
             Assert.Equal(200, loopUT, 3);
         }
 
+        [Fact]
+        public void TryComputeLoopUT_AutoQueueUsesSharedLaunchSchedule()
+        {
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.VesselName = "First";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.VesselName = "Second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var third = MakeKerbinRecording(
+                startUT: 120, endUT: 170, loopPlayback: true, loopInterval: 999.0);
+            third.RecordingId = "third";
+            third.VesselName = "Third";
+            third.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            RecordingStore.AddCommittedInternal(first);
+            RecordingStore.AddCommittedInternal(second);
+            RecordingStore.AddCommittedInternal(third);
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            bool result = ParsekKSC.TryComputeLoopUT(
+                second, 145.0,
+                out double loopUT,
+                out long cycleIndex,
+                out bool inPauseWindow,
+                recIdx: 1);
+
+            Assert.True(result);
+            Assert.Equal(125.0, loopUT, 6);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPauseWindow);
+        }
+
+        [Fact]
+        public void TryComputeLoopUT_UsesProvidedAutoQueueCache()
+        {
+            var rec = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            rec.RecordingId = "second";
+            rec.VesselName = "Second";
+            rec.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var cache = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>
+            {
+                [1] = new GhostPlaybackLogic.AutoLoopLaunchSchedule(130.0, 90.0, 1, 3)
+            };
+
+            bool result = ParsekKSC.TryComputeLoopUT(
+                rec, 145.0,
+                out double loopUT,
+                out long cycleIndex,
+                out bool inPauseWindow,
+                recIdx: 1,
+                autoLoopScheduleCache: cache);
+
+            Assert.True(result);
+            Assert.Equal(125.0, loopUT, 6);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPauseWindow);
+        }
+
         #endregion
 
         #region GetLoopIntervalSeconds
@@ -466,6 +537,127 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = 0.0;
             Assert.Equal(LoopTiming.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
+        }
+
+        [Fact]
+        public void GetLoopIntervalSeconds_AutoQueueReturnsQueueCadenceWhenRecordingIndexProvided()
+        {
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var third = MakeKerbinRecording(
+                startUT: 120, endUT: 170, loopPlayback: true, loopInterval: 999.0);
+            third.RecordingId = "third";
+            third.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            RecordingStore.AddCommittedInternal(first);
+            RecordingStore.AddCommittedInternal(second);
+            RecordingStore.AddCommittedInternal(third);
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            Assert.Equal(30.0, ParsekKSC.GetLoopIntervalSeconds(second), 6);
+            Assert.Equal(90.0, ParsekKSC.GetLoopIntervalSeconds(second, recIdx: 1), 6);
+        }
+
+        [Fact]
+        public void GetLoopIntervalSeconds_UsesProvidedAutoQueueCache()
+        {
+            var rec = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            rec.RecordingId = "second";
+            rec.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var cache = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>
+            {
+                [1] = new GhostPlaybackLogic.AutoLoopLaunchSchedule(130.0, 90.0, 1, 3)
+            };
+
+            Assert.Equal(90.0, ParsekKSC.GetLoopIntervalSeconds(rec, 1, cache), 6);
+        }
+
+        [Fact]
+        public void GetLoopIntervalSeconds_ManualLoopWithRecordingIndex_ReturnsRecordingCadence()
+        {
+            var rec = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 45.0);
+            rec.RecordingId = "manual";
+            rec.LoopTimeUnit = LoopTimeUnit.Sec;
+
+            Assert.Equal(45.0, ParsekKSC.GetLoopIntervalSeconds(rec, recIdx: 1), 6);
+        }
+
+        [Fact]
+        public void RebuildAutoLoopLaunchScheduleCache_BuildsOrderedSharedSchedule()
+        {
+            var host = (ParsekKSC)FormatterServices.GetUninitializedObject(typeof(ParsekKSC));
+            var schedulesField = typeof(ParsekKSC).GetField(
+                "autoLoopLaunchSchedules",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var scratchField = typeof(ParsekKSC).GetField(
+                "autoLoopQueueScratch",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var rebuildMethod = typeof(ParsekKSC).GetMethod(
+                "RebuildAutoLoopLaunchScheduleCache",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(schedulesField);
+            Assert.NotNull(scratchField);
+            Assert.NotNull(rebuildMethod);
+
+            schedulesField.SetValue(
+                host,
+                new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>());
+            scratchField.SetValue(host, Activator.CreateInstance(scratchField.FieldType));
+
+            var third = MakeKerbinRecording(
+                startUT: 120, endUT: 170, loopPlayback: true, loopInterval: 999.0);
+            third.RecordingId = "third";
+            third.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var disabled = MakeKerbinRecording(
+                startUT: 90, endUT: 140, loopPlayback: true, loopInterval: 999.0, playbackEnabled: false);
+            disabled.RecordingId = "disabled";
+            disabled.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            rebuildMethod.Invoke(host, new object[]
+            {
+                new List<Recording> { third, disabled, first, second }
+            });
+
+            var cache = (Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>)schedulesField.GetValue(host);
+            Assert.NotNull(cache);
+            Assert.Equal(3, cache.Count);
+            Assert.False(cache.ContainsKey(1));
+            Assert.Equal(100.0, cache[2].LaunchStartUT, 6);
+            Assert.Equal(130.0, cache[3].LaunchStartUT, 6);
+            Assert.Equal(160.0, cache[0].LaunchStartUT, 6);
+            Assert.Equal(90.0, cache[2].LaunchCadenceSeconds, 6);
+            Assert.Equal(90.0, cache[3].LaunchCadenceSeconds, 6);
+            Assert.Equal(90.0, cache[0].LaunchCadenceSeconds, 6);
         }
 
         #endregion

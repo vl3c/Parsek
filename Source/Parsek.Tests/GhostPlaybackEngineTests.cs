@@ -56,6 +56,17 @@ namespace Parsek.Tests
             field.SetValue(target, list);
         }
 
+        private static MockTrajectory MakeAutoTrajectory(
+            string recordingId, double startUT, double endUT)
+        {
+            return new MockTrajectory
+            {
+                RecordingId = recordingId,
+                VesselName = recordingId,
+                PlaybackEnabled = true,
+            }.WithTimeRange(startUT, endUT).WithLoop(999.0, LoopTimeUnit.Auto);
+        }
+
         private sealed class SpawnPrimingPositioner : IGhostPositioner
         {
             internal int InterpolateCalls;
@@ -766,6 +777,33 @@ namespace Parsek.Tests
                 out loopUT, out cycleIndex, out inPause));
         }
 
+        [Fact]
+        public void TryComputeLoopPlaybackUT_AutoQueueUsesCachedLaunchSchedule()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            var first = MakeAutoTrajectory("first", 100.0, 150.0);
+            var second = MakeAutoTrajectory("second", 110.0, 160.0);
+            var third = MakeAutoTrajectory("third", 120.0, 170.0);
+            var trajectories = new List<IPlaybackTrajectory> { first, second, third };
+            var rebuildScheduleCache = typeof(GhostPlaybackEngine).GetMethod(
+                "RebuildAutoLoopLaunchScheduleCache",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(rebuildScheduleCache);
+            rebuildScheduleCache.Invoke(engine, new object[] { trajectories, 30.0 });
+
+            bool result = engine.TryComputeLoopPlaybackUT(
+                second, 145.0, 30.0,
+                out double loopUT,
+                out long cycleIndex,
+                out bool inPause,
+                recIdx: 1);
+
+            Assert.True(result);
+            Assert.Equal(125.0, loopUT, 6);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPause);
+        }
+
         #endregion
 
         // ===================================================================
@@ -790,6 +828,25 @@ namespace Parsek.Tests
             var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(25.0);
             double result = engine.GetLoopIntervalSeconds(traj, 42.0);
             Assert.Equal(25.0, result);
+        }
+
+        [Fact]
+        public void GetLoopIntervalSeconds_AutoQueueUsesCachedCadence()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            var first = MakeAutoTrajectory("first", 100.0, 150.0);
+            var second = MakeAutoTrajectory("second", 110.0, 160.0);
+            var third = MakeAutoTrajectory("third", 120.0, 170.0);
+            var trajectories = new List<IPlaybackTrajectory> { first, second, third };
+            var rebuildScheduleCache = typeof(GhostPlaybackEngine).GetMethod(
+                "RebuildAutoLoopLaunchScheduleCache",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(rebuildScheduleCache);
+            rebuildScheduleCache.Invoke(engine, new object[] { trajectories, 30.0 });
+
+            double result = engine.GetLoopIntervalSeconds(second, 30.0, recIdx: 1);
+
+            Assert.Equal(90.0, result, 6);
         }
 
         [Fact]
