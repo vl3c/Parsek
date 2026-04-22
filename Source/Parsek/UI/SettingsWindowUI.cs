@@ -110,19 +110,19 @@ namespace Parsek
         private void CommitAutoLoopEdit(ParsekSettings s)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double parsed;
-            if (ParsekUI.TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
+            if (SettingsWindowPresentation.TryResolveAutoLoopEdit(
+                settingsAutoLoopText,
+                s.AutoLoopDisplayUnit,
+                out SettingsWindowPresentation.AutoLoopEditResolution resolution))
             {
-                double newSeconds = ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
                 // #381: defensively clamp to MinCycleDuration — matches per-recording UI.
-                if (newSeconds < LoopTiming.MinCycleDuration)
+                if (resolution.WasClamped)
                 {
                     ParsekLog.Info("UI",
-                        $"Auto-launch period clamped from {newSeconds.ToString("F1", ic)}s to " +
+                        $"Auto-launch period clamped from {resolution.RequestedSeconds.ToString("F1", ic)}s to " +
                         $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
-                    newSeconds = LoopTiming.MinCycleDuration;
                 }
-                s.autoLoopIntervalSeconds = (float)newSeconds;
+                s.autoLoopIntervalSeconds = resolution.AppliedSeconds;
                 ParsekLog.Info("UI",
                     $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", ic)}s");
             }
@@ -140,16 +140,17 @@ namespace Parsek
         private void CommitCameraCutoffEdit(ParsekSettings s)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            if (float.TryParse(settingsCameraCutoffText, System.Globalization.NumberStyles.Float,
-                    ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
+            if (SettingsWindowPresentation.TryResolveCameraCutoffEdit(
+                settingsCameraCutoffText,
+                out SettingsWindowPresentation.CameraCutoffEditResolution resolution))
             {
-                s.ghostCameraCutoffKm = parsed;
+                s.ghostCameraCutoffKm = resolution.Kilometers;
                 // Persist to external settings file so the value survives rewinds and
                 // KSP session restarts. GameParameters are reset on every quicksave
                 // load (including parsek_rw_* rewinds), so the in-memory ParsekSettings
                 // value alone is not enough — the user's intent must live outside the
                 // game's save file.
-                ParsekSettingsPersistence.RecordGhostCameraCutoff(parsed);
+                ParsekSettingsPersistence.RecordGhostCameraCutoff(resolution.Kilometers);
                 ParsekLog.Info("UI",
                     $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
             }
@@ -201,16 +202,18 @@ namespace Parsek
             if (GUILayout.Button("Defaults"))
             {
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
-                s.autoRecordOnLaunch = true;
-                s.autoRecordOnEva = true;
-                s.autoMerge = false;
-                s.verboseLogging = true;
-                s.writeReadableSidecarMirrors = true;
-                s.SamplingDensityLevel = SamplingDensity.Medium;
-                s.autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
-                s.autoLoopTimeUnit = 0;
-                s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
-                s.showGhostsInTrackingStation = true;
+                SettingsWindowPresentation.SettingsDefaults defaults =
+                    SettingsWindowPresentation.BuildDefaults();
+                s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
+                s.autoRecordOnEva = defaults.AutoRecordOnEva;
+                s.autoMerge = defaults.AutoMerge;
+                s.verboseLogging = defaults.VerboseLogging;
+                s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
+                s.SamplingDensityLevel = defaults.SamplingDensityLevel;
+                s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
+                s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
+                s.ghostCameraCutoffKm = defaults.GhostCameraCutoffKm;
+                s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
