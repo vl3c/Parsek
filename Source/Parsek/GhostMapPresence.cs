@@ -843,7 +843,13 @@ namespace Parsek
                 string reason,
                 string detail = null)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    string.Format(ic,
+                        "ts-ghost-source-{0}-{1}-{2}",
+                        recId,
+                        source,
+                        reason ?? "none"),
                     string.Format(ic,
                         "ResolveTrackingStationGhostSource: rec={0} currentUT={1:F1} source={2} reason={3}{4}",
                         recId,
