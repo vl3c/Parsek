@@ -27,6 +27,46 @@ namespace Parsek
         private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
         private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
 
+        internal readonly struct AutoLoopLaunchSchedule
+        {
+            internal AutoLoopLaunchSchedule(
+                double launchStartUT,
+                double launchCadenceSeconds,
+                int slotIndex,
+                int queueCount)
+            {
+                LaunchStartUT = launchStartUT;
+                LaunchCadenceSeconds = launchCadenceSeconds;
+                SlotIndex = slotIndex;
+                QueueCount = queueCount;
+            }
+
+            internal double LaunchStartUT { get; }
+            internal double LaunchCadenceSeconds { get; }
+            internal int SlotIndex { get; }
+            internal int QueueCount { get; }
+        }
+
+        private readonly struct AutoLoopQueueEntry
+        {
+            internal AutoLoopQueueEntry(
+                int recordingIndex,
+                double playbackStartUT,
+                double playbackEndUT,
+                string recordingId)
+            {
+                RecordingIndex = recordingIndex;
+                PlaybackStartUT = playbackStartUT;
+                PlaybackEndUT = playbackEndUT;
+                RecordingId = recordingId ?? string.Empty;
+            }
+
+            internal int RecordingIndex { get; }
+            internal double PlaybackStartUT { get; }
+            internal double PlaybackEndUT { get; }
+            internal string RecordingId { get; }
+        }
+
         #region Warp / Loop Policy
 
         /// <summary>
@@ -203,12 +243,51 @@ namespace Parsek
             double currentUT, double loopStartUT, double duration,
             double intervalSeconds, long loopCycleIndex)
         {
+            return ComputeOverlapCyclePlaybackUT(
+                currentUT, loopStartUT, loopStartUT, duration, intervalSeconds, loopCycleIndex);
+        }
+
+        internal static double ComputeOverlapCyclePlaybackUT(
+            double currentUT, double scheduleStartUT, double playbackStartUT,
+            double duration, double intervalSeconds, long loopCycleIndex)
+        {
             double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
-            double cycleStartUT = loopStartUT + loopCycleIndex * cycleDuration;
+            double cycleStartUT = scheduleStartUT + loopCycleIndex * cycleDuration;
             double phase = currentUT - cycleStartUT;
             if (phase < 0) phase = 0;
             if (phase > duration) phase = duration;
-            return loopStartUT + phase;
+            return playbackStartUT + phase;
+        }
+
+        internal static bool TryComputeLoopPlaybackPhase(
+            double currentUT, double scheduleStartUT, double duration, double intervalSeconds,
+            out double playbackPhase, out long cycleIndex, out bool inPauseWindow)
+        {
+            playbackPhase = 0.0;
+            cycleIndex = 0;
+            inPauseWindow = false;
+
+            if (duration <= 0.0 || currentUT < scheduleStartUT)
+                return false;
+
+            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
+            double elapsed = currentUT - scheduleStartUT;
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
+            if (cycleIndex < 0)
+                cycleIndex = 0;
+
+            double cycleTime = elapsed - (cycleIndex * cycleDuration);
+            if (intervalSeconds > duration && cycleTime > duration + LoopTiming.BoundaryEpsilon)
+            {
+                inPauseWindow = true;
+                playbackPhase = duration;
+                return true;
+            }
+
+            if (cycleTime < 0.0) cycleTime = 0.0;
+            if (cycleTime > duration) cycleTime = duration;
+            playbackPhase = cycleTime;
+            return true;
         }
 
         internal static bool TryComputeLoopPlaybackUT(
@@ -389,6 +468,83 @@ namespace Parsek
                 return minCycleDuration;
             }
             return interval;
+        }
+
+        internal static bool ShouldUseGlobalAutoLaunchQueue(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && traj.PlaybackEnabled
+                && traj.LoopTimeUnit == LoopTimeUnit.Auto
+                && GhostPlaybackEngine.ShouldLoopPlayback(traj);
+        }
+
+        private static int CompareAutoLoopQueueEntries(AutoLoopQueueEntry a, AutoLoopQueueEntry b)
+        {
+            int cmp = a.PlaybackStartUT.CompareTo(b.PlaybackStartUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = a.PlaybackEndUT.CompareTo(b.PlaybackEndUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.RecordingId, b.RecordingId);
+            if (cmp != 0)
+                return cmp;
+
+            return a.RecordingIndex.CompareTo(b.RecordingIndex);
+        }
+
+        internal static bool TryResolveAutoLoopLaunchSchedule(
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            int recordingIndex,
+            double launchGapSeconds,
+            out AutoLoopLaunchSchedule schedule)
+        {
+            schedule = default(AutoLoopLaunchSchedule);
+            if (trajectories == null
+                || recordingIndex < 0
+                || recordingIndex >= trajectories.Count
+                || !ShouldUseGlobalAutoLaunchQueue(trajectories[recordingIndex]))
+            {
+                return false;
+            }
+
+            var queue = new List<AutoLoopQueueEntry>();
+            for (int i = 0; i < trajectories.Count; i++)
+            {
+                var candidate = trajectories[i];
+                if (!ShouldUseGlobalAutoLaunchQueue(candidate))
+                    continue;
+
+                queue.Add(new AutoLoopQueueEntry(
+                    i,
+                    GhostPlaybackEngine.EffectiveLoopStartUT(candidate),
+                    GhostPlaybackEngine.EffectiveLoopEndUT(candidate),
+                    candidate.RecordingId));
+            }
+
+            if (queue.Count == 0)
+                return false;
+
+            queue.Sort(CompareAutoLoopQueueEntries);
+
+            double anchorUT = queue[0].PlaybackStartUT;
+            double cadenceSeconds = launchGapSeconds * queue.Count;
+            for (int slot = 0; slot < queue.Count; slot++)
+            {
+                if (queue[slot].RecordingIndex != recordingIndex)
+                    continue;
+
+                schedule = new AutoLoopLaunchSchedule(
+                    anchorUT + (slot * launchGapSeconds),
+                    cadenceSeconds,
+                    slot,
+                    queue.Count);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

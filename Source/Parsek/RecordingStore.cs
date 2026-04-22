@@ -70,6 +70,11 @@ namespace Parsek
         /// rename persists on the next save.
         /// </summary>
         internal const string LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
+
+        /// <summary>
+        /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
+        /// </summary>
+        internal const double RewindToLaunchLeadTimeSeconds = 15.0;
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
@@ -3082,8 +3087,8 @@ namespace Parsek
 
                 // Pre-process the save file before KSP parses it:
                 // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
-                // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
-                const double rewindLeadTime = 10.0;
+                // 2. Wind back UT by the rewind-to-launch lead time so the player can
+                //    regain control on the pad before launch.
 
                 // Collect all vessel names to strip — use owner's identity since the
                 // quicksave contains the owner's vessel (not the branch's).
@@ -3108,7 +3113,7 @@ namespace Parsek
                 // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                 // alongside name matching — catches renamed vessels or debris)
                 var (stripPids, _) = CollectSpawnedVesselInfo();
-                PreProcessRewindSave(tempPath, stripNames, stripPids, rewindLeadTime);
+                PreProcessRewindSave(tempPath, stripNames, stripPids, RewindToLaunchLeadTimeSeconds);
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 

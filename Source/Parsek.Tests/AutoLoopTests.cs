@@ -31,6 +31,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 VesselName = "TestVessel",
+                PlaybackEnabled = true,
                 LoopPlayback = true,
                 LoopIntervalSeconds = loopInterval,
                 LoopTimeUnit = unit,
@@ -198,6 +199,79 @@ namespace Parsek.Tests
         {
             double result = GhostPlaybackLogic.ResolveLoopInterval(null, 42.0, 10.0, 1.0);
             Assert.Equal(10.0, result);
+        }
+
+        [Fact]
+        public void ShouldUseGlobalAutoLaunchQueue_RequiresEnabledAutoLoopingTrajectory()
+        {
+            var eligible = MakeRec(startUT: 100, endUT: 150, unit: LoopTimeUnit.Auto);
+            eligible.RecordingId = "eligible";
+
+            var manual = MakeRec(startUT: 100, endUT: 150, unit: LoopTimeUnit.Sec);
+            manual.RecordingId = "manual";
+
+            var disabled = MakeRec(startUT: 100, endUT: 150, unit: LoopTimeUnit.Auto);
+            disabled.RecordingId = "disabled";
+            disabled.PlaybackEnabled = false;
+
+            var tooShort = MakeRec(startUT: 100, endUT: 100.5, unit: LoopTimeUnit.Auto);
+            tooShort.RecordingId = "too-short";
+
+            Assert.True(GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(eligible));
+            Assert.False(GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(manual));
+            Assert.False(GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(disabled));
+            Assert.False(GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(tooShort));
+        }
+
+        [Fact]
+        public void TryResolveAutoLoopLaunchSchedule_OrdersQueueByEffectiveStartAndUsesGlobalCadence()
+        {
+            var third = MakeRec(startUT: 120, endUT: 170, loopInterval: 999, unit: LoopTimeUnit.Auto);
+            third.RecordingId = "third";
+            third.VesselName = "Third";
+
+            var disabled = MakeRec(startUT: 90, endUT: 140, loopInterval: 999, unit: LoopTimeUnit.Auto);
+            disabled.RecordingId = "disabled";
+            disabled.VesselName = "Disabled";
+            disabled.PlaybackEnabled = false;
+
+            var first = MakeRec(startUT: 100, endUT: 150, loopInterval: 999, unit: LoopTimeUnit.Auto);
+            first.RecordingId = "first";
+            first.VesselName = "First";
+
+            var manual = MakeRec(startUT: 95, endUT: 145, loopInterval: 45, unit: LoopTimeUnit.Sec);
+            manual.RecordingId = "manual";
+            manual.VesselName = "Manual";
+
+            var second = MakeRec(startUT: 110, endUT: 160, loopInterval: 999, unit: LoopTimeUnit.Auto);
+            second.RecordingId = "second";
+            second.VesselName = "Second";
+
+            var trajectories = new List<IPlaybackTrajectory> { third, disabled, first, manual, second };
+
+            Assert.True(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 2, 30.0, out var firstSchedule));
+            Assert.Equal(100.0, firstSchedule.LaunchStartUT, 6);
+            Assert.Equal(90.0, firstSchedule.LaunchCadenceSeconds, 6);
+            Assert.Equal(0, firstSchedule.SlotIndex);
+            Assert.Equal(3, firstSchedule.QueueCount);
+
+            Assert.True(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 4, 30.0, out var secondSchedule));
+            Assert.Equal(130.0, secondSchedule.LaunchStartUT, 6);
+            Assert.Equal(90.0, secondSchedule.LaunchCadenceSeconds, 6);
+            Assert.Equal(1, secondSchedule.SlotIndex);
+            Assert.Equal(3, secondSchedule.QueueCount);
+
+            Assert.True(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 0, 30.0, out var thirdSchedule));
+            Assert.Equal(160.0, thirdSchedule.LaunchStartUT, 6);
+            Assert.Equal(90.0, thirdSchedule.LaunchCadenceSeconds, 6);
+            Assert.Equal(2, thirdSchedule.SlotIndex);
+            Assert.Equal(3, thirdSchedule.QueueCount);
+
+            Assert.False(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 3, 30.0, out _));
         }
 
         // --- Unit helpers ---

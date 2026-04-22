@@ -294,19 +294,11 @@ namespace Parsek
                     return string.Format(IC, "Starting reputation: {0:F0}", action.InitialReputation);
 
                 case GameActionType.MilestoneAchievement:
-                {
-                    string rawId = action.MilestoneId ?? "unknown";
-                    // KSP milestone IDs use "/" as body separator: "Kerbin/Splashdown" → "Kerbin - Splashdown"
-                    rawId = rawId.Replace("/", " - ");
-                    string mid = InsertSpacesBeforeUppercase(rawId);
-                    if (mid.Length > 0) mid = char.ToUpper(mid[0]) + mid.Substring(1);
-                    string desc = "Milestone: " + mid;
-                    if (action.MilestoneFundsAwarded != 0)
-                        desc += string.Format(IC, " +{0:0} funds", action.MilestoneFundsAwarded);
-                    if (action.MilestoneRepAwarded != 0)
-                        desc += string.Format(IC, " +{0:0.#} rep", action.MilestoneRepAwarded);
-                    return desc;
-                }
+                    return GetMilestoneAchievementText(
+                        action.MilestoneId,
+                        action.MilestoneFundsAwarded,
+                        action.MilestoneRepAwarded,
+                        action.MilestoneScienceAwarded);
 
                 case GameActionType.StrategyActivate:
                 {
@@ -362,6 +354,37 @@ namespace Parsek
                 default:
                     return GameActionDisplay.GetDescription(action);
             }
+        }
+
+        internal static string GetMilestoneAchievementText(
+            string milestoneId,
+            float fundsAwarded,
+            float repAwarded,
+            float scienceAwarded)
+        {
+            string desc = "Milestone: " + HumanizeMilestoneId(milestoneId);
+            if (fundsAwarded != 0)
+                desc += string.Format(IC, " +{0:0} funds", fundsAwarded);
+            if (repAwarded != 0)
+                desc += string.Format(IC, " +{0:0.#} rep", repAwarded);
+            if (scienceAwarded != 0)
+                desc += string.Format(IC, " +{0:0.#} sci", scienceAwarded);
+            return desc;
+        }
+
+        internal static string HumanizeMilestoneId(string milestoneId)
+        {
+            string rawId = milestoneId ?? "unknown";
+            string[] parts = rawId.Split('/');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string humanized = InsertSpacesBeforeUppercase(parts[i]);
+                if (humanized.Length > 0)
+                    humanized = char.ToUpper(humanized[0]) + humanized.Substring(1);
+                parts[i] = humanized;
+            }
+
+            return string.Join(" - ", parts);
         }
 
         /// <summary>

@@ -80,5 +80,9 @@ namespace Parsek
         public string VesselName;
         public bool IsEffective = true;
         public bool IsPlayerAction;  // true = deliberate KSC action, false = gameplay event
+        public string MilestoneId;
+        public float MilestoneFundsAwarded;
+        public float MilestoneRepAwarded;
+        public float MilestoneScienceAwarded;
     }
 }

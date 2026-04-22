@@ -37,6 +37,10 @@ namespace Parsek
             toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
         public bool autoRecordOnEva = true;
 
+        [GameParameters.CustomParameterUI("Auto-record on first modification after switch",
+            toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
+        public bool autoRecordOnFirstModificationAfterSwitch = true;
+
         [GameParameters.CustomParameterUI("Auto-merge recordings",
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
         public bool autoMerge = false;
@@ -140,9 +144,6 @@ namespace Parsek
             stepCount = 20, displayFormat = "P0",
             toolTip = "Volume multiplier for ghost vessel audio (engines, decouplers, explosions). 0 = muted.")]
         public float ghostAudioVolume = 0.7f;
-
-        // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
-        public float ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
 
         public LoopTimeUnit AutoLoopDisplayUnit
         {
