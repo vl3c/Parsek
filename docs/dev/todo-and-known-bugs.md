@@ -382,7 +382,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Resolution:** fixed 2026-04-22 in the dedicated `bug/534-chain-tip-restore` worktree. The failing path was not a missing `LimboVesselSwitch` dispatch: by the time `OnFlightReady` ran, the pending tree was already gone and only the committed tree copy remained. `ParsekFlight` now detects that scene-entry active vessel PID against committed spawned recordings, pre-transitions the committed tree back into the same live vessel-switch shape the in-session path expects, clears any stale `BackgroundMap` entry still keyed by the recording's historical PID instead of the live spawned PID, detaches the matched tree from committed storage before restoring it live, and restores the tree immediately on `OnFlightReady` (with the existing Update-time recovery loop as a late-active-vessel safety net). If that immediate reclaim still misses, the first post-switch trigger now retries the same committed-tree restore before Parsek can start a fresh outsider continuation. Returns to a spawned background member promote cleanly after that stale-entry cleanup; returns to the committed active member resume that same recording directly; and the later recommit still goes through the normal uncommitted-tree path instead of tripping duplicate-tree guards. This keeps `#534` narrowly on the spawned-chain-tip restore path while the broader first-meaningful-modification auto-resume policy lives under `#546`.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
