@@ -182,10 +182,12 @@ namespace Parsek
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
+        private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
+        private float nextCommittedSpawnedRestoreRetryAt;
 
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
@@ -2071,7 +2073,9 @@ namespace Parsek
 
             ParsekLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
 
-            // Remove from BackgroundMap
+            // Callers pass the target recording id explicitly; BackgroundMap membership is
+            // not a hard precondition here. The committed-tree restore path may already have
+            // removed stale entries for this recording before the live promotion runs.
             activeTree.BackgroundMap.Remove(newVessel.persistentId);
 
             // Set as the active recording
@@ -6003,8 +6007,36 @@ namespace Parsek
         /// </summary>
         private void HandleMissedVesselSwitchRecovery()
         {
-            if (TryRestoreCommittedTreeForSpawnedActiveVessel())
-                return;
+            if (ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                    activeTree != null,
+                    recorder != null,
+                    restoringActiveTree,
+                    RecordingStore.HasPendingTree,
+                    ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady,
+                    Time.unscaledTime,
+                    nextCommittedSpawnedRestoreRetryAt))
+            {
+                nextCommittedSpawnedRestoreRetryAt =
+                    Time.unscaledTime + CommittedSpawnedRestoreRetryIntervalSeconds;
+                if (TryRestoreCommittedTreeForSpawnedActiveVessel())
+                {
+                    nextCommittedSpawnedRestoreRetryAt = 0f;
+                    return;
+                }
+
+                // A matched committed-tree restore may already have installed the tree,
+                // detached it from committed storage, and put the returned vessel back in
+                // BackgroundMap before the recorder attach failed. Falling through here is
+                // intentional: the existing missed-switch recovery path can retry the final
+                // promotion/resume from that live tree shape without rolling the tree back.
+            }
+            else if (activeTree != null || recorder != null)
+            {
+                // Only reset once a live tree/recorder takes over ownership. The other
+                // transient blockers (restore coroutine, pending tree, restore mode) are
+                // allowed to age out naturally against the 1s retry window.
+                nextCommittedSpawnedRestoreRetryAt = 0f;
+            }
 
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
@@ -7630,6 +7662,22 @@ namespace Parsek
 
             return activeVesselTrackedInBackground
                 && !activeVesselAlreadyArmedForPostSwitchAutoRecord;
+        }
+
+        internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(
+            bool hasActiveTree,
+            bool hasRecorder,
+            bool isRestoringActiveTree,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode,
+            float currentUnscaledTime,
+            float nextRetryAt)
+        {
+            if (hasActiveTree || hasRecorder) return false;
+            if (isRestoringActiveTree) return false;
+            if (hasPendingTree) return false;
+            if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None) return false;
+            return currentUnscaledTime >= nextRetryAt;
         }
 
         internal static bool TryFindCommittedTreeForSpawnedVessel(
