@@ -134,6 +134,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtKscEnd_DestroyedWithoutSnapshot_ReturnsDestroyedReason()
+        {
+            var rec = MakeEligibleRecording();
+            rec.VesselDestroyed = true;
+            rec.VesselSnapshot = null;
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.False(needsSpawn);
+            Assert.Equal("vessel destroyed", reason);
+        }
+
+        [Fact]
         public void ShouldSpawnAtKscEnd_BranchGtZero_ReturnsFalse()
         {
             var rec = MakeEligibleRecording();

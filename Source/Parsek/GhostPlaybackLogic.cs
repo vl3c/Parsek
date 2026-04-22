@@ -3911,11 +3911,8 @@ namespace Parsek
             bool isChainLooping,
             RecordingTree treeContext)
         {
-            // Base condition: must have a snapshot, not already spawned, not destroyed
-            if (rec.VesselSnapshot == null)
-            {
-                return (false, "no vessel snapshot");
-            }
+            // Preserve the existing "already spawned" precedence, but make destroyed
+            // recordings win over the generic missing-snapshot diagnostic.
             if (rec.VesselSpawned)
             {
                 return (false, "already spawned (VesselSpawned=true)");
@@ -3923,6 +3920,11 @@ namespace Parsek
             if (rec.VesselDestroyed)
             {
                 return (false, "vessel destroyed");
+            }
+            // Base condition: must have a snapshot
+            if (rec.VesselSnapshot == null)
+            {
+                return (false, "no vessel snapshot");
             }
 
             // Gloops Flight Recorder recordings are ghost-only — never spawn a real vessel

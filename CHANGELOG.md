@@ -15,16 +15,24 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.
+- `#532` `PatchScience` now holds back recent unmatched `RnDTechResearch` debits when KSP has already deducted science but the matching KSC `TechResearched` action has not landed in the ledger yet, so same-UT tech unlock bursts no longer momentarily refund science back into the pool.
+- `#535` Tracking Station ghost creation now prefers the recording's currently visible orbit segment over any later terminal-orbit tuple, and it only falls back to terminal orbit after that recording has actually reached its own end UT. `KSP.log` now also records each source decision and splits `before-activation` / `before-terminal-orbit` skips out of the startup `noOrbit` bucket, so future-tip suppression is diagnosable instead of looking like generic missing orbit data.
 - `#536` Tracking Station now switches chain visibility on the child-start boundary instead of on mere child existence: existing parent ghosts retire and new parent presence stays suppressed only after a child recording with a resolvable start actually becomes current, so the Kerbin-exit handoff no longer drops the active continuation or leaves the parent ghost lingering past the handoff.
+- `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
+- `#531` Destroyed recordings without a preserved vessel snapshot now diagnose as `vessel destroyed` instead of the misleading `no vessel snapshot`, so playback/rewind/KSC spawn suppression logs report the real terminal state.
+- `#525` Flight ghost explosions now resolve a clearance-checked anchor before spawning FX or emitting the watch hold position. If a watched ghost root is momentarily below PQS terrain at destruction time, the explosion and the watch camera now use the same terrain-safe anchor instead of burying both effects at the raw root transform.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
 ### Tests
 
+- `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
 - `#534` Added spawned chain-tip restore regressions covering committed-tree ownership, restorable-leaf filtering, multi-tree selection, and the throttled Update-time retry guard.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
+- `#535` Expanded headless `GhostMapPresenceTests` coverage for tracking-station future-tip suppression to assert the new source-decision log trail and the startup skip-summary buckets. No runtime test landed because this regression is resolved in the pure source-selection/logging layer.
 - `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries, and retained live bundles under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` now show both exported `FlightIntegrationTests.PartEventTiming_*` rows passing in `FLIGHT`.
 - Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
@@ -38,6 +46,7 @@ All notable changes to Parsek are documented here.
 - `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 - `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
+- `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 
 ### Documentation
 
@@ -57,6 +66,9 @@ All notable changes to Parsek are documented here.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
+
+### Bug Fixes
+
 
 ### Tests
 

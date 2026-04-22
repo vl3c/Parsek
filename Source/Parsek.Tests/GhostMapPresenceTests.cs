@@ -12,6 +12,10 @@ namespace Parsek.Tests
         public GhostMapPresenceTests()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,6 +25,10 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -1167,6 +1175,226 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Future terminal orbit data must not appear before the recording has even started.
+        /// Prevents tracking station startup from advertising a later chain tip too early.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_FutureTipBeforeActivation_SkipsTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1983.7, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 27996.3, bodyName = "Mun" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    525.3,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("before-activation", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-activation"));
+        }
+
+        /// <summary>
+        /// When a recording has a visible current segment plus a later terminal orbit,
+        /// the current segment must drive the tracking-station ghost.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_VisibleSegment_PrefersSegmentOverFutureTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 30000, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 400,
+                        endUT = 600,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 694160,
+                        eccentricity = 0.05,
+                        inclination = 0.3,
+                        longitudeOfAscendingNode = 0,
+                        argumentOfPeriapsis = 0,
+                        meanAnomalyAtEpoch = 0,
+                        epoch = 400
+                    }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    500,
+                    out OrbitSegment segment,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=Segment") &&
+                l.Contains("segmentBody=Kerbin"));
+        }
+
+        /// <summary>
+        /// Terminal orbit fallback must wait until the recording itself has ended.
+        /// While the recording is still in progress, no future orbit ghost should appear.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_BeforeRecordingEnd_SkipsTerminalOrbitFallback()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    500,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("before-terminal-orbit", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-terminal-orbit"));
+        }
+
+        /// <summary>
+        /// Once the recording has ended, terminal orbit data becomes the correct fallback.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_AfterRecordingEnd_UsesTerminalOrbitFallback()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    1000,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, source);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=TerminalOrbit") &&
+                l.Contains("terminalBody=Mun"));
+        }
+
+        /// <summary>
+        /// Startup summary logging must keep future-tip skip buckets distinct so
+        /// before-activation and before-terminal-orbit don't disappear into noOrbit.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets()
+        {
+            GhostMapPresence.CurrentUTNow = () => 500.0;
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "future-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 1983.7, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 27996.3, bodyName = "Mun" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "in-progress-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "no-orbit",
+                    TerminalStateValue = null
+                });
+
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+                Assert.Equal(0, created);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 3 recordings") &&
+                    l.Contains("beforeActivation=1") &&
+                    l.Contains("beforeTerminalOrbit=1") &&
+                    l.Contains("noOrbit=1"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+                ParsekSettingsPersistence.ResetForTesting();
+            }
+        }
+
+        /// <summary>
         /// Null terminal state with orbit data: create ghost (benefit of the doubt).
         /// </summary>
         [Fact]
@@ -1224,14 +1452,19 @@ namespace Parsek.Tests
             };
 
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    300,
+                    out OrbitSegment segment,
+                    out string sourceReason);
 
             Assert.True(should);
             Assert.Null(reason);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostMap]")
-                && l.Contains("HasOrbitData(Recording)")
-                && l.Contains("extended-tail")
-                && l.Contains("result=False"));
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Null(sourceReason);
         }
 
         /// <summary>

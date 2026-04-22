@@ -264,7 +264,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position
+## ~~525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position~~
 
 **Source:** user observed multiple "explosion happened underground" cases in watch mode. The current `2026-04-21_2335_live-collect-script` package did not capture the underground variant directly, but it did capture a watched destroyed ghost (`"x"`) exploding at 23:32:42 immediately after a terrain-correction log (`Ghost terrain clamp: alt=65.3 terrain=64.8 -> 66.8 (clearance=2.0m)`).
 
@@ -272,7 +272,11 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/TerrainCorrector.cs`, `Source/Parsek/ParsekFlight.cs`, plus a new in-game regression in the terrain/watch test coverage.
 
-**Status:** OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.
+**Fix (2026-04-22):** flight playback now routes destruction anchoring through the host positioner before spawning the explosion FX. `ParsekFlight` re-resolves the explosion anchor against the current body/PQS terrain and the same distance-aware watch clearance floor used by landed ghost terrain correction, then writes the corrected world position back to the ghost before the engine emits stock/custom explosion FX and the loop/overlap watch hold payloads. That keeps the visual blast and the watch camera bridge anchored to the same terrain-safe point instead of the raw buried root.
+
+**Verification:** added headless coverage for the body-name resolver that chooses the explosion-anchor body, and an in-game `TerrainClearance` regression that drives the loop-explosion engine path in Flight and asserts the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped position above `terrain + clearance`.
+
+**Status:** ~~OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.~~ Closed.
 
 ---
 
@@ -324,43 +328,49 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes
+## ~~530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes~~
 
 **Source:** when Timeline opens in `logs/2026-04-21_2335_live-collect-script`, `KSP.log` records `Timeline watch button "r0" ... disabled (no ghost)` for the same recording that becomes watchable less than a second later once the ghost finishes building/spawning. No user context changed; the row just self-corrected when the ghost materialized.
 
-**Concern:** initial watchability is being computed from transient `HasActiveGhost` / same-body / range state before the lazy ghost build completes, so the Timeline row can briefly advertise a false "not watchable" state on first open. This is small, but it makes watch mode feel flaky and is distinct from the older watch-transfer bugs.
+**Concern:** initial watchability was being computed from a pending ghost shell that existed before the lazy snapshot build finished, but that shell had no seeded playback body metadata yet. The Timeline row could therefore briefly advertise a false "not watchable" state on first open even though the recording became watchable as soon as the build completed.
 
-**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
+**Fix:** pending ghost shells now resolve and store playback interpolation metadata from the trajectory at spawn time, so same-body watch eligibility is stable before the split build completes.
 
-**Status:** OPEN. Minor UI-state bug captured in-package.
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
-## 531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`
+## ~~531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`~~
 
 **Source:** the package's playback loop repeatedly logs `Spawn suppressed ... no vessel snapshot` for both committed recordings, even though the same session reports the timeline contains only destroyed recordings. The behavior is stable across many suppression cycles.
 
 **Concern:** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(...)` currently checks `rec.VesselSnapshot == null` before `rec.VesselDestroyed`, so destroyed recordings get the wrong suppression reason. This does not change the spawn outcome, but it hides the real state during FF/watch investigations and adds misleading playback noise.
 
-**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+**Fix:** `ShouldSpawnAtRecordingEnd(...)` now checks `rec.VesselDestroyed` before the missing-snapshot guard, so destroyed recordings without a preserved snapshot still report `vessel destroyed`. Focused regressions pin both the direct playback/rewind helper and the KSC wrapper with the exact `VesselDestroyed=true` + `VesselSnapshot=null` shape.
 
-**Status:** OPEN. Low-severity diagnostic correctness issue.
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
-## 532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands
+## ~~532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands~~
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` shows `basicRocketry` being allowed, then `PatchScience: 17.1 -> 22.1`, and only later the matching `TechResearched` ledger event. The same pattern repeats for `engineering101`: allow tech, patch science back up, then record the action later.
 
 **Concern:** during bursty R&D activity, KSP's science pool is being patched upward in the gap between stock unlock and the recorder/ledger catching up. That means the player can briefly see refunded science or even try to re-spend it while the action stream is still converging.
 
-**Files:** `Source/Parsek/Patches/TechResearchPatch.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`.
+**Fix:** `LedgerOrchestrator` now measures the recent unmatched `ScienceChanged(RnDTechResearch)` debit against landed KSC `ScienceSpending` actions in the same 0.1s window, and `KspStatePatcher.PatchScience()` subtracts that live-only gap from its upward patch target. The pool stays at the already-deducted stock value until the matching `TechResearched` action lands, instead of briefly refunding the gap.
 
-**Status:** OPEN. Visible resource-state bug captured in-package.
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `Source/Parsek.Tests/LedgerOrchestratorTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
-## 533. `ContractAccepted -> ContractAccept` conversion drops `contractType` on the ledger path
+## ~~533. `ContractAccepted -> ContractAccept` conversion drops `contractType` on the ledger path~~ CLOSED 2026-04-22
 
 **Source:** replay in `logs/2026-04-21_2335_live-collect-script/KSP.log` logs both accepted launch-site test contracts as `type=''`, and the committed `ledger.pgld` actions contain title/deadline/advance/penalties but no `contractType`. The raw stored contract snapshots still carry `type = PartTest`, so the type exists at capture time and is being lost during conversion.
 
@@ -368,7 +378,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/GameActionDisplay.cs`.
 
-**Status:** OPEN. Data-loss bug in the ledger conversion path.
+**Fix:** `GameStateRecorder.OnContractAccepted()` now writes the accepted contract's `type=` into the structured event detail using the same value saved in the contract snapshot, and `GameStateEventConverter.ConvertContractAccepted()` now populates `GameAction.ContractType`, falling back to `GameStateStore.GetContractSnapshot(contractId)` for pre-fix events that still lack the new detail token. Regression coverage pins both the direct-detail path and the snapshot-backfill path.
+
+**Status:** ~~OPEN. Data-loss bug in the ledger conversion path.~~ Closed 2026-04-22. Fixed for v0.9.0.
 
 ---
 
@@ -386,15 +398,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 535. Tracking Station can show a future Mun-orbit chain tip before the current ghost has actually reached the Mun
+## ~~535. Tracking Station can show a future Mun-orbit chain tip before the current ghost has actually reached the Mun~~
 
 **Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 00:01:42-00:02:07. Tracking Station startup immediately creates recording `#3` as a ghost vessel on `body=Mun` from terminal orbit data, then still draws atmospheric markers `#0` and `#1` over Kerbin, and later creates recording `#1` as a Kerbin ghost-map vessel from the current segment.
 
-**Concern:** Tracking Station is mixing the future chain tip's terminal orbit with the earlier active leg, so the vessel list can advertise a second `Kerbal X` as already "in Mun orbit" before the current ghost has actually reached the Mun. `CreateGhostVesselsFromCommittedRecordings()` currently instantiates tip recordings with `HasOrbitData(rec)` even when current UT is still on an earlier chain segment.
+**Concern:** Tracking Station was mixing the future chain tip's terminal orbit with the earlier active leg, so the vessel list could advertise a second `Kerbal X` as already "in Mun orbit" before the current ghost had actually reached the Mun. `CreateGhostVesselsFromCommittedRecordings()` instantiated tip recordings from `HasOrbitData(rec)` even when current UT was still on an earlier chain segment.
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`.
+**Fix:** tracking-station ghost creation now resolves a single source of truth per recording: use the currently visible orbit segment when one exists, skip future terminal-orbit tuples before the recording has activated or while it is still in progress, and only fall back to terminal orbit after the recording's own `EndUT`. The follow-up also restores the `KSP.log` trail for `ResolveTrackingStationGhostSource()` and splits `before-activation` / `before-terminal-orbit` out of the startup `noOrbit` summary bucket. Headless regressions now cover future-tip suppression, segment-vs-terminal precedence, post-`EndUT` terminal fallback, the decision logs, and the startup summary buckets.
 
-**Status:** OPEN. Repro captured in-package.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`. No `RuntimeTests` change landed here because the regression is fully covered at the pure decision/logging layer.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
