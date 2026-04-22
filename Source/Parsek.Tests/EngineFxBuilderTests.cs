@@ -117,6 +117,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryReadModelFxConfigEntry_MalformedRotationStillEnablesKnownModelFallback()
+        {
+            var modelNode = new ConfigNode("MODEL_PARTICLE");
+            modelNode.AddValue("transformName", "thrustTransform");
+            modelNode.AddValue("modelName", "Squad/FX/Monoprop_small");
+            modelNode.AddValue("localRotation", "bad-rotation");
+
+            bool parsed = EngineFxBuilder.TryReadModelFxConfigEntry(
+                "MODEL_PARTICLE",
+                modelNode,
+                "running",
+                out EngineFxBuilder.ModelFxConfigEntry entry);
+
+            Assert.True(parsed);
+            Assert.Equal("bad-rotation", entry.rawLocalRotation);
+            Assert.True(entry.useFallbackRotation);
+            AssertVector3Close(new Vector3(-90f, 0f, 0f), entry.fallbackEuler);
+        }
+
+        [Fact]
         public void TryReadPrefabParticleConfigEntry_SkipsFlameoutSparksAndDebrisPrefabs()
         {
             string[] skippedPrefabs =

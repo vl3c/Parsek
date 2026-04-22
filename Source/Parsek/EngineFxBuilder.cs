@@ -142,7 +142,6 @@ namespace Parsek
             GhostVisualBuilder.TryParseVector3(localOffset, out entry.localPos);
 
             entry.useFallbackRotation =
-                string.IsNullOrEmpty(entry.rawLocalRotation) &&
                 TryGetFxModelFallbackEuler(entry.modelName, out entry.fallbackEuler);
             return true;
         }
