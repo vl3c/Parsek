@@ -15,7 +15,7 @@ namespace Parsek.Tests
                 lastLandedUt: 0,
                 currentUt: 10,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipAlreadyRecording, decision);
         }
@@ -31,7 +31,7 @@ namespace Parsek.Tests
                 lastLandedUt: 0,
                 currentUt: 10,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipInactiveVessel, decision);
         }
@@ -47,7 +47,7 @@ namespace Parsek.Tests
                 lastLandedUt: -1,
                 currentUt: 10,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.StartFromPrelaunch, decision);
         }
@@ -63,7 +63,7 @@ namespace Parsek.Tests
                 lastLandedUt: -1,
                 currentUt: 10,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipDisabled, decision);
         }
@@ -79,7 +79,7 @@ namespace Parsek.Tests
                 lastLandedUt: 96.0,
                 currentUt: 100.0,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipBounce, decision);
         }
@@ -95,7 +95,7 @@ namespace Parsek.Tests
                 lastLandedUt: -1.0,
                 currentUt: 100.0,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipBounce, decision);
         }
@@ -111,7 +111,7 @@ namespace Parsek.Tests
                 lastLandedUt: 95.0,
                 currentUt: 100.0,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.StartFromSettledLanded, decision);
         }
@@ -127,7 +127,7 @@ namespace Parsek.Tests
                 lastLandedUt: 95.0,
                 currentUt: 100.0,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipDisabled, decision);
         }
@@ -143,13 +143,13 @@ namespace Parsek.Tests
                 lastLandedUt: 95.0,
                 currentUt: 100.0,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: false);
+                suppressForTimeJumpTransient: false);
 
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipNotLaunchTransition, decision);
         }
 
         [Fact]
-        public void EvaluateAutoRecordLaunchDecision_ForwardJumpTransient_SkipsAutoStart()
+        public void EvaluateAutoRecordLaunchDecision_TimeJumpTransient_SkipsAutoStart()
         {
             var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
@@ -159,9 +159,9 @@ namespace Parsek.Tests
                 lastLandedUt: -1.0,
                 currentUt: 102.9,
                 landedSettleThreshold: 5.0,
-                suppressForForwardJumpTransient: true);
+                suppressForTimeJumpTransient: true);
 
-            Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipForwardJumpTransient, decision);
+            Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipTimeJumpTransient, decision);
         }
 
         [Theory]

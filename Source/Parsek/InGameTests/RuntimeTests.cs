@@ -16,6 +16,7 @@ namespace Parsek.InGameTests
     {
         internal const float TimeScalePositiveThreshold = 0.01f;
         internal const int TimeScalePositiveProbeFrames = 8;
+        internal const float TimeJumpLaunchAutoRecordTransientTimeoutSeconds = 3f;
 
         internal enum TimeScalePositiveProbeOutcome
         {
@@ -1711,6 +1712,50 @@ namespace Parsek.InGameTests
                     "Idle post-switch wait should not start recording before the negative-case assertion");
                 yield return new WaitForFixedUpdate();
             }
+        }
+
+        internal static IEnumerator WaitForTimeJumpLaunchAutoRecordTransientToClear(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                bool suppressed = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
+                if (!suppressed)
+                {
+                    yield return new WaitForFixedUpdate();
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForTimeJumpLaunchAutoRecordTransientToClear timed out after {timeoutSeconds:F0}s " +
+                $"(inProgress={TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress}, frame={Time.frameCount}, " +
+                $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame})");
+        }
+
+        internal static int CountAnyAutoRecordStartLogLines(List<string> captured)
+        {
+            if (captured == null)
+                return 0;
+
+            return captured.Count(
+                line => line.Contains("[Flight]")
+                    && line.Contains("Auto-record started ("));
+        }
+
+        internal static int CountTimeJumpTransientSkipLogLines(List<string> captured)
+        {
+            if (captured == null)
+                return 0;
+
+            return captured.Count(
+                line => line.Contains("[INFO][Flight]")
+                    && line.Contains("suppressing time-jump transient"));
         }
 
         private static int CountPostSwitchAutoStartLogLines(List<string> captured)
@@ -6660,6 +6705,7 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             RecordingTree tree = null;
+            Recording recording = null;
 
             try
             {
@@ -6668,7 +6714,7 @@ namespace Parsek.InGameTests
                     line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 if (!TryBuildSyntheticKeepVesselTree(activeVessel, out tree,
-                    out Recording recording, out string skipReason))
+                    out recording, out string skipReason))
                 {
                     InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
                     yield break;
@@ -6677,24 +6723,29 @@ namespace Parsek.InGameTests
                 RecordingStore.CommitTree(tree);
                 flight.FastForwardToRecording(recording);
 
-                yield return new WaitForSeconds(1f);
+                yield return RuntimeTests.WaitForTimeJumpLaunchAutoRecordTransientToClear(
+                    RuntimeTests.TimeJumpLaunchAutoRecordTransientTimeoutSeconds);
 
                 InGameAssert.IsFalse(flight.IsRecording,
-                    "Timeline FF should not auto-start a new launch recording on the real pad vessel");
+                    "Timeline FF should not auto-start any new recording on the real pad vessel");
 
                 Vessel currentActive = FlightGlobals.ActiveVessel;
                 InGameAssert.IsNotNull(currentActive,
                     "Active vessel should still exist after the FF pad transient canary");
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
-                    "Timeline FF should keep the real pad vessel focused without replacing it");
+                    "Timeline FF should keep the same real pad vessel pid focused after the jump transient");
 
-                int autoStartCount = captured.Count(
-                    line => line.Contains("[Flight]") && line.Contains("Auto-record started ("));
+                int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
+                InGameAssert.IsGreaterThan(skipCount, 0,
+                    "Timeline FF pad canary should exercise the time-jump transient suppression path");
+
+                int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
                 InGameAssert.AreEqual(0, autoStartCount,
-                    $"Expected zero launch auto-start log lines during FF transient, got {autoStartCount}");
+                    $"Expected zero auto-record start log lines during the time-jump transient, got {autoStartCount}");
 
                 ParsekLog.Info("TestRunner",
-                    $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} autoStartCount={autoStartCount}");
+                    $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
+                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
             }
             finally
             {
@@ -6705,6 +6756,151 @@ namespace Parsek.InGameTests
                 var cleanupFlight = ParsekFlight.Instance;
                 if (cleanupFlight != null && cleanupFlight.IsRecording)
                     cleanupFlight.StopRecording();
+
+                if (tree != null)
+                    RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic timeline recording, drives the Real Spawn Control epoch-shift warp on a real pad vessel, and verifies that FLIGHT does not start a bogus launch recording during the jump transient. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "#526: Real Spawn Control warp on a real pad vessel must not auto-start a bogus recording")]
+        public IEnumerator RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for the Real Spawn Control pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            uint originalPid = activeVessel.persistentId;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            RecordingTree tree = null;
+            Recording recording = null;
+            Vessel spawnedVessel = null;
+            uint spawnedPid = 0;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.TestObserverForTesting =
+                    line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!TryBuildSyntheticKeepVesselTree(activeVessel, out tree,
+                    out recording, out string skipReason))
+                {
+                    InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                    yield break;
+                }
+
+                RecordingStore.CommitTree(tree);
+
+                int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
+                InGameAssert.IsTrue(recordingIndex >= 0,
+                    "Synthetic keep-vessel recording should be present in CommittedRecordings");
+
+                flight.WarpToRecordingEnd(recordingIndex);
+
+                yield return RuntimeTests.WaitForTimeJumpLaunchAutoRecordTransientToClear(
+                    RuntimeTests.TimeJumpLaunchAutoRecordTransientTimeoutSeconds);
+
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "Real Spawn Control warp should not auto-start any new recording on the real pad vessel");
+
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(currentActive,
+                    "Active vessel should still exist after the Real Spawn Control pad transient canary");
+                InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
+                    "Real Spawn Control warp should keep the same real pad vessel pid focused after the jump transient");
+
+                int suppressionArmCount = captured.Count(
+                    line => line.Contains("[TimeJump]")
+                        && line.Contains("Time-jump launch auto-record suppression armed: jump=epoch-shift"));
+                InGameAssert.IsGreaterThan(suppressionArmCount, 0,
+                    "Real Spawn Control pad canary should arm the epoch-shift time-jump suppression path");
+
+                int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
+                InGameAssert.IsGreaterThan(skipCount, 0,
+                    "Real Spawn Control pad canary should exercise the time-jump transient suppression path");
+
+                yield return WaitForRecordingSpawn(recording, 10f);
+
+                spawnedPid = recording.SpawnedVesselPersistentId;
+                InGameAssert.IsGreaterThan((double)spawnedPid, 0.0,
+                    "Real Spawn Control warp should leave the synthetic recording with a spawned pid");
+
+                spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Real Spawn Control warp should still materialize the synthetic vessel by recording end");
+
+                int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
+                InGameAssert.AreEqual(0, autoStartCount,
+                    $"Expected zero auto-record start log lines during the Real Spawn Control transient, got {autoStartCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"RSC warp no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
+                    $"recordingIndex={recordingIndex} spawnedPid={spawnedPid} suppressionArmCount={suppressionArmCount} " +
+                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+
+                if (spawnedVessel == null && spawnedPid != 0)
+                    spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"RSC warp cleanup failed to recover pid={spawnedPid}: {ex.Message}");
+                    }
+                }
 
                 if (tree != null)
                     RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);

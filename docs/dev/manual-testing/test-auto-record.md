@@ -94,8 +94,8 @@
 2. Ensure there is at least one future recording with a visible `FF` button in Timeline / Recordings
 3. Click `FF` to jump to that future recording's start UT while staying focused on the real pad vessel
 4. Verify: no `Recording STARTED (auto)` screen message appears on the real pad vessel
-5. Verify: Parsek UI stays idle on the real vessel after the jump instead of opening a fresh tree recording
-6. Check `KSP.log` for the FF jump lines and confirm there is no `Auto-record started (` launch line for the real pad vessel
+5. Verify: Parsek UI stays idle on the real vessel after the jump instead of opening any fresh recording
+6. Check `KSP.log` for the time-jump lines plus `OnVesselSituationChange: suppressing time-jump transient`, and confirm there is no `Auto-record started (` line for the real pad vessel
 
 ## 16. Auto-warp-stop disabled via Settings
 1. Record a flight, revert, merge with Keep Vessel
@@ -122,5 +122,5 @@
   - `"Post-switch auto-record armed:"` after an idle switch to a real vessel
   - `"Post-switch baseline captured:"` on the first stable physics frame after the switch
   - `"Auto-record started (post-switch ...)"` exactly once for the landed-motion / orbital-burn / gear-toggle cases
-  - No launch `Auto-record started (` line should appear immediately after a Timeline / Recordings `FF` jump on an idle real pad vessel
+  - `OnVesselSituationChange: suppressing time-jump transient` should appear immediately after a Timeline / Recordings `FF` jump on an idle real pad vessel, and no `Auto-record started (` line should follow
   - No unexpected errors or duplicate triggers
