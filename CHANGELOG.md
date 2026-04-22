@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.0
+
+### Enhancements
+
+- `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
+
+### Tests
+
+- `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
+
 ## 0.8.3
 
 ### Features
@@ -18,13 +28,11 @@ All notable changes to Parsek are documented here.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
-- `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
 
 ### Tests
 
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
-- `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
 - The last SOI attitude xUnit follow-up now compares normalized quaternion rotation equivalence by absolute dot product, so exact `q` / `-q` handoff matches no longer fail just because the same world rotation chose the opposite sign.
 - The predicted-tail flat-fallback regression now appends its extra orbit segment at the end of the fixture's real checkpoint payload instead of seeding a pre-track timestamp, so the test again asserts the intended "tail beyond sections" shape instead of a malformed earlier segment.
