@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 
 - `#536` Tracking Station now switches chain visibility on the child-start boundary instead of on mere child existence: existing parent ghosts retire and new parent presence stays suppressed only after a child recording with a resolvable start actually becomes current, so the Kerbin-exit handoff no longer drops the active continuation or leaves the parent ghost lingering past the handoff.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
+- `#537` Tracking Station now runs the real-vessel end-of-recording handoff for eligible recordings instead of stopping at ghost ProtoVessels. Eligible orbital handoffs now materialize directly through `VesselSpawner` in Tracking Station, dedup against already-live real vessels, and remove terminal-orbit ghosts once the recording is already materialized.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
@@ -24,6 +25,7 @@ All notable changes to Parsek are documented here.
 
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
 - `#534` Added spawned chain-tip restore regressions covering committed-tree ownership, restorable-leaf filtering, multi-tree selection, and the throttled Update-time retry guard.
+- `#537` Added headless Tracking Station spawn-policy coverage for orbital handoff eligibility, scene-entry PID dedup bypass, preserve-identity chain-tip decisions, and suppression of already-materialized map ghosts.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries, and retained live bundles under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` now show both exported `FlightIntegrationTests.PartEventTiming_*` rows passing in `FLIGHT`.
@@ -60,7 +62,6 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- `#537` Added headless Tracking Station spawn-policy coverage for orbital handoff eligibility, scene-entry PID dedup bypass, preserve-identity chain-tip decisions, and suppression of already-materialized map ghosts.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
@@ -125,7 +126,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#537` Tracking Station now runs the real-vessel end-of-recording handoff for eligible recordings instead of stopping at ghost ProtoVessels. Eligible orbital handoffs now materialize directly through `VesselSpawner` in Tracking Station, dedup against already-live real vessels, and remove terminal-orbit ghosts once the recording is already materialized.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

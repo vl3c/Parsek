@@ -412,7 +412,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 537. ~~Tracking Station never runs the real-vessel spawn handoff that flight/map playback does~~
+## ~~537. Tracking Station never runs the real-vessel spawn handoff that flight/map playback does~~
 
 **Source:** user observed the missing Mun-orbit materialization in Tracking Station; the same package shows the contrast directly. In TRACKSTATION, the host only initializes and updates ghost ProtoVessels (`ParsekTrackingStation initialized`, atmospheric markers, ghost create/remove). Later in FLIGHT/map playback, the same recording `#3` does execute the normal handoff: `Spawn #3 (Kerbal X) ... body=Mun` followed by `SpawnAtPosition: vessel spawned (sit=ORBITING, pid=3724180956, body=Mun, alt=63723m)`.
 
@@ -420,7 +420,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
 
-**Status:** CLOSED. Tracking Station now materializes eligible real vessels directly and clears the stale spawned-ghost edge that was keeping terminal orbit ghosts around.
+**Status:** CLOSED 2026-04-22 for v0.9.0. Tracking Station now materializes eligible real vessels directly and clears the stale spawned-ghost edge that was keeping terminal orbit ghosts around.
 
 ---
 
