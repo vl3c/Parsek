@@ -5,6 +5,23 @@ namespace Parsek.Tests
     public class TimelineWindowUITests
     {
         [Fact]
+        public void GetRowActionButtonWidth_ShortTimelineActionsShareWidth_AndGoToStaysWider()
+        {
+            float watch = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Watch);
+            float fastForward = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.FastForward);
+            float rewind = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Rewind);
+            float loop = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Loop);
+            float goTo = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.GoTo);
+
+            Assert.Equal(35f, watch);
+            Assert.Equal(watch, fastForward);
+            Assert.Equal(watch, rewind);
+            Assert.Equal(watch, loop);
+            Assert.Equal(48f, goTo);
+            Assert.True(goTo > watch);
+        }
+
+        [Fact]
         public void ShouldShowLoopToggle_FutureRecording_ReturnsFalse()
         {
             var rec = new Recording { LaunchSiteName = "LaunchPad" };

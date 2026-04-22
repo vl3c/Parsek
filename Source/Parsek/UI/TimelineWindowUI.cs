@@ -19,6 +19,15 @@ namespace Parsek
             Exit
         }
 
+        internal enum TimelineRowActionButtonKind
+        {
+            Watch,
+            FastForward,
+            Rewind,
+            Loop,
+            GoTo
+        }
+
         private enum TimelineTierFilterMode
         {
             Overview,
@@ -40,7 +49,9 @@ namespace Parsek
         private const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
+        // Keep the short row actions aligned; GoTo stays wider for its text label.
         private const float RowActionButtonWidth = 35f;
+        private const float GoToButtonWidth = 48f;
 
         // Shared width for all top filter/preset buttons (Overview, Details, Rewind/FF,
         // Recordings, Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
@@ -810,7 +821,7 @@ namespace Parsek
                         GUI.enabled = watchButton.Enabled;
                         if (GUILayout.Button(
                             new GUIContent(watchButton.Label, watchButton.Tooltip),
-                            GUILayout.Width(RowActionButtonWidth)))
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Watch))))
                         {
                             string beforeFocus = flight.DescribeWatchFocusForLogs();
                             string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
@@ -837,7 +848,7 @@ namespace Parsek
                         bool canFF = CanFastForwardNow(rec, out ffReason);
                         GUI.enabled = canFF;
                         if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
-                            GUILayout.Width(RowActionButtonWidth)))
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.FastForward))))
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline FF button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -852,7 +863,7 @@ namespace Parsek
                         bool canRewind = CanRewindWithResolvedSaveState(rec, out rewindReason);
                         GUI.enabled = canRewind;
                         if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
-                            GUILayout.Width(RowActionButtonWidth)))
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind))))
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -869,7 +880,7 @@ namespace Parsek
                     {
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
                         bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
-                            toggleButtonStyle, GUILayout.Width(RowActionButtonWidth));
+                            toggleButtonStyle, GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Loop)));
                         if (newLoop != rec.LoopPlayback)
                         {
                             rec.LoopPlayback = newLoop;
@@ -882,7 +893,9 @@ namespace Parsek
                     }
 
                     // GoTo button — always last, right-aligned
-                    if (GUILayout.Button(new GUIContent("GoTo", "Show in Recordings Manager"), GUILayout.Width(48)))
+                    if (GUILayout.Button(
+                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;
                         if (tableUI != null)
@@ -917,6 +930,13 @@ namespace Parsek
             bool isFuture = entry.UT > currentUT;
             return (ShouldShowFastForwardButton(rec, isFuture) && canFastForward)
                 || (ShouldShowRewindButton(rec, isFuture) && canRewind);
+        }
+
+        internal static float GetRowActionButtonWidth(TimelineRowActionButtonKind actionKind)
+        {
+            return actionKind == TimelineRowActionButtonKind.GoTo
+                ? GoToButtonWidth
+                : RowActionButtonWidth;
         }
 
         internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture)
