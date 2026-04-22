@@ -958,6 +958,29 @@ namespace Parsek
             return spawnResult;
         }
 
+        internal static bool ShouldBypassTrackingStationRealVesselDedup(
+            Recording rec,
+            uint sceneEntryActiveVesselPid)
+        {
+            return rec != null
+                && rec.VesselPersistentId != 0
+                && rec.VesselPersistentId == sceneEntryActiveVesselPid;
+        }
+
+        internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
+            Dictionary<uint, GhostChain> chains,
+            Recording rec,
+            bool realVesselExists)
+        {
+            if (realVesselExists || rec == null || rec.VesselPersistentId == 0)
+                return false;
+
+            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+            return chain != null
+                && !chain.IsTerminated
+                && chain.TipRecordingId == rec.RecordingId;
+        }
+
         /// <summary>
         /// Tracking Station visibility suppression is time-aware: a recording is hidden only
         /// after one of its child recordings has actually started by the current UT. This keeps
