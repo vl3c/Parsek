@@ -852,7 +852,7 @@ namespace Parsek
         {
             if (rec == null) return (false, "null");
             if (rec.IsDebris) return (false, "debris");
-            if (isSuppressed) return (false, "superseded");
+            if (isSuppressed) return (false, "suppressed");
 
             // Only recordings that are currently active for Tracking Station visibility and
             // have orbital presence get ghosts.
@@ -929,7 +929,7 @@ namespace Parsek
                 if (!shouldCreate)
                 {
                     if (skipReason == "debris") skippedDebris++;
-                    else if (skipReason == "superseded") skippedSuppressed++;
+                else if (skipReason == "suppressed") skippedSuppressed++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
                     else skippedNoOrbit++;
                     continue;
@@ -961,6 +961,10 @@ namespace Parsek
             return created;
         }
 
+        /// <summary>
+        /// Decide whether an already-materialized Tracking Station ghost should retire on this
+        /// lifecycle tick, and if so return the removal reason string to log/store.
+        /// </summary>
         internal static string GetTrackingStationGhostRemovalReason(
             Recording rec, bool isSuppressed, bool hasOrbitBounds, double currentUT)
         {

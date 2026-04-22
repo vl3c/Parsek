@@ -1116,10 +1116,10 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Superseded recording always skipped (intermediate chain segment).
+        /// Suppressed recording always skipped (intermediate chain segment).
         /// </summary>
         [Fact]
-        public void ShouldCreate_Superseded_Skipped()
+        public void ShouldCreate_Suppressed_Skipped()
         {
             var rec = new Recording
             {
@@ -1129,7 +1129,7 @@ namespace Parsek.Tests
             };
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, true, 1000);
             Assert.False(should);
-            Assert.Equal("superseded", reason);
+            Assert.Equal("suppressed", reason);
         }
 
         /// <summary>

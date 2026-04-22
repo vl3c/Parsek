@@ -15,7 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#536` Tracking Station now switches chain visibility on the child-start boundary instead of on mere child existence: existing parent ghosts retire and new parent presence stays suppressed only after a child recording with a resolvable start actually becomes current, so the Kerbin-exit handoff no longer drops the active continuation or leave the parent ghost lingering past the handoff.
+- `#536` Tracking Station now switches chain visibility on the child-start boundary instead of on mere child existence: existing parent ghosts retire and new parent presence stays suppressed only after a child recording with a resolvable start actually becomes current, so the Kerbin-exit handoff no longer drops the active continuation or leaves the parent ghost lingering past the handoff.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
