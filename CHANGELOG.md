@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `#534` Added spawned chain-tip restore regressions covering committed-tree ownership, restorable-leaf filtering, multi-tree selection, and the throttled Update-time retry guard.
+- `#540` `Parsek.Tests` now builds cleanly without the remaining xUnit style warnings: `FormatCoroutineState_ReportsActiveAndIdleSlots` is a real `[Fact]`, and the Kerbals subitem-indent regressions now use xUnit `Assert.StartsWith(...)` while preserving the original `StringComparison.Ordinal` semantics instead of the old `Assert.True(text.StartsWith(..., StringComparison.Ordinal))` form.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries, and retained live bundles under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` now show both exported `FlightIntegrationTests.PartEventTiming_*` rows passing in `FLIGHT`.
@@ -58,7 +59,6 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- `#540` `Parsek.Tests` now builds cleanly without the remaining xUnit style warnings: `FormatCoroutineState_ReportsActiveAndIdleSlots` is a real `[Fact]`, and the Kerbals subitem-indent regressions now use xUnit `Assert.StartsWith(...)` while preserving the original `StringComparison.Ordinal` semantics instead of the old `Assert.True(text.StartsWith(..., StringComparison.Ordinal))` form.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
