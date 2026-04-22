@@ -328,15 +328,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes
+## ~~530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes~~
 
 **Source:** when Timeline opens in `logs/2026-04-21_2335_live-collect-script`, `KSP.log` records `Timeline watch button "r0" ... disabled (no ghost)` for the same recording that becomes watchable less than a second later once the ghost finishes building/spawning. No user context changed; the row just self-corrected when the ghost materialized.
 
-**Concern:** initial watchability is being computed from transient `HasActiveGhost` / same-body / range state before the lazy ghost build completes, so the Timeline row can briefly advertise a false "not watchable" state on first open. This is small, but it makes watch mode feel flaky and is distinct from the older watch-transfer bugs.
+**Concern:** initial watchability was being computed from a pending ghost shell that existed before the lazy snapshot build finished, but that shell had no seeded playback body metadata yet. The Timeline row could therefore briefly advertise a false "not watchable" state on first open even though the recording became watchable as soon as the build completed.
 
-**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
+**Fix:** pending ghost shells now resolve and store playback interpolation metadata from the trajectory at spawn time, so same-body watch eligibility is stable before the split build completes.
 
-**Status:** OPEN. Minor UI-state bug captured in-package.
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
