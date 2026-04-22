@@ -226,15 +226,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 522. Timeline milestone rewards can still look double-counted even when the ledger itself does not warn
+## ~~522. Timeline milestone rewards can still look double-counted even when the ledger itself does not warn~~
 
 **Source:** user observation from the same `2026-04-21_2335_live-collect-script` package. When the Timeline opened at 23:30:36, `KSP.log` reported `Build complete: 35 entries (2 recording, 33 action, 0 legacy)`, and the package does not contain milestone-funds reconciliation WARNs of the kind that motivated closed `#477`. The session does, however, contain dense milestone activity (`FirstLaunch`, `RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`, plus later repeatable `stays effective` rows), so it is a good repro corpus for "this looks duplicated in the Timeline".
 
 **Concern:** this currently looks more like a presentation regression than a real funds over-credit. Closed `#464` fixed the old gray `GameStateEvent` shadow rows in Timeline Details, and closed `#477` fixed the false-positive milestone over-attribution. This package does not show either exact old signal. If the Timeline still looks double-counted, suspect duplicate/ambiguous milestone action rows or text formatting in the Timeline render path before touching the ledger math again.
 
-**Files:** `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek/UI/TimelineWindowUI.cs`.
+**Fix:** Timeline milestone presentation now compacts adjacent same-UT rows for the same milestone into one richer entry instead of rendering both near-duplicates. The surviving row keeps the union of non-zero funds/rep/science reward legs, while genuinely conflicting reward values remain split. Timeline milestone text also now includes science rewards, closing the last missing-leg path that made the same milestone look like two separate payouts.
 
-**Status:** OPEN. Investigate against this exact `c3` package before revisiting milestone accounting.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3 by `#545`.
 
 ---
 
@@ -502,15 +502,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 545. Timeline should squash adjacent near-duplicate milestone rows into one richer entry
+## ~~545. Timeline should squash adjacent near-duplicate milestone rows into one richer entry~~
 
 **Source:** user request from 2026-04-22 plus current code read in `TimelineBuilder` / `TimelineEntryDisplay`.
 
 **Concern:** the Timeline currently formats each milestone action independently, so near-neighbor rows can read like duplicates when they describe the same milestone with slightly different reward payloads (for example one row with funds only and a sibling row with funds + rep). `TimelineBuilder` already filters exact ledger-vs-legacy duplicates, but it does not run a second pass that compares `Prev - Current - Next` for "same milestone, same moment, richer combined message" cases. Requested behavior: add a compaction/squash pass that detects adjacent similar milestone rows and merges them into a single entry with the union of the useful reward details instead of showing multiple nearly-identical lines.
 
-**Files:** `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek.Tests/CrossTierIntegrationTests.cs` (or new dedicated timeline-builder coverage). Related cluster: open `#522`.
+**Fix:** `TimelineBuilder` now runs a post-sort compaction pass over adjacent game-action milestone rows that share both milestone id and UT. Compatible rows collapse into one entry, missing reward legs are filled from the richer sibling, and the merged row keeps the effective/T1 presentation if any source row was effective. `TimelineEntryDisplay` milestone text now uses a shared formatter that includes science rewards as well as funds/rep, and the focused timeline-builder tests pin the compacted, non-compacted, and conflicting-value cases.
 
-**Status:** TODO. Timeline presentation cleanup; likely the next concrete follow-up for the "looks double-counted" reports.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -13,6 +14,7 @@ namespace Parsek
     internal static class TimelineBuilder
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        private const float MilestoneCompactionEpsilon = 0.0001f;
 
         /// <summary>
         /// Constructs the full timeline entry list from committed recordings,
@@ -46,11 +48,85 @@ namespace Parsek
             int legacyCount = CollectLegacyEntries(milestones, currentEpoch, legacyDuplicateKeys, entries);
 
             entries.Sort((a, b) => a.UT.CompareTo(b.UT));
+            int compactedMilestoneRows = CompactAdjacentMilestoneEntries(entries);
 
             ParsekLog.Verbose("Timeline",
-                $"Build complete: {entries.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
+                compactedMilestoneRows > 0
+                    ? $"Build complete: {entries.Count} entries after compacting {compactedMilestoneRows} adjacent milestone row(s) " +
+                      $"({recordingCount} recording, {actionCount} action, {legacyCount} legacy before compaction)"
+                    : $"Build complete: {entries.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
 
             return entries;
+        }
+
+        internal static int CompactAdjacentMilestoneEntries(List<TimelineEntry> entries)
+        {
+            if (entries == null || entries.Count < 2)
+                return 0;
+
+            int compactedRows = 0;
+
+            for (int i = 0; i < entries.Count - 1; i++)
+            {
+                TimelineEntry anchor = entries[i];
+                if (!CanCompactMilestoneEntry(anchor))
+                    continue;
+
+                float mergedFunds = anchor.MilestoneFundsAwarded;
+                float mergedRep = anchor.MilestoneRepAwarded;
+                float mergedScience = anchor.MilestoneScienceAwarded;
+                bool mergedEffective = anchor.IsEffective;
+                SignificanceTier mergedTier = anchor.Tier;
+                string mergedRecordingId = anchor.RecordingId;
+                string mergedVesselName = anchor.VesselName;
+                int runLength = 1;
+
+                for (int j = i + 1; j < entries.Count; j++)
+                {
+                    TimelineEntry candidate = entries[j];
+                    if (!CanCompactMilestonePair(anchor, candidate))
+                        break;
+
+                    float nextFunds = mergedFunds;
+                    float nextRep = mergedRep;
+                    float nextScience = mergedScience;
+                    if (!TryMergeMilestoneReward(ref nextFunds, candidate.MilestoneFundsAwarded) ||
+                        !TryMergeMilestoneReward(ref nextRep, candidate.MilestoneRepAwarded) ||
+                        !TryMergeMilestoneReward(ref nextScience, candidate.MilestoneScienceAwarded))
+                        break;
+
+                    mergedFunds = nextFunds;
+                    mergedRep = nextRep;
+                    mergedScience = nextScience;
+                    mergedEffective |= candidate.IsEffective;
+                    if ((int)candidate.Tier < (int)mergedTier)
+                        mergedTier = candidate.Tier;
+                    mergedRecordingId = MergeCompactedMetadata(mergedRecordingId, candidate.RecordingId);
+                    mergedVesselName = MergeCompactedMetadata(mergedVesselName, candidate.VesselName);
+                    runLength++;
+                }
+
+                if (runLength == 1)
+                    continue;
+
+                anchor.MilestoneFundsAwarded = mergedFunds;
+                anchor.MilestoneRepAwarded = mergedRep;
+                anchor.MilestoneScienceAwarded = mergedScience;
+                anchor.DisplayText = TimelineEntryDisplay.GetMilestoneAchievementText(
+                    anchor.MilestoneId,
+                    mergedFunds,
+                    mergedRep,
+                    mergedScience);
+                anchor.IsEffective = mergedEffective;
+                anchor.Tier = mergedTier;
+                anchor.RecordingId = mergedRecordingId;
+                anchor.VesselName = mergedVesselName;
+
+                entries.RemoveRange(i + 1, runLength - 1);
+                compactedRows += runLength - 1;
+            }
+
+            return compactedRows;
         }
 
         // ---- Recording Collector ----
@@ -404,7 +480,11 @@ namespace Parsek
                     RecordingId = action.RecordingId,
                     VesselName = vesselName,
                     IsEffective = action.Effective,
-                    IsPlayerAction = TimelineEntryDisplay.IsPlayerAction(entryType)
+                    IsPlayerAction = TimelineEntryDisplay.IsPlayerAction(entryType),
+                    MilestoneId = action.MilestoneId,
+                    MilestoneFundsAwarded = action.MilestoneFundsAwarded,
+                    MilestoneRepAwarded = action.MilestoneRepAwarded,
+                    MilestoneScienceAwarded = action.MilestoneScienceAwarded
                 });
                 count++;
             }
@@ -414,6 +494,46 @@ namespace Parsek
                     $"Filtered {evaReassignSkipped} KerbalAssignment action(s) at EVA branch time(s)");
 
             return count;
+        }
+
+        private static bool CanCompactMilestoneEntry(TimelineEntry entry)
+        {
+            return entry != null
+                && entry.Source == TimelineSource.GameAction
+                && entry.Type == TimelineEntryType.MilestoneAchievement
+                && !string.IsNullOrEmpty(entry.MilestoneId);
+        }
+
+        private static bool CanCompactMilestonePair(TimelineEntry anchor, TimelineEntry candidate)
+        {
+            return CanCompactMilestoneEntry(candidate)
+                && candidate.UT == anchor.UT
+                && string.Equals(candidate.MilestoneId, anchor.MilestoneId, StringComparison.Ordinal);
+        }
+
+        private static bool TryMergeMilestoneReward(ref float aggregate, float candidate)
+        {
+            if (Mathf.Abs(candidate) <= MilestoneCompactionEpsilon)
+                return true;
+
+            if (Mathf.Abs(aggregate) <= MilestoneCompactionEpsilon)
+            {
+                aggregate = candidate;
+                return true;
+            }
+
+            return Mathf.Abs(aggregate - candidate) <= MilestoneCompactionEpsilon;
+        }
+
+        private static string MergeCompactedMetadata(string current, string candidate)
+        {
+            if (string.IsNullOrEmpty(current))
+                return candidate;
+            if (string.IsNullOrEmpty(candidate))
+                return current;
+            return string.Equals(current, candidate, StringComparison.Ordinal)
+                ? current
+                : null;
         }
 
         // ---- Legacy Collector ----
