@@ -288,15 +288,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 527. Rewind's deferred recalc can drop `utCutoff` and restore future funds/contracts before replay catches up
+## ~~527. Rewind's deferred recalc can drop `utCutoff` and restore future funds/contracts before replay catches up~~
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:30:25-23:30:28. The rewind path first does the expected cutoff walk (`cutoffUT=19.159999999999467`), dropping funds from `53861.7` to `21495.0` and removing two active contracts. About five seconds later, a deferred FLIGHT recalc runs with `cutoffUT=null` and restores the end-of-timeline funds/contracts before any replay has advanced.
 
 **Concern:** one rewind caller is re-entering `RecalculateAndPatch()` without forwarding the rewind cutoff. That makes career state snap back toward the future timeline immediately after rewind, explains the new `PatchFunds: suspicious drawdown` warning in the same package, and breaks the expected "rewind means pre-cutoff state until replay progresses" model.
 
-**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`.
+**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`.
 
-**Status:** OPEN. Repro captured in-package.
+**Fix:** the generic scene-load follow-up path now applies the current-UT cutoff only in the specific post-rewind FLIGHT case with no pending/live restore state, via `ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(...)` and `LedgerOrchestrator.RecalculateAndPatchForSceneLoad(loadedUT)`. That keeps the later FLIGHT `OnLoad` pass aligned with the rewound clock without bypassing normal pending-tree patch deferral or same-branch repeatable-record preservation.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

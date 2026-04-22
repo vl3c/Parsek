@@ -312,6 +312,28 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
 
+        [Fact]
+        public void RecalculateAndPatchForSceneLoad_WithPendingTree_StillDefersKspStatePatch()
+        {
+            LedgerOrchestrator.Initialize();
+            RecordingStore.StashPendingTree(new RecordingTree
+            {
+                Id = "tree-scene-load",
+                TreeName = "SceneLoadTree",
+                RootRecordingId = "rec-scene-load",
+                ActiveRecordingId = "rec-scene-load"
+            });
+
+            LedgerOrchestrator.RecalculateAndPatchForSceneLoad(100.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("SceneLoadTree"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
         // ================================================================
         // Multiple recalculations (idempotency)
         // ================================================================

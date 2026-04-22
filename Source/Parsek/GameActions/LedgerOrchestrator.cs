@@ -1146,6 +1146,31 @@ namespace Parsek
         /// </param>
         internal static void RecalculateAndPatch(double? utCutoff = null)
         {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: utCutoff.HasValue,
+                authoritativeRepeatableRecordState: utCutoff.HasValue);
+        }
+
+        /// <summary>
+        /// Scene-load follow-up recalculation that filters the walk to the currently
+        /// loaded UT without opting into rewind-only patch side effects. Unlike the
+        /// normal explicit-cutoff path, this preserves pending/live-tree patch
+        /// deferral and same-branch repeatable-record preservation.
+        /// </summary>
+        internal static void RecalculateAndPatchForSceneLoad(double utCutoff)
+        {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: false,
+                authoritativeRepeatableRecordState: false);
+        }
+
+        private static void RecalculateAndPatchCore(
+            double? utCutoff,
+            bool bypassPatchDeferral,
+            bool authoritativeRepeatableRecordState)
+        {
             Initialize();
 
             // Seed initial balances for career mode (per-resource, idempotent).
@@ -1231,7 +1256,9 @@ namespace Parsek
             // uncommitted in-flight effects that the committed-only ledger cannot see yet.
             // Walking the committed ledger is still useful, but writing that partial state
             // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            string patchDeferralReason = bypassPatchDeferral
+                ? null
+                : GetKspPatchDeferralReason();
             if (!string.IsNullOrEmpty(patchDeferralReason))
             {
                 ParsekLog.Verbose(Tag,
@@ -1247,7 +1274,7 @@ namespace Parsek
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
-                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1263,11 +1290,20 @@ namespace Parsek
             OnTimelineDataChanged?.Invoke();
         }
 
-        private static string GetKspPatchDeferralReason(double? utCutoff)
+        internal static bool HasActionsAfterUT(double ut)
         {
-            if (utCutoff.HasValue)
-                return null;
+            for (int i = 0; i < Ledger.Actions.Count; i++)
+            {
+                var action = Ledger.Actions[i];
+                if (action != null && action.UT > ut)
+                    return true;
+            }
 
+            return false;
+        }
+
+        private static string GetKspPatchDeferralReason()
+        {
             bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
             bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
             bool hasPendingTree = RecordingStore.HasPendingTree;

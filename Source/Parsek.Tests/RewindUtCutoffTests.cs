@@ -673,6 +673,87 @@ namespace Parsek.Tests
             Assert.Equal(5000.0, second, 1);
         }
 
+        [Fact]
+        public void SceneLoadFollowup_AfterRewind_UsesCurrentUtCutoff()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                ContractAccept(500.0, "future-contract", 400f),
+                Milestone(500.0, "future-funds", 1000f));
+
+            RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(200.0);
+
+            LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
+            double firstBalance = LedgerOrchestrator.Funds.GetRunningBalance();
+            int firstActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
+
+            RewindContext.EndRewind();
+            logLines.Clear();
+
+            ParsekScenario.RecalculateAndPatchForSceneLoad(200.0);
+
+            AssertLogHasCutoffSummary(logLines, 3, 1, "200");
+            Assert.Equal(firstBalance, LedgerOrchestrator.Funds.GetRunningBalance(), 5);
+            Assert.Equal(10000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(firstActiveContracts, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+        }
+
+        [Fact]
+        public void SceneLoadCurrentUtCutoffDecision_RequiresSpecificPostRewindShape()
+        {
+            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
+                isRevert: false,
+                loadedSceneIsFlight: true,
+                planetariumReady: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                hasLiveRecorder: false,
+                hasActiveUncommittedTree: false,
+                hasFutureLedgerActions: true));
+
+            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
+                isRevert: false,
+                loadedSceneIsFlight: true,
+                planetariumReady: true,
+                hasPendingTree: true,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                hasLiveRecorder: false,
+                hasActiveUncommittedTree: false,
+                hasFutureLedgerActions: true));
+
+            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
+                isRevert: false,
+                loadedSceneIsFlight: true,
+                planetariumReady: true,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.Quickload,
+                hasLiveRecorder: false,
+                hasActiveUncommittedTree: false,
+                hasFutureLedgerActions: true));
+
+            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
+                isRevert: false,
+                loadedSceneIsFlight: false,
+                planetariumReady: true,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                hasLiveRecorder: false,
+                hasActiveUncommittedTree: false,
+                hasFutureLedgerActions: true));
+
+            Assert.True(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
+                isRevert: false,
+                loadedSceneIsFlight: true,
+                planetariumReady: true,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                hasLiveRecorder: false,
+                hasActiveUncommittedTree: false,
+                hasFutureLedgerActions: true));
+        }
+
         // ================================================================
         // Mixed-type filter test
         // ================================================================
