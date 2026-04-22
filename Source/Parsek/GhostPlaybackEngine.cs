@@ -2224,7 +2224,8 @@ namespace Parsek
             if (state != null)
                 GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);
 
-            // Fire envelope particles
+            // Fire envelope particles. Visible density is controlled primarily by the
+            // emission-rate range; maxParticles only supplies headroom for the denser stream.
             if (info.fireParticles != null)
             {
                 if (intensity > GhostVisualBuilder.ReentryFireThreshold)
