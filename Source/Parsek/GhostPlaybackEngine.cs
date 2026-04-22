@@ -184,6 +184,8 @@ namespace Parsek
 
         #endregion
 
+        internal static Func<string, double?> PendingOrbitBodyRadiusResolverForTesting;
+
         internal static bool HasRenderableGhostData(IPlaybackTrajectory traj)
         {
             return traj != null
@@ -745,7 +747,8 @@ namespace Parsek
                 if (!TryReserveSpawnSlot(i, "first-spawn"))
                     return false;
 
-                state = CreatePendingSpawnState(traj, PendingSpawnLifecycle.StandardEnter, f);
+                state = CreatePendingSpawnState(
+                    traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
                 ghostStates[i] = state;
                 GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
                     i, traj, state, ctx.currentUT, "first spawn",
@@ -1131,7 +1134,8 @@ namespace Parsek
                 // safe on this line.
                 if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
-                state = CreatePendingSpawnState(traj, PendingSpawnLifecycle.LoopEnter, flags);
+                state = CreatePendingSpawnState(
+                    traj, loopUT, PendingSpawnLifecycle.LoopEnter, flags);
                 state.loopCycleIndex = cycleIndex;
                 ghostStates[index] = state;
                 GhostVisualLoadStatus loopSpawnStatus = EnsureGhostVisualsLoaded(
@@ -1292,7 +1296,8 @@ namespace Parsek
                 }
 
                 // Spawn new primary for lastCycle
-                primaryState = CreatePendingSpawnState(traj, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
+                primaryState = CreatePendingSpawnState(
+                    traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
                 primaryState.loopCycleIndex = lastCycle;
                 ghostStates[index] = primaryState;
                 GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
@@ -2691,7 +2696,7 @@ namespace Parsek
             }
 
             var state = CreatePendingSpawnState(
-                traj, PendingSpawnLifecycle.StandardEnter, default(TrajectoryPlaybackFlags));
+                traj, playbackUT, PendingSpawnLifecycle.StandardEnter, default(TrajectoryPlaybackFlags));
             ghostStates[index] = state;
 
             GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
@@ -2702,9 +2707,10 @@ namespace Parsek
         }
 
         private GhostPlaybackState CreatePendingSpawnState(
-            IPlaybackTrajectory traj, PendingSpawnLifecycle lifecycle, TrajectoryPlaybackFlags flags)
+            IPlaybackTrajectory traj, double playbackUT,
+            PendingSpawnLifecycle lifecycle, TrajectoryPlaybackFlags flags)
         {
-            return new GhostPlaybackState
+            var state = new GhostPlaybackState
             {
                 vesselName = traj?.VesselName ?? "Unknown",
                 playbackIndex = 0,
@@ -2713,6 +2719,11 @@ namespace Parsek
                 pendingSpawnLifecycle = lifecycle,
                 pendingSpawnFlags = flags
             };
+
+            if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
+                state.SetInterpolated(initialPlayback);
+
+            return state;
         }
 
         private void QueueOrEmitGhostCreated(
@@ -3391,6 +3402,133 @@ namespace Parsek
                 return playbackUT;
 
             return activationStartUT;
+        }
+
+        internal static bool TryResolvePendingPlaybackInterpolation(
+            IPlaybackTrajectory traj, double playbackUT, out InterpolationResult result)
+        {
+            result = InterpolationResult.Zero;
+            if (traj == null)
+                return false;
+
+            if (traj.Points != null && traj.Points.Count >= 2)
+            {
+                bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
+                if (!surfaceSkip && TryResolvePendingOrbitSegmentInterpolation(
+                    traj, playbackUT, applySubSurfaceGuard: true, out result))
+                    return true;
+
+                int cachedIndex = 0;
+                if (!TrajectoryMath.InterpolatePoints(
+                    traj.Points, ref cachedIndex, playbackUT,
+                    out TrajectoryPoint before, out TrajectoryPoint after, out float t))
+                {
+                    if (!string.IsNullOrEmpty(before.bodyName))
+                    {
+                        result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
+                        return true;
+                    }
+                }
+                else
+                {
+                    bool useBeforePoint = t == 0f && before.ut == after.ut;
+                    string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
+                    if (!string.IsNullOrEmpty(bodyName))
+                    {
+                        result = new InterpolationResult(
+                            useBeforePoint ? before.velocity : Vector3.Lerp(before.velocity, after.velocity, t),
+                            bodyName,
+                            useBeforePoint
+                                ? before.altitude
+                                : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+                        return true;
+                    }
+                }
+            }
+
+            if (traj.SurfacePos.HasValue && !string.IsNullOrEmpty(traj.SurfacePos.Value.body))
+            {
+                SurfacePosition surface = traj.SurfacePos.Value;
+                result = new InterpolationResult(Vector3.zero, surface.body, surface.altitude);
+                return true;
+            }
+
+            if (traj.Points != null && traj.Points.Count == 1)
+            {
+                if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT)
+                    && TryResolvePendingOrbitSegmentInterpolation(
+                        traj, playbackUT, applySubSurfaceGuard: false, out result))
+                    return true;
+
+                TrajectoryPoint point = traj.Points[0];
+                if (!string.IsNullOrEmpty(point.bodyName))
+                {
+                    result = new InterpolationResult(point.velocity, point.bodyName, point.altitude);
+                    return true;
+                }
+            }
+
+            if (TryResolvePendingOrbitSegmentInterpolation(
+                traj, playbackUT, applySubSurfaceGuard: false, out result))
+                return true;
+
+            if (!string.IsNullOrEmpty(traj.EndpointBodyName))
+            {
+                result = new InterpolationResult(Vector3.zero, traj.EndpointBodyName, 0.0);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolvePendingOrbitSegmentInterpolation(
+            IPlaybackTrajectory traj, double playbackUT, bool applySubSurfaceGuard,
+            out InterpolationResult result)
+        {
+            result = InterpolationResult.Zero;
+            if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT);
+            if (!seg.HasValue || string.IsNullOrEmpty(seg.Value.bodyName))
+                return false;
+
+            if (applySubSurfaceGuard)
+            {
+                double bodyRadius = ResolvePendingOrbitBodyRadius(seg.Value.bodyName);
+                double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
+                if (absSma < bodyRadius * 0.9)
+                    return false;
+            }
+
+            result = new InterpolationResult(Vector3.zero, seg.Value.bodyName, 0.0);
+            return true;
+        }
+
+        private static double ResolvePendingOrbitBodyRadius(string bodyName)
+        {
+            Func<string, double?> resolver = PendingOrbitBodyRadiusResolverForTesting;
+            if (resolver != null)
+            {
+                double? resolved = resolver(bodyName);
+                if (resolved.HasValue && !double.IsNaN(resolved.Value) && !double.IsInfinity(resolved.Value) && resolved.Value > 0)
+                    return resolved.Value;
+            }
+
+            try
+            {
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (segBody != null)
+                    return segBody.Radius;
+            }
+            catch (TypeInitializationException)
+            {
+            }
+            catch (System.Security.SecurityException)
+            {
+            }
+
+            return 600000;
         }
 
         private void TrackGhostAppearance(

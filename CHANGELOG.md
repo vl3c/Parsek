@@ -121,6 +121,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.
