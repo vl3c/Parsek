@@ -377,7 +377,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SameMilestoneWithinPointOneSeconds_WithInterleavedEntry_AreCompacted()
+        public void SameMilestoneWithinPointOneSeconds_IgnoresInterleavedNonMilestone()
         {
             var actions = new List<GameAction>
             {
