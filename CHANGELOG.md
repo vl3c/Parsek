@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#532` `PatchScience` now holds back recent unmatched `RnDTechResearch` debits when KSP has already deducted science but the matching KSC `TechResearched` action has not landed in the ledger yet, so same-UT tech unlock bursts no longer momentarily refund science back into the pool.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
@@ -34,6 +35,7 @@ All notable changes to Parsek are documented here.
 - `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
 - `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
+- `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 
 ### Documentation
 
@@ -107,7 +109,6 @@ All notable changes to Parsek are documented here.
 - Added `BallisticExtrapolator` regressions for zero-progress SOI guardrails, long-horizon surface-scan narrowing, explicit surface-coordinate injection, and the new start/fallback/terminal logging paths.
 - `#476` Added unit and integration coverage for tracker-unavailable post-walk/commit-time earnings reconciliation, including full sandbox-style skips and partial per-resource gating.
 - `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
-- `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 - `#462` Added a regression for mixed null-tagged/tagged post-walk milestone windows so legacy siblings cannot reclaim ownership of a tagged `Progression` burst purely because they appear earlier in the ledger.
 - `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
 - `#467` Added `GameStateRecorder` regression coverage for near-threshold `ReputationChanged` deltas, including the stock-rounded `+/-0.9999995` shape and a control case that still ignores clearly sub-threshold reputation noise.
@@ -137,7 +138,6 @@ All notable changes to Parsek are documented here.
 - `#487` The Ctrl+Shift+T test runner window now defers opaque-style rebuilds until the destination scene's IMGUI skin exposes a real normal window background, and any lagging hover/focus/active variants fall back to that ready background instead of being cached as transparent states. Scene-reset cleanup also destroys the copied opaque textures before rebuilding to avoid leaking them across repeated transitions.
 - `#463` Deferred warp-end spawns now replay already-due `FlagEvents` for the spawned recording, so flags planted mid-recording still materialise even if you time-warp past that recording while watching something else.
 - `#466` `RecalculateAndPatch` now defers KSP state patching while a live, active, or pending flight tree is still uncommitted, so mid-flight/load-time recalculations no longer snap funds back down to the committed-ledger target. Discard paths now explicitly recalculate once the pending tree is gone.
-- `#532` `PatchScience` now holds back recent unmatched `RnDTechResearch` debits when KSP has already deducted science but the matching KSC `TechResearched` action has not landed in the ledger yet, so same-UT tech unlock bursts no longer momentarily refund science back into the pool.
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
 - `#471` Gloops recordings now commit with looping off by default, so fresh ghost-only captures stay idle until you turn looping on and then follow the normal auto loop timing.
 - `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
