@@ -121,7 +121,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#527` Rewind follow-up scene-load recalculations now rebuild career state at the current loaded UT instead of walking the full ledger. The later FLIGHT `OnLoad` pass no longer restores future funds/contracts immediately after rewind; those actions stay filtered until replay reaches their UT again.
+- `#527` Rewind follow-up post-rewind FLIGHT-load recalculations now rebuild career state at the current loaded UT instead of walking the full ledger. The later FLIGHT `OnLoad` pass no longer restores future funds/contracts immediately after rewind; those actions stay filtered until replay reaches their UT again. The cutoff-dispatch log now includes every decision input, the other deferred `ParsekScenario` recalcs were audited as intentional full-ledger non-rewind paths, and a manual-only live rewind canary now exercises the real load flow.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

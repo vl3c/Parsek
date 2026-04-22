@@ -272,6 +272,27 @@ namespace Parsek.Tests
                 Ledger.AddAction(actions[i]);
         }
 
+        private static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+            bool isRevert = false,
+            bool loadedSceneIsFlight = true,
+            bool planetariumReady = true,
+            bool hasPendingTree = false,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode = ParsekScenario.ActiveTreeRestoreMode.None,
+            bool hasLiveRecorder = false,
+            bool hasActiveUncommittedTree = false,
+            bool hasFutureLedgerActions = true)
+        {
+            return ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                isRevert,
+                loadedSceneIsFlight,
+                planetariumReady,
+                hasPendingTree,
+                restoreMode,
+                hasLiveRecorder,
+                hasActiveUncommittedTree,
+                hasFutureLedgerActions);
+        }
+
         private static void AssertLogHasCutoffSummary(List<string> lines, int actionsTotal,
             int actionsAfterCutoff, string cutoffLabel)
         {
@@ -674,7 +695,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SceneLoadFollowup_AfterRewind_UsesCurrentUtCutoff()
+        public void PostRewindFlightLoadFollowup_AfterRewind_UsesCurrentUtCutoff()
         {
             AddAll(
                 FundsSeed(10000f),
@@ -691,7 +712,7 @@ namespace Parsek.Tests
             RewindContext.EndRewind();
             logLines.Clear();
 
-            ParsekScenario.RecalculateAndPatchForSceneLoad(200.0);
+            ParsekScenario.RecalculateAndPatchForPostRewindFlightLoad(200.0);
 
             AssertLogHasCutoffSummary(logLines, 3, 1, "200");
             Assert.Equal(firstBalance, LedgerOrchestrator.Funds.GetRunningBalance(), 5);
@@ -701,57 +722,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SceneLoadCurrentUtCutoffDecision_RequiresSpecificPostRewindShape()
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_HappyPath_ReturnsTrue()
         {
-            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
-                isRevert: false,
-                loadedSceneIsFlight: true,
-                planetariumReady: false,
-                hasPendingTree: false,
-                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
-                hasLiveRecorder: false,
-                hasActiveUncommittedTree: false,
-                hasFutureLedgerActions: true));
+            Assert.True(ShouldUseCurrentUtCutoffForPostRewindFlightLoad());
+        }
 
-            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
-                isRevert: false,
-                loadedSceneIsFlight: true,
-                planetariumReady: true,
-                hasPendingTree: true,
-                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
-                hasLiveRecorder: false,
-                hasActiveUncommittedTree: false,
-                hasFutureLedgerActions: true));
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsRevert()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(isRevert: true));
+        }
 
-            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
-                isRevert: false,
-                loadedSceneIsFlight: true,
-                planetariumReady: true,
-                hasPendingTree: false,
-                restoreMode: ParsekScenario.ActiveTreeRestoreMode.Quickload,
-                hasLiveRecorder: false,
-                hasActiveUncommittedTree: false,
-                hasFutureLedgerActions: true));
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsNonFlightScene()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(loadedSceneIsFlight: false));
+        }
 
-            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
-                isRevert: false,
-                loadedSceneIsFlight: false,
-                planetariumReady: true,
-                hasPendingTree: false,
-                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
-                hasLiveRecorder: false,
-                hasActiveUncommittedTree: false,
-                hasFutureLedgerActions: true));
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsPlanetariumNotReady()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(planetariumReady: false));
+        }
 
-            Assert.True(ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(
-                isRevert: false,
-                loadedSceneIsFlight: true,
-                planetariumReady: true,
-                hasPendingTree: false,
-                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
-                hasLiveRecorder: false,
-                hasActiveUncommittedTree: false,
-                hasFutureLedgerActions: true));
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsPendingTree()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(hasPendingTree: true));
+        }
+
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsQuickloadRestore()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.Quickload));
+        }
+
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsVesselSwitchRestore()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.VesselSwitch));
+        }
+
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsLiveRecorder()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(hasLiveRecorder: true));
+        }
+
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsActiveUncommittedTree()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                hasActiveUncommittedTree: true));
+        }
+
+        [Fact]
+        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsMissingFutureLedgerActions()
+        {
+            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                hasFutureLedgerActions: false));
         }
 
         // ================================================================

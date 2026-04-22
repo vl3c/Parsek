@@ -296,9 +296,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`.
 
-**Fix:** the generic scene-load follow-up path now applies the current-UT cutoff only in the specific post-rewind FLIGHT case with no pending/live restore state, via `ParsekScenario.ShouldUseCurrentUtCutoffForSceneLoad(...)` and `LedgerOrchestrator.RecalculateAndPatchForSceneLoad(loadedUT)`. That keeps the later FLIGHT `OnLoad` pass aligned with the rewound clock without bypassing normal pending-tree patch deferral or same-branch repeatable-record preservation.
+**Fix:** the generic scene-load follow-up path now applies the current-UT cutoff only in the specific post-rewind FLIGHT case with no pending/live restore state, via `ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(...)` and `LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(loadedUT)`. That keeps the later FLIGHT `OnLoad` pass aligned with the rewound clock without bypassing normal pending-tree patch deferral or same-branch repeatable-record preservation. The dispatch `Info` log now records every decision input, the other deferred `ParsekScenario.RecalculateAndPatch()` sites were audited as true revert / initial-load full-ledger paths, and `Source/Parsek/InGameTests/RuntimeTests.cs` now contains a manual-only live rewind canary for this exact regression.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
 
 ---
 

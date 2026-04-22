@@ -1153,12 +1153,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Scene-load follow-up recalculation that filters the walk to the currently
-        /// loaded UT without opting into rewind-only patch side effects. Unlike the
-        /// normal explicit-cutoff path, this preserves pending/live-tree patch
-        /// deferral and same-branch repeatable-record preservation.
+        /// Post-rewind FLIGHT-load follow-up recalculation that filters the walk to
+        /// the currently loaded UT without opting into rewind-only patch side
+        /// effects. Unlike the normal explicit-cutoff path, this preserves
+        /// pending/live-tree patch deferral and same-branch repeatable-record
+        /// preservation.
         /// </summary>
-        internal static void RecalculateAndPatchForSceneLoad(double utCutoff)
+        internal static void RecalculateAndPatchForPostRewindFlightLoad(double utCutoff)
         {
             RecalculateAndPatchCore(
                 utCutoff,
@@ -1249,7 +1250,8 @@ namespace Parsek
             // #440 Phase E2: post-walk reconciliation for strategy-transformed
             // and curve-applied reward types. Runs once per walk, log-only,
             // after derived fields (Transformed*Reward/EffectiveRep/
-            // EffectiveScience) are populated and before KSP state is patched.
+            // EffectiveScience) are populated and before the later KSP patch/defer
+            // branch decides whether this walk mutates live game state.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
             // #466: a live or pending tree means KSP's mutable state may already include
