@@ -144,6 +144,9 @@ namespace Parsek.Tests
                     currentScience: 10f);
 
                 Assert.Equal(13.0, adjusted, 3);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[KspStatePatcher]") &&
+                    l.Contains("holding back 5.0 pending tech-unlock science"));
             }
             finally
             {
