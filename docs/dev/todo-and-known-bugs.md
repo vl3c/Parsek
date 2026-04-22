@@ -490,15 +490,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 544. Rewind-to-launch should give 15 seconds of lead time instead of 10
+## ~~544. Rewind-to-launch should give 15 seconds of lead time instead of 10~~
 
 **Source:** user request from 2026-04-22 plus current code read in `RecordingStore.InitiateRewind`.
 
 **Concern:** the rewind preprocessing path still winds UT back by only `10.0` seconds (`rewindLeadTime`) before restoring the stripped launch save. That is not enough setup time on many launches. Requested change: increase the lead time to 15 seconds and update the related tests/logging assumptions that currently pin the 10-second value.
 
-**Files:** `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/RewindLoggingTests.cs`, `Source/Parsek.Tests/RewindPrelaunchStripTests.cs`, `Source/Parsek.Tests/RewindTreeLookupTests.cs`.
+**Fix:** `RecordingStore` now routes rewind-to-launch through a shared `RewindToLaunchLeadTimeSeconds = 15.0` constant, so the stripped launch save rewinds far enough for pad setup before the ghost appears. The end-to-end rewind logging / adjusted-UT tests now read that same constant instead of pinning the old 10-second launch assumption in literals.
 
-**Status:** TODO. Small behavior tweak.
+**Files:** `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/RewindLoggingTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
