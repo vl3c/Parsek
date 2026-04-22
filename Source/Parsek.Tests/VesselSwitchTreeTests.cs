@@ -211,6 +211,100 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Committed spawned-vessel restore
+
+        [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_PrefersLatestRestorableRecordingForSpawnedPid()
+        {
+            var tree = MakeTree("rec_other");
+            tree.Recordings["rec_old"] = new Recording
+            {
+                RecordingId = "rec_old",
+                VesselName = "Old Chain Segment",
+                VesselPersistentId = 20,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                ChainId = "chain",
+                ChainIndex = 0,
+                TreeOrder = 0,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Current Chain Tip",
+                VesselPersistentId = 30,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                ChainId = "chain",
+                ChainIndex = 1,
+                TreeOrder = 1,
+                ExplicitStartUT = 151.0,
+                ExplicitEndUT = 200.0
+            };
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 200,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found);
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_tip", matchedRecordingId);
+        }
+
+        [Fact]
+        public void PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry()
+        {
+            var tree = MakeTree("rec_active", (20, "rec_tip"));
+            tree.Recordings["rec_active"].VesselPersistentId = 100;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 100;
+            tree.Recordings["rec_tip"].VesselSpawned = true;
+            tree.Recordings["rec_tip"].SpawnedVesselPersistentId = 200;
+            tree.Recordings["rec_tip"].TerminalStateValue = TerminalState.Orbiting;
+
+            var action = ParsekFlight.PrepareCommittedTreeRestoreForSpawnedVessel(
+                tree,
+                targetRecordingId: "rec_tip",
+                activeVesselPid: 200);
+
+            Assert.Equal(
+                ParsekFlight.CommittedSpawnedVesselRestoreAction.PromoteFromBackground,
+                action);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.Equal("rec_active", tree.BackgroundMap[100]);
+            Assert.False(tree.BackgroundMap.ContainsKey(20));
+            Assert.DoesNotContain("rec_tip", tree.BackgroundMap.Values);
+        }
+
+        [Fact]
+        public void PrepareCommittedTreeRestoreForSpawnedVessel_ActiveTarget_ResumesAndClearsStaleBackgroundEntry()
+        {
+            var tree = MakeTree("rec_active", (300, "rec_bg"));
+            tree.Recordings["rec_active"].VesselPersistentId = 100;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 200;
+            tree.BackgroundMap[50] = "rec_active";
+
+            var action = ParsekFlight.PrepareCommittedTreeRestoreForSpawnedVessel(
+                tree,
+                targetRecordingId: "rec_active",
+                activeVesselPid: 200);
+
+            Assert.Equal(
+                ParsekFlight.CommittedSpawnedVesselRestoreAction.ResumeActiveRecording,
+                action);
+            Assert.Equal("rec_active", tree.ActiveRecordingId);
+            Assert.Single(tree.BackgroundMap);
+            Assert.Equal("rec_bg", tree.BackgroundMap[300]);
+            Assert.DoesNotContain("rec_active", tree.BackgroundMap.Values);
+        }
+
+        #endregion
+
         #region Existing tests still pass with default activeTree parameter
 
         [Fact]
