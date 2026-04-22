@@ -150,6 +150,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSkipTrackingStationDuplicateSpawn_MatchingSceneEntryPidAndExistingRealVessel_ReturnsTrue()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+
+            bool alreadyMaterialized = GhostMapPresence.ShouldSkipTrackingStationDuplicateSpawn(
+                rec,
+                realVesselExists: true,
+                sceneEntryActiveVesselPid: 777);
+
+            Assert.True(alreadyMaterialized);
+        }
+
+        [Fact]
+        public void ShouldSkipTrackingStationDuplicateSpawn_MatchingSceneEntryPidWithoutExistingRealVessel_ReturnsFalse()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+
+            bool alreadyMaterialized = GhostMapPresence.ShouldSkipTrackingStationDuplicateSpawn(
+                rec,
+                realVesselExists: false,
+                sceneEntryActiveVesselPid: 777);
+
+            Assert.False(alreadyMaterialized);
+        }
+
+        [Fact]
         public void ShouldPreserveIdentityForTrackingStationSpawn_ActiveTipWithoutRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "tip", pid: 321);

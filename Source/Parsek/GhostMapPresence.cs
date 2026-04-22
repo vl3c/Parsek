@@ -470,8 +470,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
 
-            // Real-vessel materialization is part of lifecycle correctness, not ghost
-            // visibility. Keep the handoff active even when the TS ghost toggle is off.
+            // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
             if (hasCommittedRecordings)
                 TryRunTrackingStationSpawnHandoffs(committed, currentUT);
 
@@ -630,6 +629,7 @@ namespace Parsek
                 return;
 
             GhostPlaybackLogic.InvalidateVesselCache();
+            uint sceneEntryActiveVesselPid = RecordingStore.SceneEntryActiveVesselPid;
 
             for (int i = 0; i < eligibleIndices.Count; i++)
             {
@@ -637,8 +637,12 @@ namespace Parsek
                 Recording rec = committed[index];
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
+                    rec,
+                    realVesselExists,
+                    sceneEntryActiveVesselPid);
 
-                if (realVesselExists)
+                if (alreadyMaterialized)
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
@@ -970,6 +974,18 @@ namespace Parsek
             return chain != null
                 && !chain.IsTerminated
                 && chain.TipRecordingId == rec.RecordingId;
+        }
+
+        internal static bool ShouldSkipTrackingStationDuplicateSpawn(
+            Recording rec,
+            bool realVesselExists,
+            uint sceneEntryActiveVesselPid)
+        {
+            // Unlike FLIGHT, Tracking Station never treats the last FLIGHT scene-entry PID
+            // as permission to spawn over an already-live real vessel.
+            return rec != null
+                && rec.VesselPersistentId != 0
+                && realVesselExists;
         }
 
         internal static string NormalizeTrackingStationSpawnSuppressionReason(string reason)
