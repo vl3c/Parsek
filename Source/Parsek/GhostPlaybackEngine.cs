@@ -3426,7 +3426,11 @@ namespace Parsek
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
-                if (surfaceSkip && traj.OrbitSegments != null && traj.OrbitSegments.Count > 0)
+                bool hasActiveOrbitSegment =
+                    traj.OrbitSegments != null
+                    && traj.OrbitSegments.Count > 0
+                    && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
+                if (surfaceSkip && hasActiveOrbitSegment)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
                     ParsekLog.Verbose("Engine", FormattableString.Invariant(
@@ -3465,10 +3469,16 @@ namespace Parsek
                             useBeforePoint
                                 ? before.altitude
                                 : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+                        bool crossBodyTransition =
+                            !useBeforePoint
+                            && !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal);
                         string pointSource = useBeforePoint
                             ? "same-UT point segment"
                             : afterEndClamp
                                 ? "point after-end clamp"
+                                : crossBodyTransition
+                                    ? FormattableString.Invariant(
+                                        $"cross-body point transition {before.bodyName ?? "(null)"}->{after.bodyName ?? "(null)"} (using upper-point body)")
                                 : "point interpolation";
                         return LogPendingPlaybackInterpolationResolved(
                             traj, playbackUT, result, pointSource);
