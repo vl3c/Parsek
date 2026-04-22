@@ -1063,6 +1063,36 @@ namespace Parsek.Tests
             Assert.DoesNotContain("mun-leg", suppressed);
         }
 
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_IndeterminateChildStart_DoesNotHideParent()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return"
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 320);
+
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
         #endregion
 
         #region ShouldCreateTrackingStationGhost
@@ -1289,6 +1319,26 @@ namespace Parsek.Tests
 
             Assert.True(should);
             Assert.Null(reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_SuppressedTerminalOrbitParent_RemovesExistingGhost()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "kerbin-parent",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: true,
+                hasOrbitBounds: false,
+                currentUT: 320);
+
+            Assert.Equal("tracking-station-child-started", reason);
         }
 
         /// <summary>

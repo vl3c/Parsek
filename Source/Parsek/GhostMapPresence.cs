@@ -480,40 +480,49 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
+            var suppressed = hasCommittedRecordings
+                ? FindTrackingStationSuppressedRecordingIds(committed, currentUT)
+                : new HashSet<string>();
+            CachedTrackingStationSuppressedIds = suppressed;
 
             // --- Phase 1: refresh existing segment-based ghosts or remove exhausted ones ---
             if (vesselsByRecordingIndex.Count > 0)
             {
-                List<int> toRemove = null;
+                List<(int idx, string reason)> toRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
                     int idx = kvp.Key;
                     if (!hasCommittedRecordings)
                     {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "tracking-station-expired"));
                         continue;
                     }
 
-                    uint pid = kvp.Value.persistentId;
-                    if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
-
                     if (idx < 0 || idx >= committed.Count)
                     {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "tracking-station-expired"));
                         continue;
                     }
 
                     var rec = committed[idx];
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                    if (!seg.HasValue)
+                    bool isSuppressed = suppressed.Contains(rec.RecordingId);
+                    uint pid = kvp.Value.persistentId;
+                    bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
+
+                    string removeReason = GetTrackingStationGhostRemovalReason(
+                        rec, isSuppressed, hasOrbitBounds, currentUT);
+                    if (removeReason != null)
                     {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, removeReason));
                         continue;
                     }
 
+                    if (!hasOrbitBounds) continue;
+
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                     if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
                         UpdateGhostOrbitForRecording(idx, seg.Value);
                 }
@@ -522,28 +531,23 @@ namespace Parsek
                 {
                     for (int i = 0; i < toRemove.Count; i++)
                     {
-                        int idx = toRemove[i];
-                        RemoveGhostVesselForRecording(idx, "tracking-station-expired");
+                        int idx = toRemove[i].idx;
+                        string reason = toRemove[i].reason;
+                        RemoveGhostVesselForRecording(idx, reason);
                         ParsekLog.Info(Tag,
                             string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past visible orbit range",
-                                idx, currentUT));
+                                "Removed tracking-station ghost #{0} — UT {1:F1} reason={2}",
+                                idx, currentUT, reason));
                     }
                 }
             }
 
             if (!hasCommittedRecordings)
             {
-                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 return;
             }
 
             // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
-            // Compute once per tick — also used by ParsekTrackingStation.OnGUI via
-            // CachedTrackingStationSuppressedIds.
-            var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
-            CachedTrackingStationSuppressedIds = suppressed;
-
             for (int i = 0; i < committed.Count; i++)
             {
                 // Skip recordings that already have a ghost
@@ -957,15 +961,27 @@ namespace Parsek
             return created;
         }
 
+        internal static string GetTrackingStationGhostRemovalReason(
+            Recording rec, bool isSuppressed, bool hasOrbitBounds, double currentUT)
+        {
+            if (rec == null)
+                return "tracking-station-expired";
+
+            if (isSuppressed)
+                return "tracking-station-child-started";
+
+            if (!hasOrbitBounds)
+                return null;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+            return seg.HasValue ? null : "tracking-station-expired";
+        }
+
         private static bool HasTrackingStationChildStarted(Recording child, double currentUT)
         {
-            if (child == null)
-                return true;
-
-            if (child.TryGetGhostActivationStartUT(out double startUT))
-                return currentUT >= startUT;
-
-            return true;
+            return child != null
+                && child.TryGetGhostActivationStartUT(out double startUT)
+                && currentUT >= startUT;
         }
 
         /// <summary>
