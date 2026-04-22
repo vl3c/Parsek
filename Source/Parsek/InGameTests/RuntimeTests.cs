@@ -2778,29 +2778,18 @@ namespace Parsek.InGameTests
             if (engine == null)
                 InGameAssert.Skip("no GhostPlaybackEngine");
 
-            var committed = RecordingStore.CommittedRecordings;
-            Recording rec = null;
-            int recordingIndex = -1;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var candidate = committed[i];
-                if (candidate != null
-                    && candidate.Points != null
-                    && candidate.Points.Count >= 2
-                    && !string.IsNullOrEmpty(candidate.Points[0].bodyName))
-                {
-                    rec = candidate;
-                    recordingIndex = i;
-                    break;
-                }
-            }
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+                InGameAssert.Skip("requires a non-EVA active vessel");
+            if (!FlightIntegrationTests.TryBuildSyntheticKeepVesselTree(
+                    activeVessel, out _, out Recording rec, out string skipReason))
+                InGameAssert.Skip(skipReason ?? "failed to build synthetic playback recording");
 
-            if (rec == null)
-                InGameAssert.Skip("needs a committed recording with a non-empty trajectory");
-
-            int sentinelIndex = committed.Count + 1000;
-            if (engine.ghostStates.ContainsKey(sentinelIndex))
-                InGameAssert.Skip("sentinel index collision");
+            int sentinelIndex = 1000;
+            while (engine.ghostStates.ContainsKey(sentinelIndex))
+                sentinelIndex++;
 
             double primingUT = rec.Points[rec.Points.Count / 2].ut;
 
@@ -2828,7 +2817,7 @@ namespace Parsek.InGameTests
                     $"priming should move ghost away from origin, got distance={ghostOriginDist:F2}");
 
                 ParsekLog.Verbose("TestRunner",
-                    $"SpawnGhost priming in-game: recordingIndex={recordingIndex} " +
+                    $"SpawnGhost priming in-game: rec='{rec.RecordingId}' " +
                     $"vessel=\"{rec.VesselName}\" sentinelIndex={sentinelIndex} " +
                     $"primingUT={primingUT:F2} body=\"{state.lastInterpolatedBodyName}\" " +
                     $"altitude={state.lastInterpolatedAltitude:F1} " +
@@ -7691,7 +7680,7 @@ namespace Parsek.InGameTests
 
         #region PlaybackControl helpers
 
-        private static bool TryBuildSyntheticKeepVesselTree(
+        internal static bool TryBuildSyntheticKeepVesselTree(
             Vessel activeVessel,
             out RecordingTree tree,
             out Recording recording,
