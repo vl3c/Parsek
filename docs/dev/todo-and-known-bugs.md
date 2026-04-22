@@ -446,7 +446,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 540. Three xUnit style warnings on `dotnet test` should be cleaned up
+## ~~540. Three xUnit style warnings on `dotnet test` should be cleaned up~~
 
 **Source:** `dotnet test` on current `main` emits three xUnit analyzer warnings: `InGameTestRunnerTests.cs:259` (`xUnit1013` — `FormatCoroutineState_ReportsActiveAndIdleSlots` is public but missing `[Fact]`, so it silently does not run) and `KerbalsWindowUITests.cs:700-701` (two `xUnit2009` — `Assert.True(text.StartsWith(prefix, StringComparison.Ordinal))` should be `Assert.StartsWith(prefix, text, StringComparison.Ordinal)` for better failure messages).
 
@@ -454,7 +454,9 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek.Tests/InGameTestRunnerTests.cs` (add `[Fact]` to `FormatCoroutineState_ReportsActiveAndIdleSlots` or reduce visibility), `Source/Parsek.Tests/KerbalsWindowUITests.cs` (swap both `Assert.True(x.StartsWith(...))` for `Assert.StartsWith(...)`).
 
-**Status:** OPEN. Cheap cleanup; unblocks any later `TreatWarningsAsErrors` for the test project.
+**Fix / Resolution (2026-04-22):** CLOSED for v0.8.3. `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` is now explicitly marked `[Fact]`, so the assertion runs instead of sitting as public test-shaped dead code, and `KerbalsWindowUITests.MissionOutcomesAndRosterUseSameSubitemIndent` now uses `Assert.StartsWith(...)` for both indent-prefix checks instead of `Assert.True(text.StartsWith(...))`. A forced `dotnet build Source/Parsek.Tests/Parsek.Tests.csproj -t:Rebuild --no-restore` rerun now reports `0 Warning(s)`.
+
+**Status:** CLOSED 2026-04-22. Cheap cleanup completed; the test project no longer carries these baseline analyzer warnings.
 
 ---
 
