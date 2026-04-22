@@ -877,24 +877,25 @@ Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and clo
 
 ---
 
-## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+## ~~492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence~~
 
 **Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
 
-**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+**Current state:** closed. `Source/Parsek/InGameTests/RuntimeTests.cs` contains `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` (the file is `RuntimeTests.cs`, but the owning/exported class name is `FlightIntegrationTests`). These deterministic `FLIGHT` runtime tests build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. Retained April 21, 2026 live bundles now show both tests passing in `FLIGHT`.
 
 **Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
 
-**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+**Evidence:**
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` records both `FlightIntegrationTests.PartEventTiming_*` rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` records the same two rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` records `Running`/`PASSED` for both canaries plus the `Applied 1 part events for ghost #902/#901` diagnostics at the event boundary
 
-Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+This closes the audit's first player-visible part-event timing gap for the light/deployable slice without requiring new live interaction in this worktree.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED - LIVE KSP VALIDATED (evidence retained in `C:\Users\vlad3\Documents\Code\Parsek\logs\`).
 
 ---
 

@@ -497,11 +497,13 @@ The branch now also contains the next two manual-only scene-exit canaries for th
 - both new tests are `AllowBatchExecution = false` because they mutate the live session, cross from `FLIGHT` into `SPACECENTER`, and use the real deferred merge dialog rather than a synthetic popup invocation
 - the supporting helper now mirrors stock `PauseMenu.saveAndExit(...)` more closely by firing `onSceneConfirmExit`, invoking `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saving `persistent`, and only then loading `SPACECENTER`
 
-The branch also now contains the first deterministic timing-sensitive part-event canaries, likewise still awaiting live evidence:
+The branch also now contains the first deterministic timing-sensitive part-event canaries, and retained live bundles now show them passing:
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
-- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
+- `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
+- `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` both record the two `PartEventTiming` rows as clean `FLIGHT PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` also records the `Running`/`PASSED` lines plus the `Applied 1 part events for ghost #902/#901` diagnostics when each canary reaches its authored event boundary
+- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note, and the retained April 21 evidence now closes that first light/deployable timing gap
 
 The branch now also contains a first pass at making destructive FLIGHT runtime tests batchable without repeated manual game reloads:
 
@@ -520,7 +522,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 2. **Live-validate the two new non-revert scene-exit canaries**
    Still from a disposable prelaunch flight, run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually and capture the resulting `KSP.log` / `parsek-test-results.txt`.
 3. **Live-validate the first timing-sensitive part-event canaries**
-   In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
+   Completed on 2026-04-21: retained bundles `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` show clean `FLIGHT PASSED` rows for `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, with matching `Running`/`PASSED` lines in the latter bundle's `KSP.log`.
 4. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
 5. **After that, broaden the part-event timing slice if needed**
