@@ -454,15 +454,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count
+## ~~541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count~~
 
 **Source:** user request from 2026-04-22 after a main-page UI wording pass.
 
 **Concern:** the main button column still renders `Kerbals ({total})` and `Career State`. For top-level navigation the count suffix is noise, and `Career State` is longer/more formal than the rest of the button labels. Requested wording: `Kerbals` with no trailing count, and `Career` instead of `Career State`. Any detailed counts can stay inside the destination windows rather than on the launch surface.
 
-**Files:** `Source/Parsek/ParsekUI.cs`, plus small regression coverage in `Source/Parsek.Tests/ParsekUITests.cs` or equivalent UI-label tests.
+**Fix:** `ParsekUI` now renders the launch-surface buttons as `Kerbals` and `Career`, removes the dynamic Kerbals aggregate count entirely from the main column, and leaves the detailed roster counts inside the Kerbals/Career destination windows. `ParsekUITests` now pin the short-label contract so a future refactor cannot quietly reintroduce the count suffix or the longer `Career State` button label.
 
-**Status:** TODO / UI polish. Cheap text-only cleanup.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
