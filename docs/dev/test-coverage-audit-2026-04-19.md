@@ -503,20 +503,21 @@ The branch also now contains the first deterministic timing-sensitive part-event
 - `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
 - unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
 
-The branch now also contains a live-validated path for batching destructive FLIGHT runtime tests without repeated manual game reloads:
+The branch now also contains a stronger but still not final retained-validation path for batching destructive FLIGHT runtime tests without repeated manual game reloads:
 
 - the in-game runner exposes explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
-- the retained `logs/2026-04-21_2041_live-collect-now` evidence bundle shows that widened path running in one disposable `FLIGHT` session with a baseline captured for 9 restore-after-run tests and a clean finish at `153 passed, 0 failed, 29 skipped` (`parsek-test-results.txt`: `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`)
+- the retained sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` (pinned only to historical commit `80176033`) shows that widened path running in one disposable `FLIGHT` session with a baseline captured for 9 restore-after-run tests and a clean finish in `parsek-test-results.txt` at `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`
 - that same live batch includes passing `AutoRecord`, FLIGHT merge-dialog, `Keep Vessel`, `BridgeSurvivesSceneTransition`, `Quickload_MidRecording_ResumesSameActiveRecordingId`, and `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` restore-backed canaries; the watch-cleanup regression remains save-dependent and skipped in that retained session because no same-body ghost was available
-- `SceneExitMerge` still intentionally remains manual-only: `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` shows both exit-to-KSC canaries passing separately, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so that path is still too state-dirty to trust inside the isolated FLIGHT batch
-- local CLI build/test verification is still environment-dependent on this workstation (`.NETFramework,Version=v4.7.2` reference assemblies are missing here), so the retained KSP bundles remain the decisive confidence signal for this slice
+- because that retained packet predates the later StageManager/live-log-observer/first-real-point hardening now documented for `#493`, it improves confidence but does not fully close the follow-up on its own; the batch evidence still needs to be re-captured from the final revision with the save-dependent watch-cleanup canary actually exercised
+- `SceneExitMerge` still intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both exit-to-KSC canaries passing separately, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so that path is still too state-dirty to trust inside the isolated FLIGHT batch
+- local CLI build/test verification is still environment-dependent on this workstation (`.NETFramework,Version=v4.7.2` reference assemblies are missing here), so fresh retained KSP bundles remain the decisive confidence signal for this slice
 
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
-1. **Keep the isolated batch evidence current**
-   The live-validation gap is now closed. When the restore-backed destructive FLIGHT cohort changes again, rerun `Run All + Isolated` or per-category `Run+` from a disposable prelaunch `FLIGHT` session and retain fresh `KSP.log` / `parsek-test-results.txt` evidence.
+1. **Re-capture the isolated batch evidence on the final quickload-hardened revision**
+   The retained April 21 packet is useful, but it predates the latest `#493` hardening and still leaves the save-dependent watch-cleanup canary skipped. Rerun `Run All + Isolated` or per-category `Run+` from a disposable prelaunch `FLIGHT` session, ensure a same-body ghost is available for the watch-cleanup regression, and retain fresh `KSP.log` / `parsek-test-results.txt` evidence pinned to the current commit.
 2. **Reduce the post-run contamination on the scene-exit canaries**
    `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` already have live pass evidence, but they still leave the session state-dirty enough to log a real post-run terrain crash. The next useful work is eliminating that contamination so they can eventually join the isolated FLIGHT batch.
 3. **Live-validate the first timing-sensitive part-event canaries**
@@ -531,7 +532,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 The first scripted runtime scenarios I would validate/add next are:
 
 1. **Non-revert scene-exit deferred merge flow**
-   The commit/discard canaries now have real KSP pass evidence; the remaining gap is not coverage existence anymore, but cleaning up the post-run contamination that still keeps them out of the isolated FLIGHT batch.
+   The commit/discard canaries have retained KSP pass evidence; the remaining gap is re-capturing that evidence on the current revision and cleaning up the post-run contamination that still keeps them out of the isolated FLIGHT batch.
 2. **Part-event timing showcase**
    The first light/deployable timing canaries are now implemented locally; the next task is live validation, then deciding whether fairing/RCS timing needs the same treatment.
 

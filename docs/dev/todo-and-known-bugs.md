@@ -898,13 +898,13 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 ---
 
-## ~~493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode~~
+## 493. Destructive FLIGHT runtime tests now have a stronger retained isolated batch path, but final live validation is still pending
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
 **Fix:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests.
 
-**Live evidence:** `logs/2026-04-21_2041_live-collect-now` captured the widened restore-backed cohort in one disposable `FLIGHT` session. Its `KSP.log` shows a single baseline captured for 9 restore-after-run tests, a restore back to that baseline after each destructive pass, and a clean batch finish at `153 passed, 0 failed, 29 skipped`. Its `parsek-test-results.txt` records `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
+**Current state:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests. Retained evidence under sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` shows that path working on historical commit `80176033`: `parsek-test-results.txt` records `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
@@ -915,11 +915,13 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 - `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
 - `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that retained session and skipped with `no same-body ghost available for watch-cleanup regression`; the isolated harness still handled it cleanly inside the same batch run.
+`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that retained session and skipped with `no same-body ghost available for watch-cleanup regression`; the isolated harness handled that skip cleanly, but the full widened cohort still has not been exercised end-to-end in one retained packet.
 
-**Caveat:** `SceneExitMerge` intentionally remains manual-only. `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` shows both `SPACECENTER` scene-exit canaries passing, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch.
+**Caveat:** this retained batch evidence predates the later `#493` quickload hardening now documented in `CHANGELOG.md`, so it improves confidence but does not fully close the issue on its own. `SceneExitMerge` also intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both `SPACECENTER` scene-exit canaries passing, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch.
 
-**Status:** CLOSED 2026-04-22. Fixed/documented for `v0.8.3`.
+**Current follow-up:** re-capture retained `Run All + Isolated` / `Run+` evidence from the final quickload-hardened revision, with a same-body ghost available so the watch-cleanup regression runs instead of skipping. Keep `SceneExitMerge` manual-only until the post-run contamination is eliminated.
+
+**Status:** OPEN - PARTIAL RETAINED EVIDENCE EXISTS; FINAL-REVISION LIVE VALIDATION PENDING.
 
 ---
 
