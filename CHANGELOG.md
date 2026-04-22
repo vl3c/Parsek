@@ -15,11 +15,13 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#525` Flight ghost explosions now resolve a clearance-checked anchor before spawning FX or emitting the watch hold position. If a watched ghost root is momentarily below PQS terrain at destruction time, the explosion and the watch camera now use the same terrain-safe anchor instead of burying both effects at the raw root transform.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
 ### Tests
 
+- `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries, and retained live bundles under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` now show both exported `FlightIntegrationTests.PartEventTiming_*` rows passing in `FLIGHT`.

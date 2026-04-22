@@ -11577,6 +11577,57 @@ namespace Parsek
                 positioned.altitude));
         }
 
+        Vector3 IGhostPositioner.ResolveExplosionAnchorPosition(int index,
+            IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            if (state?.ghost == null)
+                return Vector3.zero;
+
+            Vector3 rawWorldPos = state.ghost.transform.position;
+            string bodyName = ResolveExplosionAnchorBodyName(
+                state.lastInterpolatedBodyName, traj);
+            if (string.IsNullOrEmpty(bodyName))
+                return rawWorldPos;
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null || body.pqsController == null)
+                return rawWorldPos;
+
+            double latitude = body.GetLatitude(rawWorldPos);
+            double longitude = body.GetLongitude(rawWorldPos);
+            double rawAltitude = body.GetAltitude(rawWorldPos);
+            double terrainHeight = body.TerrainAltitude(latitude, longitude, true);
+
+            double minClearance = ImmediateLandedGhostClearanceFallbackMeters;
+            if (FlightGlobals.ActiveVessel != null)
+            {
+                double distanceToVessel = Vector3d.Distance(
+                    rawWorldPos, FlightGlobals.ActiveVessel.GetWorldPos3D());
+                minClearance = ComputeTerrainClearance(distanceToVessel);
+            }
+
+            double clampedAltitude = TerrainCorrector.ClampAltitude(
+                rawAltitude, terrainHeight, minClearance);
+            if (clampedAltitude <= rawAltitude)
+                return rawWorldPos;
+
+            Vector3 clampedWorldPos = body.GetWorldSurfacePosition(
+                latitude, longitude, clampedAltitude);
+            state.lastInterpolatedBodyName = body.name;
+            state.lastInterpolatedAltitude = clampedAltitude;
+
+            string safeVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
+                ? traj.VesselName
+                : state.vesselName ?? "?";
+            ParsekLog.VerboseRateLimited("TerrainCorrect", $"explosion-anchor-{index}",
+                $"Explosion anchor clamp #{index} (\"{safeVesselName}\"): " +
+                $"alt={rawAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"terrain={terrainHeight.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"-> {clampedAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"(clearance={minClearance.ToString("F1", CultureInfo.InvariantCulture)}m)");
+            return clampedWorldPos;
+        }
+
         // Literal floor returned by the immediate-clearance resolver when it
         // cannot compute a distance-aware value. Matches the legacy pre-#262
         // hardcoded floor — callers that hit this branch silently regress to
@@ -11598,6 +11649,17 @@ namespace Parsek
             if (!hasBody) return "no-body";
             if (!hasActiveVessel) return "no-active-vessel";
             return null;
+        }
+
+        internal static string ResolveExplosionAnchorBodyName(
+            string lastInterpolatedBodyName, IPlaybackTrajectory traj)
+        {
+            if (!string.IsNullOrEmpty(lastInterpolatedBodyName))
+                return lastInterpolatedBodyName;
+            return RecordingEndpointResolver.TryGetPreferredEndpointBodyName(
+                traj, out string bodyName)
+                ? bodyName
+                : null;
         }
 
         private static double ResolveImmediateLandedGhostClearanceMeters(

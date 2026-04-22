@@ -264,7 +264,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position
+## ~~525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position~~
 
 **Source:** user observed multiple "explosion happened underground" cases in watch mode. The current `2026-04-21_2335_live-collect-script` package did not capture the underground variant directly, but it did capture a watched destroyed ghost (`"x"`) exploding at 23:32:42 immediately after a terrain-correction log (`Ghost terrain clamp: alt=65.3 terrain=64.8 -> 66.8 (clearance=2.0m)`).
 
@@ -272,7 +272,11 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/TerrainCorrector.cs`, `Source/Parsek/ParsekFlight.cs`, plus a new in-game regression in the terrain/watch test coverage.
 
-**Status:** OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.
+**Fix (2026-04-22):** flight playback now routes destruction anchoring through the host positioner before spawning the explosion FX. `ParsekFlight` re-resolves the explosion anchor against the current body/PQS terrain and the same distance-aware watch clearance floor used by landed ghost terrain correction, then writes the corrected world position back to the ghost before the engine emits stock/custom explosion FX and the loop/overlap watch hold payloads. That keeps the visual blast and the watch camera bridge anchored to the same terrain-safe point instead of the raw buried root.
+
+**Verification:** added headless coverage for the body-name resolver that chooses the explosion-anchor body, and an in-game `TerrainClearance` regression that drives the loop-explosion engine path in Flight and asserts the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped position above `terrain + clearance`.
+
+**Status:** ~~OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.~~ Closed.
 
 ---
 

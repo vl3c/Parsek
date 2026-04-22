@@ -3945,7 +3945,10 @@ namespace Parsek
 
             state.explosionFired = true;
 
-            Vector3 worldPos = state.ghost.transform.position;
+            Vector3 worldPos = positioner != null
+                ? positioner.ResolveExplosionAnchorPosition(recIdx, traj, state)
+                : state.ghost.transform.position;
+            state.ghost.transform.position = worldPos;
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
