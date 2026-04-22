@@ -697,8 +697,8 @@ namespace Parsek.Tests
             string rosterText = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
 
             // Both texts must begin with the same leading run of spaces.
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, outcomeText);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, rosterText);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, outcomeText, StringComparison.Ordinal);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, rosterText, StringComparison.Ordinal);
             // The indent length must be identical (defensive check in case a future
             // SubitemIndent becomes non-space; then startswith + equal-length still
             // holds but the content must match exactly).
