@@ -979,6 +979,8 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 **Fix:** the remaining IMGUI owners now delegate their meaningful non-Unity logic to pure helpers: `SettingsWindowPresentation` owns auto-loop/camera-cutoff edit parsing plus the Defaults payload, `SpawnControlPresentation` owns Real Spawn Control sorting and per-row warp/state decisions, and `GroupPickerPresentation` owns normalized selection, common-group intersection, tree building, toggle rules, new-group validation, and membership deltas. Added focused headless coverage in `Source/Parsek.Tests/SettingsWindowPresentationTests.cs`, `Source/Parsek.Tests/SpawnControlPresentationTests.cs`, and `Source/Parsek.Tests/GroupPickerPresentationTests.cs`, completing the audit target list alongside the earlier `TestRunnerPresentation` tests.
 
+**Deferred micro-follow-up:** this branch intentionally still reuses three older shared helpers instead of re-extracting them into the presentation layer: `SettingsWindowPresentation.TryResolveAutoLoopEdit(...)` still delegates to `ParsekUI.TryParseLoopInput(...)` / `ParsekUI.ConvertToSeconds(...)`, and `SpawnControlPresentation.BuildRowPresentation(...)` still uses `SelectiveSpawnUI.FormatCountdown(...)`. That is now a consistency follow-up rather than an audit blocker.
+
 **Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
