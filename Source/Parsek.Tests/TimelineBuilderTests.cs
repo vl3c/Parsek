@@ -341,6 +341,86 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SameMilestoneWithinPointOneSeconds_AreCompacted()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100.0,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = true,
+                    MilestoneId = "Kerbin/RecordsDistance",
+                    MilestoneFundsAwarded = 4800
+                },
+                new GameAction
+                {
+                    UT = 100.05,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = false,
+                    MilestoneId = "Kerbin/RecordsDistance",
+                    MilestoneFundsAwarded = 4800,
+                    MilestoneRepAwarded = 2f
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                0);
+
+            var milestone = Assert.Single(result);
+            Assert.Equal("Milestone: Kerbin - Records Distance +4800 funds +2 rep", milestone.DisplayText);
+            Assert.True(milestone.IsEffective);
+            Assert.Equal(SignificanceTier.T1, milestone.Tier);
+        }
+
+        [Fact]
+        public void SameMilestoneWithinPointOneSeconds_WithInterleavedEntry_AreCompacted()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100.0,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = true,
+                    MilestoneId = "Kerbin/RecordsDistance",
+                    MilestoneFundsAwarded = 4800
+                },
+                new GameAction
+                {
+                    UT = 100.02,
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "crewReport@KerbinSrfLandedLaunchPad",
+                    ScienceAwarded = 1f
+                },
+                new GameAction
+                {
+                    UT = 100.04,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = false,
+                    MilestoneId = "Kerbin/RecordsDistance",
+                    MilestoneFundsAwarded = 4800,
+                    MilestoneRepAwarded = 2f,
+                    MilestoneScienceAwarded = 1.5f
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                0);
+
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.MilestoneAchievement &&
+                e.DisplayText == "Milestone: Kerbin - Records Distance +4800 funds +2 rep +1.5 sci");
+            Assert.Contains(result, e => e.Type == TimelineEntryType.ScienceEarning);
+        }
+
+        [Fact]
         public void AdjacentSameMilestoneSameUt_WithConflictingRewardLegs_AreNotCompacted()
         {
             var actions = new List<GameAction>

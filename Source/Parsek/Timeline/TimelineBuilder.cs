@@ -15,6 +15,7 @@ namespace Parsek
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private const float MilestoneCompactionEpsilon = 0.0001f;
+        private const double MilestoneCompactionUtToleranceSeconds = 0.1;
 
         /// <summary>
         /// Constructs the full timeline entry list from committed recordings,
@@ -52,7 +53,7 @@ namespace Parsek
 
             ParsekLog.Verbose("Timeline",
                 compactedMilestoneRows > 0
-                    ? $"Build complete: {entries.Count} entries after compacting {compactedMilestoneRows} adjacent milestone row(s) " +
+                    ? $"Build complete: {entries.Count} entries after compacting {compactedMilestoneRows} milestone row(s) " +
                       $"({recordingCount} recording, {actionCount} action, {legacyCount} legacy before compaction)"
                     : $"Build complete: {entries.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
 
@@ -79,13 +80,16 @@ namespace Parsek
                 SignificanceTier mergedTier = anchor.Tier;
                 string mergedRecordingId = anchor.RecordingId;
                 string mergedVesselName = anchor.VesselName;
-                int runLength = 1;
+                var removalIndices = new List<int>();
 
                 for (int j = i + 1; j < entries.Count; j++)
                 {
                     TimelineEntry candidate = entries[j];
-                    if (!CanCompactMilestonePair(anchor, candidate))
+                    if (candidate.UT - anchor.UT > MilestoneCompactionUtToleranceSeconds)
                         break;
+
+                    if (!CanCompactMilestonePair(anchor, candidate))
+                        continue;
 
                     float nextFunds = mergedFunds;
                     float nextRep = mergedRep;
@@ -93,20 +97,20 @@ namespace Parsek
                     if (!TryMergeMilestoneReward(ref nextFunds, candidate.MilestoneFundsAwarded) ||
                         !TryMergeMilestoneReward(ref nextRep, candidate.MilestoneRepAwarded) ||
                         !TryMergeMilestoneReward(ref nextScience, candidate.MilestoneScienceAwarded))
-                        break;
+                        continue;
 
                     mergedFunds = nextFunds;
                     mergedRep = nextRep;
                     mergedScience = nextScience;
                     mergedEffective |= candidate.IsEffective;
                     if ((int)candidate.Tier < (int)mergedTier)
-                        mergedTier = candidate.Tier;
+                    mergedTier = candidate.Tier;
                     mergedRecordingId = MergeCompactedMetadata(mergedRecordingId, candidate.RecordingId);
                     mergedVesselName = MergeCompactedMetadata(mergedVesselName, candidate.VesselName);
-                    runLength++;
+                    removalIndices.Add(j);
                 }
 
-                if (runLength == 1)
+                if (removalIndices.Count == 0)
                     continue;
 
                 anchor.MilestoneFundsAwarded = mergedFunds;
@@ -122,8 +126,9 @@ namespace Parsek
                 anchor.RecordingId = mergedRecordingId;
                 anchor.VesselName = mergedVesselName;
 
-                entries.RemoveRange(i + 1, runLength - 1);
-                compactedRows += runLength - 1;
+                for (int removal = removalIndices.Count - 1; removal >= 0; removal--)
+                    entries.RemoveAt(removalIndices[removal]);
+                compactedRows += removalIndices.Count;
             }
 
             return compactedRows;
@@ -507,7 +512,7 @@ namespace Parsek
         private static bool CanCompactMilestonePair(TimelineEntry anchor, TimelineEntry candidate)
         {
             return CanCompactMilestoneEntry(candidate)
-                && candidate.UT == anchor.UT
+                && Math.Abs(candidate.UT - anchor.UT) <= MilestoneCompactionUtToleranceSeconds
                 && string.Equals(candidate.MilestoneId, anchor.MilestoneId, StringComparison.Ordinal);
         }
 
