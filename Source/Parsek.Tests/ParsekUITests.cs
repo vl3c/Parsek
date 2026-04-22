@@ -84,5 +84,16 @@ namespace Parsek.Tests
 
             Assert.Equal(Color.white, resolved);
         }
+
+        [Fact]
+        public void MainWindowButtonLabels_UseShortTopLevelText()
+        {
+            string kerbalsLabel = ParsekUI.GetKerbalsMainButtonLabel();
+            string careerLabel = ParsekUI.GetCareerMainButtonLabel();
+
+            Assert.Equal("Kerbals", kerbalsLabel);
+            Assert.DoesNotContain("(", kerbalsLabel);
+            Assert.Equal("Career", careerLabel);
+        }
     }
 }

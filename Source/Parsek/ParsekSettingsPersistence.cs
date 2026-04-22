@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Security;
-
 namespace Parsek
 {
     /// <summary>
@@ -28,8 +27,8 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Currently tracks <c>ghostCameraCutoffKm</c>, <c>writeReadableSidecarMirrors</c>,
-    /// and <c>showGhostsInTrackingStation</c> (#388). Add more fields here if
+    /// Currently tracks <c>writeReadableSidecarMirrors</c> and
+    /// <c>showGhostsInTrackingStation</c> (#388). Add more fields here if
     /// additional settings turn out to need the same survival semantics.
     /// </para>
     /// </summary>
@@ -44,7 +43,6 @@ namespace Parsek
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
-        private static float? storedGhostCameraCutoffKm;
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
         private static bool loaded;
@@ -102,14 +100,12 @@ namespace Parsek
                 // ConfigNode.Load returns the node containing the file contents directly,
                 // which for our format is the PARSEK_SETTINGS body. Values live at the top level.
                 string cutoffStr = root.GetValue(GhostCameraCutoffKey);
-                if (!string.IsNullOrEmpty(cutoffStr)
-                    && float.TryParse(cutoffStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float cutoff))
+                if (!string.IsNullOrEmpty(cutoffStr))
                 {
-                    storedGhostCameraCutoffKm = cutoff;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostCameraCutoffKey} — using default");
+                    ParsekLog.Verbose(Tag,
+                        $"Settings file '{path}' contains deprecated {GhostCameraCutoffKey}=" +
+                        $"'{cutoffStr}' — ignoring; watch cutoff is fixed at " +
+                        $"{DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm.ToString("F0", CultureInfo.InvariantCulture)}km");
                 }
 
                 string mirrorsStr = root.GetValue(ReadableSidecarMirrorsKey);
@@ -135,9 +131,8 @@ namespace Parsek
                 }
 
                 ParsekLog.Info(Tag,
-                    $"Loaded settings from '{path}': ghostCameraCutoffKm=" +
-                    (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<default>") +
-                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>")}" +
+                    $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
+                    (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
@@ -155,17 +150,6 @@ namespace Parsek
         {
             if (settings == null) return;
             LoadIfNeeded();
-
-            if (storedGhostCameraCutoffKm.HasValue
-                && !FloatEquals(storedGhostCameraCutoffKm.Value, settings.ghostCameraCutoffKm))
-            {
-                float prev = settings.ghostCameraCutoffKm;
-                settings.ghostCameraCutoffKm = storedGhostCameraCutoffKm.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored ghostCameraCutoffKm {prev.ToString("F0", CultureInfo.InvariantCulture)}" +
-                    $" → {storedGhostCameraCutoffKm.Value.ToString("F0", CultureInfo.InvariantCulture)}" +
-                    " from persistent store");
-            }
 
             if (storedReadableSidecarMirrors.HasValue
                 && storedReadableSidecarMirrors.Value != settings.writeReadableSidecarMirrors)
@@ -197,13 +181,6 @@ namespace Parsek
         /// Records a user-intent setting change and writes it to disk immediately.
         /// Called from the settings UI commit path after the user confirms a new value.
         /// </summary>
-        internal static void RecordGhostCameraCutoff(float value)
-        {
-            LoadIfNeeded();
-            storedGhostCameraCutoffKm = value;
-            Save();
-        }
-
         internal static void RecordReadableSidecarMirrors(bool value)
         {
             LoadIfNeeded();
@@ -310,20 +287,14 @@ namespace Parsek
             try
             {
                 var root = new ConfigNode(RootNodeName);
-                if (storedGhostCameraCutoffKm.HasValue)
-                {
-                    root.AddValue(GhostCameraCutoffKey,
-                        storedGhostCameraCutoffKm.Value.ToString("R", CultureInfo.InvariantCulture));
-                }
                 if (storedReadableSidecarMirrors.HasValue)
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
-                    $"Saved settings to '{path}': ghostCameraCutoffKm=" +
-                    (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<null>") +
-                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>")}" +
+                    $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
+                    (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
@@ -331,8 +302,6 @@ namespace Parsek
                 ParsekLog.Warn(Tag, $"Failed to save settings file '{path}': {ex.Message}");
             }
         }
-
-        private static bool FloatEquals(float a, float b) => Math.Abs(a - b) < 1e-4f;
 
         /// <summary>
         /// Test-only: clears the static store so LoadIfNeeded re-reads the file.
@@ -342,7 +311,6 @@ namespace Parsek
         /// </summary>
         internal static void ResetForTesting()
         {
-            storedGhostCameraCutoffKm = null;
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
             loaded = false;
@@ -364,24 +332,16 @@ namespace Parsek
         internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
 
         /// <summary>
-        /// Test-only: returns the current stored cutoff value (null if unset).
+        /// Test-only: returns the current stored readable-mirror value (null if unset).
         /// </summary>
-        internal static float? GetStoredGhostCameraCutoffKm() => storedGhostCameraCutoffKm;
-
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
 
         /// <summary>
-        /// Test-only: directly sets the stored cutoff without disk I/O.
+        /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
         /// </summary>
-        internal static void SetStoredGhostCameraCutoffKmForTesting(float? value)
-        {
-            storedGhostCameraCutoffKm = value;
-            loaded = true;
-        }
-
         internal static void SetStoredReadableSidecarMirrorsForTesting(bool? value)
         {
             storedReadableSidecarMirrors = value;

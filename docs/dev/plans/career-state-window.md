@@ -218,7 +218,7 @@ v1 shows all nine unconditionally. Unseen facilities (not in `FacilitiesModule.G
 
 ### 5.1 Button and dispatch
 
-- New button in `ParsekUI.DrawWindow()` between `Kerbals` and `Real Spawn Control`. Text label `"Career State"` (no count suffix; the window itself surfaces counts per tab).
+- New button in `ParsekUI.DrawWindow()` alongside `Kerbals`, below `Timeline` / `Recordings`, and above the flight-only `Gloops Flight Recorder` block. Text label `"Career"` (no count suffix; the window itself surfaces counts per tab).
 - Visible in KSC **and** Flight scenes (matches Kerbals). Hidden in the Main Menu and Editor (matches every other Parsek window).
 - Toggle via `careerStateUI.IsOpen = !careerStateUI.IsOpen` + `ParsekLog.Verbose("UI", "Career State window toggled: open/closed")`.
 
