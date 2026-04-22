@@ -8775,11 +8775,13 @@ namespace Parsek.InGameTests
                 $"Expected positive speed of sound at {targetAltitude:F0} m on {body.name}");
 
             float targetSurfaceSpeed = initialSweepSurfaceSpeedMetersPerSecond;
+            float lastComputedSurfaceSpeed = targetSurfaceSpeed;
             float rawIntensity = 0f;
             float machNumber = 0f;
             bool rawIntensitySaturated = false;
             while (targetSurfaceSpeed <= maxSweepSurfaceSpeedMetersPerSecond)
             {
+                lastComputedSurfaceSpeed = targetSurfaceSpeed;
                 machNumber = (float)(targetSurfaceSpeed / speedOfSound);
                 rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
                     targetSurfaceSpeed, (float)density, machNumber);
@@ -8796,7 +8798,7 @@ namespace Parsek.InGameTests
                 $"body={body.name} altitude={targetAltitude.ToString("F0", CultureInfo.InvariantCulture)}m " +
                 $"density={density.ToString("F6", CultureInfo.InvariantCulture)} " +
                 $"speedOfSound={speedOfSound.ToString("F1", CultureInfo.InvariantCulture)}m/s " +
-                $"lastSpeed={targetSurfaceSpeed.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"lastSpeed={lastComputedSurfaceSpeed.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
                 $"lastMach={machNumber.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"rawIntensity={rawIntensity.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"saturated={rawIntensitySaturated} " +
