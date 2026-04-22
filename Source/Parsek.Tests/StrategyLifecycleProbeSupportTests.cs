@@ -69,6 +69,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRequestAdministrationUi_MissingAdministrationInCareerSpaceCenter_ReturnsTrue()
+        {
+            bool shouldRequest = StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+                administrationAvailable: false,
+                isSpaceCenterScene: true,
+                isCareerMode: true);
+
+            Assert.True(shouldRequest);
+        }
+
+        [Fact]
+        public void ShouldRequestAdministrationUi_NonCareerOrNonSpaceCenter_ReturnsFalse()
+        {
+            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+                administrationAvailable: false,
+                isSpaceCenterScene: false,
+                isCareerMode: true));
+            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+                administrationAvailable: false,
+                isSpaceCenterScene: true,
+                isCareerMode: false));
+            Assert.False(StrategyLifecycleProbeSupport.ShouldRequestAdministrationUi(
+                administrationAvailable: true,
+                isSpaceCenterScene: true,
+                isCareerMode: true));
+        }
+
+        [Fact]
         public void BuildProbeDiagnostic_IncludesCountsAndStack()
         {
             string diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(
@@ -139,6 +167,46 @@ namespace Parsek.Tests
             Assert.Equal(
                 "[Parsek][VERBOSE][TestRunner] StrategyLifecycle readiness waiting: " +
                 StrategyLifecycleProbeSupport.AdministrationNotReadyReason,
+                logLines[0]);
+        }
+
+        [Fact]
+        public void LogAdministrationUiSpawnRequested_EmitsInfo()
+        {
+            StrategyLifecycleProbeSupport.LogAdministrationUiSpawnRequested();
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][INFO][TestRunner] " +
+                StrategyLifecycleProbeSupport.AdministrationUiSpawnRequestedReason,
+                logLines[0]);
+        }
+
+        [Fact]
+        public void LogAdministrationUiReady_EmitsInfo()
+        {
+            StrategyLifecycleProbeSupport.LogAdministrationUiReady(
+                attemptCount: 2,
+                maxAttempts: 30);
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][INFO][TestRunner] " +
+                "StrategyLifecycle: Administration UI hydrated after 2/30 attempts",
+                logLines[0]);
+        }
+
+        [Fact]
+        public void LogAdministrationUiTimeout_EmitsWarn()
+        {
+            StrategyLifecycleProbeSupport.LogAdministrationUiTimeout(
+                attemptCount: 30,
+                maxAttempts: 30);
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][WARN][TestRunner] " +
+                "StrategyLifecycle: Administration UI failed to hydrate after 30/30 attempts",
                 logLines[0]);
         }
 

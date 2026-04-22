@@ -242,11 +242,23 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
 
-**Concern:** the package later replays a strategy activate/deactivate pair from the ledger (`researchIPsellout` at UT=72.2), so this looks like a live KSC/test-harness readiness race, not a broad failure of `StrategiesModule` or event conversion. The current readiness gate is likely probing too early or waiting on the wrong hydration condition.
+**Root cause (2026-04-22):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, created by `AdministrationSceneSpawner` only after `GameEvents.onGUIAdministrationFacilitySpawn` opens the stock Administration canvas. `Strategies.Strategy.CanBeActivated()` and `Strategy.Activate()` both dereference that UI singleton, so the existing test harness was waiting forever for a value that never appears in plain SPACECENTER unless the Administration UI is explicitly opened.
+
+**Fix (ready for review):**
+
+- `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now opens the stock Administration UI when the SPACECENTER career tests need strategy readiness and the UI is not already present.
+- The helper waits for `Administration.Instance` to hydrate, keeps the existing bounded readiness probe on top of that stock context, and closes the Administration UI in teardown only when the test opened it.
+- `StrategyLifecycleProbeSupport` now logs the Administration UI spawn/ready/timeout transitions, and the corresponding xUnit coverage pins the new request decision and log messages.
+
+**Validation (2026-04-22):**
+
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`19` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`42` tests).
+- `dotnet build Source/Parsek/Parsek.csproj --no-restore` is blocked locally by missing `.NETFramework,Version=v4.7.2` reference assemblies; this is an environment issue, not a repo compile regression. The `dotnet test` runs above did build `Source/Parsek/Parsek.csproj` successfully as part of the test project restore/build path.
 
 **Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, and possibly `Source/Parsek/ParsekKSC.cs` if the KSC/test startup ordering needs an explicit hook.
 
-**Status:** OPEN. Repro captured in-package.
+**Status:** fix implemented in code, ready for review. Live SPACECENTER rerun still pending from this worktree.
 
 ---
 

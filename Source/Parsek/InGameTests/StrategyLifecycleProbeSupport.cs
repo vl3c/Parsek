@@ -11,6 +11,8 @@ namespace Parsek.InGameTests
         internal const string StrategyListNotReadyReason = "StrategySystem.Strategies is null";
         internal const string AdministrationNotReadyReason =
             "Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)";
+        internal const string AdministrationUiSpawnRequestedReason =
+            "StrategyLifecycle: Administration UI not open in SPACECENTER; firing stock spawn event";
 
         internal static string GetGlobalReadinessBlockReason(
             Strategies.StrategySystem system,
@@ -38,6 +40,16 @@ namespace Parsek.InGameTests
                 return AdministrationNotReadyReason;
 
             return null;
+        }
+
+        internal static bool ShouldRequestAdministrationUi(
+            bool administrationAvailable,
+            bool isSpaceCenterScene,
+            bool isCareerMode)
+        {
+            return !administrationAvailable
+                && isSpaceCenterScene
+                && isCareerMode;
         }
 
         internal static string FormatExceptionSummary(Exception ex)
@@ -73,6 +85,25 @@ namespace Parsek.InGameTests
         internal static string BuildReadinessWaitingSummary(string readinessReason)
         {
             return $"StrategyLifecycle readiness waiting: {NormalizeDiagnostic(readinessReason)}";
+        }
+
+        internal static string BuildAdministrationUiSpawnRequestedSummary()
+        {
+            return AdministrationUiSpawnRequestedReason;
+        }
+
+        internal static string BuildAdministrationUiReadySummary(
+            int attemptCount,
+            int maxAttempts)
+        {
+            return $"StrategyLifecycle: Administration UI hydrated after {attemptCount}/{maxAttempts} attempts";
+        }
+
+        internal static string BuildAdministrationUiTimeoutSummary(
+            int attemptCount,
+            int maxAttempts)
+        {
+            return $"StrategyLifecycle: Administration UI failed to hydrate after {attemptCount}/{maxAttempts} attempts";
         }
 
         internal static string BuildProbeDiagnostic(
@@ -152,6 +183,29 @@ namespace Parsek.InGameTests
                 "TestRunner",
                 "StrategyLifecycle-readiness",
                 BuildReadinessWaitingSummary(readinessReason));
+        }
+
+        internal static void LogAdministrationUiSpawnRequested()
+        {
+            ParsekLog.Info("TestRunner", BuildAdministrationUiSpawnRequestedSummary());
+        }
+
+        internal static void LogAdministrationUiReady(
+            int attemptCount,
+            int maxAttempts)
+        {
+            ParsekLog.Info(
+                "TestRunner",
+                BuildAdministrationUiReadySummary(attemptCount, maxAttempts));
+        }
+
+        internal static void LogAdministrationUiTimeout(
+            int attemptCount,
+            int maxAttempts)
+        {
+            ParsekLog.Warn(
+                "TestRunner",
+                BuildAdministrationUiTimeoutSummary(attemptCount, maxAttempts));
         }
 
         internal static void LogPollExceptions(
