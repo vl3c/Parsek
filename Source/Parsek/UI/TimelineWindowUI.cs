@@ -19,6 +19,9 @@ namespace Parsek
             Exit
         }
 
+        /// <summary>
+        /// Identifies the timeline row actions that share the button-width contract.
+        /// </summary>
         internal enum TimelineRowActionButtonKind
         {
             Watch,
