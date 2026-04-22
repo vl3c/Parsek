@@ -5,8 +5,23 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    public class EngineFxBuilderTests
+    [Collection("Sequential")]
+    public class EngineFxBuilderTests : IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
+        public EngineFxBuilderTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+        }
+
         [Fact]
         public void FilterEffectGroups_MatchingModuleGroups_ReturnsOnlySelectedGroups()
         {
@@ -53,6 +68,30 @@ namespace Parsek.Tests
             Assert.Same(running, filteredGroups[0]);
             Assert.Same(power, filteredGroups[1]);
             Assert.Equal(new[] { "running", "power" }, filteredNames);
+            AssertHasEngineFxLog("no module-group matches; keeping all 2 EFFECTS groups");
+        }
+
+        [Fact]
+        public void FilterEffectGroups_ShorterGroupNames_UsesUnnamedFallbackAndLogs()
+        {
+            var running = new ConfigNode("running");
+            var unnamed = new ConfigNode("power");
+            var moduleGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "?"
+            };
+
+            EngineFxBuilder.FilterEffectGroups(
+                new[] { running, unnamed },
+                new[] { "running" },
+                moduleGroups,
+                out ConfigNode[] filteredGroups,
+                out string[] filteredNames);
+
+            Assert.Single(filteredGroups);
+            Assert.Same(unnamed, filteredGroups[0]);
+            Assert.Equal(new[] { "?" }, filteredNames);
+            AssertHasEngineFxLog("1 EFFECTS group names missing; using '?' fallback");
         }
 
         [Fact]
@@ -137,6 +176,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryReadModelFxConfigEntry_NullModelNode_ReturnsFalseAndLogsSkip()
+        {
+            bool parsed = EngineFxBuilder.TryReadModelFxConfigEntry(
+                "MODEL_PARTICLE",
+                null,
+                "running",
+                out _);
+
+            Assert.False(parsed);
+            AssertHasEngineFxLog("TryReadModelFxConfigEntry: skipped null node");
+        }
+
+        [Fact]
         public void TryReadPrefabParticleConfigEntry_SkipsFlameoutSparksAndDebrisPrefabs()
         {
             string[] skippedPrefabs =
@@ -181,6 +233,7 @@ namespace Parsek.Tests
             AssertVector3Close(new Vector3(0f, 0f, 0.2f), entry.localOffset);
             Assert.Equal("0,45,0", entry.rawLocalRotation);
             Assert.Equal("running", entry.groupName);
+            AssertHasEngineFxLog("using localPosition fallback");
         }
 
         [Fact]
@@ -206,6 +259,13 @@ namespace Parsek.Tests
             Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);
             Assert.InRange(Mathf.Abs(expected.y - actual.y), 0f, epsilon);
             Assert.InRange(Mathf.Abs(expected.z - actual.z), 0f, epsilon);
+        }
+
+        private void AssertHasEngineFxLog(string fragment)
+        {
+            Assert.Contains(logLines, line =>
+                line.Contains("[EngineFx]") &&
+                line.Contains(fragment));
         }
     }
 }

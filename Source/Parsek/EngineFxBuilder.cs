@@ -99,9 +99,20 @@ namespace Parsek
 
             var filtered = new List<ConfigNode>();
             var filteredNames = new List<string>();
+            int unnamedGroupFallbackCount = 0;
             for (int eg = 0; eg < effectGroups.Length; eg++)
             {
-                string groupName = eg < effectGroupNames.Length ? effectGroupNames[eg] : "?";
+                string groupName;
+                if (eg < effectGroupNames.Length)
+                {
+                    groupName = effectGroupNames[eg];
+                }
+                else
+                {
+                    groupName = "?";
+                    unnamedGroupFallbackCount++;
+                }
+
                 if (!moduleGroups.Contains(groupName))
                     continue;
 
@@ -109,8 +120,18 @@ namespace Parsek
                 filteredNames.Add(groupName);
             }
 
+            if (unnamedGroupFallbackCount > 0)
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"FilterEffectGroups: {unnamedGroupFallbackCount} EFFECTS group names missing; using '?' fallback");
+            }
+
             if (filtered.Count == 0)
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"FilterEffectGroups: no module-group matches; keeping all {effectGroups.Length} EFFECTS groups");
                 return;
+            }
 
             effectGroups = filtered.ToArray();
             effectGroupNames = filteredNames.ToArray();
@@ -124,11 +145,19 @@ namespace Parsek
         {
             entry = default(ModelFxConfigEntry);
             if (modelNode == null)
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"TryReadModelFxConfigEntry: skipped null node (type={nodeType}, group='{groupName}')");
                 return false;
+            }
 
             string transformName = modelNode.GetValue("transformName");
             if (string.IsNullOrEmpty(transformName))
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"TryReadModelFxConfigEntry: skipped node without transformName (type={nodeType}, group='{groupName}')");
                 return false;
+            }
 
             entry.nodeType = nodeType;
             entry.transformName = transformName;
@@ -153,23 +182,42 @@ namespace Parsek
         {
             entry = default(PrefabFxConfigEntry);
             if (prefabNode == null)
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"TryReadPrefabParticleConfigEntry: skipped null prefab node (group='{groupName}')");
                 return false;
+            }
 
             entry.prefabName = prefabNode.GetValue("prefabName");
             entry.transformName = prefabNode.GetValue("transformName");
             if (string.IsNullOrEmpty(entry.prefabName) || string.IsNullOrEmpty(entry.transformName))
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"TryReadPrefabParticleConfigEntry: skipped prefab with missing identity (group='{groupName}')");
                 return false;
+            }
 
             string lower = entry.prefabName.ToLowerInvariant();
             if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
+            {
+                ParsekLog.Verbose("EngineFx",
+                    $"TryReadPrefabParticleConfigEntry: skipped transient prefab '{entry.prefabName}'");
                 return false;
+            }
 
             entry.groupName = groupName;
             entry.rawLocalRotation = prefabNode.GetValue("localRotation");
 
             string offsetStr = prefabNode.GetValue("localOffset");
             if (string.IsNullOrEmpty(offsetStr))
+            {
                 offsetStr = prefabNode.GetValue("localPosition");
+                if (!string.IsNullOrEmpty(offsetStr))
+                {
+                    ParsekLog.Verbose("EngineFx",
+                        $"TryReadPrefabParticleConfigEntry: using localPosition fallback for prefab='{entry.prefabName}' transform='{entry.transformName}'");
+                }
+            }
             GhostVisualBuilder.TryParseVector3(offsetStr, out entry.localOffset);
             return true;
         }
