@@ -393,13 +393,13 @@ Quick source verification against the current tree shows that some of the older 
 ### Still-live carryovers worth backlog time
 
 - `KerbalsWindowUITests` still leaves two `xUnit2009` warnings in the suite; they are low severity but should be cleaned up the next time that file is touched.
-- Mechanical coverage reporting is still not validated end-to-end. A local `coverlet.msbuild` + `scripts/test-coverage.ps1` scaffold now exists in this worktree, but the current machine cannot complete restore/test execution reliably enough to trust the numbers yet.
+- Mechanical coverage reporting is no longer missing: the 2026-04-22 follow-up produced a validated local baseline packet. The remaining backlog here is repeatability and retention (for example CI/diff coverage), not proving that the runner can emit a trustworthy first report.
 - The auto-record player flow is now materially better covered in this worktree: this audit adds helper-level xUnit coverage for launch gating and deferred EVA gating plus real single-run in-game launch and EVA auto-record scenarios. The remaining weakness is not the basic auto-start path anymore, but broader multi-step player flows like merge/revert and playback control.
 - The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers). This worktree now also has manual-only runtime coverage for both the synthetic pending-tree discard popup and the deferred `Merge to Timeline` commit path; the remaining gap is the full stock revert-to-launch transition with fresh live log evidence, not the dialog button branch itself.
 - Playback control is no longer "missing automation" in the abstract: this worktree now includes a manual-only `Keep Vessel` canary that commits a synthetic timeline recording, fast-forwards into its window, asserts ghost activation, and asserts that the end-of-recording vessel spawn happens exactly once. The remaining gap is broader stock-behavior validation such as natural warp-stop and cross-scene duplicate-prevention evidence.
 - Part-event playback is stronger than the older audits suggested: xUnit has broad structural/event coverage and in-game tests already verify live FX/buildability for engines, parachutes, lights, RCS, fairings, and deployables. The remaining gap is narrower: player-visible timing/assertion scenarios, not basic subsystem absence.
 
-The remaining concerns are mostly strategic now, not cleanup nits: validated coverage reporting, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
+The remaining concerns are mostly strategic now, not cleanup nits: keeping the new coverage baseline repeatable, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
 
 ## Continuation Plan
 
@@ -523,8 +523,8 @@ From here, I would continue with one structural pass, but with a tighter order t
    Still from a disposable prelaunch flight, run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually and capture the resulting `KSP.log` / `parsek-test-results.txt`.
 3. **Live-validate the first timing-sensitive part-event canaries**
    In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
-4. **Finish validating the local coverage path**
-   Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
+4. **Build on the now-validated local coverage path**
+   The next useful output is not more local runner churn; it is keeping the baseline packet repeatable and deciding whether CI/diff retention should join the workflow.
 5. **After that, broaden the part-event timing slice if needed**
    Lights/deployables would close the first showcase-sized gap. If those hold up live, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
 
@@ -545,7 +545,7 @@ Parsek does not have a testing problem in the usual sense of "there are not enou
 
 The real gaps are:
 
-- missing mechanical coverage reporting
+- no CI/diff retention yet for the newly validated mechanical coverage baseline
 - weaker direct automation around UI shells and some Unity-heavy builders
 - not enough scripted end-to-end in-game scenarios for the top user flows
 
