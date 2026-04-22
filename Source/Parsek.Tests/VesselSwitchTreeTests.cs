@@ -292,6 +292,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_PrefersNewestCommittedTreeAcrossList()
+        {
+            var olderTree = MakeTree("old_active");
+            olderTree.Id = "tree_old";
+            olderTree.Recordings["old_tip"] = new Recording
+            {
+                RecordingId = "old_tip",
+                VesselName = "Older Tip",
+                VesselPersistentId = 10,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0,
+                TreeOrder = 0
+            };
+
+            var newerTree = MakeTree("new_active");
+            newerTree.Id = "tree_new";
+            newerTree.Recordings["new_tip"] = new Recording
+            {
+                RecordingId = "new_tip",
+                VesselName = "Newer Tip",
+                VesselPersistentId = 20,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                ExplicitStartUT = 151.0,
+                ExplicitEndUT = 200.0,
+                TreeOrder = 0
+            };
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { olderTree, newerTree },
+                activeVesselPid: 200,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found);
+            Assert.Same(newerTree, matchedTree);
+            Assert.Equal("new_tip", matchedRecordingId);
+        }
+
+        [Fact]
         public void PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry()
         {
             var tree = MakeTree("rec_active", (20, "rec_tip"));
@@ -379,6 +421,65 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Equal(tree.Id, RecordingStore.CommittedTrees[0].Id);
             Assert.Equal(liveTree.Recordings.Count, RecordingStore.CommittedRecordings.Count);
+        }
+
+        [Fact]
+        public void IsCommittedSpawnedRecordingRestorable_RejectsTerminalStates()
+        {
+            TerminalState[] blockedStates =
+            {
+                TerminalState.Destroyed,
+                TerminalState.Recovered,
+                TerminalState.Docked,
+                TerminalState.Boarded
+            };
+
+            for (int i = 0; i < blockedStates.Length; i++)
+            {
+                var tree = MakeTree("rec_other");
+                var rec = new Recording
+                {
+                    RecordingId = "rec_tip",
+                    VesselPersistentId = 20,
+                    VesselSpawned = true,
+                    SpawnedVesselPersistentId = 200,
+                    TerminalStateValue = blockedStates[i]
+                };
+
+                tree.Recordings["rec_tip"] = rec;
+                Assert.False(ParsekFlight.IsCommittedSpawnedRecordingRestorable(tree, rec));
+            }
+        }
+
+        [Fact]
+        public void IsCommittedSpawnedRecordingRestorable_RejectsMidChainSegment()
+        {
+            var tree = MakeTree("rec_other");
+            var rec = new Recording
+            {
+                RecordingId = "rec_mid",
+                VesselPersistentId = 20,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                ChainId = "chain",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+            var next = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselPersistentId = 21,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 201,
+                ChainId = "chain",
+                ChainIndex = 1,
+                ChainBranch = 0
+            };
+
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.Recordings[next.RecordingId] = next;
+
+            Assert.False(ParsekFlight.IsCommittedSpawnedRecordingRestorable(tree, rec));
         }
 
         #endregion
