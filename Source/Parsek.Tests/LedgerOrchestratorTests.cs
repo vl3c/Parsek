@@ -931,6 +931,87 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Recent KSC tech-unlock debit holdback
+        // ================================================================
+
+        [Fact]
+        public void ComputePendingRecentKscTechResearchScienceDebit_UnmatchedBurstReturnsGap()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 42.1,
+                    valueAfter = 17.1
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 20f
+                },
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceSpending,
+                    RecordingId = "rec-flight",
+                    Cost = 99f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscTechResearchScienceDebit(
+                events,
+                actions,
+                nowUt: 1000.05);
+
+            Assert.Equal(5.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscTechResearchScienceDebit_WhenLedgerCaughtUpReturnsZero()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1200.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 31.0,
+                    valueAfter = 6.0
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1200.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 15f
+                },
+                new GameAction
+                {
+                    UT = 1200.04,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 10f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscTechResearchScienceDebit(
+                events,
+                actions,
+                nowUt: 1200.02);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
+        // ================================================================
         // ExtractCrewFromRecording
         // ================================================================
 
