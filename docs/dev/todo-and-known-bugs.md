@@ -727,7 +727,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
-## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
+## ~~486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
 
@@ -775,7 +775,13 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 - `SessionMerger` now labels overlap-derived active save/load seams as `cause=save-load-teleport` instead of falling through to the generic `sample-skip` bucket.
 - Added headless regression coverage for tree-wide trim, post-trim tail-environment selection, restore-environment resync, and the merger label heuristic.
 
-**Status:** Implementation complete for `0.8.3`, but leave this item open until the original runway F5/F9 repro is rerun in KSP on a machine that can build/run the `net472` test project. Local verification on this workstation is blocked by a missing `.NET Framework 4.7.2` targeting pack, so the code path was reviewed and covered in xUnit only.
+**Validation (2026-04-21):** the archived live quickload bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/` now provide the missing runtime evidence.
+
+- `parsek-test-results.txt` records `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId` as `FLIGHT PASSED (6447.3ms)`.
+- `KSP.log` logs the pre-F9 live recording id (`preRecId=ed1b9329360f488dbfac4b15cb4750a9`), then `Quickload tree trim: ... trimmedRecordings=1/1 prunedFutureRecordings=0 prunedBranchPoints=0`, then `Quickload resume prep: activeRec='ed1b9329360f488dbfac4b15cb4750a9' treeTrimmed=True`, and finally `RestoreActiveTreeFromPending: resumed recording tree ... activeRec='ed1b9329360f488dbfac4b15cb4750a9'`.
+- That live path is launch-backed rather than the literal `r0` runway craft, but it exercises the shipped trim/resume seam directly and shows the restored tree stayed a single recording with the same active id after F5/F9 instead of reopening as a split landed+atmo pair.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
