@@ -6032,6 +6032,9 @@ namespace Parsek
             }
             else if (activeTree != null || recorder != null)
             {
+                // Only reset once a live tree/recorder takes over ownership. The other
+                // transient blockers (restore coroutine, pending tree, restore mode) are
+                // allowed to age out naturally against the 1s retry window.
                 nextCommittedSpawnedRestoreRetryAt = 0f;
             }
 
