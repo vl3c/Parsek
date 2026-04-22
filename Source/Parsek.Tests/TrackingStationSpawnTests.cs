@@ -150,29 +150,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkipTrackingStationDuplicateSpawn_MatchingSceneEntryPidAndExistingRealVessel_ReturnsTrue()
+        public void ShouldSkipTrackingStationDuplicateSpawn_ExistingRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
 
             bool alreadyMaterialized = GhostMapPresence.ShouldSkipTrackingStationDuplicateSpawn(
                 rec,
-                realVesselExists: true,
-                sceneEntryActiveVesselPid: 777);
+                realVesselExists: true);
 
             Assert.True(alreadyMaterialized);
         }
 
         [Fact]
-        public void ShouldSkipTrackingStationDuplicateSpawn_MatchingSceneEntryPidWithoutExistingRealVessel_ReturnsFalse()
+        public void ShouldSkipTrackingStationDuplicateSpawn_WithoutExistingRealVessel_ReturnsFalse()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
 
             bool alreadyMaterialized = GhostMapPresence.ShouldSkipTrackingStationDuplicateSpawn(
                 rec,
-                realVesselExists: false,
-                sceneEntryActiveVesselPid: 777);
+                realVesselExists: false);
 
             Assert.False(alreadyMaterialized);
+        }
+
+        [Fact]
+        public void TryRunTrackingStationSpawnHandoffs_ShowGhostsDisabled_MatchingSceneEntryPidStillMarksRecordingMaterialized()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            RecordingStore.SceneEntryActiveVesselPid = 777;
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffs(
+                new List<Recording> { rec },
+                rec.EndUT + 1);
+
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(777u, rec.SpawnedVesselPersistentId);
+            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
         }
 
         [Fact]
@@ -242,7 +257,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CreateGhostVesselsFromCommittedRecordings_ShowGhostsDisabled_DoesNotMaterializeRecording()
+        public void CreateGhostVesselsFromCommittedRecordings_ShowGhostsDisabled_SkipsGhostCreation()
         {
             var rec = MakeEligibleTrackingStationRecording();
             RecordingStore.AddCommittedInternal(rec);
@@ -251,6 +266,7 @@ namespace Parsek.Tests
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
 
             Assert.Equal(0, created);
+            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }

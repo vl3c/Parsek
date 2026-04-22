@@ -605,7 +605,7 @@ namespace Parsek
             }
         }
 
-        private static void TryRunTrackingStationSpawnHandoffs(
+        internal static void TryRunTrackingStationSpawnHandoffs(
             IReadOnlyList<Recording> committed,
             double currentUT)
         {
@@ -629,7 +629,6 @@ namespace Parsek
                 return;
 
             GhostPlaybackLogic.InvalidateVesselCache();
-            uint sceneEntryActiveVesselPid = RecordingStore.SceneEntryActiveVesselPid;
 
             for (int i = 0; i < eligibleIndices.Count; i++)
             {
@@ -639,8 +638,7 @@ namespace Parsek
                     && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
                 bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
                     rec,
-                    realVesselExists,
-                    sceneEntryActiveVesselPid);
+                    realVesselExists);
 
                 if (alreadyMaterialized)
                 {
@@ -978,8 +976,7 @@ namespace Parsek
 
         internal static bool ShouldSkipTrackingStationDuplicateSpawn(
             Recording rec,
-            bool realVesselExists,
-            uint sceneEntryActiveVesselPid)
+            bool realVesselExists)
         {
             // Unlike FLIGHT, Tracking Station never treats the last FLIGHT scene-entry PID
             // as permission to spawn over an already-live real vessel.
