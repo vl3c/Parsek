@@ -1017,42 +1017,30 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(123.4, 123L)]
-        [InlineData(123.5, 124L)]
-        [InlineData(124.5, 125L)]
-        [InlineData(125.5, 126L)]
-        [InlineData(-124.5, -125L)]
-        public void GetDisplayedUtValue_MatchesWindowF0Rounding(double liveUt, long expected)
+        [InlineData(123.4, "123")]
+        [InlineData(123.5, "124")]
+        [InlineData(124.5, "125")]
+        [InlineData(125.5, "126")]
+        [InlineData(-124.5, "-125")]
+        public void GetDisplayedUtText_MatchesWindowF0Rounding(double liveUt, string expected)
         {
-            Assert.Equal(
-                liveUt.ToString("F0", CultureInfo.InvariantCulture),
-                CareerStateWindowUI.GetDisplayedUtText(liveUt));
-            Assert.Equal(expected, CareerStateWindowUI.GetDisplayedUtValue(liveUt));
-            Assert.Equal(
-                expected,
-                long.Parse(
-                    liveUt.ToString("F0", CultureInfo.InvariantCulture),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture));
+            Assert.Equal(expected, CareerStateWindowUI.GetDisplayedUtText(liveUt));
         }
 
         [Fact]
-        public void GetDisplayedUtHelpers_NonFiniteInput_DoNotThrow()
+        public void GetDisplayedUtText_NonFiniteInput_DoNotThrow()
         {
             Assert.Equal(
                 double.NaN.ToString("F0", CultureInfo.InvariantCulture),
                 CareerStateWindowUI.GetDisplayedUtText(double.NaN));
-            Assert.Equal(0L, CareerStateWindowUI.GetDisplayedUtValue(double.NaN));
 
             Assert.Equal(
                 double.PositiveInfinity.ToString("F0", CultureInfo.InvariantCulture),
                 CareerStateWindowUI.GetDisplayedUtText(double.PositiveInfinity));
-            Assert.Equal(long.MaxValue, CareerStateWindowUI.GetDisplayedUtValue(double.PositiveInfinity));
 
             Assert.Equal(
                 double.NegativeInfinity.ToString("F0", CultureInfo.InvariantCulture),
                 CareerStateWindowUI.GetDisplayedUtText(double.NegativeInfinity));
-            Assert.Equal(long.MinValue, CareerStateWindowUI.GetDisplayedUtValue(double.NegativeInfinity));
         }
 
         [Fact]
@@ -1128,7 +1116,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_NullModulesFallback_RebuildsOnNextDrawUntilModulesRecover()
+        public void Build_NullModulesFallback_ForcesImmediateRetry()
         {
             var fallbackVm = CareerStateWindowUI.Build(
                 actions: Array.Empty<GameAction>(),

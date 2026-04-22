@@ -322,10 +322,10 @@ namespace Parsek
 
             // Mode gating (design doc E1/E2). These flags drive both row visibility
             // and which future actions can visibly change the cached window.
-            bool contractsVisible = mode == Game.Modes.CAREER;
-            bool strategiesVisible = mode == Game.Modes.CAREER;
-            bool facilitiesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
-            bool milestonesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
+            bool contractsVisible = ModeShowsContracts(mode);
+            bool strategiesVisible = ModeShowsStrategies(mode);
+            bool facilitiesVisible = ModeShowsFacilities(mode);
+            bool milestonesVisible = ModeShowsMilestones(mode);
 
             // "Current" snapshots — populated when we cross the liveUT boundary.
             Dictionary<string, ContractAcc> activeContractsCurSnap = null;
@@ -356,14 +356,20 @@ namespace Parsek
 
                 if (a.UT > terminalUT) terminalUT = a.UT;
 
+                // Snapshotting follows the full future action stream because the
+                // current-vs-projected split is defined by exact `<= liveUT`
+                // classification across all actions. The cache-expiry boundary is
+                // narrower: hidden action categories cannot change the rendered
+                // window until a mode switch, and mode switches already rebuild.
+                CaptureNextRelevantActionUT(
+                    ref nextRelevantActionUT,
+                    a,
+                    liveUT,
+                    mode);
+
                 switch (a.Type)
                 {
                     case GameActionType.ContractAccept:
-                        if (contractsVisible
-                            && double.IsPositiveInfinity(nextRelevantActionUT)
-                            && a.UT > liveUT
-                            && a.Effective)
-                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("ContractAccept", "Ineffective", a);
@@ -383,11 +389,6 @@ namespace Parsek
                     case GameActionType.ContractComplete:
                     case GameActionType.ContractFail:
                     case GameActionType.ContractCancel:
-                        if (contractsVisible
-                            && double.IsPositiveInfinity(nextRelevantActionUT)
-                            && a.UT > liveUT
-                            && a.Effective)
-                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip(a.Type.ToString(), "Ineffective", a);
@@ -397,11 +398,6 @@ namespace Parsek
                         break;
 
                     case GameActionType.StrategyActivate:
-                        if (strategiesVisible
-                            && double.IsPositiveInfinity(nextRelevantActionUT)
-                            && a.UT > liveUT
-                            && a.Effective)
-                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("StrategyActivate", "Ineffective", a);
@@ -420,11 +416,6 @@ namespace Parsek
                         break;
 
                     case GameActionType.StrategyDeactivate:
-                        if (strategiesVisible
-                            && double.IsPositiveInfinity(nextRelevantActionUT)
-                            && a.UT > liveUT
-                            && a.Effective)
-                            nextRelevantActionUT = a.UT;
                         if (!a.Effective)
                         {
                             LogSkip("StrategyDeactivate", "Ineffective", a);
@@ -435,11 +426,6 @@ namespace Parsek
 
                     case GameActionType.FacilityUpgrade:
                         {
-                            if (facilitiesVisible
-                                && double.IsPositiveInfinity(nextRelevantActionUT)
-                                && a.UT > liveUT
-                                && a.Effective)
-                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityUpgrade", "Ineffective", a);
@@ -456,11 +442,6 @@ namespace Parsek
 
                     case GameActionType.FacilityDestruction:
                         {
-                            if (facilitiesVisible
-                                && double.IsPositiveInfinity(nextRelevantActionUT)
-                                && a.UT > liveUT
-                                && a.Effective)
-                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityDestruction", "Ineffective", a);
@@ -477,11 +458,6 @@ namespace Parsek
 
                     case GameActionType.FacilityRepair:
                         {
-                            if (facilitiesVisible
-                                && double.IsPositiveInfinity(nextRelevantActionUT)
-                                && a.UT > liveUT
-                                && a.Effective)
-                                nextRelevantActionUT = a.UT;
                             if (!a.Effective)
                             {
                                 LogSkip("FacilityRepair", "Ineffective", a);
@@ -498,11 +474,6 @@ namespace Parsek
 
                     case GameActionType.MilestoneAchievement:
                         {
-                            if (milestonesVisible
-                                && double.IsPositiveInfinity(nextRelevantActionUT)
-                                && a.UT > liveUT
-                                && a.Effective)
-                                nextRelevantActionUT = a.UT;
                             string mid = a.MilestoneId ?? "";
                             if (!a.Effective)
                             {
@@ -810,12 +781,12 @@ namespace Parsek
             if (vm.IsTransientFallback)
                 return true;
 
-            bool displaysLiveUT = currentMode == Game.Modes.CAREER;
-            bool hasVisibleTimelineState =
-                currentMode == Game.Modes.CAREER || currentMode == Game.Modes.SCIENCE_SANDBOX;
+            bool displaysLiveUT = ModeDisplaysLiveUT(currentMode);
+            bool hasVisibleTimelineState = ModeHasVisibleTimelineState(currentMode);
 
-            // #521 review follow-up: only expire the cache on boundaries that can
-            // actually change the rendered window for the active mode.
+            // Science Sandbox still has time-sensitive facility/milestone rows even
+            // without the Career-only UT banner. Sandbox shows neither, so it only
+            // rebuilds on explicit invalidation, mode changes, or transient fallback.
             if (hasVisibleTimelineState && liveUT < vm.LiveUT)
                 return true;
 
@@ -832,21 +803,79 @@ namespace Parsek
             return liveUT.ToString("F0", CultureInfo.InvariantCulture);
         }
 
-        internal static long GetDisplayedUtValue(double liveUT)
+        private static void CaptureNextRelevantActionUT(
+            ref double nextRelevantActionUT,
+            GameAction action,
+            double liveUT,
+            Game.Modes mode)
         {
-            if (double.IsNaN(liveUT))
-                return 0L;
+            if (!double.IsPositiveInfinity(nextRelevantActionUT)
+                || action == null
+                || !action.Effective
+                || action.UT <= liveUT
+                || !IsVisibleTimelineAction(action.Type, mode))
+                return;
 
-            if (double.IsPositiveInfinity(liveUT))
-                return long.MaxValue;
+            nextRelevantActionUT = action.UT;
+        }
 
-            if (double.IsNegativeInfinity(liveUT))
-                return long.MinValue;
+        private static bool IsVisibleTimelineAction(
+            GameActionType actionType,
+            Game.Modes mode)
+        {
+            switch (actionType)
+            {
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return ModeShowsContracts(mode);
 
-            return long.Parse(
-                GetDisplayedUtText(liveUT),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture);
+                case GameActionType.StrategyActivate:
+                case GameActionType.StrategyDeactivate:
+                    return ModeShowsStrategies(mode);
+
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.FacilityRepair:
+                    return ModeShowsFacilities(mode);
+
+                case GameActionType.MilestoneAchievement:
+                    return ModeShowsMilestones(mode);
+
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ModeDisplaysLiveUT(Game.Modes mode)
+        {
+            return mode == Game.Modes.CAREER;
+        }
+
+        private static bool ModeShowsContracts(Game.Modes mode)
+        {
+            return mode == Game.Modes.CAREER;
+        }
+
+        private static bool ModeShowsStrategies(Game.Modes mode)
+        {
+            return mode == Game.Modes.CAREER;
+        }
+
+        private static bool ModeShowsFacilities(Game.Modes mode)
+        {
+            return ModeHasVisibleTimelineState(mode);
+        }
+
+        private static bool ModeShowsMilestones(Game.Modes mode)
+        {
+            return ModeHasVisibleTimelineState(mode);
+        }
+
+        private static bool ModeHasVisibleTimelineState(Game.Modes mode)
+        {
+            return mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
         }
 
         private static Dictionary<string, ContractAcc> CopyContracts(
