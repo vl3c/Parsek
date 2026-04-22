@@ -4,6 +4,22 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.0
+
+### Tests
+
+- `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
+
+### Documentation
+
+- `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
+
+### Bug Fixes
+
+- `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
+
+---
+
 ## 0.8.3
 
 ### Features
@@ -21,7 +37,6 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- `#546` Added headless coverage for post-switch arming/suppression/trigger classification plus isolated in-game canaries for landed motion, orbital engine-or-RCS follow-up, gear toggle, and the idle no-op negative case.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
@@ -86,7 +101,6 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- `#546` Manual auto-record test coverage now includes the post-switch landed-motion, orbital engine/RCS, gear-toggle, no-op, and settings-toggle checks, and the todo/known-bugs entry now records the shipped scope plus the remaining `#534` restore seam gate.
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.
 - Release-closeout docs now define three named evidence bundles and require `collect-logs.py`, `validate-ksp-log.ps1`, and `validate-release-bundle.py` to pass on each retained packet.
 - Release-closeout docs now require the `.claude/CLAUDE.md` deployed-DLL verification recipe before trusting in-game evidence, so a stale `GameData/Parsek/Plugins/Parsek.dll` does not produce false-pass runtime bundles.
@@ -94,7 +108,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#546` Switching to a real non-ghost vessel while idle now arms a post-switch auto-record watcher instead of starting on focus change alone. The watcher captures its baseline on the first stable physics frame, waits through landed settle noise, and starts exactly once on the first meaningful physical change (motion/orbit, engine or sustained RCS, crew/resource deltas, or non-cosmetic part-state changes) while suppressing restore/transition/warp/packed/ghost mismatch frames. Observation-only/cosmetic changes stay ignored, and the tracked restore-and-promote seam remains separately gated under open `#534`.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

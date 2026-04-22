@@ -531,7 +531,7 @@ Observation-only / cosmetic-only changes stay ignored. Checks are suppressed whi
 
 **Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/Patches/PhysicsFramePatch.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek.Tests/PostSwitchAutoRecordTests.cs`, `Source/Parsek.Tests/MissedVesselSwitchRecoveryTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`, `CHANGELOG.md`. Related cluster: open `#534` is still the narrow spawned-chain-tip restore seam; `#547` / `#548` / `#549` remain separate follow-ups.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3 with the post-switch arming / trigger policy, headless helper coverage, and isolated runtime canaries. Remaining gate: `#534` restore-and-promote for the spawned-chain-tip return seam stays open and separate.
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0 with the post-switch arming / trigger policy, headless helper coverage, and isolated runtime canaries. Remaining gate: `#534` restore-and-promote for the spawned-chain-tip return seam stays open and separate.
 
 ---
 
