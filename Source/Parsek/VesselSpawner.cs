@@ -2782,42 +2782,73 @@ namespace Parsek
             bool hasEndpointBody = hasEndpointCoords;
             if (!hasEndpointBody)
                 hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
+            bool landedLike = rec.TerminalStateValue == TerminalState.Landed
+                || rec.TerminalStateValue == TerminalState.Splashed
+                || IsLandedLikeSnapshot(snapshot);
             bool bodyMismatch = hasEndpointBody
                 && hasSnapshotBody
                 && !string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal);
-            bool needsRepair = !hasSnapshotPos || !hasSnapshotBody || bodyMismatch;
+            bool needsSurfaceOrbitRepair = landedLike
+                && !HasCanonicalSurfaceOrbitSignature(snapshot);
+            bool needsRepair = !hasSnapshotPos
+                || !hasSnapshotBody
+                || bodyMismatch
+                || needsSurfaceOrbitRepair;
 
             if (!needsRepair)
                 return true;
 
-            if (!hasEndpointBody)
+            string repairBodyName = hasEndpointBody ? endpointBodyName : snapshotBodyName;
+            if (string.IsNullOrEmpty(repairBodyName))
             {
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
                     $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
-                    $"and no authoritative endpoint body is available");
+                    $"and no repair body is available");
                 return false;
             }
 
-            if (!TryResolveBodyByName(endpointBodyName, out CelestialBody body))
+            if (!TryResolveBodyByName(repairBodyName, out CelestialBody body))
             {
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
-                    $"endpoint body '{endpointBodyName}' was resolved but is not loaded");
+                    $"repair body '{repairBodyName}' was resolved but is not loaded");
                 return false;
             }
 
-            bool landedLike = rec.TerminalStateValue == TerminalState.Landed
-                || rec.TerminalStateValue == TerminalState.Splashed
-                || IsLandedLikeSnapshot(snapshot);
-
-            if (landedLike && hasEndpointCoords)
+            if (landedLike)
             {
-                OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
+                bool useEndpointCoords = hasEndpointCoords;
+                bool useSnapshotCoords = !useEndpointCoords
+                    && hasSnapshotPos
+                    && hasSnapshotBody
+                    && !bodyMismatch;
+
+                if (!useEndpointCoords && !useSnapshotCoords)
+                {
+                    ParsekLog.Error("Spawner",
+                        $"Spawn validation failed for {logContext}: " +
+                        "surface snapshot repair needs usable coordinates " +
+                        $"(endpointCoords={hasEndpointCoords}, snapshotPos={hasSnapshotPos}, " +
+                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"})");
+                    return false;
+                }
+
+                if (useEndpointCoords)
+                {
+                    OverrideSnapshotPosition(
+                        snapshot,
+                        endpointLat,
+                        endpointLon,
+                        endpointAlt,
+                        -1,
+                        logContext ?? rec.VesselName);
+                }
+
                 ApplySurfaceOrbitToSnapshot(snapshot, body);
                 ParsekLog.Warn("Spawner",
                     $"Spawn validation repaired snapshot for {logContext} " +
-                    $"using endpoint surface coordinates on body '{endpointBodyName}'");
+                    $"using {(useEndpointCoords ? "endpoint" : "snapshot")} surface coordinates on body '{repairBodyName}'");
                 return true;
             }
 
@@ -2916,7 +2947,29 @@ namespace Parsek
             snapshot.AddNode(orbitNode);
         }
 
-        private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
+        private static bool HasCanonicalSurfaceOrbitSignature(ConfigNode snapshot)
+        {
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            return OrbitNodeValueMatches(orbitNode, "SMA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "ECC", 1.0)
+                && OrbitNodeValueMatches(orbitNode, "INC", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LPE", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LAN", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "MNA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "EPH", 0.0);
+        }
+
+        private static bool OrbitNodeValueMatches(ConfigNode node, string key, double expected)
+        {
+            if (node == null)
+                return false;
+
+            string raw = node.GetValue(key);
+            return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double actual)
+                && actual == expected;
+        }
+
+        internal static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
         {
             if (snapshot == null || object.ReferenceEquals(body, null))
                 return;

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Parsek.InGameTests;
 using Xunit;
 
@@ -19,6 +21,7 @@ namespace Parsek.Tests
     public class Bug278FinalizeLimboTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public Bug278FinalizeLimboTests()
         {
@@ -27,11 +30,13 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
         }
 
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -696,6 +701,54 @@ namespace Parsek.Tests
             Assert.Equal("ORBITING", normalized.GetValue("sit"));
             Assert.Equal("False", normalized.GetValue("landed"));
             Assert.Equal("False", normalized.GetValue("splashed"));
+        }
+
+        [Fact]
+        public void NormalizeStableTerminalSnapshotForPersistence_Landed_RewritesStaleOrbitToSurfaceTuple()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("landed", "True");
+            snapshot.AddValue("splashed", "False");
+            ConfigNode orbitNode = snapshot.AddNode("ORBIT");
+            orbitNode.AddValue("SMA", "300816.6");
+            orbitNode.AddValue("ECC", "0.9948");
+            orbitNode.AddValue("INC", "3.5");
+            orbitNode.AddValue("LPE", "12.0");
+            orbitNode.AddValue("LAN", "4.0");
+            orbitNode.AddValue("MNA", "0.25");
+            orbitNode.AddValue("EPH", "123.0");
+            orbitNode.AddValue("REF", "0");
+
+            CelestialBody body = CreateTestBody("Mun");
+            VesselSpawner.BodyIndexResolverForTesting = delegate(CelestialBody candidate, out int index)
+            {
+                if (object.ReferenceEquals(candidate, body))
+                {
+                    index = 1;
+                    return true;
+                }
+
+                index = -1;
+                return false;
+            };
+
+            ConfigNode normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
+                snapshot,
+                TerminalState.Landed,
+                body);
+
+            Assert.Same(snapshot, normalized);
+            ConfigNode normalizedOrbit = normalized.GetNode("ORBIT");
+            Assert.NotNull(normalizedOrbit);
+            Assert.Equal("0", normalizedOrbit.GetValue("SMA"));
+            Assert.Equal("1", normalizedOrbit.GetValue("ECC"));
+            Assert.Equal("0", normalizedOrbit.GetValue("INC"));
+            Assert.Equal("0", normalizedOrbit.GetValue("LPE"));
+            Assert.Equal("0", normalizedOrbit.GetValue("LAN"));
+            Assert.Equal("0", normalizedOrbit.GetValue("MNA"));
+            Assert.Equal("0", normalizedOrbit.GetValue("EPH"));
+            Assert.Equal("1", normalizedOrbit.GetValue("REF"));
         }
 
         [Fact]
@@ -1386,5 +1439,14 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        private static CelestialBody CreateTestBody(string bodyName)
+        {
+            var body = (CelestialBody)FormatterServices.GetUninitializedObject(typeof(CelestialBody));
+            FieldInfo bodyNameField = typeof(CelestialBody).GetField("bodyName");
+            Assert.NotNull(bodyNameField);
+            bodyNameField.SetValue(body, bodyName);
+            return body;
+        }
     }
 }

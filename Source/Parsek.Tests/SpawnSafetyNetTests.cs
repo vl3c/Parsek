@@ -950,6 +950,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildValidatedRespawnSnapshot_SurfaceTerminalWithSameBodyStaleOrbit_UsesSnapshotSurfaceRepair()
+        {
+            InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
+            VesselSpawner.BodyResolverForTesting = ResolveBodyByName;
+            VesselSpawner.BodyIndexResolverForTesting = ResolveBodyIndex;
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "1");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "Snapshot Surface Repair",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test");
+
+            Assert.NotNull(validated);
+            Assert.Equal("1.0", validated.GetValue("lat"));
+            Assert.Equal("2.0", validated.GetValue("lon"));
+            Assert.Equal("3.0", validated.GetValue("alt"));
+            ConfigNode repairedOrbit = validated.GetNode("ORBIT");
+            Assert.NotNull(repairedOrbit);
+            Assert.Equal("0", repairedOrbit.GetValue("SMA"));
+            Assert.Equal("1", repairedOrbit.GetValue("ECC"));
+            Assert.Equal("1", repairedOrbit.GetValue("REF"));
+            Assert.Contains(logLines, l =>
+                l.Contains("using snapshot surface coordinates")
+                && l.Contains("Snapshot Surface Repair"));
+        }
+
+        [Fact]
         public void TryGetSnapshotReferenceBodyName_UsesResolverOverride()
         {
             VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
