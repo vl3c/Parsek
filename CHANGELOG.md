@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
@@ -121,7 +122,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.
