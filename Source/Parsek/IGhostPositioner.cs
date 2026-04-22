@@ -50,8 +50,8 @@ namespace Parsek
         void PositionLoop(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx);
 
-        Vector3 ResolveExplosionAnchorPosition(int index, IPlaybackTrajectory traj,
-            GhostPlaybackState state);
+        bool TryResolveExplosionAnchorPosition(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, out Vector3 worldPosition);
 
         ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
             IPlaybackTrajectory traj, double distance, int protectedIndex);

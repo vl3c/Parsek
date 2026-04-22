@@ -3945,9 +3945,15 @@ namespace Parsek
 
             state.explosionFired = true;
 
-            Vector3 worldPos = positioner != null
-                ? positioner.ResolveExplosionAnchorPosition(recIdx, traj, state)
-                : state.ghost.transform.position;
+            Vector3 worldPos = state.ghost.transform.position;
+            if (positioner != null
+                && !positioner.TryResolveExplosionAnchorPosition(recIdx, traj, state, out worldPos))
+            {
+                worldPos = state.ghost.transform.position;
+            }
+            // Write the shared explosion anchor back onto the ghost root before the
+            // loop/overlap boundary event emitters run; the subsequent camera-hold
+            // and restart payloads both read this transform as their explosion site.
             state.ghost.transform.position = worldPos;
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength

@@ -11577,21 +11577,33 @@ namespace Parsek
                 positioned.altitude));
         }
 
-        Vector3 IGhostPositioner.ResolveExplosionAnchorPosition(int index,
-            IPlaybackTrajectory traj, GhostPlaybackState state)
+        bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
+            IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
         {
             if (state?.ghost == null)
-                return Vector3.zero;
+            {
+                worldPosition = Vector3.zero;
+                string missingGhostVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
+                    ? traj.VesselName
+                    : state?.vesselName ?? "?";
+                ParsekLog.Warn("TerrainCorrect",
+                    $"Explosion anchor resolve #{index} (\"{missingGhostVesselName}\") skipped: ghost root is null");
+                return false;
+            }
 
             Vector3 rawWorldPos = state.ghost.transform.position;
+            worldPosition = rawWorldPos;
+            string safeVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
+                ? traj.VesselName
+                : state.vesselName ?? "?";
             string bodyName = ResolveExplosionAnchorBodyName(
                 state.lastInterpolatedBodyName, traj);
             if (string.IsNullOrEmpty(bodyName))
-                return rawWorldPos;
+                return true;
 
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
             if (body == null || body.pqsController == null)
-                return rawWorldPos;
+                return true;
 
             double latitude = body.GetLatitude(rawWorldPos);
             double longitude = body.GetLongitude(rawWorldPos);
@@ -11605,27 +11617,39 @@ namespace Parsek
                     rawWorldPos, FlightGlobals.ActiveVessel.GetWorldPos3D());
                 minClearance = ComputeTerrainClearance(distanceToVessel);
             }
+            else
+            {
+                ParsekLog.Verbose("TerrainCorrect",
+                    $"Explosion anchor clearance fallback #{index} (\"{safeVesselName}\"): " +
+                    $"active vessel unavailable — using legacy floor " +
+                    $"{ImmediateLandedGhostClearanceFallbackMeters.ToString("F1", CultureInfo.InvariantCulture)}m");
+            }
 
             double clampedAltitude = TerrainCorrector.ClampAltitude(
                 rawAltitude, terrainHeight, minClearance);
-            if (clampedAltitude <= rawAltitude)
-                return rawWorldPos;
+            double resolvedAltitude = clampedAltitude > rawAltitude ? clampedAltitude : rawAltitude;
+            worldPosition = clampedAltitude > rawAltitude
+                ? body.GetWorldSurfacePosition(latitude, longitude, clampedAltitude)
+                : rawWorldPos;
 
-            Vector3 clampedWorldPos = body.GetWorldSurfacePosition(
-                latitude, longitude, clampedAltitude);
+            // Keep the watch overlay / diagnostics aligned with the anchor we
+            // actually returned, not just the "had to clamp" branch.
             state.lastInterpolatedBodyName = body.name;
-            state.lastInterpolatedAltitude = clampedAltitude;
+            state.lastInterpolatedAltitude = resolvedAltitude;
 
-            string safeVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
-                ? traj.VesselName
-                : state.vesselName ?? "?";
-            ParsekLog.VerboseRateLimited("TerrainCorrect", $"explosion-anchor-{index}",
+            if (clampedAltitude <= rawAltitude)
+                return true;
+
+            string cycleText = state.loopCycleIndex >= 0
+                ? $" cycle={state.loopCycleIndex}"
+                : "";
+            ParsekLog.Verbose("TerrainCorrect",
                 $"Explosion anchor clamp #{index} (\"{safeVesselName}\"): " +
                 $"alt={rawAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"terrain={terrainHeight.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"-> {clampedAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"(clearance={minClearance.ToString("F1", CultureInfo.InvariantCulture)}m)");
-            return clampedWorldPos;
+                $"(clearance={minClearance.ToString("F1", CultureInfo.InvariantCulture)}m){cycleText}");
+            return true;
         }
 
         // Literal floor returned by the immediate-clearance resolver when it
