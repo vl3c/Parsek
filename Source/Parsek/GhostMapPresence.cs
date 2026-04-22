@@ -929,7 +929,7 @@ namespace Parsek
                 if (!shouldCreate)
                 {
                     if (skipReason == "debris") skippedDebris++;
-                else if (skipReason == "suppressed") skippedSuppressed++;
+                    else if (skipReason == "suppressed") skippedSuppressed++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
                     else skippedNoOrbit++;
                     continue;
