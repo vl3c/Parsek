@@ -69,6 +69,20 @@ namespace Parsek.Patches
             // VesselPrecalculate.vessel is protected; resolve the vessel
             // via the GameObject instead.
             Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null)
+            {
+                if (ActiveRecorder != null)
+                {
+                    ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null-recorder",
+                        "Skipping physics callback: active vessel is null", 5.0);
+                }
+
+                if (hasPostSwitchAutoRecordWatch)
+                {
+                    ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null-watch",
+                        "Skipping post-switch auto-record watch: active vessel is null", 5.0);
+                }
+            }
 
             if (v != null && __instance.gameObject == v.gameObject)
             {
@@ -95,11 +109,6 @@ namespace Parsek.Patches
                 {
                     GloopsRecorderInstance.OnPhysicsFrame(v);
                 }
-            }
-            else if (hasPostSwitchAutoRecordWatch && v == null)
-            {
-                ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
-                    "Skipping post-switch auto-record watch: active vessel is null", 5.0);
             }
 
             // Background physics recording for loaded vessels in tree

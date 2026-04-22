@@ -42,6 +42,13 @@ namespace Parsek
             StartFreshRecording
         }
 
+        internal enum PostSwitchAutoRecordArmDecision
+        {
+            None,
+            ArmTrackedBackgroundMember,
+            ArmOutsider
+        }
+
         internal enum PostSwitchAutoRecordTrigger
         {
             None,
@@ -90,12 +97,15 @@ namespace Parsek
             public bool BaselineCaptured;
             public double BaselineCapturedUt;
             public double ComparisonsReadyUt;
+            public double NextManifestEvaluationUt;
             public Vector3d BaselineWorldPosition;
             public PostSwitchOrbitSnapshot BaselineOrbit;
             public Dictionary<string, ResourceAmount> BaselineResources;
             public Dictionary<string, InventoryItem> BaselineInventory;
             public Dictionary<string, int> BaselineCrew;
             public HashSet<string> BaselinePartStateTokens = new HashSet<string>();
+            public bool ModuleCachesDirty;
+            public int CachedPartCount;
             public List<(Part part, ModuleEngines engine, int moduleIndex)> CachedEngines
                 = new List<(Part, ModuleEngines, int)>();
             public HashSet<ulong> ActiveEngineKeys = new HashSet<ulong>();
@@ -163,6 +173,7 @@ namespace Parsek
         private const double PostSwitchOrbitEccentricityThreshold = 1e-6;
         private const double PostSwitchOrbitAngleThresholdDegrees = 0.01;
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
+        private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
@@ -760,6 +771,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
+            GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
@@ -1240,6 +1252,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+            GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
@@ -1718,7 +1731,9 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
-            if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
+            bool newVesselIsGhost =
+                newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId);
+            if (newVesselIsGhost) return;
 
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
             if (restoringActiveTree)
@@ -1846,21 +1861,31 @@ namespace Parsek
             uint newPid = newVessel.persistentId;
             bool trackedInActiveTree = activeTree != null
                 && activeTree.BackgroundMap.ContainsKey(newPid);
-            if (ShouldArmPostSwitchAutoRecord(
+            var armDecision = EvaluatePostSwitchAutoRecordArmDecision(
+                ShouldArmPostSwitchAutoRecord(
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
-                    newVesselIsGhost: false,
-                    newVesselIsEva: newVessel.isEVA))
+                    newVesselIsGhost,
+                    newVessel.isEVA),
+                trackedInActiveTree);
+            switch (armDecision)
             {
-                string armReason = trackedInActiveTree
-                    ? "vessel switch to tracked background member while idle"
-                    : "vessel switch to outsider while idle";
-                ArmPostSwitchAutoRecord(
-                    newVessel,
-                    armReason,
-                    trackedInActiveTree,
-                    freshStartParentRecordingId);
+                case PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember:
+                    ArmPostSwitchAutoRecord(
+                        newVessel,
+                        "vessel switch to tracked background member while idle",
+                        trackedInActiveTree: true,
+                        freshStartParentRecordingId);
+                    break;
+
+                case PostSwitchAutoRecordArmDecision.ArmOutsider:
+                    ArmPostSwitchAutoRecord(
+                        newVessel,
+                        "vessel switch to outsider while idle",
+                        trackedInActiveTree: false,
+                        freshStartParentRecordingId);
+                    break;
             }
             ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
         }
@@ -4196,6 +4221,18 @@ namespace Parsek
                 && !newVesselIsEva;
         }
 
+        internal static PostSwitchAutoRecordArmDecision EvaluatePostSwitchAutoRecordArmDecision(
+            bool shouldArm,
+            bool trackedInActiveTree)
+        {
+            if (!shouldArm)
+                return PostSwitchAutoRecordArmDecision.None;
+
+            return trackedInActiveTree
+                ? PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember
+                : PostSwitchAutoRecordArmDecision.ArmOutsider;
+        }
+
         internal static PostSwitchAutoRecordSuppressionReason EvaluatePostSwitchAutoRecordSuppression(
             bool autoRecordOnFirstModificationAfterSwitchEnabled,
             bool isRecording,
@@ -4227,6 +4264,18 @@ namespace Parsek
             if (activeVesselPacked)
                 return PostSwitchAutoRecordSuppressionReason.PackedOrOnRails;
             return PostSwitchAutoRecordSuppressionReason.None;
+        }
+
+        internal static bool ShouldEvaluatePostSwitchManifestDiff(
+            double currentUT,
+            double nextManifestEvaluationUt,
+            bool moduleCachesDirty,
+            int cachedPartCount,
+            int currentPartCount)
+        {
+            return moduleCachesDirty
+                || cachedPartCount != currentPartCount
+                || currentUT >= nextManifestEvaluationUt;
         }
 
         internal static bool HasMeaningfulLandedMotionChange(
@@ -4446,27 +4495,15 @@ namespace Parsek
             };
         }
 
-        private bool CapturePostSwitchAutoRecordBaseline(
+        private static void RefreshPostSwitchAutoRecordModuleCaches(
             PostSwitchAutoRecordState state,
-            Vessel v,
-            double currentUT)
+            Vessel v)
         {
             if (state == null || v == null)
-                return false;
+                return;
 
-            ConfigNode vesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
-            state.BaselineCaptured = true;
-            state.BaselineCapturedUt = currentUT;
-            state.ComparisonsReadyUt =
-                v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED
-                    ? currentUT + LandedSettleThreshold
-                    : currentUT;
-            state.BaselineWorldPosition = v.GetWorldPos3D();
-            state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
-            state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
-            state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
-            state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
-            state.BaselinePartStateTokens = CapturePostSwitchPartStateTokens(v);
+            state.CachedPartCount = v.parts != null ? v.parts.Count : 0;
+
             state.CachedEngines = FlightRecorder.CacheEngineModules(v);
             state.ActiveEngineKeys.Clear();
             state.EngineThrottleMap.Clear();
@@ -4505,6 +4542,33 @@ namespace Parsek
                 state.RcsThrottleMap[key] =
                     FlightRecorder.ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
             }
+
+            state.ModuleCachesDirty = false;
+        }
+
+        private bool CapturePostSwitchAutoRecordBaseline(
+            PostSwitchAutoRecordState state,
+            Vessel v,
+            double currentUT)
+        {
+            if (state == null || v == null)
+                return false;
+
+            ConfigNode vesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            state.BaselineCaptured = true;
+            state.BaselineCapturedUt = currentUT;
+            state.ComparisonsReadyUt =
+                v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED
+                    ? currentUT + LandedSettleThreshold
+                    : currentUT;
+            state.NextManifestEvaluationUt = currentUT;
+            state.BaselineWorldPosition = v.GetWorldPos3D();
+            state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
+            state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
+            state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
+            state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
+            state.BaselinePartStateTokens = CapturePostSwitchPartStateTokens(v);
+            RefreshPostSwitchAutoRecordModuleCaches(state, v);
 
             ParsekLog.Info("Flight",
                 $"Post-switch baseline captured: vessel='{state.VesselName}' pid={state.VesselPid} " +
@@ -4653,6 +4717,21 @@ namespace Parsek
             PostSwitchAutoRecordState state,
             double currentUT)
         {
+            int currentPartCount = v != null && v.parts != null ? v.parts.Count : 0;
+            bool evaluateManifestDiff = ShouldEvaluatePostSwitchManifestDiff(
+                currentUT,
+                state.NextManifestEvaluationUt,
+                state.ModuleCachesDirty,
+                state.CachedPartCount,
+                currentPartCount);
+            if (state.ModuleCachesDirty || state.CachedPartCount != currentPartCount)
+            {
+                RefreshPostSwitchAutoRecordModuleCaches(state, v);
+                ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-cache-refresh",
+                    $"Post-switch watch refreshed module caches: pid={state.VesselPid} " +
+                    $"parts={state.CachedPartCount}", 1.0);
+            }
+
             bool engineTriggered = false;
             for (int i = 0; i < state.CachedEngines.Count && !engineTriggered; i++)
             {
@@ -4699,20 +4778,28 @@ namespace Parsek
                 rcsTriggered = rcsEvents.Count > 0;
             }
 
-            ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
-            var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
-            var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
-            var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
-            var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
-            bool crewChanged = HasMeaningfulCrewDelta(
-                CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew));
-            bool resourceChanged = HasMeaningfulResourceDelta(
-                ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources));
-            bool partStateChanged = HasMeaningfulPartStateTokenChange(
-                state.BaselinePartStateTokens,
-                currentPartStateTokens)
-                || HasMeaningfulInventoryDelta(
-                    InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory));
+            bool crewChanged = false;
+            bool resourceChanged = false;
+            bool partStateChanged = false;
+            if (evaluateManifestDiff)
+            {
+                ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
+                var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
+                var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
+                crewChanged = HasMeaningfulCrewDelta(
+                    CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew));
+                resourceChanged = HasMeaningfulResourceDelta(
+                    ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources));
+                partStateChanged = HasMeaningfulPartStateTokenChange(
+                    state.BaselinePartStateTokens,
+                    currentPartStateTokens)
+                    || HasMeaningfulInventoryDelta(
+                        InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory));
+                state.NextManifestEvaluationUt =
+                    currentUT + PostSwitchManifestEvaluationIntervalSeconds;
+            }
 
             double distanceDelta = Vector3d.Distance(state.BaselineWorldPosition, v.GetWorldPos3D());
             bool landedMotionChanged =
@@ -4721,6 +4808,7 @@ namespace Parsek
             bool orbitChanged =
                 v.situation != Vessel.Situations.LANDED
                 && v.situation != Vessel.Situations.SPLASHED
+                && v.mainBody != null
                 && (!v.mainBody.atmosphere || v.altitude > v.mainBody.atmosphereDepth)
                 && HasMeaningfulOrbitChange(
                     state.BaselineOrbit,
@@ -4888,6 +4976,22 @@ namespace Parsek
                 return;
 
             TryStartPostSwitchAutoRecord(v, state, trigger, currentUT);
+        }
+
+        void OnVesselWasModified(Vessel v)
+        {
+            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            PostSwitchAutoRecordState state = postSwitchAutoRecord;
+            if (state == null || state.VesselPid != v.persistentId)
+                return;
+
+            state.ModuleCachesDirty = true;
+            state.NextManifestEvaluationUt = 0;
+            ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-invalidated",
+                $"Post-switch watch invalidated module caches: pid={state.VesselPid} " +
+                $"vessel='{state.VesselName}'", 1.0);
         }
 
         void OnVesselGoOnRails(Vessel v)

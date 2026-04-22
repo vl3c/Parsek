@@ -30,6 +30,22 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        [Theory]
+        [InlineData(false, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.None)]
+        [InlineData(true, true, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember)]
+        [InlineData(true, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmOutsider)]
+        public void EvaluatePostSwitchAutoRecordArmDecision_ReturnsExpectedAction(
+            bool shouldArm,
+            bool trackedInActiveTree,
+            int expected)
+        {
+            var result = ParsekFlight.EvaluatePostSwitchAutoRecordArmDecision(
+                shouldArm,
+                trackedInActiveTree);
+
+            Assert.Equal((ParsekFlight.PostSwitchAutoRecordArmDecision)expected, result);
+        }
+
         [Fact]
         public void EvaluatePostSwitchAutoRecordSuppression_StableFrame_ReturnsNone()
         {
@@ -84,6 +100,29 @@ namespace Parsek.Tests
                 activeVesselPacked);
 
             Assert.Equal((ParsekFlight.PostSwitchAutoRecordSuppressionReason)expected, result);
+        }
+
+        [Theory]
+        [InlineData(10.0, 11.0, false, 5, 5, false)]
+        [InlineData(11.0, 11.0, false, 5, 5, true)]
+        [InlineData(10.0, 11.0, true, 5, 5, true)]
+        [InlineData(10.0, 11.0, false, 5, 6, true)]
+        public void ShouldEvaluatePostSwitchManifestDiff_UsesThrottleAndInvalidationSignals(
+            double currentUT,
+            double nextManifestEvaluationUt,
+            bool moduleCachesDirty,
+            int cachedPartCount,
+            int currentPartCount,
+            bool expected)
+        {
+            bool result = ParsekFlight.ShouldEvaluatePostSwitchManifestDiff(
+                currentUT,
+                nextManifestEvaluationUt,
+                moduleCachesDirty,
+                cachedPartCount,
+                currentPartCount);
+
+            Assert.Equal(expected, result);
         }
 
         [Theory]
