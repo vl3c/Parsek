@@ -2778,29 +2778,18 @@ namespace Parsek.InGameTests
             if (engine == null)
                 InGameAssert.Skip("no GhostPlaybackEngine");
 
-            var committed = RecordingStore.CommittedRecordings;
-            Recording rec = null;
-            int recordingIndex = -1;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var candidate = committed[i];
-                if (candidate != null
-                    && candidate.Points != null
-                    && candidate.Points.Count >= 2
-                    && !string.IsNullOrEmpty(candidate.Points[0].bodyName))
-                {
-                    rec = candidate;
-                    recordingIndex = i;
-                    break;
-                }
-            }
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+                InGameAssert.Skip("requires a non-EVA active vessel");
+            if (!FlightIntegrationTests.TryBuildSyntheticKeepVesselTree(
+                    activeVessel, out _, out Recording rec, out string skipReason))
+                InGameAssert.Skip(skipReason ?? "failed to build synthetic playback recording");
 
-            if (rec == null)
-                InGameAssert.Skip("needs a committed recording with a non-empty trajectory");
-
-            int sentinelIndex = committed.Count + 1000;
-            if (engine.ghostStates.ContainsKey(sentinelIndex))
-                InGameAssert.Skip("sentinel index collision");
+            int sentinelIndex = 1000;
+            while (engine.ghostStates.ContainsKey(sentinelIndex))
+                sentinelIndex++;
 
             double primingUT = rec.Points[rec.Points.Count / 2].ut;
 
@@ -2828,7 +2817,7 @@ namespace Parsek.InGameTests
                     $"priming should move ghost away from origin, got distance={ghostOriginDist:F2}");
 
                 ParsekLog.Verbose("TestRunner",
-                    $"SpawnGhost priming in-game: recordingIndex={recordingIndex} " +
+                    $"SpawnGhost priming in-game: rec='{rec.RecordingId}' " +
                     $"vessel=\"{rec.VesselName}\" sentinelIndex={sentinelIndex} " +
                     $"primingUT={primingUT:F2} body=\"{state.lastInterpolatedBodyName}\" " +
                     $"altitude={state.lastInterpolatedAltitude:F1} " +
@@ -7803,7 +7792,7 @@ namespace Parsek.InGameTests
 
         #region PlaybackControl helpers
 
-        private static bool TryBuildSyntheticKeepVesselTree(
+        internal static bool TryBuildSyntheticKeepVesselTree(
             Vessel activeVessel,
             out RecordingTree tree,
             out Recording recording,
@@ -9171,6 +9160,109 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#539 in-game replacement for the removed xUnit pending-cycle-boundary stub: a pending loop first-spawn that crosses into the next cycle advances loopCycleIndex without emitting loop-restart or camera events for a ghost that never materialized")]
+        public void PendingLoopCycleBoundary_PendingGhostDoesNotEmitRestartEvents_InGame()
+        {
+            var engine = new GhostPlaybackEngine(new PendingLoopBoundaryPositioner());
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            var traj = new TestPendingLoopBoundaryTrajectoryForBug539();
+            var state = new GhostPlaybackState
+            {
+                vesselName = traj.VesselName,
+                loopCycleIndex = 0,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags
+                {
+                    recordingId = traj.RecordingId,
+                    chainEndUT = traj.EndUT,
+                    segmentLabel = traj.VesselName,
+                },
+            };
+            engine.ghostStates[0] = state;
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    recordingId = traj.RecordingId,
+                    chainEndUT = traj.EndUT,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = 260.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 150.0,
+            };
+
+            var capturedLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                capturedLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "pending-build cycle-boundary path must advance loopCycleIndex so the same null ghost does not re-trigger the boundary branch every frame");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle,
+                "pending loop lifecycle must stay armed so a later snapshot availability can still finish the first spawn");
+            InGameAssert.AreEqual(traj.RecordingId, state.pendingSpawnFlags.recordingId,
+                "pending spawn flags must remain attached to the same recording after the cycle advance");
+            InGameAssert.IsTrue(ReferenceEquals(state, engine.ghostStates[0]),
+                "cycle-boundary path must keep the same pending GhostPlaybackState shell in the engine map");
+            InGameAssert.IsNull(state.ghost,
+                "this regression relies on a ghost that never materialized; no fallback GameObject should appear when the debris snapshot is still missing");
+            InGameAssert.AreEqual(0, engine.FrameSpawnCountForTesting,
+                "failing the missing-snapshot reload after the cycle advance must not consume a completed spawn slot");
+            InGameAssert.AreEqual(0, cameraEvents.Count,
+                "pending-build cycle-boundary path must not emit loop camera events for a ghost that never spawned");
+            InGameAssert.AreEqual(0, restartedEvents.Count,
+                "pending-build cycle-boundary path must not emit LoopRestarted for a ghost that never spawned");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("ReusePrimaryGhostAcrossCycle: #0 skipped")
+                    && l.Contains("state.ghost is null")
+                    && l.Contains("advanced cycle=1")),
+                "the null-ghost reuse breadcrumb must be logged so KSP.log shows that the cycle advanced without a real ghost");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains(traj.VesselName)
+                    && l.Contains("ghost reused across loop cycle")),
+                "the full reuse log line must stay absent here; this path should only advance the pending shell, not report a real ghost reuse");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "#461: loop-cycle reuse clears deferVisibilityUntilPlaybackSync and re-activates the reused ghost on the same UpdatePlayback frame when the ghost stays visible")]
         public void Bug406_ReuseClearsDeferVisOnSameFrame()
         {
@@ -9335,6 +9427,56 @@ namespace Parsek.InGameTests
             return state;
         }
 
+        private sealed class PendingLoopBoundaryPositioner : IGhostPositioner
+        {
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            {
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+        }
+
         #endregion
     }
 
@@ -9463,6 +9605,72 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    internal class TestPendingLoopBoundaryTrajectoryForBug539 : IPlaybackTrajectory
+    {
+        public TestPendingLoopBoundaryTrajectoryForBug539()
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0,
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 0.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                },
+                new TrajectoryPoint
+                {
+                    ut = 200.0,
+                    latitude = 0.0,
+                    longitude = 0.001,
+                    altitude = 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                },
+            };
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+        public double StartUT => 100.0;
+        public double EndUT => 200.0;
+        public int RecordingFormatVersion => 0;
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "PendingLoopBoundary";
+        public string RecordingId => "test-b539";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 150.0;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => true;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0.0;
+        public double TerminalOrbitEccentricity => 0.0;
+        public double TerminalOrbitInclination => 0.0;
+        public double TerminalOrbitLAN => 0.0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0.0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0.0;
+        public double TerminalOrbitEpoch => 0.0;
         public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
         public string EndpointBodyName => null;
     }

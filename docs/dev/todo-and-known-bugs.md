@@ -450,15 +450,20 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 539. Two `GhostPlaybackEngineTests` cases are `[Fact(Skip = ...)]` stubs that xUnit should not keep shipping
+## ~~539. Two `GhostPlaybackEngineTests` cases are `[Fact(Skip = ...)]` stubs that xUnit should not keep shipping~~
 
-**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` has two permanently-skipped cases. `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` (line 1509) is already covered by a dedicated in-game replacement — `InGameTests/RuntimeTests.cs:1860` is literally labelled "in-game replacement for xUnit SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT". `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` (line 1153) has no dedicated in-game counterpart; its skip message leans on the pure-logic xUnit sibling `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` (line 1206) plus "the in-game flow". Today's `dotnet test` confirms both still skipped (7729 passed / 2 skipped).
+**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` had two permanently-skipped cases. `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` already had a dedicated in-game replacement, but `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` still only had indirect coverage via the pure-logic sibling `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` plus broader loop-flow regressions.
 
-**Concern:** by project convention (`.claude/CLAUDE.md` — in-game tests are the tool for anything requiring live KSP), the `SpawnGhost` xUnit stub is pure dead weight and should be deleted. The `UpdateLoopingPlayback_PendingCycleBoundary` stub is the only signal that the pending-build cycle-advance edge case is not yet a dedicated in-game regression — either add one under `GhostPlayback` in `RuntimeTests.cs` (parallel to the `SpawnGhost` replacement) and delete the xUnit stub, or confirm the sibling pure-logic test plus existing in-game flow is sufficient and delete the stub with a note.
+**Resolution (2026-04-22):** CLOSED on branch `bug/539-remove-skipped-xunit-stubs`. Deleted both skipped xUnit placeholders from `GhostPlaybackEngineTests.cs` and also removed the now-dead `SpawnPrimingPositioner` helper that only those stubs used. Coverage decision:
 
-**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` (delete both `[Fact(Skip = ...)]` stubs), `Source/Parsek/InGameTests/RuntimeTests.cs` (add a dedicated `PendingCycleBoundary` in-game regression if coverage is judged insufficient).
+- `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`: removed outright. Its surviving live-Unity coverage remains the pre-existing `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame` test, which now seeds its own synthetic playback recording from the active-vessel snapshot instead of depending on pre-existing committed save data, so the shipped regression keeps direct runtime evidence for the priming invariants without the dead xUnit stub.
+- `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents`: added a dedicated `GhostPlayback` in-game regression, `PendingLoopCycleBoundary_PendingGhostDoesNotEmitRestartEvents_InGame`, which drives `UpdatePlayback -> UpdateLoopingPlayback` on a pending `LoopEnter` shell with `ghost == null`, asserts that `loopCycleIndex` advances, and proves that no `OnLoopRestarted` / `OnLoopCameraAction` events fire while the missing-snapshot debris ghost still cannot materialize. The existing headless `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` test stays in place as the pure-helper counterpart for the null-ghost cycle-advance invariant.
 
-**Status:** OPEN. Cleanup — delete `SpawnGhost` stub outright; add an in-game counterpart for `PendingCycleBoundary` before deleting its stub.
+**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --no-restore --filter "FullyQualifiedName~GhostPlaybackEngineTests"` passed (`109` passed, `0` failed, `0` skipped) and the full restore-backed `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` compile+run reached the xUnit runner, but still hit one unrelated existing environment-state failure in `SyntheticRecordingTests.InjectAllRecordings` (`Expected exactly 283 .prec files ... found 540`, orphan sidecars from a prior inject run). The new runtime regression compiles as part of the referenced `Parsek` project but still needs live KSP execution via `Ctrl+Shift+T` for full runtime evidence.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
 
 ---
 
