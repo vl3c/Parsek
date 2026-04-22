@@ -44,6 +44,9 @@ namespace Parsek
         // tuple, re-emitted only when any input changes. Steady-state silent.
         private readonly Dictionary<int, (double userPeriod, double effectiveCadence, double duration)>
             lastLoggedCadence = new Dictionary<int, (double, double, double)>();
+        private readonly Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>
+            autoLoopLaunchSchedules = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>();
+        private readonly List<AutoLoopQueueCandidate> autoLoopQueueScratch = new List<AutoLoopQueueCandidate>();
 
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
@@ -195,6 +198,26 @@ namespace Parsek
             ParsekLog.Info("Engine", "GhostPlaybackEngine created");
         }
 
+        private readonly struct AutoLoopQueueCandidate
+        {
+            internal AutoLoopQueueCandidate(
+                int recordingIndex,
+                double playbackStartUT,
+                double playbackEndUT,
+                string recordingId)
+            {
+                RecordingIndex = recordingIndex;
+                PlaybackStartUT = playbackStartUT;
+                PlaybackEndUT = playbackEndUT;
+                RecordingId = recordingId ?? string.Empty;
+            }
+
+            internal int RecordingIndex { get; }
+            internal double PlaybackStartUT { get; }
+            internal double PlaybackEndUT { get; }
+            internal string RecordingId { get; }
+        }
+
         internal static bool HasLoadedGhostVisuals(GhostPlaybackState state)
         {
             return state != null && state.ghost != null;
@@ -334,6 +357,7 @@ namespace Parsek
             bool suppressGhosts = !ctx.mapViewEnabled
                 && GhostPlaybackLogic.ShouldSuppressGhosts(ctx.warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(ctx.warpRate);
+            RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 
             // Reset reshow dedup when entering warp suppression
             if (suppressGhosts)
@@ -971,9 +995,17 @@ namespace Parsek
             ghostStates.TryGetValue(index, out state);
             bool ghostActive = HasLoadedGhostVisuals(state);
 
-            double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
-            double loopStartUT = EffectiveLoopStartUT(traj);
-            double duration = EffectiveLoopDuration(traj);
+            if (!TryResolveLoopSchedule(
+                    traj, ctx.autoLoopIntervalSeconds, index,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
+            {
+                if (ghostActive)
+                    DestroyGhost(index, traj, flags, reason: "loop schedule resolution failed");
+                return;
+            }
 
             // High time warp: hide ghost, destroy overlaps
             if (suppressGhosts)
@@ -999,7 +1031,7 @@ namespace Parsek
             if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
             {
                 UpdateOverlapPlayback(index, traj, flags, ctx, state,
-                    intervalSeconds, duration, suppressVisualFx);
+                    intervalSeconds, duration, playbackStartUT, scheduleStartUT, suppressVisualFx);
                 return;
             }
 
@@ -1186,11 +1218,11 @@ namespace Parsek
         private void UpdateOverlapPlayback(int index, IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags, FrameContext ctx,
             GhostPlaybackState primaryState,
-            double intervalSeconds, double duration, bool suppressVisualFx)
+            double intervalSeconds, double duration,
+            double playbackStartUT, double scheduleStartUT,
+            bool suppressVisualFx)
         {
-            double loopStartUT = EffectiveLoopStartUT(traj);
-            double loopEndUT = EffectiveLoopEndUT(traj);
-            if (ctx.currentUT < loopStartUT)
+            if (ctx.currentUT < scheduleStartUT)
             {
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
@@ -1212,7 +1244,11 @@ namespace Parsek
             double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, loopEndUT, effectiveCadence,
+            GhostPlaybackLogic.GetActiveCycles(
+                ctx.currentUT,
+                scheduleStartUT,
+                scheduleStartUT + duration,
+                effectiveCadence,
                 GhostPlayback.MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;
@@ -1224,9 +1260,13 @@ namespace Parsek
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
-            double primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration;
-            double primaryPhase = Math.Max(0, Math.Min(ctx.currentUT - primaryCycleStartUT, duration));
-            double primaryLoopUT = loopStartUT + primaryPhase;
+            double primaryLoopUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                ctx.currentUT,
+                scheduleStartUT,
+                playbackStartUT,
+                duration,
+                cycleDuration,
+                lastCycle);
             bool primaryAdvanceDeferredThisFrame = false;
 
             if (primaryCycleChanged)
@@ -1343,7 +1383,7 @@ namespace Parsek
 
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
-                duration, cycleDuration, loopStartUT, suppressVisualFx);
+                duration, cycleDuration, playbackStartUT, scheduleStartUT, suppressVisualFx);
         }
 
         /// <summary>
@@ -1354,7 +1394,9 @@ namespace Parsek
         private void UpdateExpireAndPositionOverlaps(int index, IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags, FrameContext ctx,
             List<GhostPlaybackState> overlaps,
-            double duration, double cycleDuration, double loopStartUT, bool suppressVisualFx)
+            double duration, double cycleDuration,
+            double playbackStartUT, double scheduleStartUT,
+            bool suppressVisualFx)
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
@@ -1374,8 +1416,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = loopStartUT + cycle * cycleDuration;
-                double phase = ctx.currentUT - cycleStart;
+                double phase = ctx.currentUT - (scheduleStartUT + cycle * cycleDuration);
 
                 // Expired cycle
                 if (phase > duration)
@@ -1420,7 +1461,7 @@ namespace Parsek
                 }
 
                 phase = Math.Max(0, Math.Min(phase, duration));
-                double loopUT = loopStartUT + phase;
+                double loopUT = playbackStartUT + phase;
                 double overlapDistance = ResolvePlaybackDistance(
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 double overlapActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
@@ -1658,6 +1699,106 @@ namespace Parsek
             return end - start > LoopTiming.MinLoopDurationSeconds;
         }
 
+        private static int CompareAutoLoopQueueCandidates(AutoLoopQueueCandidate a, AutoLoopQueueCandidate b)
+        {
+            int cmp = a.PlaybackStartUT.CompareTo(b.PlaybackStartUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = a.PlaybackEndUT.CompareTo(b.PlaybackEndUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.RecordingId, b.RecordingId);
+            if (cmp != 0)
+                return cmp;
+
+            return a.RecordingIndex.CompareTo(b.RecordingIndex);
+        }
+
+        private void RebuildAutoLoopLaunchScheduleCache(
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            double autoLoopIntervalSeconds)
+        {
+            autoLoopLaunchSchedules.Clear();
+            autoLoopQueueScratch.Clear();
+            if (trajectories == null || trajectories.Count == 0)
+                return;
+
+            for (int i = 0; i < trajectories.Count; i++)
+            {
+                var traj = trajectories[i];
+                if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(traj))
+                    continue;
+
+                autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
+                    i,
+                    EffectiveLoopStartUT(traj),
+                    EffectiveLoopEndUT(traj),
+                    traj.RecordingId));
+            }
+
+            if (autoLoopQueueScratch.Count == 0)
+                return;
+
+            autoLoopQueueScratch.Sort(CompareAutoLoopQueueCandidates);
+            double launchGapSeconds = GhostPlaybackLogic.ResolveLoopInterval(
+                trajectories[autoLoopQueueScratch[0].RecordingIndex],
+                autoLoopIntervalSeconds,
+                LoopTiming.DefaultLoopIntervalSeconds,
+                LoopTiming.MinCycleDuration);
+            double anchorUT = autoLoopQueueScratch[0].PlaybackStartUT;
+            double cadenceSeconds = launchGapSeconds * autoLoopQueueScratch.Count;
+            for (int slot = 0; slot < autoLoopQueueScratch.Count; slot++)
+            {
+                var candidate = autoLoopQueueScratch[slot];
+                autoLoopLaunchSchedules[candidate.RecordingIndex] =
+                    new GhostPlaybackLogic.AutoLoopLaunchSchedule(
+                        anchorUT + (slot * launchGapSeconds),
+                        cadenceSeconds,
+                        slot,
+                        autoLoopQueueScratch.Count);
+            }
+        }
+
+        private bool TryResolveLoopSchedule(
+            IPlaybackTrajectory traj,
+            double autoLoopIntervalSeconds,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
+        {
+            playbackStartUT = 0.0;
+            scheduleStartUT = 0.0;
+            duration = 0.0;
+            intervalSeconds = LoopTiming.DefaultLoopIntervalSeconds;
+            if (traj == null || traj.Points == null || traj.Points.Count < 2)
+                return false;
+
+            playbackStartUT = EffectiveLoopStartUT(traj);
+            double playbackEndUT = EffectiveLoopEndUT(traj);
+            duration = playbackEndUT - playbackStartUT;
+            if (duration <= LoopTiming.MinLoopDurationSeconds)
+                return false;
+
+            double baseIntervalSeconds = GhostPlaybackLogic.ResolveLoopInterval(
+                traj, autoLoopIntervalSeconds,
+                LoopTiming.DefaultLoopIntervalSeconds,
+                LoopTiming.MinCycleDuration);
+            if (recIdx >= 0 && autoLoopLaunchSchedules.TryGetValue(recIdx, out var autoSchedule))
+            {
+                scheduleStartUT = autoSchedule.LaunchStartUT;
+                intervalSeconds = autoSchedule.LaunchCadenceSeconds;
+                return true;
+            }
+
+            scheduleStartUT = playbackStartUT;
+            intervalSeconds = baseIntervalSeconds;
+            return true;
+        }
+
         /// <summary>Resolve the effective loop interval for a trajectory.</summary>
         internal double GetLoopIntervalSeconds(IPlaybackTrajectory traj, double autoLoopIntervalSeconds)
         {
@@ -1665,6 +1806,17 @@ namespace Parsek
                 traj, autoLoopIntervalSeconds,
                 LoopTiming.DefaultLoopIntervalSeconds,
                 LoopTiming.MinCycleDuration);
+        }
+
+        internal double GetLoopIntervalSeconds(
+            IPlaybackTrajectory traj,
+            double autoLoopIntervalSeconds,
+            int recIdx)
+        {
+            if (recIdx >= 0 && autoLoopLaunchSchedules.TryGetValue(recIdx, out var autoSchedule))
+                return autoSchedule.LaunchCadenceSeconds;
+
+            return GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
         }
 
         /// <summary>
@@ -1682,51 +1834,36 @@ namespace Parsek
         {
             cycleIndex = 0;
             inPauseWindow = false;
-            if (traj == null || traj.Points == null || traj.Points.Count < 2)
-            {
-                loopUT = 0;
+            loopUT = 0;
+            if (!TryResolveLoopSchedule(
+                    traj, autoLoopIntervalSeconds, recIdx,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
                 return false;
-            }
-
-            double loopStart = EffectiveLoopStartUT(traj);
-            double loopEnd = EffectiveLoopEndUT(traj);
-            loopUT = loopStart;
-            if (currentUT < loopStart) return false;
-
-            double duration = loopEnd - loopStart;
-            if (duration <= LoopTiming.MinLoopDurationSeconds) return false;
-
-            double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
-            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
-            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
-            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
-
-            double elapsed = currentUT - loopStart;
 
             // Apply loop phase offset (set by Watch mode to reset ghost to recording start)
             double phaseOffset;
             if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
             {
                 ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
-                elapsed += phaseOffset;
+                scheduleStartUT -= phaseOffset;
             }
 
-            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
-            if (cycleIndex < 0) cycleIndex = 0;
-
-            double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            // Pause window only exists when period strictly exceeds duration (there's a gap).
-            if (intervalSeconds > duration && cycleTime > duration + LoopTiming.BoundaryEpsilon)
+            if (!GhostPlaybackLogic.TryComputeLoopPlaybackPhase(
+                    currentUT, scheduleStartUT, duration, intervalSeconds,
+                    out double playbackPhase, out cycleIndex, out inPauseWindow))
             {
-                inPauseWindow = true;
-                loopUT = loopEnd;
-                if (ParsekLog.IsVerboseEnabled)
-                    ParsekLog.VerboseRateLimited("Engine", "loop_pause_" + recIdx,
-                        $"TryComputeLoopPlaybackUT: in pause window for recIdx={recIdx}, cycle={cycleIndex}");
-                return true;
+                return false;
             }
 
-            loopUT = loopStart + Math.Min(cycleTime, duration);
+            loopUT = playbackStartUT + playbackPhase;
+            if (inPauseWindow && ParsekLog.IsVerboseEnabled)
+            {
+                ParsekLog.VerboseRateLimited("Engine", "loop_pause_" + recIdx,
+                    $"TryComputeLoopPlaybackUT: in pause window for recIdx={recIdx}, cycle={cycleIndex}");
+            }
             return true;
         }
 
@@ -2792,10 +2929,16 @@ namespace Parsek
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
             FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx)
         {
-            double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
-            double duration = EffectiveLoopDuration(traj);
+            if (!TryResolveLoopSchedule(
+                    traj, ctx.autoLoopIntervalSeconds, index,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
+                return;
+
             UpdateOverlapPlayback(index, traj, flags, ctx, primaryState,
-                intervalSeconds, duration, suppressVisualFx);
+                intervalSeconds, duration, playbackStartUT, scheduleStartUT, suppressVisualFx);
         }
 
         private GhostVisualLoadStatus TryPopulateGhostVisuals(
@@ -3852,6 +3995,8 @@ namespace Parsek
             // Clear all engine state
             ghostStates.Clear();
             overlapGhosts.Clear();
+            autoLoopLaunchSchedules.Clear();
+            autoLoopQueueScratch.Clear();
             loopPhaseOffsets.Clear();
             loadedAnchorVessels.Clear();
             loggedGhostEnter.Clear();
@@ -3867,6 +4012,8 @@ namespace Parsek
         /// </summary>
         internal void ReindexAfterDelete(int removedIndex)
         {
+            autoLoopLaunchSchedules.Clear();
+            autoLoopQueueScratch.Clear();
             ReindexDict(ghostStates, removedIndex);
             ReindexDict(overlapGhosts, removedIndex);
             ReindexDict(loopPhaseOffsets, removedIndex);

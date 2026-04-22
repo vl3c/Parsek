@@ -478,15 +478,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 543. Auto-loop recordings need a global launch queue instead of per-recording independent cadence
+## ~~543. Auto-loop recordings need a global launch queue instead of per-recording independent cadence~~
 
 **Source:** user request from 2026-04-22. Current code in `GhostPlaybackLogic.ResolveLoopInterval(...)` gives every `LoopTimeUnit.Auto` recording the same global period, but each recording still schedules its own cycles independently from its own start UT.
 
 **Concern:** with multiple recordings on `Auto`, the current behavior can still produce simultaneous or visually clumped relaunches because "Auto" is only a shared interval value, not a shared queue. Requested behavior: treat all looped recordings whose unit is `Auto` as one launch queue ordered by launch sequence, with the gap between launches equal to the global Auto setting. Example: three Auto recordings with Auto = 30s should launch A, then B after 30s, then C after 30s, then continue cycling through that queue instead of each recording relaunching on its own independent cadence.
 
-**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/Recording.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek.Tests/AutoLoopTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+**Fix:** added a shared Auto-loop schedule resolver in `GhostPlaybackLogic`, cached that queue in `GhostPlaybackEngine`, and propagated the same schedule/playback split into flight watch-mode and KSC loop reconstruction. Auto recordings are now ordered once by effective loop launch UT, the shared Auto interval becomes the gap between successive queue launches, and each recording's own relaunch cadence becomes `queueLength * autoInterval`. Added direct regression coverage for the queue resolver, schedule-aware phase math, KSC loop timing, and engine cache usage.
 
-**Status:** TODO. New loop-scheduler semantics; medium design work.
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/AutoLoopTests.cs`, `Source/Parsek.Tests/LoopPhaseTests.cs`, `Source/Parsek.Tests/KscGhostPlaybackTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

@@ -21,6 +21,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            ParsekSettings.CurrentOverrideForTesting = null;
             RecordingStore.ResetForTesting();
         }
 
@@ -407,6 +408,48 @@ namespace Parsek.Tests
             Assert.Equal(200, loopUT, 3);
         }
 
+        [Fact]
+        public void TryComputeLoopUT_AutoQueueUsesSharedLaunchSchedule()
+        {
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.VesselName = "First";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.VesselName = "Second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var third = MakeKerbinRecording(
+                startUT: 120, endUT: 170, loopPlayback: true, loopInterval: 999.0);
+            third.RecordingId = "third";
+            third.VesselName = "Third";
+            third.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            RecordingStore.AddCommittedInternal(first);
+            RecordingStore.AddCommittedInternal(second);
+            RecordingStore.AddCommittedInternal(third);
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            bool result = ParsekKSC.TryComputeLoopUT(
+                second, 145.0,
+                out double loopUT,
+                out long cycleIndex,
+                out bool inPauseWindow,
+                recIdx: 1);
+
+            Assert.True(result);
+            Assert.Equal(125.0, loopUT, 6);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPauseWindow);
+        }
+
         #endregion
 
         #region GetLoopIntervalSeconds
@@ -466,6 +509,36 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = 0.0;
             Assert.Equal(LoopTiming.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
+        }
+
+        [Fact]
+        public void GetLoopIntervalSeconds_AutoQueueReturnsQueueCadenceWhenRecordingIndexProvided()
+        {
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var third = MakeKerbinRecording(
+                startUT: 120, endUT: 170, loopPlayback: true, loopInterval: 999.0);
+            third.RecordingId = "third";
+            third.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            RecordingStore.AddCommittedInternal(first);
+            RecordingStore.AddCommittedInternal(second);
+            RecordingStore.AddCommittedInternal(third);
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            Assert.Equal(30.0, ParsekKSC.GetLoopIntervalSeconds(second), 6);
+            Assert.Equal(90.0, ParsekKSC.GetLoopIntervalSeconds(second, recIdx: 1), 6);
         }
 
         #endregion

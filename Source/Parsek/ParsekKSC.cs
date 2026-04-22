@@ -229,11 +229,28 @@ namespace Parsek
                     double duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
                     if (duration <= LoopTiming.MinLoopDurationSeconds) continue;
 
-                    double intervalSeconds = GetLoopIntervalSeconds(rec);
+                    double intervalSeconds = GetLoopIntervalSeconds(rec, i);
                     if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
                     {
                         // Period < duration: successive launches overlap, multi-ghost path.
-                        UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration, suppressVisualFx);
+                        if (TryGetLoopSchedule(
+                                rec,
+                                i,
+                                out double playbackStartUT,
+                                out double scheduleStartUT,
+                                out _,
+                                out _))
+                        {
+                            UpdateOverlapKsc(
+                                i,
+                                rec,
+                                currentUT,
+                                intervalSeconds,
+                                duration,
+                                playbackStartUT,
+                                scheduleStartUT,
+                                suppressVisualFx);
+                        }
                         continue;
                     }
 
@@ -244,7 +261,7 @@ namespace Parsek
                     long cycleIndex;
                     bool inPauseWindow;
                     bool inRange = TryComputeLoopUT(rec, currentUT,
-                        out targetUT, out cycleIndex, out inPauseWindow);
+                        out targetUT, out cycleIndex, out inPauseWindow, i);
 
                     UpdateSingleGhostKsc(i, rec, currentUT, targetUT, cycleIndex,
                         inRange, inPauseWindow, suppressVisualFx);
@@ -485,15 +502,15 @@ namespace Parsek
         /// (no camera logic, no reentry FX).
         /// </summary>
         void UpdateOverlapKsc(int recIdx, Recording rec,
-            double currentUT, double intervalSeconds, double duration, bool suppressVisualFx)
+            double currentUT, double intervalSeconds, double duration,
+            double playbackStartUT, double scheduleStartUT,
+            bool suppressVisualFx)
         {
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
             bool primaryActive = primaryState != null && primaryState.ghost != null;
-            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
 
-            if (currentUT < loopStartUT)
+            if (currentUT < scheduleStartUT)
             {
                 if (primaryActive) { DestroyKscGhost(primaryState, recIdx); kscGhosts.Remove(recIdx); }
                 DestroyAllKscOverlapGhosts(recIdx);
@@ -504,15 +521,14 @@ namespace Parsek
             // ceil(duration/cadence) <= MaxOverlapGhostsPerRecording, so the
             // per-recording cap is never exceeded and no cycle is silently
             // culled mid-trajectory.
-            double loopDuration = loopEndUT - loopStartUT;
             double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                intervalSeconds, loopDuration, GhostPlayback.MaxOverlapGhostsPerRecording);
-            LogKscCadenceIfChanged(recIdx, rec, intervalSeconds, effectiveCadence, loopDuration);
+                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            LogKscCadenceIfChanged(recIdx, rec, intervalSeconds, effectiveCadence, duration);
 
             double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(currentUT, loopStartUT, loopEndUT,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, scheduleStartUT, scheduleStartUT + duration,
                 effectiveCadence, GhostPlayback.MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
@@ -551,11 +567,13 @@ namespace Parsek
 
             // Position and animate primary (SpawnKscGhost above guarantees non-null)
             {
-                double cycleStartUT = loopStartUT + lastCycle * cycleDuration;
-                double phase = currentUT - cycleStartUT;
-                if (phase < 0) phase = 0;
-                if (phase > duration) phase = duration;
-                double loopUT = loopStartUT + phase;
+                double loopUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                    currentUT,
+                    scheduleStartUT,
+                    playbackStartUT,
+                    duration,
+                    cycleDuration,
+                    lastCycle);
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT);
@@ -587,8 +605,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = loopStartUT + cycle * cycleDuration;
-                double phase = currentUT - cycleStart;
+                double phase = currentUT - (scheduleStartUT + cycle * cycleDuration);
 
                 if (phase > duration)
                 {
@@ -607,7 +624,7 @@ namespace Parsek
                 }
 
                 if (phase < 0) phase = 0;
-                double loopUT = loopStartUT + phase;
+                double loopUT = playbackStartUT + phase;
 
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
                     ref ovState.playbackIndex, loopUT);
@@ -877,48 +894,81 @@ namespace Parsek
         /// Reimplemented from ParsekFlight.TryComputeLoopPlaybackUT (instance version)
         /// because the static 6-param overload doesn't return pause-window state.
         /// </summary>
+        private static bool TryGetLoopSchedule(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
+        {
+            playbackStartUT = 0.0;
+            scheduleStartUT = 0.0;
+            duration = 0.0;
+            intervalSeconds = 0.0;
+            if (rec == null || !GhostPlaybackEngine.ShouldLoopPlayback(rec))
+                return false;
+
+            playbackStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            if (duration <= LoopTiming.MinLoopDurationSeconds)
+                return false;
+
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
+            double baseIntervalSeconds = GhostPlaybackLogic.ResolveLoopInterval(
+                rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
+            scheduleStartUT = playbackStartUT;
+            intervalSeconds = baseIntervalSeconds;
+
+            if (recIdx >= 0)
+            {
+                var committed = RecordingStore.CommittedRecordings;
+                var trajectories = new List<IPlaybackTrajectory>(committed.Count);
+                for (int i = 0; i < committed.Count; i++)
+                    trajectories.Add(committed[i]);
+
+                if (GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                        trajectories,
+                        recIdx,
+                        baseIntervalSeconds,
+                        out var autoSchedule))
+                {
+                    scheduleStartUT = autoSchedule.LaunchStartUT;
+                    intervalSeconds = autoSchedule.LaunchCadenceSeconds;
+                }
+            }
+
+            return true;
+        }
+
         internal static bool TryComputeLoopUT(
             Recording rec,
             double currentUT,
             out double loopUT,
             out long cycleIndex,
-            out bool inPauseWindow)
+            out bool inPauseWindow,
+            int recIdx = -1)
         {
             cycleIndex = 0;
             inPauseWindow = false;
-            if (rec == null || rec.Points == null || rec.Points.Count < 2)
+            loopUT = 0.0;
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
+                return false;
+
+            if (!GhostPlaybackLogic.TryComputeLoopPlaybackPhase(
+                    currentUT, scheduleStartUT, duration, intervalSeconds,
+                    out double playbackPhase, out cycleIndex, out inPauseWindow))
             {
-                loopUT = 0;
                 return false;
             }
 
-            double loopStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            double loopEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
-            loopUT = loopStart;
-            if (currentUT < loopStart) return false;
-
-            double duration = loopEnd - loopStart;
-            if (duration <= LoopTiming.MinLoopDurationSeconds) return false;
-
-            double intervalSeconds = GetLoopIntervalSeconds(rec);
-            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
-            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
-            double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
-
-            double elapsed = currentUT - loopStart;
-            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
-            if (cycleIndex < 0) cycleIndex = 0;
-
-            double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            // Pause window only when period strictly exceeds duration.
-            if (intervalSeconds > duration && cycleTime > duration + LoopTiming.BoundaryEpsilon)
-            {
-                inPauseWindow = true;
-                loopUT = loopEnd;
-                return true;
-            }
-
-            loopUT = loopStart + Math.Min(cycleTime, duration);
+            loopUT = playbackStartUT + playbackPhase;
             return true;
         }
 
@@ -927,12 +977,19 @@ namespace Parsek
         /// in seconds (#381) — always &gt;= LoopTiming.MinCycleDuration.
         /// Overlap emerges when period &lt; recording duration (see IsOverlapLoop).
         /// </summary>
-        internal static double GetLoopIntervalSeconds(Recording rec)
+        internal static double GetLoopIntervalSeconds(Recording rec, int recIdx = -1)
         {
-            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return GhostPlaybackLogic.ResolveLoopInterval(
-                rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out _, out _, out _, out double intervalSeconds))
+            {
+                double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                        ?? LoopTiming.DefaultLoopIntervalSeconds;
+                return GhostPlaybackLogic.ResolveLoopInterval(
+                    rec, globalInterval, LoopTiming.DefaultLoopIntervalSeconds, LoopTiming.MinCycleDuration);
+            }
+
+            return intervalSeconds;
         }
 
         /// <summary>

@@ -1567,7 +1567,7 @@ namespace Parsek
                 : rec.EndUT;
             bool shouldLoopPlayback = host.ShouldLoopPlaybackForWatch(rec);
             double loopIntervalSeconds = shouldLoopPlayback
-                ? host.GetLoopIntervalSecondsForWatch(rec)
+                ? host.GetLoopIntervalSecondsForWatch(rec, index)
                 : 0.0;
             // #381: overlap dispatch is period < duration, not interval < 0.
             // #409: share the effective-loop-duration helper with ResolveWatchPlaybackUT.
@@ -1707,15 +1707,24 @@ namespace Parsek
         private void ResetLoopPhaseForWatch(int index, GhostPlaybackState gs, Recording rec)
         {
             double currentUT = Planetarium.GetUniversalTime();
-            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
+            if (!host.TryGetLoopScheduleForWatch(
+                    rec,
+                    index,
+                    out _,
+                    out double scheduleStartUT,
+                    out _,
+                    out double intervalSeconds))
+            {
+                return;
+            }
+
             // #381: cycleDuration = launch-to-launch period (clamped). Dead-code fallback removed.
             double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
 
             var loopPhaseOffsets = host.Engine.loopPhaseOffsets;
 
             // Current elapsed time (with any existing offset)
-            double elapsed = currentUT - loopStartUT;
+            double elapsed = currentUT - scheduleStartUT;
             double existingOffset;
             if (loopPhaseOffsets.TryGetValue(index, out existingOffset))
                 elapsed += existingOffset;
@@ -2947,12 +2956,17 @@ namespace Parsek
             if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
                 return fallbackUT;
 
-            double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            // #409: use the same (effective loop start, effective loop duration) frame that
-            // TryStartWatchSession uses, so the overlap-vs-single dispatch and the cycle-UT
-            // reference both agree for recordings with a custom loop subrange.
-            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            double resolveDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            if (!host.TryGetLoopScheduleForWatch(
+                    rec,
+                    watchedRecordingIndex,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double resolveDuration,
+                    out double intervalSeconds))
+            {
+                return fallbackUT;
+            }
+
             if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, resolveDuration))
             {
                 if (currentState == null || currentState.loopCycleIndex < 0)
@@ -2971,8 +2985,11 @@ namespace Parsek
                     intervalSeconds, resolveDuration,
                     GhostPlayback.MaxOverlapGhostsPerRecording);
 
-                return GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
-                    Planetarium.GetUniversalTime(), loopStartUT, resolveDuration,
+                return GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                    Planetarium.GetUniversalTime(),
+                    scheduleStartUT,
+                    playbackStartUT,
+                    resolveDuration,
                     effectiveCadence, currentState.loopCycleIndex);
             }
 
