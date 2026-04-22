@@ -67,66 +67,6 @@ namespace Parsek.Tests
             }.WithTimeRange(startUT, endUT).WithLoop(999.0, LoopTimeUnit.Auto);
         }
 
-        private sealed class SpawnPrimingPositioner : IGhostPositioner
-        {
-            internal int InterpolateCalls;
-            internal int PositionAtPointCalls;
-            internal double LastUT;
-            internal double LastPointUT;
-            internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
-
-            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx)
-            {
-                InterpolateCalls++;
-                LastUT = ut;
-                if (state?.ghost != null)
-                    state.ghost.transform.position = PrimedPosition;
-                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
-            }
-
-            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
-            {
-                InterpolateAndPosition(index, traj, state, ut, suppressFx);
-            }
-
-            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, TrajectoryPoint point)
-            {
-                PositionAtPointCalls++;
-                LastPointUT = point.ut;
-                if (state?.ghost != null)
-                    state.ghost.transform.position = PrimedPosition;
-            }
-
-            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state)
-            {
-            }
-
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut)
-            {
-            }
-
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx)
-            {
-                InterpolateAndPosition(index, traj, state, ut, suppressFx);
-            }
-
-            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-                IPlaybackTrajectory traj, double distance, int protectedIndex)
-            {
-                return new ZoneRenderingResult();
-            }
-
-            public void ClearOrbitCache()
-            {
-            }
-        }
-
         // ===================================================================
         // ShouldLoopPlayback — static, pure predicate
         // ===================================================================
@@ -1207,58 +1147,6 @@ namespace Parsek.Tests
             Assert.Null(state.pendingSpawnFlags.recordingId);
         }
 
-        [Fact(Skip = "UpdateLoopingPlayback body references Unity GameObject.activeSelf / SetActive, which trip .NET 4.7.2 JIT verification (ECall must be in system module) even on the pending-cycle-boundary path. Pending-build cycle-advance invariant is instead covered by ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents (pure-logic) and by the in-game flow; do not re-enable without a Unity runtime harness.")]
-        public void UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents()
-        {
-            // Bug #450 B2: a split first-spawn can still be pending when the next loop
-            // cycle starts. That branch must advance the cycle index without firing
-            // restart / explosion-hold camera events for a ghost that never spawned.
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = new MockTrajectory
-            {
-                IsDebris = true, // no snapshot => EnsureGhostVisualsLoaded fails before any Unity build path
-                VesselName = "PendingLoop",
-                RecordingId = "rec-loop",
-            }.WithTimeRange(100, 200).WithLoop(150);
-            var state = new GhostPlaybackState
-            {
-                vesselName = "PendingLoop",
-                loopCycleIndex = 0,
-                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
-                pendingSpawnFlags = new TrajectoryPlaybackFlags { recordingId = "rec-loop" },
-            };
-            engine.ghostStates[4] = state;
-
-            var cameraEvents = new List<CameraActionEvent>();
-            var restartedEvents = new List<LoopRestartedEvent>();
-            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
-            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
-
-            engine.UpdateLoopingPlaybackForTesting(
-                index: 4,
-                traj,
-                flags: default,
-                ctx: new FrameContext
-                {
-                    currentUT = 260,
-                    warpRate = 1f,
-                    activeVesselPos = new Vector3d(0, 0, 0),
-                    protectedIndex = -1,
-                    protectedLoopCycleIndex = -1,
-                    autoLoopIntervalSeconds = 150,
-                },
-                suppressGhosts: false,
-                suppressVisualFx: false);
-
-            Assert.Empty(cameraEvents);
-            Assert.Empty(restartedEvents);
-            Assert.Equal(1L, state.loopCycleIndex);
-            Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
-            Assert.Same(state, engine.ghostStates[4]);
-            Assert.Equal(0, engine.FrameSpawnCountForTesting);
-        }
-
         [Fact]
         public void ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents()
         {
@@ -1561,29 +1449,6 @@ namespace Parsek.Tests
             engine.ghostStates[0] = new GhostPlaybackState();
             engine.ghostStates[3] = new GhostPlaybackState();
             Assert.Equal(0, engine.GhostCount);
-        }
-
-        [Fact(Skip = "Unity GameObject instantiation requires runtime - covered by in-game test GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame (InGameTests/RuntimeTests.cs). Full suite passes cleanly; do not re-enable without a Unity runtime harness.")]
-        public void SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT()
-        {
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = new MockTrajectory().WithTimeRange(100, 200);
-
-            engine.SpawnGhost(0, traj, 150);
-
-            Assert.True(engine.TryGetGhostState(0, out var state));
-            Assert.NotNull(state);
-            Assert.NotNull(state.ghost);
-            Assert.Equal(1, positioner.InterpolateCalls);
-            Assert.Equal(150.0, positioner.LastUT);
-            Assert.Equal(positioner.PrimedPosition, state.ghost.transform.position);
-            Assert.Equal("Kerbin", state.lastInterpolatedBodyName);
-            Assert.Equal(123.0, state.lastInterpolatedAltitude);
-            Assert.False(state.ghost.activeSelf);
-            Assert.True(state.deferVisibilityUntilPlaybackSync);
-
-            UnityEngine.Object.DestroyImmediate(state.ghost);
         }
 
         [Fact]

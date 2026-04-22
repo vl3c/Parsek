@@ -58,6 +58,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#539` Removed the last two permanently-skipped `GhostPlaybackEngineTests` placeholders from the shipped xUnit suite: `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` now relies only on its existing `GhostPlayback` in-game replacement, and the pending loop-cycle boundary case now has a dedicated runtime regression that drives `UpdatePlayback -> UpdateLoopingPlayback` on a `ghost == null` pending-build state while the headless `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` helper keeps the pure cycle-advance invariant pinned.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
