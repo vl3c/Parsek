@@ -88,9 +88,12 @@ namespace Parsek.Tests
         [Fact]
         public void MainWindowButtonLabels_UseShortTopLevelText()
         {
-            Assert.Equal("Kerbals", ParsekUI.KerbalsMainButtonLabel);
-            Assert.DoesNotContain("(", ParsekUI.KerbalsMainButtonLabel);
-            Assert.Equal("Career", ParsekUI.CareerMainButtonLabel);
+            string kerbalsLabel = ParsekUI.GetKerbalsMainButtonLabel();
+            string careerLabel = ParsekUI.GetCareerMainButtonLabel();
+
+            Assert.Equal("Kerbals", kerbalsLabel);
+            Assert.DoesNotContain("(", kerbalsLabel);
+            Assert.Equal("Career", careerLabel);
         }
     }
 }

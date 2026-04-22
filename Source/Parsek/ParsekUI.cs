@@ -137,8 +137,10 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
-        internal const string KerbalsMainButtonLabel = "Kerbals";
-        internal const string CareerMainButtonLabel = "Career";
+
+        internal static string GetKerbalsMainButtonLabel() => "Kerbals";
+
+        internal static string GetCareerMainButtonLabel() => "Career";
 
         /// <summary>
         /// Returns the resource budget.
@@ -201,13 +203,13 @@ namespace Parsek
             GUILayout.Space(SpacingLarge);
 
             // Keep top-level launch-surface labels short; detailed counts stay inside the window.
-            if (GUILayout.Button(KerbalsMainButtonLabel))
+            if (GUILayout.Button(GetKerbalsMainButtonLabel()))
             {
                 kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
             }
 
-            if (GUILayout.Button(CareerMainButtonLabel))
+            if (GUILayout.Button(GetCareerMainButtonLabel()))
             {
                 careerStateUI.IsOpen = !careerStateUI.IsOpen;
             }
