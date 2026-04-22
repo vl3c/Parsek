@@ -842,9 +842,15 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 
 - `parsek-test-results.txt` records `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId` as `FLIGHT PASSED (6447.3ms)`.
 - `KSP.log` logs the pre-F9 live recording id (`preRecId=ed1b9329360f488dbfac4b15cb4750a9`), then `Quickload tree trim: ... trimmedRecordings=1/1 prunedFutureRecordings=0 prunedBranchPoints=0`, then `Quickload resume prep: activeRec='ed1b9329360f488dbfac4b15cb4750a9' treeTrimmed=True`, and finally `RestoreActiveTreeFromPending: resumed recording tree ... activeRec='ed1b9329360f488dbfac4b15cb4750a9'`.
-- That live path is launch-backed rather than the literal `r0` runway craft, but it exercises the shipped trim/resume seam directly and shows the restored tree stayed a single recording with the same active id after F5/F9 instead of reopening as a split landed+atmo pair.
+- That live path is launch-backed rather than the literal `r0` runway craft, so it only verified the shipped trim/resume seam and active-id reuse; it did not prove that a pre-liftoff runway quicksave would stop committing as separate `surface` + `atmo` phases.
 
-**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+**Reinvestigation (2026-04-22):** current `main` still allows a literal runway quicksave made before liftoff to finish as a short `surface` recording followed by an `atmo` recording, but that shape is not the old save/load seam bug:
+
+- `FlightRecorder.PrepareQuickloadResumeStateIfNeeded()` trims and resumes against the post-cutoff tail environment. When that tail is still `SurfaceStationary`/`SurfaceMobile`, the later takeoff remains a real live surface→atmo boundary rather than a restore-only relabel.
+- `SessionMerger.LooksLikeSaveLoadTeleportBoundary(...)` only tags overlap-derived restored seams. A normal runway surface→atmo handoff with no overlapping active section is not classified as `save-load-teleport`.
+- `RecordingOptimizer.FindSplitCandidatesForOptimizer(...)` still intentionally splits non-EVA surface→atmo boundaries once both halves exceed 5 seconds, so the final committed runway tree can still look like a short surface segment glued to an atmo segment even though the quickload discontinuity itself is gone.
+
+**Status:** CLOSED 2026-04-22 for the original seam/discontinuity bug. The follow-up diagnosis on 2026-04-22 was stale docs plus missing runway-specific regression coverage, not a new code gap on current `main`.
 
 ---
 
