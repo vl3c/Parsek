@@ -1767,7 +1767,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint
                     {
                         ut = 110,
-                        bodyName = "Mun",
+                        bodyName = "Kerbin",
                         altitude = 2000,
                         velocity = new Vector3(15f, 0f, 0f),
                         rotation = Quaternion.identity
@@ -1782,20 +1782,20 @@ namespace Parsek.Tests
                 PendingSpawnLifecycle.StandardEnter,
                 default(TrajectoryPlaybackFlags));
 
-            Assert.Equal("Mun", state.lastInterpolatedBodyName);
+            Assert.Equal("Kerbin", state.lastInterpolatedBodyName);
             Assert.Equal(1500.0, state.lastInterpolatedAltitude);
             Assert.Equal(new Vector3(10f, 0f, 0f), state.lastInterpolatedVelocity);
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("SeededGhost")
                 && l.Contains("resolved from point interpolation")
-                && l.Contains("body='Mun'"));
+                && l.Contains("body='Kerbin'"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("Pending spawn interpolation seed")
                 && l.Contains("SeededGhost")
                 && l.Contains("lifecycle=StandardEnter")
-                && l.Contains("body='Mun'"));
+                && l.Contains("body='Kerbin'"));
         }
 
         #endregion

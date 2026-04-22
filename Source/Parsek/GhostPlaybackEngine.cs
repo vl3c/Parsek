@@ -3426,7 +3426,7 @@ namespace Parsek
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
-                if (surfaceSkip)
+                if (surfaceSkip && traj.OrbitSegments != null && traj.OrbitSegments.Count > 0)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
                     ParsekLog.Verbose("Engine", FormattableString.Invariant(
