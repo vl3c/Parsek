@@ -54,6 +54,10 @@ All notable changes to Parsek are documented here.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
 
+### Bug Fixes
+
+- `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
+
 ### Tests
 
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
