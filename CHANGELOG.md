@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#533` `ContractAccepted -> ContractAccept` conversion now preserves `contractType` on both the immediate KSC ledger path and the later commit-time conversion path. New captures write `type=` into the accepted-contract event detail, and conversion backfills older events from the stored contract snapshot when that detail field is absent.
 - `#531` Destroyed recordings without a preserved vessel snapshot now diagnose as `vessel destroyed` instead of the misleading `no vessel snapshot`, so playback/rewind/KSC spawn suppression logs report the real terminal state.
 - `#525` Flight ghost explosions now resolve a clearance-checked anchor before spawning FX or emitting the watch hold position. If a watched ghost root is momentarily below PQS terrain at destruction time, the explosion and the watch camera now use the same terrain-safe anchor instead of burying both effects at the raw root transform.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
@@ -58,6 +59,9 @@ All notable changes to Parsek are documented here.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
+
+### Bug Fixes
+
 
 ### Tests
 
