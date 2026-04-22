@@ -336,15 +336,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`
+## ~~531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`~~
 
 **Source:** the package's playback loop repeatedly logs `Spawn suppressed ... no vessel snapshot` for both committed recordings, even though the same session reports the timeline contains only destroyed recordings. The behavior is stable across many suppression cycles.
 
 **Concern:** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(...)` currently checks `rec.VesselSnapshot == null` before `rec.VesselDestroyed`, so destroyed recordings get the wrong suppression reason. This does not change the spawn outcome, but it hides the real state during FF/watch investigations and adds misleading playback noise.
 
-**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+**Fix:** `ShouldSpawnAtRecordingEnd(...)` now checks `rec.VesselDestroyed` before the missing-snapshot guard, so destroyed recordings without a preserved snapshot still report `vessel destroyed`. Focused regressions pin both the direct playback/rewind helper and the KSC wrapper with the exact `VesselDestroyed=true` + `VesselSnapshot=null` shape.
 
-**Status:** OPEN. Low-severity diagnostic correctness issue.
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

@@ -121,6 +121,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#531` Destroyed recordings without a preserved vessel snapshot now diagnose as `vessel destroyed` instead of the misleading `no vessel snapshot`, so playback/rewind/KSC spawn suppression logs report the real terminal state.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.
