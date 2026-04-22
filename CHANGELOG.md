@@ -15,12 +15,14 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#536` Tracking Station now keeps the current chain continuation visible until its child recording actually starts, so the Kerbin-exit handoff no longer drops the atmospheric marker / map presence just because a later Mun leg already exists in the committed chain.
 - `#534` Returning to a spawned chain-tip vessel after a FLIGHT->FLIGHT switch now restores the existing mission tree instead of stranding the continuation in a fresh tree.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 
 ### Tests
 
+- `#536` Added headless Tracking Station regressions covering future-child suppression timing, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
 - `#534` Added spawned chain-tip restore regressions covering committed-tree ownership, restorable-leaf filtering, multi-tree selection, and the throttled Update-time retry guard.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.

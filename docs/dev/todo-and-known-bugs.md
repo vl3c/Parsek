@@ -398,15 +398,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 536. Tracking Station can drop the current atmospheric continuation at the Kerbin-exit handoff
+## ~~536. Tracking Station can drop the current atmospheric continuation at the Kerbin-exit handoff~~
 
 **Source:** the same package logs `Drawing atmospheric marker #2 "Kerbal X" ... alt=69999` at 00:03:47, then immediately removes recording `#1` with `Removed ghost map vessel for recording #1 ... reason=tracking-station-expired` at 00:03:49. No same-moment replacement current-phase marker/orbit handoff is logged for the in-progress continuation before the much later Mun-leg visibility resumes.
 
 **Concern:** the Kerbin-exit handoff in Tracking Station can drop the current ghost entirely at the boundary between atmospheric-marker playback and orbit-map lifecycle. The package shows the removal, but not a synchronized successor for the current continuation, matching the user report that the icon vanished even though the craft was still on its way back out of atmosphere toward Mun transfer.
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/TrajectoryMath.cs`.
+**Fix:** Tracking Station suppression is now current-UT-aware instead of hiding every recording that merely has a child. The startup cache and lifecycle tick both compute a time-aware suppression set, so a parent recording stays visible until the child recording has actually started. That keeps the current atmospheric continuation visible at the Kerbin-exit handoff, while later future legs still take over once they become current. Added headless regressions for the suppression timing, current orbit-continuation ghost creation, and atmospheric-marker handoff.
 
-**Status:** OPEN. Strong lifecycle gap signal in-package.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, related tests/docs.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

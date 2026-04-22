@@ -993,6 +993,76 @@ namespace Parsek.Tests
             Assert.DoesNotContain("chain2-B", result);
         }
 
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_FutureChildDoesNotHideCurrentContinuation()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 240);
+
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_StartedChildHidesParent()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 300, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 320);
+
+            Assert.Contains("launch", suppressed);
+            Assert.Contains("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
         #endregion
 
         #region ShouldCreateTrackingStationGhost
@@ -1151,6 +1221,71 @@ namespace Parsek.Tests
             };
 
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 220);
+
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ShouldCreate_CurrentOrbitContinuationWithFutureChild_Created()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-orbit",
+                    ParentRecordingId = "launch",
+                    TerminalStateValue = null,
+                    OrbitSegments = new List<OrbitSegment>
+                    {
+                        new OrbitSegment
+                        {
+                            startUT = 220,
+                            endUT = 420,
+                            bodyName = "Kerbin",
+                            semiMajorAxis = 700000,
+                            eccentricity = 0.01,
+                            inclination = 0,
+                            longitudeOfAscendingNode = 0,
+                            argumentOfPeriapsis = 0,
+                            meanAnomalyAtEpoch = 0,
+                            epoch = 220
+                        }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-orbit",
+                    TerminalStateValue = null,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    },
+                    OrbitSegments = new List<OrbitSegment>
+                    {
+                        new OrbitSegment
+                        {
+                            startUT = 560,
+                            endUT = 800,
+                            bodyName = "Mun",
+                            semiMajorAxis = 220000,
+                            eccentricity = 0.02,
+                            inclination = 5,
+                            longitudeOfAscendingNode = 0,
+                            argumentOfPeriapsis = 0,
+                            meanAnomalyAtEpoch = 0,
+                            epoch = 560
+                        }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 300);
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[1], suppressed.Contains(recs[1].RecordingId), 300);
 
             Assert.True(should);
             Assert.Null(reason);
@@ -1552,6 +1687,43 @@ namespace Parsek.Tests
             var superseded = new HashSet<string> { "superseded-1" };
             bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, superseded);
             Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_CurrentAtmosphericContinuationWithFutureChild_NotFiltered()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "kerbin-orbit" },
+                new Recording
+                {
+                    RecordingId = "kerbin-exit",
+                    ParentRecordingId = "kerbin-orbit",
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-exit",
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 240);
+
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(recs[1], 1, 240, suppressed);
+
+            Assert.True(result);
         }
 
         [Fact]

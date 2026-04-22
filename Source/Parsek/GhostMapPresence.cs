@@ -442,10 +442,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Cached superseded recording IDs from the last lifecycle tick.
+        /// Cached tracking-station-suppressed recording IDs from the last lifecycle tick.
         /// Reused by ParsekTrackingStation.OnGUI to avoid recomputing.
         /// </summary>
-        internal static HashSet<string> CachedSupersededIds { get; private set; }
+        internal static HashSet<string> CachedTrackingStationSuppressedIds { get; private set; }
+            = new HashSet<string>();
 
         /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
@@ -468,7 +469,7 @@ namespace Parsek
             // from settings.cfg, not the pre-#388 default.
             if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
-                CachedSupersededIds = new HashSet<string>();
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 ParsekLog.VerboseRateLimited(Tag,
                     "ts-lifecycle-disabled",
                     "UpdateTrackingStationGhostLifecycle: showGhostsInTrackingStation=false — skip",
@@ -533,14 +534,15 @@ namespace Parsek
 
             if (!hasCommittedRecordings)
             {
-                CachedSupersededIds = new HashSet<string>();
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 return;
             }
 
             // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
-            // Compute once per tick — also used by ParsekTrackingStation.OnGUI via CachedSupersededIds
-            var superseded = FindSupersededRecordingIds(committed);
-            CachedSupersededIds = superseded;
+            // Compute once per tick — also used by ParsekTrackingStation.OnGUI via
+            // CachedTrackingStationSuppressedIds.
+            var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
+            CachedTrackingStationSuppressedIds = suppressed;
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -548,8 +550,8 @@ namespace Parsek
                 if (vesselsByRecordingIndex.ContainsKey(i)) continue;
 
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
-                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
+                bool isSuppressed = suppressed.Contains(rec.RecordingId);
+                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuppressed, currentUT);
                 if (!shouldCreate) continue;
 
                 Vessel v = null;
@@ -809,18 +811,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tracking Station visibility suppression is time-aware: a recording is hidden only
+        /// after one of its child recordings has actually started by the current UT. This keeps
+        /// the current atmospheric continuation visible even when a later future leg already
+        /// exists in the committed chain.
+        /// </summary>
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT)
+        {
+            var suppressed = new HashSet<string>();
+            if (recordings == null)
+                return suppressed;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording child = recordings[i];
+                string parentId = child?.ParentRecordingId;
+                if (string.IsNullOrEmpty(parentId))
+                    continue;
+
+                if (HasTrackingStationChildStarted(child, currentUT))
+                    suppressed.Add(parentId);
+            }
+
+            return suppressed;
+        }
+
+        /// <summary>
         /// Pure: should a tracking station ghost ProtoVessel be created for this recording?
-        /// Only chain tips with orbital terminal state and orbit data qualify.
+        /// Only recordings that are not currently hidden by an already-started child and that
+        /// have orbital presence at the current UT qualify.
         /// Returns a reason string for logging when the recording is skipped.
         /// </summary>
         internal static (bool shouldCreate, string skipReason) ShouldCreateTrackingStationGhost(
-            Recording rec, bool isSuperseded, double currentUT)
+            Recording rec, bool isSuppressed, double currentUT)
         {
             if (rec == null) return (false, "null");
             if (rec.IsDebris) return (false, "debris");
-            if (isSuperseded) return (false, "superseded");
+            if (isSuppressed) return (false, "superseded");
 
-            // Only chain tips with orbital terminal state get ghosts.
+            // Only recordings that are currently active for Tracking Station visibility and
+            // have orbital presence get ghosts.
             // Orbiting/Docked = in orbit. Null = still active or unfinished (show orbit if available).
             // All other states (Landed, Destroyed, SubOrbital, Recovered, Boarded) = no orbit ghost.
             var terminal = rec.TerminalStateValue;
@@ -847,9 +878,9 @@ namespace Parsek
 
         /// <summary>
         /// Create ghost ProtoVessels for committed recordings suitable for tracking station display.
-        /// Chain-aware: only creates ghosts for chain tip recordings (not intermediate segments
-        /// that have been superseded by later recordings). Skips debris, non-orbital terminal
-        /// states, and recordings without orbital data at the current UT.
+        /// Chain-aware: only creates ghosts for recordings that are not currently hidden by an
+        /// already-started child recording. Skips debris, non-orbital terminal states, and
+        /// recordings without orbital data at the current UT.
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
@@ -860,6 +891,7 @@ namespace Parsek
             // settings.cfg) wins over the pre-#388 default.
             if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
                 ParsekLog.Info(Tag,
                     string.Format(ic,
@@ -870,25 +902,30 @@ namespace Parsek
             }
 
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return 0;
+            if (committed == null || committed.Count == 0)
+            {
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
+                return 0;
+            }
 
-            // Step 1: identify superseded recordings (intermediate chain segments)
-            var superseded = FindSupersededRecordingIds(committed);
-
-            int created = 0, skippedDebris = 0, skippedSuperseded = 0;
-            int skippedTerminal = 0, skippedNoOrbit = 0;
+            // Step 1: identify recordings currently hidden by a started child.
             double currentUT = Planetarium.GetUniversalTime();
+            var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
+            CachedTrackingStationSuppressedIds = suppressed;
+
+            int created = 0, skippedDebris = 0, skippedSuppressed = 0;
+            int skippedTerminal = 0, skippedNoOrbit = 0;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
+                bool isSuppressed = suppressed.Contains(rec.RecordingId);
 
-                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
+                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSuppressed, currentUT);
                 if (!shouldCreate)
                 {
                     if (skipReason == "debris") skippedDebris++;
-                    else if (skipReason == "superseded") skippedSuperseded++;
+                    else if (skipReason == "superseded") skippedSuppressed++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
                     else skippedNoOrbit++;
                     continue;
@@ -913,11 +950,22 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5})",
+                    "(skipped: debris={2} suppressed={3} terminal={4} noOrbit={5})",
                     created, committed.Count,
-                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit));
+                    skippedDebris, skippedSuppressed, skippedTerminal, skippedNoOrbit));
 
             return created;
+        }
+
+        private static bool HasTrackingStationChildStarted(Recording child, double currentUT)
+        {
+            if (child == null)
+                return true;
+
+            if (child.TryGetGhostActivationStartUT(out double startUT))
+                return currentUT >= startUT;
+
+            return true;
         }
 
         /// <summary>
