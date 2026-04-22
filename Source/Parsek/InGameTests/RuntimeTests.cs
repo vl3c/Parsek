@@ -2980,7 +2980,7 @@ namespace Parsek.InGameTests
 
             var committed = RecordingStore.CommittedRecordings;
             string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
 
             // --- Find a watchable same-body ghost ---
             int index = -1;
@@ -3076,7 +3076,7 @@ namespace Parsek.InGameTests
 
             var committed = RecordingStore.CommittedRecordings;
             string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
 
             foreach (var kvp in flight.Engine.ghostStates)
             {
@@ -6998,7 +6998,10 @@ namespace Parsek.InGameTests
                 bodyName = "Kerbin",
                 semiMajorAxis = 700000
             });
-            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+            // Keep the last point off the conflicting segment start so this runtime
+            // test exercises the explicit-endpoint preserve path, not the separate
+            // same-UT point-anchor guard covered below.
+            rec.Points.Add(new TrajectoryPoint { ut = 999, bodyName = "Mun" });
 
             var captured = new List<string>();
             var priorSink = ParsekLog.TestSinkForTesting;
@@ -7031,6 +7034,10 @@ namespace Parsek.InGameTests
                 "Expected explicit-endpoint preserve INFO log");
             InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
                 $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line =>
+                    line.Contains("preserved same-UT point-anchored terminal orbit")
+                    && line.Contains("runtime-preserve-explicit-terminal-orbit")),
+                "Explicit-endpoint preserve coverage should not be claimed by the separate same-UT point-anchor guard");
             InGameAssert.IsFalse(captured.Any(line => line.Contains("healed stale cached terminal orbit")),
                 "Explicit recorded terminal-orbit data should preserve, not heal");
 

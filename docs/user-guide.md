@@ -148,7 +148,7 @@ Click **W** on a recording in either the Timeline or the Recordings Manager (or 
 
 Clicking **W** on a group header cycles through the group's watchable vessels: each press advances to the next member with an active same-body in-range ghost.
 
-Watch mode auto-exits when the ghost passes the camera-cutoff distance (Settings -> Ghosts -> Camera cutoff), when the watched ghost despawns at the end of its playback, or when it leaves the current SOI.
+Watch mode auto-exits when the ghost passes the fixed 300 km watch range, when the watched ghost despawns at the end of its playback, or when it leaves the current SOI.
 
 ### Rewind / Fast-Forward
 
@@ -175,7 +175,7 @@ The **Warp to Next Spawn** button at the bottom warps to whichever candidate spa
 
 ### Kerbals Window
 
-Click the "Kerbals (N)" button in the main Parsek window to open the Kerbals window. The count shows reserved slots + active stand-ins + retired stand-ins + mission-outcome rows combined. The window has two tabs:
+Click the "Kerbals" button in the main Parsek window to open the Kerbals window. The main button stays count-free; detailed roster state and mission-outcome totals live inside the window itself. The window has two tabs:
 
 - **Roster State** — per-owner collapsible tree of slots and their replacement chains.
   - Each top-level row is an original kerbal (Jeb, Bill, Val, ...); clicking the arrow expands the replacement chain underneath, labelled `(active)`, `(retired)`, or `(displaced)`. Reserved slots (waiting for a committed recording to spawn the real crew back in) show their reservation status inline.
@@ -186,7 +186,7 @@ The window is draggable and resizable. Fold/expand state is transient (resets wh
 
 ### Career State Window
 
-Click the "Career State" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
+Click the "Career" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
 
 - **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 at timeline end`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
 - **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same "current vs. at-timeline-end" split as Contracts when future activations are committed.
@@ -220,7 +220,6 @@ Ghosts:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
-| Camera cutoff | 50 km | Distance at which watch mode auto-exits when the ghost drifts too far from the active vessel |
 | Show ghosts in Tracking Station | On | When off, Parsek ghosts and atmospheric ghost markers are hidden from the tracking station vessel list and map |
 
 Diagnostics:
@@ -295,7 +294,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 - **Rewind / Fast-Forward jumps** - Both R and FF stop any active time warp before jumping so the clock lands cleanly on the target UT.
 - **Orbital attitude** - Ghost vessels in orbital segments preserve their recorded orientation. A vessel holding retrograde, normal, or any other SAS mode will hold that attitude throughout the orbit, not snap to prograde. If the PersistentRotation mod is installed, spinning vessels are also reproduced — the ghost spins at the same rate the player saw during time warp.
 - **SOI changes** - Recordings that cross SOI boundaries (e.g. Kerbin to Mun) play back correctly. Each trajectory point references its own celestial body.
-- **Ghost distance tiers** - As a ghost moves away from the camera it drops to a reduced visual tier around 2.3 km, and its mesh unloads entirely beyond 50 km (still logically playing, just not drawn). Watching a ghost overrides the cutoff until the Camera cutoff setting is reached.
+- **Ghost distance tiers** - As a ghost moves away from the camera it drops to a reduced visual tier around 2.3 km, and its mesh unloads entirely beyond 50 km (still logically playing, just not drawn). Watching a ghost overrides the visual cutoff until the fixed 300 km watch range is reached.
 - **Map and Tracking Station icons** - Ghost vessels use the stock icon matching their vessel type (Ship, Plane, Probe, Station, etc.). Icon labels are hidden by default, appear on hover, and pin on click. The **Show ghosts in Tracking Station** setting hides ghost icons entirely from the tracking station when off.
 
 ### Vessel Spawning

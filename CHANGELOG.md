@@ -6,19 +6,38 @@ All notable changes to Parsek are documented here.
 
 ## 0.9.0
 
+### Enhancements
+
+- `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
+- `#542` Ghost watch range is now a fixed 300 km config default instead of a user-editable setting. Watch eligibility, watch-mode auto-exit, and watched-ghost full-fidelity checks now all read the shared config constant directly; the Settings window and persistence layer no longer expose or restore a mutable camera-cutoff override.
+- `#543` `LoopTimeUnit.Auto` now uses one global launch queue instead of per-recording independent cadence. Flight playback, KSC playback, and watch-mode loop reconstruction all schedule Auto recordings from the shared queue order, so the global Auto interval is the gap between successive launches across the queue and each recording's relaunch cadence scales by queue length instead of clumping at each recording's own start UT.
+- `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
+
+### Bug Fixes
+
+- `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
+- `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
+
 ### Tests
 
+- Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
+- `#491` Archived live runtime evidence now covers both `SceneExitMerge` canaries: the stock `Space Center` exit discard branch clears the pending tree without a commit, and the merge branch commits the pending tree into `CommittedTrees` / `CommittedRecordings`.
+- Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries, and retained live bundles under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\` now show both exported `FlightIntegrationTests.PartEventTiming_*` rows passing in `FLIGHT`.
+- Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
+- `#493` The launch-backed `Quickload_MidRecording` isolated canary now records through the live-log observer again, so F5/F9 validation keeps writing the same KSP log evidence instead of swallowing those lines into a sink-only test hook.
+- `#493` The launch-backed `Quickload_MidRecording` isolated canary now uses the runner's stronger StageManager gate, waits through transient-null `FlightInputHandler.state` until input stays stable, and waits for the first real trajectory point before asserting already-live recordings, reducing stage-race and first-sample flakes.
+- `#493` Retained April 22 live evidence under sibling-workspace bundle `../logs/2026-04-22_2118_validate-493-watch-cleanup-pass/` now closes the destructive `FLIGHT` isolated-batch gap on the quickload-hardened tree: `parsek-test-results.txt` records `FLIGHT captured=190 Passed=154 Failed=0 Skipped=36`, including passes for both `Quickload_MidRecording_ResumesSameActiveRecordingId` and `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`, while `KSP.log` shows watch mode exiting before ghost teardown and contains no `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` / `NullReferenceException` signatures. `SceneExitMerge` still remains manual-only because of stock post-run contamination.
+- `#494` `pwsh -File scripts/test-coverage.ps1` is now validated end-to-end on the current tree: it restored and ran `Parsek.Tests` (`Passed: 7730, Skipped: 2, Total: 7732`) and emitted the first baseline Cobertura packet at `41.50%` line / `39.95%` branch / `56.28%` method coverage across `325` classes.
+- `#496` Added headless coverage for the remaining thin IMGUI owners by extracting pure `TestRunnerPresentation`, `SettingsWindowPresentation`, `SpawnControlPresentation`, and `GroupPickerPresentation` helpers for test-runner labels/tooltips, Settings edit/default rules, Real Spawn Control sort/row-state decisions, and Group Picker selection/tree deltas.
+- `#497` Added explicit ownership-style builder suites for `EngineFxBuilder` and `GhostVisualBuilder`: the new headless seams cover effect-group filtering, config-entry parsing, fallback rotation-mode decisions, ghost snapshot/root selection, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Follow-up coverage now also captures seam-level `EngineFx` logs for guard/fallback branches and pins the malformed-`localRotation` fallback path, while live Unity object construction remains covered by in-game runtime tests and true visual confirmation still depends on runtime/manual evidence.
+- `#524` `TimelineWindowUITests` now pins the row-action width helper that all Timeline recording-row buttons use, so `W`, `FF`, `R`, and `L` stay aligned while `GoTo` remains intentionally wider for its label.
+- `ParsekUITests` now pin the short main-window labels so `Kerbals` stays count-free and the launch-surface button text stays `Career` rather than drifting back to `Career State`.
+- `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
 
 ### Documentation
 
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
-
-### Bug Fixes
-
-- `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
-
----
 
 ## 0.8.3
 
@@ -62,12 +81,6 @@ All notable changes to Parsek are documented here.
 - Added direct fluent-builder coverage for `VesselSnapshotBuilder` and `RecordingBuilder`.
 - `scripts/test-coverage.ps1` now bootstraps missing Windows `dotnet` path variables and clears stale coverage artifacts before each run, so the coverage job fails on the real restore/build/test problem instead of environmental path drift or leftover files.
 - `scripts/test-coverage.ps1` now validates the non-Cobertura report formats structurally, applies stricter metadata/content checks to the emitted Cobertura report, and preserves `dotnet test`'s native exit code when report validation is blocked.
-- Added headless coverage for the shared in-game Test Runner presentation rules by extracting the duplicated IMGUI label/tooltip/batch-notice logic into `TestRunnerPresentation`.
-- Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
-- Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries.
-- Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
-- `#493` The launch-backed `Quickload_MidRecording` isolated canary now records through the live-log observer again, so F5/F9 validation keeps writing the same KSP log evidence instead of swallowing those lines into a sink-only test hook.
-- `#493` The launch-backed `Quickload_MidRecording` isolated canary now uses the runner's stronger StageManager gate, waits through transient-null `FlightInputHandler.state` until input stays stable, and waits for the first real trajectory point before asserting already-live recordings, reducing stage-race and first-sample flakes.
 - `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
 - Added spawn-rotation regressions for the explicit format-v0 surface-relative reconstruction path, including SpawnAtPosition node-prep coverage for Kerbin/Mun fixtures, snapshot-override rotation rewrites, terminal-surface-pose precedence, and the surface-only fallback gate.
