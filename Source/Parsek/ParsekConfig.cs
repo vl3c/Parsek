@@ -58,14 +58,16 @@ namespace Parsek
             internal const double LoopFullFidelityMeters = PhysicsBubbleMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
 
+            // Keep the watch camera available through typical ascent/coast ghosts
+            // without letting it stay latched to whole-orbit distant playback.
             internal const float DefaultWatchCameraCutoffKm = 300f;
             internal const double AirlessWatchHorizonLockAltitudeMeters = 50000.0;
 
-            internal static float GetWatchCameraCutoffKm(ParsekSettings settings)
-                => settings?.ghostCameraCutoffKm ?? DefaultWatchCameraCutoffKm;
+            internal static float GetWatchCameraCutoffKm()
+                => DefaultWatchCameraCutoffKm;
 
-            internal static double GetWatchCameraCutoffMeters(ParsekSettings settings)
-                => GetWatchCameraCutoffKm(settings) * 1000.0;
+            internal static double GetWatchCameraCutoffMeters()
+                => GetWatchCameraCutoffKm() * 1000.0;
 
             internal static bool ShouldAutoHorizonLock(
                 bool hasAtmosphere, double atmosphereDepth, double altitudeMeters)

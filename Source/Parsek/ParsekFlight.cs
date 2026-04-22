@@ -10414,11 +10414,11 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
-            // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
+            // the fixed watch cutoff distance. The cutoff applies uniformly to all ghosts.
             bool forceWatchedFullFidelity = false;
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
                 if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",

@@ -649,7 +649,7 @@ namespace Parsek
             string activeBodyName = FlightGlobals.ActiveVessel?.mainBody?.name;
             string activeBody = activeBodyName ?? "null";
             double distMeters = hasGhost ? ResolveWatchDistanceMeters(state) : double.NaN;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
             bool sameBody = hasGhost
                 && !string.IsNullOrEmpty(ghostBody)
                 && !string.IsNullOrEmpty(activeBodyName)
@@ -822,7 +822,7 @@ namespace Parsek
                 : null;
             if (s == null && (!ghostStates.TryGetValue(index, out s) || s == null))
                 return false;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
             return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
         }
 
@@ -1368,8 +1368,8 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is at or beyond the user's camera cutoff distance setting.
-            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            // Refuse watch if ghost is at or beyond the fixed watch camera cutoff distance.
+            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
             if (FlightGlobals.ActiveVessel != null)
             {
                 double distMeters = gs.lastDistance;

@@ -4,6 +4,8 @@ Date: 2026-04-19
 Repo worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek-audit-test-coverage`
 Branch: `audit-test-coverage-2026-04-19`
 
+Follow-up (2026-04-22): #494 is now closed. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` produced the first validated baseline coverage packet and archived it under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`. Result: `Passed: 7730, Skipped: 2, Total: 7732`; line coverage `34220/82454 (41.50%)`; branch coverage `15944/39907 (39.95%)`; method coverage `56.28%`; `325` classes. The run still surfaces one `xUnit1013` warning and two `xUnit2009` warnings, but they do not block report generation. The remainder of this document preserves the original 2026-04-19 audit snapshot.
+
 ## Scope
 
 This audit is a current-state snapshot of Parsek's testing surface across:
@@ -13,7 +15,7 @@ This audit is a current-state snapshot of Parsek's testing surface across:
 - log assertion and `KSP.log` contract validation
 - manual playtest checklists in `docs/dev/manual-testing`
 
-It is not a true line/branch coverage report because the repo does not currently have coverage instrumentation or exported coverage artifacts.
+At the time of this audit, it was not a true line/branch coverage report because the repo did not yet have validated coverage instrumentation or exported coverage artifacts.
 
 ## Baseline Snapshot
 
@@ -42,7 +44,7 @@ It is not a true line/branch coverage report because the repo does not currently
 
 ### Important limitation
 
-There is no `coverlet`, collector, Cobertura/OpenCover export, or any other coverage-reporting pipeline in the repo today. That means we can say a lot about breadth, intent, and risk concentration, but we cannot answer "what percent of the code is covered?" in a mechanically defensible way yet.
+At the time of this audit, there was no validated `coverlet`, collector, Cobertura/OpenCover export, or any other coverage-reporting pipeline in the repo yet. That meant we could say a lot about breadth, intent, and risk concentration, but we could not answer "what percent of the code is covered?" in a mechanically defensible way yet.
 
 ## Historical Context
 
@@ -391,13 +393,13 @@ Quick source verification against the current tree shows that some of the older 
 ### Still-live carryovers worth backlog time
 
 - `KerbalsWindowUITests` still leaves two `xUnit2009` warnings in the suite; they are low severity but should be cleaned up the next time that file is touched.
-- Mechanical coverage reporting is still not validated end-to-end. A local `coverlet.msbuild` + `scripts/test-coverage.ps1` scaffold now exists in this worktree, but the current machine cannot complete restore/test execution reliably enough to trust the numbers yet.
+- Mechanical coverage reporting is no longer missing: the 2026-04-22 follow-up produced a validated local baseline packet. The remaining backlog here is repeatability and retention (for example CI/diff coverage), not proving that the runner can emit a trustworthy first report.
 - The auto-record player flow is now materially better covered in this worktree: this audit adds helper-level xUnit coverage for launch gating and deferred EVA gating plus real single-run in-game launch and EVA auto-record scenarios. The remaining weakness is not the basic auto-start path anymore, but broader multi-step player flows like merge/revert and playback control.
 - The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers). This worktree now also has manual-only runtime coverage for both the synthetic pending-tree discard popup and the deferred `Merge to Timeline` commit path; the remaining gap is the full stock revert-to-launch transition with fresh live log evidence, not the dialog button branch itself.
 - Playback control is no longer "missing automation" in the abstract: this worktree now includes a manual-only `Keep Vessel` canary that commits a synthetic timeline recording, fast-forwards into its window, asserts ghost activation, and asserts that the end-of-recording vessel spawn happens exactly once. The remaining gap is broader stock-behavior validation such as natural warp-stop and cross-scene duplicate-prevention evidence.
 - Part-event playback is stronger than the older audits suggested: xUnit has broad structural/event coverage and in-game tests already verify live FX/buildability for engines, parachutes, lights, RCS, fairings, and deployables. The remaining gap is narrower: player-visible timing/assertion scenarios, not basic subsystem absence.
 
-The remaining concerns are mostly strategic now, not cleanup nits: validated coverage reporting, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
+The remaining concerns are mostly strategic now, not cleanup nits: keeping the new coverage baseline repeatable, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
 
 ## Continuation Plan
 
@@ -490,50 +492,49 @@ The later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` reru
 - `KSP.log` shows the expected #434 sequence in one live run: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then the final `Revert flow runtime: ... committedBefore=2 committedAfter=2` assertion log and `PASSED:` line
 - there is no `ParsekMerge` popup line in the validated revert window, and the test confirms the reverted mission did not increase either `CommittedRecordings` or `CommittedTrees`
 
-The branch now also contains the next two manual-only scene-exit canaries for the remaining merge-dialog gap, but these are not live-validated yet:
+The later archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` closes that remaining merge-dialog gap too:
 
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`, which starts a real recording in `FLIGHT`, stages the vessel off the pad, drives stock `Space Center` save-and-exit semantics, waits for the deferred `ParsekMerge` popup in `SPACECENTER`, presses `Merge to Timeline`, and asserts the pending tree commits into `CommittedTrees` / `CommittedRecordings`
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`, which drives the same stock exit path but presses `Discard` and asserts the pending tree clears without changing either committed collection
-- both new tests are `AllowBatchExecution = false` because they mutate the live session, cross from `FLIGHT` into `SPACECENTER`, and use the real deferred merge dialog rather than a synthetic popup invocation
-- the supporting helper now mirrors stock `PauseMenu.saveAndExit(...)` more closely by firing `onSceneConfirmExit`, invoking `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saving `persistent`, and only then loading `SPACECENTER`
+- `parsek-test-results.txt` records `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` as `SPACECENTER PASSED (9423.5ms)` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` as `SPACECENTER PASSED (9707.1ms)`
+- `KSP.log` shows the shipped non-revert path end-to-end twice in one disposable session: `Showing deferred tree merge dialog in SPACECENTER`, then `User chose: Tree Discard ...` with `Scene-exit merge discard runtime: ... committedTreesAfter=0`, and later `User chose: Tree Merge ...` with `Scene-exit merge commit runtime: ... committedTreesAfter=1`
+- these rows come from the real stock `Space Center` exit path, not the synthetic FLIGHT popup smoke test; both canaries remain `AllowBatchExecution = false` because they still launch the active vessel, cross from `FLIGHT` into `SPACECENTER`, and exercise the production deferred merge dialog
+- the supporting helper mirrors stock `PauseMenu.saveAndExit(...)` closely enough to validate the real player flow: it fires `onSceneConfirmExit`, invokes `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saves `persistent`, and only then loads `SPACECENTER`
 
-The branch also now contains the first deterministic timing-sensitive part-event canaries, likewise still awaiting live evidence:
+The branch also now contains the first deterministic timing-sensitive part-event canaries, and retained live bundles now show them passing:
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
-- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
+- `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
+- `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` both record the two `PartEventTiming` rows as clean `FLIGHT PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` also records the `Running`/`PASSED` lines plus the `Applied 1 part events for ghost #902/#901` diagnostics when each canary reaches its authored event boundary
+- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note, and the retained April 21 evidence now closes that first light/deployable timing gap
 
-The branch now also contains a first pass at making destructive FLIGHT runtime tests batchable without repeated manual game reloads:
+The branch now also contains a stronger but still not final retained-validation path for batching destructive FLIGHT runtime tests without repeated manual game reloads:
 
-- the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
-- the first isolated-batch cohort is `AutoRecordOnLaunch_StartsExactlyOnce`, `AutoRecordOnEvaFromPad_StartsExactlyOnce`, `TreeMergeDialog_DiscardButton_ClearsPendingTree`, `TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`, `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`, and `KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
-- the stock-transition canaries still intentionally remain manual-only: the two `QuickloadResume` tests, `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`, and the two `SceneExitMerge` tests still exercise the same stock restore/exit paths the isolated harness would depend on if they failed
-- this means the remaining workflow pain is narrower now: the user still needs manual single-run passes for stock quickload / revert / save-and-exit, but the rest of the destructive FLIGHT slice should be able to run in one disposable session once the new harness is live-validated
-- local CLI build verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore problems, so the immediate next confidence step is live KSP validation plus code review rather than a healthy local `dotnet build`
+- the in-game runner exposes explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
+- the retained sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` (pinned only to historical commit `80176033`) shows that widened path running in one disposable `FLIGHT` session with a baseline captured for 9 restore-after-run tests and a clean finish in `parsek-test-results.txt` at `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`
+- that same live batch includes passing `AutoRecord`, FLIGHT merge-dialog, `Keep Vessel`, `BridgeSurvivesSceneTransition`, `Quickload_MidRecording_ResumesSameActiveRecordingId`, and `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` restore-backed canaries; the watch-cleanup regression remains save-dependent and skipped in that retained session because no same-body ghost was available
+- because that retained packet predates the later StageManager/live-log-observer/first-real-point hardening now documented for `#493`, it improves confidence but does not fully close the follow-up on its own; the batch evidence still needs to be re-captured from the final revision with the save-dependent watch-cleanup canary actually exercised
+- `SceneExitMerge` still intentionally remains manual-only: sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` shows both exit-to-KSC canaries passing separately, but the same post-run session then logs `Vessel Kerbal X crashed through terrain on Kerbin`, so that path is still too state-dirty to trust inside the isolated FLIGHT batch
+- local CLI build/test verification is still environment-dependent on this workstation (`.NETFramework,Version=v4.7.2` reference assemblies are missing here), so fresh retained KSP bundles remain the decisive confidence signal for this slice
 
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
-1. **Live-validate the new isolated batch mode**
-   Build this worktree, enter a disposable `FLIGHT` session, and use `Run All + Isolated` or per-category `Run+` to confirm the new `[isolated]` tests complete without manual reloads and that the runner reliably quickloads the baseline back between destructive tests.
-2. **Live-validate the two new non-revert scene-exit canaries**
-   Still from a disposable prelaunch flight, run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually and capture the resulting `KSP.log` / `parsek-test-results.txt`.
-3. **Live-validate the first timing-sensitive part-event canaries**
-   In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
-4. **Finish validating the local coverage path**
-   Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-5. **After that, broaden the part-event timing slice if needed**
-   Lights/deployables would close the first showcase-sized gap. If those hold up live, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
+1. **Re-capture the isolated batch evidence on the final quickload-hardened revision**
+   The retained April 21 packet is useful, but it predates the latest `#493` hardening and still leaves the save-dependent watch-cleanup canary skipped. Rerun `Run All + Isolated` or per-category `Run+` from a disposable prelaunch `FLIGHT` session, ensure a same-body ghost is available for the watch-cleanup regression, and retain fresh `KSP.log` / `parsek-test-results.txt` evidence pinned to the current commit.
+2. **Build on the now-validated local coverage path**
+   The next useful output is not more local runner churn; it is keeping the baseline packet repeatable and deciding whether CI/diff retention should join the workflow.
+3. **After that, broaden the part-event timing slice if needed**
+   The first light/deployable timing pair is now live-validated. If more timing-sensitive runtime evidence is still useful, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
 
 ### Scenario promotion shortlist
 
 The first scripted runtime scenarios I would validate/add next are:
 
-1. **Non-revert scene-exit deferred merge flow**
-   The commit/discard canaries are now implemented locally; the next task is live validation in KSP so the remaining merge-dialog gap is backed by real logs instead of compile-only evidence.
+1. **Isolated destructive FLIGHT batch refresh**
+   The next runtime packet to promote is a fresh current-HEAD `Run All + Isolated` / `Run+` rerun that includes the save-dependent watch-cleanup case and confirms the quickload-hardening changes on retained evidence.
 2. **Part-event timing showcase**
-   The first light/deployable timing canaries are now implemented locally; the next task is live validation, then deciding whether fairing/RCS timing needs the same treatment.
+   The first light/deployable timing pair now has archived live validation, so the next runtime timing gap to promote is deciding whether fairing disappearance or RCS FX onset needs the same treatment.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
@@ -543,7 +544,7 @@ Parsek does not have a testing problem in the usual sense of "there are not enou
 
 The real gaps are:
 
-- missing mechanical coverage reporting
+- no CI/diff retention yet for the newly validated mechanical coverage baseline
 - weaker direct automation around UI shells and some Unity-heavy builders
 - not enough scripted end-to-end in-game scenarios for the top user flows
 

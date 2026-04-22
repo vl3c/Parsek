@@ -12,7 +12,7 @@ namespace Parsek.Tests
     /// framework for in-game editing, AND mirrored through
     /// <see cref="ParsekSettingsPersistence"/> so it survives rewind, quickload,
     /// and KSP session restart — the same "sticky user intent" treatment as
-    /// <c>ghostCameraCutoffKm</c> and <c>writeReadableSidecarMirrors</c>.
+    /// <c>writeReadableSidecarMirrors</c>.
     /// Tests below pin BOTH contracts: a regression in either one lets the
     /// user's preference silently revert on the next load.
     /// </summary>
@@ -176,21 +176,18 @@ namespace Parsek.Tests
         {
             // Regression guard: make sure wiring the new field into Save/Load/Apply
             // didn't break the previously-tracked fields. This would catch e.g.
-            // a typo that reads ghostCameraCutoffKm into showGhostsInTrackingStation.
+            // a typo that reads another persisted setting into showGhostsInTrackingStation.
             var settings = new ParsekSettings
             {
                 showGhostsInTrackingStation = true,
-                ghostCameraCutoffKm = 10f,
                 writeReadableSidecarMirrors = true,
             };
             ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
-            ParsekSettingsPersistence.SetStoredGhostCameraCutoffKmForTesting(1500f);
             ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
 
             ParsekSettingsPersistence.ApplyTo(settings);
 
             Assert.False(settings.showGhostsInTrackingStation);
-            Assert.Equal(1500f, settings.ghostCameraCutoffKm);
             Assert.False(settings.writeReadableSidecarMirrors);
         }
 

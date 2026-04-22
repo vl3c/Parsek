@@ -22,11 +22,6 @@ namespace Parsek
         private bool settingsAutoLoopEditing;
         private Rect settingsAutoLoopEditRect;
 
-        // Camera cutoff editing
-        private bool settingsCameraCutoffEditing;
-        private string settingsCameraCutoffText = "";
-        private Rect settingsCameraCutoffEditRect;
-
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
         private GUIStyle zeroHeightLabelStyle;
@@ -110,19 +105,19 @@ namespace Parsek
         private void CommitAutoLoopEdit(ParsekSettings s)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double parsed;
-            if (ParsekUI.TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
+            if (SettingsWindowPresentation.TryResolveAutoLoopEdit(
+                settingsAutoLoopText,
+                s.AutoLoopDisplayUnit,
+                out SettingsWindowPresentation.AutoLoopEditResolution resolution))
             {
-                double newSeconds = ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
                 // #381: defensively clamp to MinCycleDuration — matches per-recording UI.
-                if (newSeconds < LoopTiming.MinCycleDuration)
+                if (resolution.WasClamped)
                 {
                     ParsekLog.Info("UI",
-                        $"Auto-launch period clamped from {newSeconds.ToString("F1", ic)}s to " +
+                        $"Auto-launch period clamped from {resolution.RequestedSeconds.ToString("F1", ic)}s to " +
                         $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
-                    newSeconds = LoopTiming.MinCycleDuration;
                 }
-                s.autoLoopIntervalSeconds = (float)newSeconds;
+                s.autoLoopIntervalSeconds = resolution.AppliedSeconds;
                 ParsekLog.Info("UI",
                     $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", ic)}s");
             }
@@ -134,27 +129,6 @@ namespace Parsek
             }
             settingsAutoLoopEditing = false;
             settingsAutoLoopEditRect = default;
-            GUIUtility.keyboardControl = 0;
-        }
-
-        private void CommitCameraCutoffEdit(ParsekSettings s)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            if (float.TryParse(settingsCameraCutoffText, System.Globalization.NumberStyles.Float,
-                    ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
-            {
-                s.ghostCameraCutoffKm = parsed;
-                // Persist to external settings file so the value survives rewinds and
-                // KSP session restarts. GameParameters are reset on every quicksave
-                // load (including parsek_rw_* rewinds), so the in-memory ParsekSettings
-                // value alone is not enough — the user's intent must live outside the
-                // game's save file.
-                ParsekSettingsPersistence.RecordGhostCameraCutoff(parsed);
-                ParsekLog.Info("UI",
-                    $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
-            }
-            settingsCameraCutoffEditing = false;
-            settingsCameraCutoffEditRect = default;
             GUIUtility.keyboardControl = 0;
         }
 
@@ -179,9 +153,6 @@ namespace Parsek
                 if (settingsAutoLoopEditing && settingsAutoLoopEditRect.width > 0
                     && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
                     CommitAutoLoopEdit(s);
-                if (settingsCameraCutoffEditing && settingsCameraCutoffEditRect.width > 0
-                    && !settingsCameraCutoffEditRect.Contains(Event.current.mousePosition))
-                    CommitCameraCutoffEdit(s);
             }
 
             DrawRecordingSettings(s);
@@ -201,22 +172,21 @@ namespace Parsek
             if (GUILayout.Button("Defaults"))
             {
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
-                s.autoRecordOnLaunch = true;
-                s.autoRecordOnEva = true;
-                s.autoMerge = false;
-                s.verboseLogging = true;
-                s.writeReadableSidecarMirrors = true;
-                s.SamplingDensityLevel = SamplingDensity.Medium;
-                s.autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
-                s.autoLoopTimeUnit = 0;
-                s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
-                s.showGhostsInTrackingStation = true;
-                ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
+                SettingsWindowPresentation.SettingsDefaults defaults =
+                    SettingsWindowPresentation.BuildDefaults();
+                s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
+                s.autoRecordOnEva = defaults.AutoRecordOnEva;
+                s.autoMerge = defaults.AutoMerge;
+                s.verboseLogging = defaults.VerboseLogging;
+                s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
+                s.SamplingDensityLevel = defaults.SamplingDensityLevel;
+                s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
+                s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
+                s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
-                settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
@@ -362,46 +332,6 @@ namespace Parsek
 
             GUILayout.Space(SpacingSmall);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Camera cutoff",
-                "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
-                GUILayout.Width(85));
-            {
-                if (!settingsCameraCutoffEditing)
-                {
-                    string displayText = s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-                    GUI.SetNextControlName("CameraCutoffEdit");
-                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
-                    if (GUI.GetNameOfFocusedControl() == "CameraCutoffEdit")
-                    {
-                        settingsCameraCutoffText = newText;
-                        settingsCameraCutoffEditing = true;
-                        settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
-                    }
-                }
-                else
-                {
-                    bool submitCutoff = Event.current.type == EventType.KeyDown &&
-                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-
-                    GUI.SetNextControlName("CameraCutoffEdit");
-                    string newText = GUILayout.TextField(settingsCameraCutoffText, GUILayout.Width(45));
-                    settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
-                    if (newText != settingsCameraCutoffText)
-                        settingsCameraCutoffText = newText;
-
-                    if (submitCutoff)
-                    {
-                        CommitCameraCutoffEdit(s);
-                        Event.current.Use();
-                    }
-                }
-            }
-            GUILayout.Label("km");
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(SpacingSmall);
-
             bool showGhostsTS = GUILayout.Toggle(s.showGhostsInTrackingStation,
                 new GUIContent(" Show ghosts in Tracking Station",
                     "When off, Parsek ghosts are hidden from the tracking station vessel list and map view"));
@@ -410,7 +340,7 @@ namespace Parsek
                 s.showGhostsInTrackingStation = showGhostsTS;
                 // Persist to the external settings store so the value survives
                 // rewind, quickload, and KSP restart — same treatment as
-                // ghostCameraCutoffKm / writeReadableSidecarMirrors. Without this,
+                // writeReadableSidecarMirrors. Without this,
                 // the user's choice reverts to the GameParameters-default on the
                 // next load.
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhostsTS);
