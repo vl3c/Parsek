@@ -115,12 +115,11 @@ namespace Parsek.Tests
             int currentPartCount,
             bool expected)
         {
+            bool needsCacheRefresh = moduleCachesDirty || cachedPartCount != currentPartCount;
             bool result = ParsekFlight.ShouldEvaluatePostSwitchManifestDiff(
                 currentUT,
                 nextManifestEvaluationUt,
-                moduleCachesDirty,
-                cachedPartCount,
-                currentPartCount);
+                needsCacheRefresh);
 
             Assert.Equal(expected, result);
         }

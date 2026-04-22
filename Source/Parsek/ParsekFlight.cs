@@ -174,6 +174,7 @@ namespace Parsek
         private const double PostSwitchOrbitAngleThresholdDegrees = 0.01;
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
+        private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
@@ -4269,13 +4270,9 @@ namespace Parsek
         internal static bool ShouldEvaluatePostSwitchManifestDiff(
             double currentUT,
             double nextManifestEvaluationUt,
-            bool moduleCachesDirty,
-            int cachedPartCount,
-            int currentPartCount)
+            bool needsCacheRefresh)
         {
-            return moduleCachesDirty
-                || cachedPartCount != currentPartCount
-                || currentUT >= nextManifestEvaluationUt;
+            return needsCacheRefresh || currentUT >= nextManifestEvaluationUt;
         }
 
         internal static bool HasMeaningfulLandedMotionChange(
@@ -4718,13 +4715,13 @@ namespace Parsek
             double currentUT)
         {
             int currentPartCount = v != null && v.parts != null ? v.parts.Count : 0;
+            bool needsCacheRefresh =
+                state.ModuleCachesDirty || state.CachedPartCount != currentPartCount;
             bool evaluateManifestDiff = ShouldEvaluatePostSwitchManifestDiff(
                 currentUT,
                 state.NextManifestEvaluationUt,
-                state.ModuleCachesDirty,
-                state.CachedPartCount,
-                currentPartCount);
-            if (state.ModuleCachesDirty || state.CachedPartCount != currentPartCount)
+                needsCacheRefresh);
+            if (needsCacheRefresh)
             {
                 RefreshPostSwitchAutoRecordModuleCaches(state, v);
                 ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-cache-refresh",
@@ -4988,7 +4985,7 @@ namespace Parsek
                 return;
 
             state.ModuleCachesDirty = true;
-            state.NextManifestEvaluationUt = 0;
+            state.NextManifestEvaluationUt = PostSwitchManifestEvaluateNextFrameUt;
             ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-invalidated",
                 $"Post-switch watch invalidated module caches: pid={state.VesselPid} " +
                 $"vessel='{state.VesselName}'", 1.0);
