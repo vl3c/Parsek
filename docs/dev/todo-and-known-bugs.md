@@ -370,7 +370,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Fix:** `GameStateRecorder.OnContractAccepted()` now writes the accepted contract's `type=` into the structured event detail using the same value saved in the contract snapshot, and `GameStateEventConverter.ConvertContractAccepted()` now populates `GameAction.ContractType`, falling back to `GameStateStore.GetContractSnapshot(contractId)` for pre-fix events that still lack the new detail token. Regression coverage pins both the direct-detail path and the snapshot-backfill path.
 
-**Status:** ~~OPEN. Data-loss bug in the ledger conversion path.~~ Closed 2026-04-22.
+**Status:** ~~OPEN. Data-loss bug in the ledger conversion path.~~ Closed 2026-04-22. Fixed for v0.9.0.
 
 ---
 
