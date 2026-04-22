@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using Xunit;
 
@@ -26,6 +27,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = null;
         }
 
         private static EngineGhostInfo BuildEngineGhostInfo(int particleSystemCount)
@@ -67,6 +69,88 @@ namespace Parsek.Tests
             }.WithTimeRange(startUT, endUT).WithLoop(999.0, LoopTimeUnit.Auto);
         }
 
+        private static GhostPlaybackState InvokeCreatePendingSpawnState(
+            GhostPlaybackEngine engine,
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            PendingSpawnLifecycle lifecycle,
+            TrajectoryPlaybackFlags flags)
+        {
+            MethodInfo method = typeof(GhostPlaybackEngine).GetMethod(
+                "CreatePendingSpawnState",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            object state = method.Invoke(engine, new object[] { traj, playbackUT, lifecycle, flags });
+            return Assert.IsType<GhostPlaybackState>(state);
+        }
+
+        private sealed class SpawnPrimingPositioner : IGhostPositioner
+        {
+            internal int InterpolateCalls;
+            internal int PositionAtPointCalls;
+            internal double LastUT;
+            internal double LastPointUT;
+            internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateCalls++;
+                LastUT = ut;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+                PositionAtPointCalls++;
+                LastPointUT = point.ut;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = PrimedPosition;
+                return true;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+        }
         // ===================================================================
         // ShouldLoopPlayback — static, pure predicate
         // ===================================================================
@@ -1300,6 +1384,504 @@ namespace Parsek.Tests
         // ===================================================================
         // Query API — HasGhost, HasActiveGhost, IsGhostOnBody, etc.
         // ===================================================================
+
+        #region PendingPlaybackMetadata
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_PointInterpolation_UsesInterpolatedState()
+        {
+            logLines.Clear();
+
+            var traj = new MockTrajectory
+            {
+                VesselName = "CrossBodyGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(10f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Mun",
+                        altitude = 3000,
+                        velocity = new Vector3(30f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Mun", result.bodyName);
+            Assert.Equal(2000.0, result.altitude);
+            Assert.Equal(new Vector3(20f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("CrossBodyGhost")
+                && l.Contains("cross-body point transition Kerbin->Mun")
+                && l.Contains("body='Mun'"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_BeforeStart_UsesFirstPointState()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1500,
+                        velocity = new Vector3(7f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 1700,
+                        velocity = new Vector3(9f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 90.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(1500.0, result.altitude);
+            Assert.Equal(new Vector3(7f, 0f, 0f), result.velocity);
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_AfterEnd_UsesLastPointStateAndLogsClamp()
+        {
+            logLines.Clear();
+
+            var traj = new MockTrajectory
+            {
+                VesselName = "AfterEndGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1500,
+                        velocity = new Vector3(7f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Mun",
+                        altitude = 1700,
+                        velocity = new Vector3(9f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 120.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Mun", result.bodyName);
+            Assert.Equal(1700.0, result.altitude);
+            Assert.Equal(new Vector3(9f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("AfterEndGhost")
+                && l.Contains("resolved from point after-end clamp")
+                && l.Contains("body='Mun'"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_OrbitOnlyTrajectory_UsesSegmentBody()
+        {
+            var traj = new MockTrajectory
+            {
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Minmus",
+                        semiMajorAxis = 800000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                },
+                EndUTOverride = 200
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 150.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Minmus", result.bodyName);
+            Assert.Equal(0.0, result.altitude);
+            Assert.Equal(Vector3.zero, result.velocity);
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_MixedPointAndOrbitData_PrefersActiveOrbitSegment()
+        {
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 800000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Mun", result.bodyName);
+            Assert.Equal(0.0, result.altitude);
+            Assert.Equal(Vector3.zero, result.velocity);
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SubSurfaceMixedOrbitSegment_FallsBackToPoints()
+        {
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 100000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(1500.0, result.altitude);
+            Assert.Equal(new Vector3(10f, 0f, 0f), result.velocity);
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SkipsOrbitSegmentPrecedence()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 800000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.SurfaceMobile,
+                        startUT = 100,
+                        endUT = 110
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(1500.0, result.altitude);
+            Assert.Equal(new Vector3(10f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("surface track section active, skipping orbit precedence"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_OffUtOrbitSegment_DoesNotLogSkippedOrbitPrecedence()
+        {
+            logLines.Clear();
+
+            var traj = new MockTrajectory
+            {
+                VesselName = "SurfaceOnlyGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 800000,
+                        startUT = 200,
+                        endUT = 300
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.SurfaceMobile,
+                        startUT = 100,
+                        endUT = 110
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("SurfaceOnlyGhost")
+                && l.Contains("surface track section active, skipping orbit precedence"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SubSurfaceOrbitSegment_DoesNotLogSkippedOrbitPrecedence()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                VesselName = "SubSurfaceSurfaceGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 100000,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.SurfaceMobile,
+                        startUT = 100,
+                        endUT = 110
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("SubSurfaceSurfaceGhost")
+                && l.Contains("surface track section active, skipping orbit precedence"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_SurfaceOnlyTrajectory_UsesSurfaceBody()
+        {
+            var traj = new MockTrajectory
+            {
+                SurfacePos = new SurfacePosition
+                {
+                    body = "Duna",
+                    altitude = 42
+                },
+                EndUTOverride = 100
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 100.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Duna", result.bodyName);
+            Assert.Equal(42.0, result.altitude);
+            Assert.Equal(Vector3.zero, result.velocity);
+        }
+
+        [Fact]
+        public void CreatePendingSpawnState_ResolvedInterpolation_SeedsStateAndLogs()
+        {
+            logLines.Clear();
+
+            var engine = new GhostPlaybackEngine(null);
+            var traj = new MockTrajectory
+            {
+                VesselName = "SeededGhost",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                }
+            };
+
+            GhostPlaybackState state = InvokeCreatePendingSpawnState(
+                engine,
+                traj,
+                playbackUT: 105.0,
+                PendingSpawnLifecycle.StandardEnter,
+                default(TrajectoryPlaybackFlags));
+
+            Assert.Equal("Kerbin", state.lastInterpolatedBodyName);
+            Assert.Equal(1500.0, state.lastInterpolatedAltitude);
+            Assert.Equal(new Vector3(10f, 0f, 0f), state.lastInterpolatedVelocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("SeededGhost")
+                && l.Contains("resolved from point interpolation")
+                && l.Contains("body='Kerbin'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("Pending spawn interpolation seed")
+                && l.Contains("SeededGhost")
+                && l.Contains("lifecycle=StandardEnter")
+                && l.Contains("body='Kerbin'"));
+        }
+
+        #endregion
 
         #region QueryAPI
 

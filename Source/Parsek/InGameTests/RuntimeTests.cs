@@ -5068,6 +5068,118 @@ namespace Parsek.InGameTests
                 $"expected >= {floor:F2} (got {clamped.altitude:F2})");
         }
 
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Loop explosion camera holds use the engine's terrain-clamped anchor instead of the buried raw root (#525)")]
+        public void ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                InGameAssert.Skip("needs ParsekFlight instance");
+                return;
+            }
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double terrainAlt = body.TerrainAltitude(lat, lon, true);
+            Vector3 rawWorldPos = body.GetWorldSurfacePosition(lat, lon, terrainAlt - 1.0);
+            double expectedClearance = ParsekFlight.ComputeTerrainClearance(
+                Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D()));
+
+            var ghostRoot = new GameObject("ParsekTestGhost_Bug525ExplosionAnchor");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = rawWorldPos;
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug525ExplosionAnchor",
+                ghost = ghostRoot,
+                loopCycleIndex = 0,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = terrainAlt - 1.0
+            };
+
+            var traj = new Recording
+            {
+                RecordingId = "bug525-loop-explosion-anchor",
+                VesselName = "Bug525ExplosionAnchor",
+                TerrainHeightAtEnd = terrainAlt,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 100.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt + 5.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt - 1.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+
+            var engine = new GhostPlaybackEngine(flight);
+            engine.ghostStates[525] = state;
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.UpdateLoopingPlaybackForTesting(
+                index: 525,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 210.0,
+                    warpRate = 1f,
+                    activeVesselPos = activeVessel.GetWorldPos3D(),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 100.0,
+                },
+                suppressGhosts: false,
+                suppressVisualFx: false);
+
+            InGameAssert.AreEqual(1, cameraEvents.Count,
+                "Loop cycle-change explosion should emit exactly one camera hold event");
+            InGameAssert.AreEqual(1, restartedEvents.Count,
+                "Loop cycle-change explosion should emit exactly one loop-restarted event");
+            InGameAssert.AreEqual(CameraActionType.ExplosionHoldStart, cameraEvents[0].Action,
+                "Destroyed loop cycle boundary must emit ExplosionHoldStart");
+            InGameAssert.IsTrue(restartedEvents[0].ExplosionFired,
+                "Loop restart event must mark the boundary explosion as fired");
+
+            double eventAnchorAlt = body.GetAltitude(cameraEvents[0].AnchorPosition);
+            double eventExplosionAlt = body.GetAltitude(restartedEvents[0].ExplosionPosition);
+
+            InGameAssert.IsGreaterThan(eventAnchorAlt, terrainAlt + expectedClearance - 0.001,
+                $"Explosion anchor must clamp above terrain+clearance before watch hold: expected >= {(terrainAlt + expectedClearance):F2}, got {eventAnchorAlt:F2}");
+            InGameAssert.IsLessThan(
+                System.Math.Abs(eventAnchorAlt - eventExplosionAlt), 0.01,
+                "Loop camera hold and loop-restart explosion payloads must reuse the same terrain-clamped anchor");
+        }
+
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
             Description = "Harmony physics frame patch is operational")]
         public void HarmonyPatchOperational()
@@ -8721,6 +8833,146 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
+        public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
+        {
+            const int ghostIndex = 538;
+            const string vesselName = "Test538";
+            const float minimumUsableAtmosphereDepthMeters = 1000f;
+            const double targetAltitudeMarginMeters = 500.0;
+            const double targetAltitudeAtmosphereFraction = 0.25;
+            const float initialSweepSurfaceSpeedMetersPerSecond = 1500f;
+            const float maxSweepSurfaceSpeedMetersPerSecond = 10_000f;
+            const float sweepStepMetersPerSecond = 500f;
+            const float rawIntensitySaturationTarget = 0.999f;
+            const float requiredNearMaxRawIntensity = 0.99f;
+            const float legacyEmissionRateCeiling = 2000f;
+            const float emissionSettleTimeoutSeconds = 1.5f;
+            const float expectedEmissionRateTolerance = 0.5f;
+            const float warpRate = 1f;
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(activeVessel, "Active vessel required for ReentryFx runtime coverage");
+
+            CelestialBody body = activeVessel.mainBody;
+            InGameAssert.IsNotNull(body, "Active vessel mainBody should not be null");
+            if (!body.atmosphere || body.atmosphereDepth <= minimumUsableAtmosphereDepthMeters)
+                InGameAssert.Skip($"Active vessel body '{body.name}' has no usable atmosphere for reentry-FX coverage");
+
+            float targetAltitude = (float)System.Math.Min(
+                body.atmosphereDepth - targetAltitudeMarginMeters,
+                body.atmosphereDepth * targetAltitudeAtmosphereFraction);
+            double pressure = body.GetPressure(targetAltitude);
+            double temperature = body.GetTemperature(targetAltitude);
+            double density = body.GetDensity(pressure, temperature);
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            InGameAssert.IsGreaterThan(pressure, 0.0,
+                $"Expected positive atmospheric pressure at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(temperature, 0.0,
+                $"Expected positive atmospheric temperature at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(density, 0.0,
+                $"Expected positive atmospheric density at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(speedOfSound, 0.0,
+                $"Expected positive speed of sound at {targetAltitude:F0} m on {body.name}");
+
+            float targetSurfaceSpeed = initialSweepSurfaceSpeedMetersPerSecond;
+            float lastComputedSurfaceSpeed = targetSurfaceSpeed;
+            float rawIntensity = 0f;
+            float machNumber = 0f;
+            bool rawIntensitySaturated = false;
+            while (targetSurfaceSpeed <= maxSweepSurfaceSpeedMetersPerSecond)
+            {
+                lastComputedSurfaceSpeed = targetSurfaceSpeed;
+                machNumber = (float)(targetSurfaceSpeed / speedOfSound);
+                rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
+                    targetSurfaceSpeed, (float)density, machNumber);
+                if (rawIntensity >= rawIntensitySaturationTarget)
+                {
+                    rawIntensitySaturated = true;
+                    break;
+                }
+
+                targetSurfaceSpeed += sweepStepMetersPerSecond;
+            }
+
+            string rawIntensitySweepSummary =
+                $"body={body.name} altitude={targetAltitude.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"density={density.ToString("F6", CultureInfo.InvariantCulture)} " +
+                $"speedOfSound={speedOfSound.ToString("F1", CultureInfo.InvariantCulture)}m/s " +
+                $"lastSpeed={lastComputedSurfaceSpeed.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"lastMach={machNumber.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"rawIntensity={rawIntensity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"saturated={rawIntensitySaturated} " +
+                $"saturationTarget={rawIntensitySaturationTarget.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"sweepStart={initialSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepStep={sweepStepMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepCeiling={maxSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s";
+
+            if (!rawIntensitySaturated && rawIntensity <= requiredNearMaxRawIntensity)
+            {
+                InGameAssert.Fail(
+                    "Reentry intensity speed sweep exhausted before reaching the near-max raw-intensity floor. " +
+                    rawIntensitySweepSummary);
+            }
+
+            InGameAssert.IsGreaterThan(rawIntensity, requiredNearMaxRawIntensity,
+                "Expected near-max raw intensity inside atmosphere before the live emission assertion. " +
+                rawIntensitySweepSummary);
+
+            var ghostRoot = new GameObject("ParsekTestGhost_538");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = activeVessel.transform.position;
+
+            ReentryFxInfo info = GhostVisualBuilder.TryBuildReentryFx(
+                ghostRoot,
+                new Dictionary<uint, HeatGhostInfo>(),
+                ghostIndex: ghostIndex,
+                vesselName: vesselName);
+
+            InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry density test");
+            InGameAssert.IsNotNull(info.fireParticles, "Reentry fire particle system should be created in live KSP");
+            InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
+                "Built reentry fire particle system should use the tuned max-particle cap");
+
+            Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostRoot.transform.position);
+            Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                reentryFxInfo = info,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = targetAltitude,
+                lastInterpolatedVelocity = rotatingFrameVelocity + desiredSurfaceVelocity,
+            };
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            float deadline = Time.realtimeSinceStartup + emissionSettleTimeoutSeconds;
+            float actualRate = 0f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                engine.UpdateReentryFx(recIdx: ghostIndex, state, vesselName: vesselName, warpRate: warpRate);
+                actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
+                if (actualRate > legacyEmissionRateCeiling)
+                    break;
+                yield return null;
+            }
+
+            InGameAssert.IsGreaterThan(info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
+                "Smoothed reentry intensity should cross the fire threshold before we assert the live emission rate");
+            InGameAssert.IsTrue(info.fireParticles.isPlaying,
+                "Reentry fire particles should be playing once the live intensity crosses the fire threshold");
+
+            float expectedRate = Mathf.Lerp(
+                GhostVisualBuilder.ReentryFireEmissionMin,
+                GhostVisualBuilder.ReentryFireEmissionMax,
+                Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
+            InGameAssert.ApproxEqual(expectedRate, actualRate, expectedEmissionRateTolerance,
+                "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
+            InGameAssert.IsGreaterThan(actualRate, legacyEmissionRateCeiling,
+                $"Bug #538 regression: tuned live emission rate should rise past the old {legacyEmissionRateCeiling.ToString("F0", CultureInfo.InvariantCulture)} particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
             Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
         public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
         {
@@ -9205,6 +9457,13 @@ namespace Parsek.InGameTests
             public void PositionLoop(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
             {
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
             }
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,

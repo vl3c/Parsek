@@ -12,6 +12,10 @@ namespace Parsek.Tests
         public GhostMapPresenceTests()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,6 +25,10 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetForTesting();
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -993,6 +1001,106 @@ namespace Parsek.Tests
             Assert.DoesNotContain("chain2-B", result);
         }
 
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_FutureChildDoesNotHideCurrentContinuation()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 240);
+
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_StartedChildHidesParent()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 300, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 320);
+
+            Assert.Contains("launch", suppressed);
+            Assert.Contains("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
+        [Fact]
+        public void FindTrackingStationSuppressedRecordingIds_IndeterminateChildStart_DoesNotHideParent()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-return",
+                    ParentRecordingId = "launch",
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-return"
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 320);
+
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("kerbin-return", suppressed);
+            Assert.DoesNotContain("mun-leg", suppressed);
+        }
+
         #endregion
 
         #region ShouldCreateTrackingStationGhost
@@ -1016,10 +1124,10 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Superseded recording always skipped (intermediate chain segment).
+        /// Suppressed recording always skipped (intermediate chain segment).
         /// </summary>
         [Fact]
-        public void ShouldCreate_Superseded_Skipped()
+        public void ShouldCreate_Suppressed_Skipped()
         {
             var rec = new Recording
             {
@@ -1029,7 +1137,43 @@ namespace Parsek.Tests
             };
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, true, 1000);
             Assert.False(should);
-            Assert.Equal("superseded", reason);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipSuppressed, reason);
+        }
+
+        /// <summary>
+        /// Already materialized recordings must not recreate a tracking-station ghost.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_AlreadySpawned_Skipped()
+        {
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, reason);
+        }
+
+        /// <summary>
+        /// A persisted spawned PID also suppresses ghost recreation after scene reload.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_SpawnedPidSet_Skipped()
+        {
+            var rec = new Recording
+            {
+                SpawnedVesselPersistentId = 424242,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, reason);
         }
 
         /// <summary>
@@ -1064,6 +1208,226 @@ namespace Parsek.Tests
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
             Assert.True(should);
             Assert.Null(reason);
+        }
+
+        /// <summary>
+        /// Future terminal orbit data must not appear before the recording has even started.
+        /// Prevents tracking station startup from advertising a later chain tip too early.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_FutureTipBeforeActivation_SkipsTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1983.7, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 27996.3, bodyName = "Mun" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    525.3,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("before-activation", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-activation"));
+        }
+
+        /// <summary>
+        /// When a recording has a visible current segment plus a later terminal orbit,
+        /// the current segment must drive the tracking-station ghost.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_VisibleSegment_PrefersSegmentOverFutureTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 30000, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 400,
+                        endUT = 600,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 694160,
+                        eccentricity = 0.05,
+                        inclination = 0.3,
+                        longitudeOfAscendingNode = 0,
+                        argumentOfPeriapsis = 0,
+                        meanAnomalyAtEpoch = 0,
+                        epoch = 400
+                    }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    500,
+                    out OrbitSegment segment,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=Segment") &&
+                l.Contains("segmentBody=Kerbin"));
+        }
+
+        /// <summary>
+        /// Terminal orbit fallback must wait until the recording itself has ended.
+        /// While the recording is still in progress, no future orbit ghost should appear.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_BeforeRecordingEnd_SkipsTerminalOrbitFallback()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    500,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("before-terminal-orbit", reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=None") &&
+                l.Contains("before-terminal-orbit"));
+        }
+
+        /// <summary>
+        /// Once the recording has ended, terminal orbit data becomes the correct fallback.
+        /// </summary>
+        [Fact]
+        public void ResolveTrackingStationGhostSource_AfterRecordingEnd_UsesTerminalOrbitFallback()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                }
+            };
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    1000,
+                    out _,
+                    out string reason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, source);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("source=TerminalOrbit") &&
+                l.Contains("terminalBody=Mun"));
+        }
+
+        /// <summary>
+        /// Startup summary logging must keep future-tip skip buckets distinct so
+        /// before-activation and before-terminal-orbit don't disappear into noOrbit.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets()
+        {
+            GhostMapPresence.CurrentUTNow = () => 500.0;
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "future-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 1983.7, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 27996.3, bodyName = "Mun" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "in-progress-tip",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                    }
+                });
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "no-orbit",
+                    TerminalStateValue = null
+                });
+
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+                Assert.Equal(0, created);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 3 recordings") &&
+                    l.Contains("beforeActivation=1") &&
+                    l.Contains("beforeTerminalOrbit=1") &&
+                    l.Contains("noOrbit=1"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+                ParsekSettingsPersistence.ResetForTesting();
+            }
         }
 
         /// <summary>
@@ -1124,14 +1488,19 @@ namespace Parsek.Tests
             };
 
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    false,
+                    300,
+                    out OrbitSegment segment,
+                    out string sourceReason);
 
             Assert.True(should);
             Assert.Null(reason);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostMap]")
-                && l.Contains("HasOrbitData(Recording)")
-                && l.Contains("extended-tail")
-                && l.Contains("result=False"));
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Null(sourceReason);
         }
 
         /// <summary>
@@ -1154,6 +1523,91 @@ namespace Parsek.Tests
 
             Assert.True(should);
             Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ShouldCreate_CurrentOrbitContinuationWithFutureChild_Created()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch" },
+                new Recording
+                {
+                    RecordingId = "kerbin-orbit",
+                    ParentRecordingId = "launch",
+                    TerminalStateValue = null,
+                    OrbitSegments = new List<OrbitSegment>
+                    {
+                        new OrbitSegment
+                        {
+                            startUT = 220,
+                            endUT = 420,
+                            bodyName = "Kerbin",
+                            semiMajorAxis = 700000,
+                            eccentricity = 0.01,
+                            inclination = 0,
+                            longitudeOfAscendingNode = 0,
+                            argumentOfPeriapsis = 0,
+                            meanAnomalyAtEpoch = 0,
+                            epoch = 220
+                        }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-orbit",
+                    TerminalStateValue = null,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    },
+                    OrbitSegments = new List<OrbitSegment>
+                    {
+                        new OrbitSegment
+                        {
+                            startUT = 560,
+                            endUT = 800,
+                            bodyName = "Mun",
+                            semiMajorAxis = 220000,
+                            eccentricity = 0.02,
+                            inclination = 5,
+                            longitudeOfAscendingNode = 0,
+                            argumentOfPeriapsis = 0,
+                            meanAnomalyAtEpoch = 0,
+                            epoch = 560
+                        }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 300);
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[1], suppressed.Contains(recs[1].RecordingId), 300);
+
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_SuppressedTerminalOrbitParent_RemovesExistingGhost()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "kerbin-parent",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: true,
+                hasOrbitBounds: false,
+                currentUT: 320);
+
+            Assert.Equal("tracking-station-child-started", reason);
         }
 
         /// <summary>
@@ -1323,11 +1777,12 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Scenario: chain A(launch)→B(orbit)→C(destroyed).
-        /// Only C is a tip, and C has Destroyed terminal state → no ghost.
-        /// Previously, B (intermediate with orbit data) would get a stale ghost.
+        /// The started orbit child suppresses the launch parent, but the destroyed tip has no
+        /// resolvable start UT, so Tracking Station fails open and keeps the current orbit
+        /// continuation visible instead of hiding it on mere child existence.
         /// </summary>
         [Fact]
-        public void ChainAware_DestroyedTip_NoGhostForIntermediateOrbit()
+        public void ChainAware_DestroyedTipWithoutStart_KeepsCurrentOrbitVisible()
         {
             var recs = new List<Recording>
             {
@@ -1341,6 +1796,7 @@ namespace Parsek.Tests
                     RecordingId = "orbit",
                     ParentRecordingId = "launch",
                     TerminalStateValue = null,
+                    ExplicitStartUT = 100,
                     TerminalOrbitBody = "Kerbin",
                     TerminalOrbitSemiMajorAxis = 700000,
                     OrbitSegments = new List<OrbitSegment>
@@ -1356,21 +1812,21 @@ namespace Parsek.Tests
                 }
             };
 
-            var superseded = GhostMapPresence.FindSupersededRecordingIds(recs);
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 300);
 
-            // "launch" and "orbit" are superseded
-            Assert.Contains("launch", superseded);
-            Assert.Contains("orbit", superseded);
-            Assert.DoesNotContain("destroyed", superseded);
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("orbit", suppressed);
+            Assert.DoesNotContain("destroyed", suppressed);
 
-            // "orbit" is superseded → skipped even though it has orbit data
+            // The current orbit continuation stays visible because the destroyed child has no
+            // resolvable start UT and therefore does not suppress it yet.
             var (shouldOrbit, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
-                recs[1], superseded.Contains(recs[1].RecordingId), 300);
-            Assert.False(shouldOrbit);
+                recs[1], suppressed.Contains(recs[1].RecordingId), 300);
+            Assert.True(shouldOrbit);
 
             // "destroyed" is tip but has Destroyed state → skipped
             var (shouldDestroyed, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
-                recs[2], superseded.Contains(recs[2].RecordingId), 300);
+                recs[2], suppressed.Contains(recs[2].RecordingId), 300);
             Assert.False(shouldDestroyed);
         }
 
@@ -1388,19 +1844,20 @@ namespace Parsek.Tests
                 {
                     RecordingId = "orbit-tip",
                     ParentRecordingId = "launch",
+                    ExplicitStartUT = 100,
                     TerminalStateValue = null,
                     TerminalOrbitBody = "Kerbin",
                     TerminalOrbitSemiMajorAxis = 700000
                 }
             };
 
-            var superseded = GhostMapPresence.FindSupersededRecordingIds(recs);
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 300);
 
-            Assert.Contains("launch", superseded);
-            Assert.DoesNotContain("orbit-tip", superseded);
+            Assert.Contains("launch", suppressed);
+            Assert.DoesNotContain("orbit-tip", suppressed);
 
             var (should, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
-                recs[1], superseded.Contains(recs[1].RecordingId), 300);
+                recs[1], suppressed.Contains(recs[1].RecordingId), 300);
             Assert.True(should);
         }
 
@@ -1538,7 +1995,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldDrawAtmosphericMarker_Superseded_Filtered()
+        public void ShouldDrawAtmosphericMarker_Suppressed_Filtered()
         {
             var rec = new Recording
             {
@@ -1549,9 +2006,46 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
                 }
             };
-            var superseded = new HashSet<string> { "superseded-1" };
-            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, superseded);
+            var suppressed = new HashSet<string> { "superseded-1" };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, suppressed);
             Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_CurrentAtmosphericContinuationWithFutureChild_NotFiltered()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "kerbin-orbit" },
+                new Recording
+                {
+                    RecordingId = "kerbin-exit",
+                    ParentRecordingId = "kerbin-orbit",
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 320, bodyName = "Kerbin" }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "mun-leg",
+                    ParentRecordingId = "kerbin-exit",
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 500, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 620, bodyName = "Mun" }
+                    }
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(recs, 240);
+
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(recs[1], 1, 240, suppressed);
+
+            Assert.True(result);
         }
 
         [Fact]

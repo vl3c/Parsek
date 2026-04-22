@@ -63,13 +63,15 @@ namespace Parsek.Tests
                 ut = 100.0,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "contract-guid-1",
-                detail = "title=Explore Mun;deadline=NaN;failFunds=5000;failRep=10"
+                detail = "title=Explore Mun;deadline=NaN;type=PartTest;failFunds=5000;failRep=10"
             };
 
             LedgerOrchestrator.OnKscSpending(evt);
 
-            Assert.Contains(Ledger.Actions, a =>
+            var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.ContractAccept && a.ContractId == "contract-guid-1");
+            Assert.NotNull(match);
+            Assert.Equal("PartTest", match.ContractType);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("KSC spending recorded") && l.Contains("ContractAccept"));
         }
