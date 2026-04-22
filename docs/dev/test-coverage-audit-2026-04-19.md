@@ -499,11 +499,13 @@ The later archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-ba
 - these rows come from the real stock `Space Center` exit path, not the synthetic FLIGHT popup smoke test; both canaries remain `AllowBatchExecution = false` because they still launch the active vessel, cross from `FLIGHT` into `SPACECENTER`, and exercise the production deferred merge dialog
 - the supporting helper mirrors stock `PauseMenu.saveAndExit(...)` closely enough to validate the real player flow: it fires `onSceneConfirmExit`, invokes `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saves `persistent`, and only then loads `SPACECENTER`
 
-The branch also now contains the first deterministic timing-sensitive part-event canaries, likewise still awaiting live evidence:
+The branch also now contains the first deterministic timing-sensitive part-event canaries, and retained live bundles now show them passing:
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
-- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
+- `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
+- `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` and `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` both record the two `PartEventTiming` rows as clean `FLIGHT PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` also records the `Running`/`PASSED` lines plus the `Applied 1 part events for ghost #902/#901` diagnostics when each canary reaches its authored event boundary
+- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note, and the retained April 21 evidence now closes that first light/deployable timing gap
 
 The branch now also contains a first pass at making destructive FLIGHT runtime tests batchable without repeated manual game reloads:
 
@@ -519,19 +521,17 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Live-validate the new isolated batch mode**
    Build this worktree, enter a disposable `FLIGHT` session, and use `Run All + Isolated` or per-category `Run+` to confirm the new `[isolated]` tests complete without manual reloads and that the runner reliably quickloads the baseline back between destructive tests.
-2. **Live-validate the first timing-sensitive part-event canaries**
-   In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
-4. **Build on the now-validated local coverage path**
+2. **Build on the now-validated local coverage path**
    The next useful output is not more local runner churn; it is keeping the baseline packet repeatable and deciding whether CI/diff retention should join the workflow.
-5. **After that, broaden the part-event timing slice if needed**
-   Lights/deployables would close the first showcase-sized gap. If those hold up live, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
+3. **After that, broaden the part-event timing slice if needed**
+   The first light/deployable timing pair is now live-validated. If more timing-sensitive runtime evidence is still useful, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
 
 ### Scenario promotion shortlist
 
 The first scripted runtime scenarios I would validate/add next are:
 
 1. **Part-event timing showcase**
-   The non-revert scene-exit merge/discard canaries now have archived live validation, so the next runtime gap to promote is the first light/deployable timing pair and then deciding whether fairing/RCS timing needs the same treatment.
+   The non-revert scene-exit merge/discard canaries and the first light/deployable timing pair now have archived live validation, so the next runtime timing gap to promote is deciding whether fairing disappearance or RCS FX onset needs the same treatment.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
