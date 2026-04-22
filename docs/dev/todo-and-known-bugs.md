@@ -939,19 +939,26 @@ Local verification on this combined branch is now healthy enough to be useful: `
 
 ---
 
-## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+## ~~494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report~~ CLOSED 2026-04-22
 
 **Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` completed end-to-end and produced the first validated baseline coverage packet:
 
-**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+- restore/build succeeded for `Source/Parsek/Parsek.csproj` and `Source/Parsek.Tests/Parsek.Tests.csproj`
+- xUnit result: `Passed: 7730, Skipped: 2, Total: 7732`
+- Cobertura baseline: line `34220/82454 (41.50%)`, branch `15944/39907 (39.95%)`, method `56.28%`, `325` classes
+- generated artifacts: `coverage..cobertura.xml`, `coverage-summary.txt`, and `dotnet-test.log`
+- archived packet: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`
+- remaining non-blocking warnings: `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` (`xUnit1013`) and the two `KerbalsWindowUITests` substring assertions (`xUnit2009`)
 
-**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+**Why this matters:** the repo can now answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
 
-**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+**Follow-up:** future work should keep this packet shape repeatable, but the missing-baseline blocker itself is now closed. The next useful iteration is diff/CI retention, not more local runner churn.
 
-**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-22). Baseline captured and archived.
 
 ---
 

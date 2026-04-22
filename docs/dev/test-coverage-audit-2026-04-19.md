@@ -4,6 +4,8 @@ Date: 2026-04-19
 Repo worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek-audit-test-coverage`
 Branch: `audit-test-coverage-2026-04-19`
 
+Follow-up (2026-04-22): #494 is now closed. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` produced the first validated baseline coverage packet and archived it under `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`. Result: `Passed: 7730, Skipped: 2, Total: 7732`; line coverage `34220/82454 (41.50%)`; branch coverage `15944/39907 (39.95%)`; method coverage `56.28%`; `325` classes. The run still surfaces one `xUnit1013` warning and two `xUnit2009` warnings, but they do not block report generation. The remainder of this document preserves the original 2026-04-19 audit snapshot.
+
 ## Scope
 
 This audit is a current-state snapshot of Parsek's testing surface across:
@@ -13,7 +15,7 @@ This audit is a current-state snapshot of Parsek's testing surface across:
 - log assertion and `KSP.log` contract validation
 - manual playtest checklists in `docs/dev/manual-testing`
 
-It is not a true line/branch coverage report because the repo does not currently have coverage instrumentation or exported coverage artifacts.
+At the time of this audit, it was not a true line/branch coverage report because the repo did not yet have validated coverage instrumentation or exported coverage artifacts.
 
 ## Baseline Snapshot
 
@@ -42,7 +44,7 @@ It is not a true line/branch coverage report because the repo does not currently
 
 ### Important limitation
 
-There is no `coverlet`, collector, Cobertura/OpenCover export, or any other coverage-reporting pipeline in the repo today. That means we can say a lot about breadth, intent, and risk concentration, but we cannot answer "what percent of the code is covered?" in a mechanically defensible way yet.
+At the time of this audit, there was no validated `coverlet`, collector, Cobertura/OpenCover export, or any other coverage-reporting pipeline in the repo yet. That meant we could say a lot about breadth, intent, and risk concentration, but we could not answer "what percent of the code is covered?" in a mechanically defensible way yet.
 
 ## Historical Context
 
