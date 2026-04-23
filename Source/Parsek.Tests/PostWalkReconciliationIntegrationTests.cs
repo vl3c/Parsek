@@ -31,6 +31,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
+            RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.SuppressLogging = true;
@@ -43,16 +44,34 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
+            RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
 
+        private static void EnsureVisibleRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId) ||
+                RecordingStore.IsCurrentTimelineRecordingId(recordingId))
+            {
+                return;
+            }
+
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = recordingId
+            });
+        }
+
         private static void AddKeyedEvent(
             double ut, GameStateEventType type, string key, double before, double after,
             string recordingId = "")
         {
+            EnsureVisibleRecording(recordingId);
+
             var e = new GameStateEvent
             {
                 ut = ut,

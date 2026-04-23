@@ -453,7 +453,7 @@ namespace Parsek
 
                 var recordings = RecordingStore.CommittedRecordings;
                 recordingCount = recordings.Count;
-                ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
+                ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings");
 
                 // Count dirty recordings before save (SaveRecordingFiles clears FilesDirty)
                 for (int i = 0; i < recordings.Count; i++)
@@ -744,11 +744,8 @@ namespace Parsek
 
             // Save ledger to external file
             LedgerOrchestrator.OnSave();
-            node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
-            node.AddValue("budgetDeductionEpoch",
-                budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
             ParsekLog.Verbose("Scenario",
-                $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
+                $"OnSave: wrote external game-state files (events={GameStateStore.EventCount}, milestones={MilestoneStore.MilestoneCount})");
         }
 
         /// <summary>
@@ -911,7 +908,7 @@ namespace Parsek
         // Reset on main menu transition to prevent stale data leaking between saves.
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
-        private static uint budgetDeductionEpoch = 0;
+        private static bool budgetDeductionApplied = false;
         private static bool mainMenuHookRegistered = false;
 
         // Tracks the scene from which the last OnSave fired.
@@ -1000,7 +997,7 @@ namespace Parsek
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 stateRecorder?.Unsubscribe();
                 if (!initialLoadDone)
-                    LoadExternalFilesAndRestoreEpoch(node);
+                    LoadExternalFiles();
                 stateRecorder = new GameStateRecorder();
                 stateRecorder.SeedFacilityCacheFromCurrentState();
                 stateRecorder.Subscribe();
@@ -1031,19 +1028,11 @@ namespace Parsek
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
-                    // Detect revert vs scene change. On a revert, the quicksave is older:
-                    // its epoch is lower (after a prior revert bumped it) or it has fewer
-                    // recordings (new ones were committed since launch). On a scene change,
-                    // the most recent OnSave wrote the current epoch and recording count.
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
                     if (savedRecNodes.Length > 0)
                         ParsekLog.Warn("Scenario",
                             $"OnLoad: found {savedRecNodes.Length} legacy standalone RECORDING node(s) — " +
                             "these are no longer loaded (T56). Re-save to remove them.");
-                    uint savedEpoch = 0;
-                    string savedEpochStr = node.GetValue("milestoneEpoch");
-                    if (savedEpochStr != null)
-                        uint.TryParse(savedEpochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedEpoch);
 
                     // Count tree recordings from saved tree nodes for accurate revert detection.
                     // All committed recordings are serialized under RECORDING_TREE nodes.
@@ -1058,10 +1047,8 @@ namespace Parsek
                     int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
 
                     // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
-                    // We distinguish by epoch/count comparison — the FLIGHT→FLIGHT boolean
-                    // alone is no longer a revert indicator. Quickloads preserve both epoch
-                    // and count (since the quicksave captured the current state), while
-                    // reverts regress at least one of them.
+                    // The event-based revert detector below owns the distinction; the
+                    // FLIGHT→FLIGHT boolean alone is not enough to classify the load.
                     bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
                                             && HighLogic.LoadedScene == GameScenes.FLIGHT;
                     // vesselSwitchPending must be BOTH set AND fresh. EVA events
@@ -1094,9 +1081,9 @@ namespace Parsek
 
                     // UT-backwards signal (Bug A). F5 followed by flight and then F9
                     // is indistinguishable from a normal FLIGHT→FLIGHT scene change
-                    // on every count/epoch-based signal when F5 happens post-merge
-                    // (both sides have equal epoch and recording counts). The one
-                    // unambiguous fingerprint is that Planetarium UT regresses
+                    // on every recording-count-based signal when F5 happens post-merge
+                    // (both sides have equal counts). The one unambiguous fingerprint
+                    // is that Planetarium UT regresses
                     // between OnSceneChangeRequested and OnLoad — a quickload /
                     // revert / rewind is the only legitimate way that happens.
                     // Captured in ParsekFlight.OnSceneChangeRequested via
@@ -1130,10 +1117,8 @@ namespace Parsek
                         isVesselSwitch = false;
                     }
 
-                    // Bug #300: on first-ever flight (no prior commits), epoch and
-                    // recording counts are both zero on both sides, so the classic
-                    // revert signals (savedEpoch < CurrentEpoch, savedRecCount <
-                    // memoryCount) are blind. The distinguishing signal is that
+                    // Bug #300: on first-ever flight (no prior commits), recording
+                    // counts are zero on both sides. The distinguishing signal is that
                     // TryRestoreActiveTreeNode returned false (the launch quicksave
                     // has no active tree) yet a Limbo tree persists from the
                     // StashActiveTreeAsPendingLimbo call before this OnLoad.
@@ -1147,14 +1132,10 @@ namespace Parsek
                     // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
                     // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
                     // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
-                    // The old epoch/count-regression heuristic false-positived on exactly this
-                    // post-revert-F9 case because CurrentEpoch++ on revert permanently made any
-                    // older saved epoch look like "regressed." Epoch/count values stay in the log
-                    // below as diagnostics but no longer drive classification.
                     var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
                     bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
-                        $"OnLoad: revert detection — revertKind={revertKind}, savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
+                        $"OnLoad: revert detection — revertKind={revertKind}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
@@ -1164,9 +1145,8 @@ namespace Parsek
                     // Must run BEFORE the isRevert branch at line ~580, because the
                     // revert branch consumes PendingStashedThisTransition for its own
                     // "keep across revert" logic. For a pure F5/F9 after a merged
-                    // tree, isRevert=false (counts and epoch match the quicksave),
-                    // so the existing revert-branch discard path never runs — this
-                    // is why the bug manifested in the 2026-04-09 playtest.
+                    // tree, isRevert=false, so the existing revert-branch discard path
+                    // never runs — this is why the bug manifested in the 2026-04-09 playtest.
                     //
                     // #434 follow-up (2026-04-17): skip this on revert. Revert-to-Launch is
                     // always `utWentBackwards && isFlightToFlight`, so without the !isRevert
@@ -1362,22 +1342,23 @@ namespace Parsek
                             ReconcileSpawnStateAfterStrip(flightStateForReconcile.protoVessels, recordings);
                     }
 
-                    if (isRevert)
-                    {
-                        // Restore milestone mutable state from .sfs and increment epoch.
-                        // resetUnmatched: true — milestones created after the launch quicksave
-                        // (not in the saved state) must be reset to unreplayed (-1).
-                        MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
-                        MilestoneStore.CurrentEpoch++;
-                        ParsekLog.Info("Scenario", $"Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
+                if (isRevert)
+                {
+                    // Restore milestone mutable state from .sfs.
+                    // resetUnmatched: true — milestones created after the launch quicksave
+                    // (not in the saved state) must be reset to unreplayed (-1). Hidden
+                    // branch exclusion now comes from recording-id visibility, not a
+                    // synthetic epoch bump.
+                    MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
 
-                        // #434: Revert is a player declaration that "this mission never happened."
-                        // Soft-unstash the pending tree — clear the slot but preserve sidecar files
-                        // and event state so that a quicksave taken during the flight can still be
-                        // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
-                        // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
-                        // Events stay in-memory and on-disk; the bumped MilestoneStore.CurrentEpoch
-                        // above filters them out of the post-revert ledger walks.
+                    // #434: Revert is a player declaration that "this mission never happened."
+                    // Soft-unstash the pending tree — clear the slot but preserve sidecar files
+                    // and event state so that a quicksave taken during the flight can still be
+                    // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
+                    // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
+                    // Events stay in-memory and on-disk; recording-id visibility filters
+                    // them out of the post-revert ledger walks until a matching quickload
+                    // restores the tree.
                         //
                         // This runs BEFORE the limbo-dispatch block below — clearing the pending
                         // slot short-circuits the finalize/restore paths because the tree is gone.
@@ -1402,11 +1383,11 @@ namespace Parsek
                             catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
                         }
 
-                        // Schedule committed resource deduction (singletons may not be ready yet)
-                        ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-
-                        StartCoroutine(ApplyBudgetDeductionWhenReady());
-                    }
+                    // Schedule committed resource deduction (singletons may not be ready yet)
+                    ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
+                    budgetDeductionApplied = false;
+                    StartCoroutine(ApplyBudgetDeductionWhenReady());
+                }
                     else
                     {
                         // Scene change — restore milestone state without resetting unmatched.
@@ -1858,9 +1839,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles the rewind (go-back) path during OnLoad. Increments epoch, restores
-        /// milestone state, collects cleanup PIDs/names, resets playback state, strips
-        /// orphaned vessels, schedules budget coroutine, re-reserves crew, clears rewind flags.
+        /// Handles the rewind (go-back) path during OnLoad. Restores milestone state,
+        /// collects cleanup PIDs/names, resets playback state, strips orphaned vessels,
+        /// schedules resource adjustment, re-reserves crew, and clears rewind flags.
         /// </summary>
         private void HandleRewindOnLoad(ConfigNode node, IReadOnlyList<Recording> recordings)
         {
@@ -1868,11 +1849,6 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
                 $"(using {recordings.Count} in-memory recordings)");
-
-            // Increment epoch (in-memory, NOT from .sfs — the quicksave has stale epoch)
-            MilestoneStore.CurrentEpoch++;
-            ParsekLog.Info("Rewind",
-                $"OnLoad: epoch incremented to {MilestoneStore.CurrentEpoch}");
 
             // Restore milestone mutable state with resetUnmatched=true
             // (milestones created after rewind point get reset to unreplayed)
@@ -1952,10 +1928,6 @@ namespace Parsek
             if (HighLogic.CurrentGame?.flightState != null)
                 CrewReservationManager.RescueOrphanedCrew(
                     HighLogic.CurrentGame.flightState.protoVessels);
-
-            // Set budgetDeductionEpoch BEFORE scheduling coroutine
-            // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
-            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
             // Schedule resource + UT adjustment (deferred — singletons from the OLD
             // scene may still be alive during OnLoad; we must yield at least one frame
@@ -2097,11 +2069,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Loads external data files (game state events, baselines, milestones, ledger),
-        /// cleans up stale rewind temp files, and restores epoch and budget deduction
-        /// tracking from the save node. Only called on initial load (not revert/scene change).
+        /// Loads external data files (game state events, baselines, milestones, ledger)
+        /// and cleans up stale rewind temp files. Only called on initial load (not
+        /// revert/scene change).
         /// </summary>
-        private static void LoadExternalFilesAndRestoreEpoch(ConfigNode node)
+        private static void LoadExternalFiles()
         {
             ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
             GameStateStore.LoadEventFile();
@@ -2136,55 +2108,7 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Failed to scan for stale rewind temp files: {ex.Message}");
             }
 
-            // Restore epoch from save
-            string epochStr = node.GetValue("milestoneEpoch");
-            if (epochStr != null)
-            {
-                uint epoch;
-                if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
-                {
-                    MilestoneStore.CurrentEpoch = epoch;
-                    ParsekLog.Verbose("Scenario", $"OnLoad: restored milestoneEpoch={epoch} from save");
-                }
-            }
-
-            // Restore budget deduction tracking
-            string bdeStr = node.GetValue("budgetDeductionEpoch");
-            if (bdeStr != null)
-            {
-                uint bde;
-                if (uint.TryParse(bdeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out bde))
-                {
-                    budgetDeductionEpoch = bde;
-                    ParsekLog.Verbose("Scenario", $"OnLoad: restored budgetDeductionEpoch={bde} from save");
-                }
-            }
-
-            // #401/#396: one-shot save recovery migration — runs AFTER the ledger has
-            // been loaded AND the epoch has been restored from the save, so epoch
-            // isolation works correctly. Synthesizes ledger actions for any
-            // GameStateStore events / committed science subjects that have no
-            // matching action in the ledger. Idempotent (the LedgerHasMatchingAction
-            // guard makes repeat loads a no-op), so no version flag is needed.
-            if (!RewindContext.IsRewinding)
-            {
-                try
-                {
-                    int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
-                    if (recovered > 0)
-                    {
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: TryRecoverBrokenLedgerOnLoad synthesized {recovered} " +
-                            $"action(s) — triggering recalc to heal derived state");
-                        LedgerOrchestrator.RecalculateAndPatch();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnLoad: TryRecoverBrokenLedgerOnLoad threw: {ex.Message}");
-                }
-            }
+            budgetDeductionApplied = false;
         }
 
         /// <summary>
@@ -2239,7 +2163,7 @@ namespace Parsek
 
             unsubscribeLiveRecorder?.Invoke();
             initialLoadDone = false;
-            budgetDeductionEpoch = 0;
+            budgetDeductionApplied = false;
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
@@ -3324,17 +3248,17 @@ namespace Parsek
                 $"ApplyBudgetDeduction: singletons ready after {120 - maxWait} frames. " +
                 $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, Rep={Reputation.Instance != null}");
 
-            if (budgetDeductionEpoch >= MilestoneStore.CurrentEpoch)
+            if (budgetDeductionApplied)
             {
                 ParsekLog.Verbose("Scenario",
-                    $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
+                    "Budget deduction already applied for this revert load");
     
                 yield break;
             }
-            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+            budgetDeductionApplied = true;
 
             // Audited for #527: this coroutine only runs on true revert follow-up
-            // budget restoration. The rewind path pre-sets budgetDeductionEpoch and
+            // budget restoration. The rewind path marks this guard itself and
             // uses ApplyRewindResourceAdjustment(adjustedUT) instead.
             LedgerOrchestrator.RecalculateAndPatch();
 
@@ -3392,8 +3316,10 @@ namespace Parsek
             // the synchronous HandleRewindOnLoad call already ran and cleared state.
             LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
 
-            // Belt-and-suspenders epoch guard
-            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+            // Belt-and-suspenders guard: if some future refactor accidentally schedules
+            // the normal revert budget-deduction coroutine during this rewind load, it
+            // should no-op instead of patching the same balances again.
+            budgetDeductionApplied = true;
 
         }
 

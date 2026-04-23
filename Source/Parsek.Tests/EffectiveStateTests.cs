@@ -323,6 +323,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsCurrentTimelineRecordingId_UsesERSVisibility()
+        {
+            var a = Rec("rec_A", MergeState.Immutable);
+            var b = Rec("rec_B", MergeState.Immutable);
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            MakeScenario(supersedes: new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") });
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("rec_A"));
+            Assert.True(RecordingStore.IsCurrentTimelineRecordingId("rec_B"));
+        }
+
+        [Fact]
         public void ComputeERS_CacheHit_DoesNotRebuild()
         {
             var a = Rec("rec_A", MergeState.Immutable);

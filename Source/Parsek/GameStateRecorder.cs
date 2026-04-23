@@ -91,10 +91,11 @@ namespace Parsek
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
 
-            // #454: `ref evt` propagates AddEvent's `e.epoch = MilestoneStore.CurrentEpoch`
-            // stamp back to the caller's local. Callers that cache `evt` after Emit (e.g.
-            // RegisterPendingMilestoneEvent) see the stamped epoch/recordingId automatically,
-            // so there is no value-type field-mirror footgun to work around.
+            // `ref evt` propagates any AddEvent-side normalization back to the caller's
+            // local copy. Callers that cache `evt` after Emit (e.g.
+            // RegisterPendingMilestoneEvent) see the final recordingId / legacy-field
+            // shape automatically, so there is no value-type field-mirror footgun to
+            // work around.
             GameStateStore.AddEvent(ref evt);
         }
 
@@ -1144,20 +1145,15 @@ namespace Parsek
 
             // Route to the testable helper with a live UT from Planetarium. Production
             // is the only call site that touches Unity statics; tests call
-            // RegisterPendingMilestoneEvent directly with a literal UT and a controlled
-            // MilestoneStore.CurrentEpoch.
+            // RegisterPendingMilestoneEvent directly with a literal UT.
             RegisterPendingMilestoneEvent(milestoneId, Planetarium.GetUniversalTime());
         }
 
         /// <summary>
         /// #443: emit-and-register half of <see cref="OnProgressComplete"/>, extracted as
-        /// an internal static so the epoch-mirror logic that fixes the silent write-back
-        /// failure (cached pending-map entry vs. stored slot) is directly testable without
-        /// going through the live <see cref="Planetarium"/>/<see cref="GameEvents"/>
-        /// plumbing. Pre-#443 the cached copy retained <c>epoch=0</c> while the stored
-        /// slot carried <see cref="MilestoneStore.CurrentEpoch"/>, so the subsequent
-        /// <see cref="GameStateStore.UpdateEventDetail"/> lookup missed on every save with
-        /// at least one revert in its history and the milestone committed with funds=0.
+        /// an internal static so the cached pending-map entry vs. stored-slot identity
+        /// match is directly testable without going through the live
+        /// <see cref="Planetarium"/>/<see cref="GameEvents"/> plumbing.
         ///
         /// Internal static for testability.
         /// </summary>
@@ -1181,9 +1177,9 @@ namespace Parsek
             };
             Emit(ref evt, "MilestoneAchieved");
 
-            // #454: Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries
-            // the stamped epoch and recordingId — no mirror needed. The cached copy below
-            // is guaranteed to match the stored slot's key fields.
+            // Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries the
+            // final identity fields — no mirror needed. The cached copy below is
+            // guaranteed to match the stored slot.
             //
             // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
             // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
@@ -1228,10 +1224,9 @@ namespace Parsek
         /// id is derived deterministically by <see cref="QualifyMilestoneId"/> at both the
         /// emit and enrich call sites, so the lookup no longer depends on KSP handing the
         /// same instance to both code paths. The cached <see cref="GameStateEvent"/> value
-        /// also carries the current <see cref="MilestoneStore.CurrentEpoch"/>, mirroring
-        /// what <see cref="GameStateStore.AddEvent"/> stamps onto the stored slot — without
-        /// that mirror the <see cref="GameStateStore.UpdateEventDetail"/> lookup misses on
-        /// any save whose epoch has been bumped (every save with at least one revert).
+        /// keeps the same identity fields as the stored slot, so the later
+        /// <see cref="GameStateStore.UpdateEventDetail"/> call can patch the correct row
+        /// without any epoch mirror.
         ///
         /// Entries are removed immediately after enrichment. Stale entries (if AwardProgress
         /// never fires for a node) don't survive beyond the save session — Subscribe(),
@@ -1292,20 +1287,19 @@ namespace Parsek
             // GameStateEvent is a value type; the cached `evt` is a separate copy that
             // we must also update for the test hooks and downstream observers.
             string newDetail = BuildMilestoneDetail(funds, rep, sci);
-            bool storeUpdated = GameStateStore.UpdateEventDetail(
-                evt.ut, evt.eventType, evt.key, evt.epoch, newDetail);
+            bool storeUpdated = GameStateStore.UpdateEventDetail(evt, newDetail);
             if (!storeUpdated)
             {
                 // #443: defensive — UpdateEventDetail returning false used to be silent.
                 // Surface it so a future regression in the cached-vs-stored slot match
-                // (epoch, ut, key) is diagnosable from a default-level log. The trailing
+                // is diagnosable from a default-level log. The trailing
                 // happy-path "Milestone enriched" Info is intentionally suppressed in this
                 // branch (logged inside the `else` below) so an operator never sees the
                 // contradicting "store had no matching event" Warn and "Milestone enriched"
                 // Info for the same call.
                 ParsekLog.Warn("GameStateRecorder",
                     $"EnrichPendingMilestoneRewards: store had no matching event for " +
-                    $"'{evt.key}' ut={evt.ut:F1} epoch={evt.epoch} — detail not patched");
+                    $"'{evt.key}' ut={evt.ut:F1} tag='{evt.recordingId ?? ""}' — detail not patched");
             }
             evt.detail = newDetail;
             PendingMilestoneEventById.Remove(milestoneId);

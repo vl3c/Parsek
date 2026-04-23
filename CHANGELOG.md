@@ -115,9 +115,11 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Follow-up cleanup to `#431/#432`: retired `MilestoneStore.CurrentEpoch` from production branch filtering. Timeline rows, milestone bundling, reward enrichment, revert bookkeeping, and load-time ledger recovery now exclude abandoned branches through recording-tag visibility plus deterministic discard/unstash behavior instead of epoch stamping/filtering.
 
 ### Tests
 
+- Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.

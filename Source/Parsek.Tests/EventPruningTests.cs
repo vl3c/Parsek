@@ -15,51 +15,88 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()
         {
+            RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
-        [Fact]
-        public void PruneProcessedEvents_RemovesOldEpochEvents()
+        private static void AddCommittedRecording(string recordingId)
         {
-            // Add events with epoch 0
-            MilestoneStore.CurrentEpoch = 0;
-            var evt1 = new GameStateEvent
+            RecordingStore.AddCommittedInternal(new Recording
             {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
-            };
-            GameStateStore.AddEvent(ref evt1);
-            var evt2 = new GameStateEvent
-            {
-                ut = 200,
-                eventType = GameStateEventType.PartPurchased,
-                key = "mk1pod.v2"
-            };
-            GameStateStore.AddEvent(ref evt2);
+                RecordingId = recordingId,
+                VesselName = recordingId
+            });
+        }
 
-            // Switch to epoch 1 — old-epoch events should be pruned
-            MilestoneStore.CurrentEpoch = 1;
+        private static Milestone MakeCommittedMilestone(
+            string id,
+            double endUT,
+            string recordingId = "")
+        {
+            return new Milestone
+            {
+                MilestoneId = id,
+                StartUT = 0,
+                EndUT = endUT,
+                Epoch = 0,
+                Committed = true,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = endUT,
+                        eventType = GameStateEventType.TechResearched,
+                        key = id + "-seed",
+                        recordingId = recordingId ?? ""
+                    }
+                }
+            };
+        }
+
+        [Fact]
+        public void PruneProcessedEvents_PreservesHiddenOldBranchEvents()
+        {
+            AddCommittedRecording("live-rec");
+
+            var hiddenOldBranch = new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "old-branch-tech",
+                recordingId = "old-rec"
+            };
+            GameStateStore.AddEvent(ref hiddenOldBranch);
+            var liveEvt = new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.PartPurchased,
+                key = "live-part",
+                recordingId = "live-rec"
+            };
+            GameStateStore.AddEvent(ref liveEvt);
+
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone("m1", endUT: 100, recordingId: "live-rec"));
 
             int pruned = GameStateStore.PruneProcessedEvents();
 
-            Assert.Equal(2, pruned);
-            Assert.Equal(0, GameStateStore.EventCount);
+            Assert.Equal(1, pruned);
+            Assert.Equal(1, GameStateStore.EventCount);
+            Assert.Equal("old-branch-tech", GameStateStore.Events[0].key);
         }
 
         [Fact]
         public void PruneProcessedEvents_RemovesEventsAtOrBelowThreshold()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             // Add events at UT 50, 100, 150
             var evt1 = new GameStateEvent
             {
@@ -91,7 +128,15 @@ namespace Parsek.Tests
                 EndUT = 100,
                 Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             int pruned = GameStateStore.PruneProcessedEvents();
@@ -106,8 +151,6 @@ namespace Parsek.Tests
         [Fact]
         public void PruneProcessedEvents_PreservesEventsAboveThreshold()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             // Add events above the milestone threshold
             var evt1 = new GameStateEvent
             {
@@ -132,7 +175,15 @@ namespace Parsek.Tests
                 EndUT = 100,
                 Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             int pruned = GameStateStore.PruneProcessedEvents();
@@ -144,8 +195,6 @@ namespace Parsek.Tests
         [Fact]
         public void PruneProcessedEvents_EmptyStore_NoOp()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             int pruned = GameStateStore.PruneProcessedEvents();
 
             Assert.Equal(0, pruned);
@@ -155,8 +204,6 @@ namespace Parsek.Tests
         [Fact]
         public void PruneProcessedEvents_ReturnsCorrectCount()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             // Add 5 events, milestone covers UT 0-300, so 3 at or below threshold
             var evt1 = new GameStateEvent
             {
@@ -201,7 +248,15 @@ namespace Parsek.Tests
                 EndUT = 300,
                 Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 300,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             int pruned = GameStateStore.PruneProcessedEvents();
@@ -213,8 +268,6 @@ namespace Parsek.Tests
         [Fact]
         public void GetLatestCommittedEndUT_NoMilestones_ReturnsZero()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             double result = MilestoneStore.GetLatestCommittedEndUT();
 
             Assert.Equal(0, result);
@@ -223,35 +276,9 @@ namespace Parsek.Tests
         [Fact]
         public void GetLatestCommittedEndUT_ReturnsHighestEndUT()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m1",
-                StartUT = 0,
-                EndUT = 100,
-                Epoch = 0,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m2",
-                StartUT = 100,
-                EndUT = 500,
-                Epoch = 0,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m3",
-                StartUT = 500,
-                EndUT = 300,
-                Epoch = 0,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
+            MilestoneStore.AddMilestoneForTesting(MakeCommittedMilestone("m1", endUT: 100));
+            MilestoneStore.AddMilestoneForTesting(MakeCommittedMilestone("m2", endUT: 500));
+            MilestoneStore.AddMilestoneForTesting(MakeCommittedMilestone("m3", endUT: 300));
 
             double result = MilestoneStore.GetLatestCommittedEndUT();
 
@@ -259,30 +286,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetLatestCommittedEndUT_IgnoresOtherEpochs()
+        public void GetLatestCommittedEndUT_IgnoresHiddenMilestones()
         {
-            MilestoneStore.CurrentEpoch = 1;
-
-            // Milestone in epoch 0 — should be ignored
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m1",
-                StartUT = 0,
-                EndUT = 9999,
-                Epoch = 0,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
-            // Milestone in current epoch 1
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m2",
-                StartUT = 0,
-                EndUT = 200,
-                Epoch = 1,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
+            AddCommittedRecording("live-rec");
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone("hidden", endUT: 9999, recordingId: "old-rec"));
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone("visible", endUT: 200, recordingId: "live-rec"));
 
             double result = MilestoneStore.GetLatestCommittedEndUT();
 
@@ -290,10 +300,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetLatestCommittedEndUT_PartiallyHiddenMilestone_UsesLatestVisibleEventUT()
+        {
+            AddCommittedRecording("live-rec");
+            MilestoneStore.AddMilestoneForTesting(new Milestone
+            {
+                MilestoneId = "mixed",
+                StartUT = 0,
+                EndUT = 300,
+                Epoch = 0,
+                Committed = true,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "live-tech",
+                        recordingId = "live-rec"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 250,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "hidden-tech",
+                        recordingId = "old-rec"
+                    }
+                }
+            });
+
+            double result = MilestoneStore.GetLatestCommittedEndUT();
+
+            Assert.Equal(100, result);
+        }
+
+        [Fact]
         public void PruneProcessedEvents_LogsWhenEventsPruned()
         {
             ParsekLog.SuppressLogging = false;
-            MilestoneStore.CurrentEpoch = 0;
 
             var evt = new GameStateEvent
             {
@@ -310,7 +354,15 @@ namespace Parsek.Tests
                 EndUT = 100,
                 Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             GameStateStore.PruneProcessedEvents();
@@ -320,52 +372,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PruneProcessedEvents_MixedEpochsAndThreshold()
+        public void PruneProcessedEvents_MixedVisibilityAndThreshold()
         {
-            // Event in old epoch (epoch 0) — should be pruned
-            MilestoneStore.CurrentEpoch = 0;
-            var oldEpochEvt = new GameStateEvent
-            {
-                ut = 999,
-                eventType = GameStateEventType.TechResearched,
-                key = "old_epoch_tech"
-            };
-            GameStateStore.AddEvent(ref oldEpochEvt);
+            AddCommittedRecording("live-rec");
 
-            // Switch to epoch 1, add events at various UTs
-            MilestoneStore.CurrentEpoch = 1;
+            var hiddenEvt = new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "old-branch-tech",
+                recordingId = "old-rec"
+            };
+            GameStateStore.AddEvent(ref hiddenEvt);
+
             var belowEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
-                key = "below_threshold"
+                key = "below_threshold",
+                recordingId = "live-rec"
             };
             GameStateStore.AddEvent(ref belowEvt);
             var aboveEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.TechResearched,
-                key = "above_threshold"
+                key = "above_threshold",
+                recordingId = "live-rec"
             };
             GameStateStore.AddEvent(ref aboveEvt);
 
-            // Milestone in epoch 1 up to UT 100
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m1",
-                StartUT = 0,
-                EndUT = 100,
-                Epoch = 1,
-                Committed = true,
-                Events = new List<GameStateEvent>()
-            });
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone("m1", endUT: 100, recordingId: "live-rec"));
 
             int pruned = GameStateStore.PruneProcessedEvents();
 
-            // old epoch event (epoch 0) + below threshold event (ut 50) = 2 pruned
-            Assert.Equal(2, pruned);
-            Assert.Equal(1, GameStateStore.EventCount);
-            Assert.Equal("above_threshold", GameStateStore.Events[0].key);
+            Assert.Equal(1, pruned);
+            Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Contains(GameStateStore.Events, e => e.key == "old-branch-tech");
+            Assert.Contains(GameStateStore.Events, e => e.key == "above_threshold");
         }
     }
 }

@@ -22,7 +22,6 @@ namespace Parsek
             node.AddValue("startUT", StartUT.ToString("R", ic));
             node.AddValue("endUT", EndUT.ToString("R", ic));
             node.AddValue("recordingId", RecordingId ?? "");
-            node.AddValue("epoch", Epoch.ToString(ic));
             node.AddValue("committed", Committed.ToString());
             node.AddValue("lastReplayedIdx", LastReplayedEventIndex.ToString(ic));
 

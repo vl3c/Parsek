@@ -25,10 +25,37 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
+        private static void AddCommittedRecording(string recordingId)
+        {
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = recordingId
+            });
+        }
+
+        private static Milestone MakeCommittedMilestone(
+            string id,
+            double startUT,
+            double endUT,
+            params GameStateEvent[] events)
+        {
+            return new Milestone
+            {
+                MilestoneId = id,
+                StartUT = startUT,
+                EndUT = endUT,
+                Epoch = 0,
+                Committed = true,
+                LastReplayedEventIndex = (events?.Length ?? 0) - 1,
+                Events = events != null ? new List<GameStateEvent>(events) : new List<GameStateEvent>()
+            };
+        }
+
         #region Milestone Serialization
 
         [Fact]
-        public void Milestone_SerializationRoundtrip()
+        public void Milestone_SerializationRoundtrip_OmitsLegacyEpochFields()
         {
             var original = new Milestone
             {
@@ -63,21 +90,27 @@ namespace Parsek.Tests
             var node = new ConfigNode("MILESTONE");
             original.SerializeInto(node);
 
+            Assert.Null(node.GetValue("epoch"));
+            foreach (var eventNode in node.GetNodes("GAME_STATE_EVENT"))
+                Assert.Null(eventNode.GetValue("epoch"));
+
             var restored = Milestone.DeserializeFrom(node);
 
             Assert.Equal("abc123def456", restored.MilestoneId);
             Assert.Equal(0, restored.StartUT);
             Assert.Equal(17090.5, restored.EndUT);
             Assert.Equal("rec789", restored.RecordingId);
-            Assert.Equal(2u, restored.Epoch);
+            Assert.Equal(0u, restored.Epoch);
             Assert.True(restored.Committed);
             Assert.Equal(3, restored.LastReplayedEventIndex);
             Assert.Equal(2, restored.Events.Count);
             Assert.Equal(GameStateEventType.TechResearched, restored.Events[0].eventType);
             Assert.Equal("basicRocketry", restored.Events[0].key);
             Assert.Equal("cost=5", restored.Events[0].detail);
+            Assert.Equal(0u, restored.Events[0].epoch);
             Assert.Equal(GameStateEventType.PartPurchased, restored.Events[1].eventType);
             Assert.Equal("mk1pod.v2", restored.Events[1].key);
+            Assert.Equal(0u, restored.Events[1].epoch);
         }
 
         [Fact]
@@ -165,6 +198,7 @@ namespace Parsek.Tests
                 key = "basicRocketry",
                 detail = "cost=5;parts=solidBooster.v2"
             }.SerializeInto(techEvent);
+            techEvent.AddValue("epoch", "2");
 
             var purchaseEvent = node.AddNode("GAME_STATE_EVENT");
             new GameStateEvent
@@ -177,6 +211,7 @@ namespace Parsek.Tests
                 valueBefore = 50000,
                 valueAfter = 49200
             }.SerializeInto(purchaseEvent);
+            purchaseEvent.AddValue("epoch", "2");
 
             var fundsEvent = node.AddNode("GAME_STATE_EVENT");
             new GameStateEvent
@@ -188,6 +223,7 @@ namespace Parsek.Tests
                 valueBefore = 50000,
                 valueAfter = 49200
             }.SerializeInto(fundsEvent);
+            fundsEvent.AddValue("epoch", "1");
 
             var restored = Milestone.DeserializeFrom(node);
 
@@ -324,34 +360,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MilestoneStore_CreateMilestone_FiltersCurrentEpochOnly()
+        public void MilestoneStore_CreateMilestone_FiltersHiddenRecordingBranches()
         {
-            // Add event at epoch 0
-            MilestoneStore.CurrentEpoch = 0;
+            AddCommittedRecording("live-rec");
+
             var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
-                detail = "cost=5"
+                detail = "cost=5",
+                recordingId = "old-rec"
             };
             GameStateStore.AddEvent(ref techEvt);
 
-            // Switch to epoch 1 (simulating revert)
-            MilestoneStore.CurrentEpoch = 1;
             var partEvt = new GameStateEvent
             {
                 ut = 60,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
-                detail = "cost=600"
+                detail = "cost=600",
+                recordingId = "live-rec"
             };
             GameStateStore.AddEvent(ref partEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 100);
 
             Assert.NotNull(milestone);
-            // Should only have the epoch=1 event
             Assert.Single(milestone.Events);
             Assert.Equal(GameStateEventType.PartPurchased, milestone.Events[0].eventType);
         }
@@ -658,18 +693,13 @@ namespace Parsek.Tests
         #region GameStateEvent Epoch Field
 
         [Fact]
-        public void GameStateEvent_EpochField_SerializationRoundtrip()
+        public void GameStateEvent_EpochField_DeserializeReadsLegacyValue()
         {
-            var original = new GameStateEvent
-            {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                epoch = 3
-            };
-
             var node = new ConfigNode("GAME_STATE_EVENT");
-            original.SerializeInto(node);
+            node.AddValue("ut", "100");
+            node.AddValue("type", ((int)GameStateEventType.TechResearched).ToString(CultureInfo.InvariantCulture));
+            node.AddValue("key", "basicRocketry");
+            node.AddValue("epoch", "3");
 
             var restored = GameStateEvent.DeserializeFrom(node);
             Assert.Equal(3u, restored.epoch);
@@ -688,58 +718,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GameStateStore_AddEvent_StampsCurrentEpoch()
+        public void GameStateStore_AddEvent_PreservesLegacyEpochField()
         {
             GameStateStore.ResetForTesting();
-            MilestoneStore.CurrentEpoch = 5;
 
             var evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
-                key = "test"
+                key = "test",
+                epoch = 5
             };
             GameStateStore.AddEvent(ref evt);
 
             Assert.Equal(5u, GameStateStore.Events[0].epoch);
-
-            // Restore
-            MilestoneStore.CurrentEpoch = 0;
         }
 
         #endregion
 
-        #region Epoch-Aware StartUT Watermark
+        #region Visibility-Aware StartUT Watermark
 
         [Fact]
-        public void CreateMilestone_StartUT_IgnoresOldEpochMilestones()
+        public void CreateMilestone_StartUT_IgnoresHiddenMilestones()
         {
-            // Old epoch milestone with high EndUT
-            var oldTechEvt = new GameStateEvent
-            {
-                ut = 200,
-                eventType = GameStateEventType.TechResearched,
-                key = "oldTech",
-                detail = "cost=10"
-            };
-            GameStateStore.AddEvent(ref oldTechEvt);
-            MilestoneStore.CreateMilestone("rec1", 300);
-            Assert.Equal(1, MilestoneStore.MilestoneCount);
+            AddCommittedRecording("live-rec");
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone(
+                    "hidden-ms",
+                    0,
+                    300,
+                    new GameStateEvent
+                    {
+                        ut = 200,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "oldTech",
+                        detail = "cost=10",
+                        recordingId = "old-rec"
+                    }));
 
-            // Revert — increment epoch
-            MilestoneStore.CurrentEpoch++;
-
-            // New event at UT 50 (below old milestone's EndUT of 300)
             var newPartEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod",
-                detail = "cost=600"
+                detail = "cost=600",
+                recordingId = "live-rec"
             };
             GameStateStore.AddEvent(ref newPartEvt);
 
-            // Without epoch-aware watermark, this would be skipped (50 <= 300)
             var m = MilestoneStore.CreateMilestone("rec2", 100);
             Assert.NotNull(m);
             Assert.Single(m.Events);
@@ -747,9 +773,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CreateMilestone_StartUT_UsesCurrentEpochMilestones()
+        public void CreateMilestone_StartUT_UsesLatestVisibleEventInPartiallyHiddenMilestone()
         {
-            // Create two milestones in the same epoch
+            AddCommittedRecording("live-rec");
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone(
+                    "mixed-ms",
+                    0,
+                    300,
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "visible-tech",
+                        detail = "cost=5",
+                        recordingId = "live-rec"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 250,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "hidden-tech",
+                        detail = "cost=10",
+                        recordingId = "old-rec"
+                    }));
+
+            var newPartEvt = new GameStateEvent
+            {
+                ut = 150,
+                eventType = GameStateEventType.PartPurchased,
+                key = "visible-gap-part",
+                detail = "cost=600",
+                recordingId = "live-rec"
+            };
+            GameStateStore.AddEvent(ref newPartEvt);
+
+            var m = MilestoneStore.CreateMilestone("rec2", 200);
+            Assert.NotNull(m);
+            Assert.Equal(100, m.StartUT);
+            Assert.Single(m.Events);
+            Assert.Equal("visible-gap-part", m.Events[0].key);
+        }
+
+        [Fact]
+        public void CreateMilestone_StartUT_UsesVisibleMilestones()
+        {
             var tech1Evt = new GameStateEvent
             {
                 ut = 50,
@@ -770,7 +838,6 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref part1Evt);
             MilestoneStore.CreateMilestone("rec2", 200);
 
-            // Event at UT 80 (within first milestone's range) should NOT be captured again
             var dupEvt = new GameStateEvent
             {
                 ut = 80,
@@ -789,10 +856,8 @@ namespace Parsek.Tests
         #region GetPendingEventCount
 
         [Fact]
-        public void GetPendingEventCount_CountsCurrentEpochEvents()
+        public void GetPendingEventCount_CountsVisibleCommittedEvents()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             var techEvt = new GameStateEvent
             {
                 ut = 50,
@@ -815,34 +880,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetPendingEventCount_ExcludesOldEpochMilestones()
+        public void GetPendingEventCount_ExcludesHiddenMilestones()
         {
-            MilestoneStore.CurrentEpoch = 0;
+            AddCommittedRecording("live-rec");
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone(
+                    "hidden-ms",
+                    0,
+                    100,
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "basicRocketry",
+                        detail = "cost=5",
+                        recordingId = "old-rec"
+                    }));
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone(
+                    "visible-ms",
+                    0,
+                    100,
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600",
+                        recordingId = "live-rec"
+                    }));
 
-            var oldTechEvt = new GameStateEvent
-            {
-                ut = 50,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                detail = "cost=5"
-            };
-            GameStateStore.AddEvent(ref oldTechEvt);
-            MilestoneStore.CreateMilestone("rec1", 100);
-
-            // Increment epoch (simulating revert)
-            MilestoneStore.CurrentEpoch = 1;
-
-            var newPartEvt = new GameStateEvent
-            {
-                ut = 50,
-                eventType = GameStateEventType.PartPurchased,
-                key = "mk1pod.v2",
-                detail = "cost=600"
-            };
-            GameStateStore.AddEvent(ref newPartEvt);
-            MilestoneStore.CreateMilestone("rec2", 100);
-
-            // Only the epoch=1 milestone counts (1 event)
             Assert.Equal(1, MilestoneStore.GetPendingEventCount());
         }
 
@@ -855,8 +922,6 @@ namespace Parsek.Tests
         [Fact]
         public void GetPendingEventCount_ExcludesFilteredEvents()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             var techEvt = new GameStateEvent
             {
                 ut = 50,

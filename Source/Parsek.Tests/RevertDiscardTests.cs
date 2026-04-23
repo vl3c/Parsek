@@ -78,8 +78,9 @@ namespace Parsek.Tests
             RecordingStore.UnstashPendingTreeOnRevert();
 
             Assert.False(RecordingStore.HasPendingTree);
-            // Events NOT purged — MilestoneStore.CurrentEpoch bump in ParsekScenario.OnLoad
-            // filters them from ledger walks; the file/event data survives for F9-resume.
+            // Events NOT purged — soft-unstash preserves the tagged rows and sidecars for
+            // F9-resume, while current-timeline visibility keeps them out of normal
+            // ledger/milestone walks after the tree is unstashed.
             Assert.Single(GameStateStore.Events);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]") && l.Contains("Unstashed pending tree 'Mun Lander'")
@@ -340,9 +341,9 @@ namespace Parsek.Tests
             RecordingStore.UnstashPendingTreeOnRevert();
 
             Assert.False(RecordingStore.HasPendingTree);
-            // The tagged event survives. MilestoneStore.CurrentEpoch bump (elsewhere in the
-            // isRevert branch) filters it from post-revert ledger walks while the sidecars
-            // stay available for F9-from-flight-quicksave.
+            // The tagged event survives. Once the tree is unstashed it is no longer in the
+            // current-timeline visibility set, so post-revert ledger walks ignore it while
+            // the sidecars stay available for F9-from-flight-quicksave.
             Assert.Single(GameStateStore.Events);
             Assert.Contains(logLines, l =>
                 l.Contains("Unstashed pending tree 'Revert-to-Launch tree'")

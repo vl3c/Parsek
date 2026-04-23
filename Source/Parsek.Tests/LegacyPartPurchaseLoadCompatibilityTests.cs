@@ -14,8 +14,8 @@ namespace Parsek.Tests
             GameStateRecorder.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            MilestoneStore.CurrentEpoch = 0;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
@@ -24,8 +24,8 @@ namespace Parsek.Tests
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
+            RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
-            MilestoneStore.CurrentEpoch = 0;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }

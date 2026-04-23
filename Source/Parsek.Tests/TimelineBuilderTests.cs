@@ -17,10 +17,12 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            RecordingStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             ParsekTimeFormat.ResetForTesting();
@@ -680,23 +682,23 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // 17. Legacy events — wrong epoch filtered
+        // 17. Legacy events — hidden tagged rows filtered
         // ================================================================
 
         [Fact]
-        public void LegacyEvents_WrongEpochFiltered()
+        public void LegacyEvents_HiddenTaggedRowsFiltered()
         {
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 5,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
                     {
                         ut = 150,
                         eventType = GameStateEventType.ContractCompleted,
-                        key = "old-contract"
+                        key = "old-contract",
+                        recordingId = "old-rec"
                     }
                 }
             };
@@ -705,7 +707,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 new List<GameAction>(),
                 new List<Milestone> { milestone },
-                3); // currentEpoch = 3, milestone epoch = 5
+                GameStateStore.IsEventVisibleToCurrentTimeline);
 
             Assert.Empty(result);
         }
