@@ -56,10 +56,11 @@ namespace Parsek
         private HashSet<string> expandedChains = new HashSet<string>();
         private HashSet<string> expandedGroups = new HashSet<string>();
 
-        // Phase 6 of Rewind-to-Staging (design §5.11 + §6.3). When non-zero, the
-        // current DrawRecordingRow call is rendering inside the Unfinished
-        // Flights virtual group and must use the Rewind-to-RP button instead
-        // of the legacy rewind-to-launch (RecordingStore.InitiateRewind) path.
+        // Rewind-to-Staging row context. Any RP-backed unfinished flight row
+        // must use the Rewind-to-RP button instead of the legacy
+        // rewind-to-launch path; this depth only tells DrawRecordingRow when
+        // to reserve an empty cell if a virtual-group member loses its RP
+        // between group membership computation and row rendering.
         // Integer counter rather than bool so nested draw calls (theoretical
         // future) compose.
         private int unfinishedFlightRowDepth;
@@ -1496,7 +1497,8 @@ namespace Parsek
             }
 
             // Rewind / Fast-forward button
-            if (unfinishedFlightRowDepth > 0 && DrawUnfinishedFlightRewindButton(rec, ri))
+            if (DrawUnfinishedFlightRewindButton(rec, ri,
+                reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
             {
                 // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
             }
@@ -2278,10 +2280,9 @@ namespace Parsek
             if (parentUI.InFlightMode)
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
-            // Rewind / FF placeholder — Phase 6 will wire the group-level R
-            // to invoke the parent BranchPoint's RewindPoint. For now the
-            // column remains blank; individual rows still carry their R
-            // button.
+            // Rewind / FF placeholder — the virtual group has no aggregate
+            // Rewind action because each member maps to a specific child slot.
+            // Individual rows below render the RP-backed Rewind button.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
 
             // Hide checkbox — design §7.30: system group cannot be hidden.
@@ -2347,53 +2348,66 @@ namespace Parsek
 
         /// <summary>
         /// Phase 6 of Rewind-to-Staging (design §6.3). Renders the Rewind-to-RP
-        /// button for an Unfinished Flight row inside the virtual group. Returns
-        /// <c>true</c> iff the button was drawn (so the caller can skip the
-        /// legacy rewind-to-launch fallback).
+        /// button for an Unfinished Flight row, whether the row is shown in the
+        /// normal recording list or inside the virtual group. Returns
+        /// <c>true</c> iff this row consumed the Rewind/FF cell, so the caller
+        /// can skip the legacy rewind-to-launch fallback.
         /// </summary>
-        private bool DrawUnfinishedFlightRewindButton(Recording rec, int ri)
+        private bool DrawUnfinishedFlightRewindButton(
+            Recording rec, int ri, bool reserveCellWhenUnavailable = false)
         {
             if (rec == null) return false;
 
-            // Find the RP + slot for this recording. Membership in the virtual
-            // group already confirmed EffectiveState.IsUnfinishedFlight(rec),
-            // which means ParentBranchPointId resolves to an RP in ParsekScenario.
-            var scenario = ParsekScenario.Instance;
-            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            // Find the RP + child-slot list index for this recording. This is
+            // deliberately not limited to rows rendered under the virtual
+            // Unfinished Flights group: the normal list shows the same
+            // recordings, and sending those rows through RecordingStore's
+            // launch-save fallback would rewind to the tree root instead of
+            // the staging split.
+            RewindPoint rp;
+            int slotListIndex;
+            string routeReason;
+            UnfinishedFlightRewindRoute route = ResolveUnfinishedFlightRewindRoute(
+                rec, out rp, out slotListIndex, out routeReason);
+            if (route == UnfinishedFlightRewindRoute.NotUnfinishedFlight)
             {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                if (reserveCellWhenUnavailable)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (route == UnfinishedFlightRewindRoute.MissingSlot)
+            {
+                DrawDisabledUnfinishedFlightRewindButton(
+                    rec, ri, routeReason ?? "Rewind point slot not found");
                 return true;
             }
 
-            RewindPoint rp = null;
-            int slotIdx = -1;
-            string bpId = rec.ParentBranchPointId;
-            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            if (rp == null || slotListIndex < 0 || rp.ChildSlots == null
+                || slotListIndex >= rp.ChildSlots.Count)
             {
-                var candidate = scenario.RewindPoints[i];
-                if (candidate == null) continue;
-                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
-                    continue;
-                rp = candidate;
-                slotIdx = ResolveSlotIndexForRecording(rp, rec);
-                break;
-            }
-
-            if (rp == null || slotIdx < 0)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                DrawDisabledUnfinishedFlightRewindButton(
+                    rec, ri, "Rewind point slot not found");
                 return true;
             }
 
             string reason;
-            bool canInvoke = RewindInvoker.CanInvoke(rp, out reason);
+            bool canInvoke = CanInvokeRewindPointSlot(rp, slotListIndex, out reason);
             bool prev;
             string rpKey = rp.RewindPointId ?? "<no-id>";
-            if (!lastCanInvoke.TryGetValue(rpKey, out prev) || prev != canInvoke)
+            var selectedSlot = rp.ChildSlots[slotListIndex];
+            int slotId = selectedSlot != null ? selectedSlot.SlotIndex : slotListIndex;
+            string invokeKey = rpKey + "/" + slotId.ToString(CultureInfo.InvariantCulture);
+            if (!lastCanInvoke.TryGetValue(invokeKey, out prev) || prev != canInvoke)
             {
-                lastCanInvoke[rpKey] = canInvoke;
+                lastCanInvoke[invokeKey] = canInvoke;
                 ParsekLog.Verbose("RewindUI",
-                    $"Rewind #{ri} rp={rpKey}: {(canInvoke ? "enabled" : "disabled — " + reason)}");
+                    $"Rewind #{ri} rp={rpKey} slot={slotId}: " +
+                    $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
             }
 
             GUI.enabled = canInvoke;
@@ -2403,21 +2417,199 @@ namespace Parsek
             if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
             {
                 ParsekLog.Info("RewindUI",
-                    $"Button clicked: rp={rpKey} slot={slotIdx} rec=\"{rec.VesselName}\"");
-                RewindInvoker.ShowDialog(rp, slotIdx);
+                    $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
+                RewindInvoker.ShowDialog(rp, slotListIndex);
             }
             GUI.enabled = true;
             return true;
         }
 
+        private void DrawDisabledUnfinishedFlightRewindButton(
+            Recording rec, int ri, string reason)
+        {
+            reason = string.IsNullOrEmpty(reason) ? "Rewind unavailable" : reason;
+            string recId = rec?.RecordingId ?? "<no-id>";
+            string key = "disabled/" + recId + "/" + reason;
+            bool prev;
+            if (!lastCanInvoke.TryGetValue(key, out prev) || prev)
+            {
+                lastCanInvoke[key] = false;
+                ParsekLog.Verbose("RewindUI",
+                    $"Rewind #{ri} rec={recId} disabled — {reason}");
+            }
+
+            GUI.enabled = false;
+            DrawBodyCenteredButton(new GUIContent("Rewind", reason), ColW_Rewind);
+            GUI.enabled = true;
+        }
+
+        internal enum UnfinishedFlightRewindRoute
+        {
+            NotUnfinishedFlight,
+            Resolved,
+            MissingSlot
+        }
+
+        internal static UnfinishedFlightRewindRoute ResolveUnfinishedFlightRewindRoute(
+            Recording rec, out RewindPoint rp, out int slotListIndex, out string reason)
+        {
+            rp = null;
+            slotListIndex = -1;
+            reason = null;
+
+            if (!IsVisibleUnfinishedFlight(rec, out reason))
+                return UnfinishedFlightRewindRoute.NotUnfinishedFlight;
+
+            if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex))
+            {
+                reason = "Rewind point slot not found";
+                return UnfinishedFlightRewindRoute.MissingSlot;
+            }
+
+            return UnfinishedFlightRewindRoute.Resolved;
+        }
+
         /// <summary>
-        /// Resolves the slot index inside <paramref name="rp"/> whose
+        /// Resolves the RewindPoint + child-slot list index for an unfinished
+        /// flight recording. Used by both normal rows and the virtual
+        /// Unfinished Flights group so the row cannot accidentally fall back to
+        /// the tree root's legacy launch rewind.
+        /// </summary>
+        internal static bool TryResolveUnfinishedFlightRewindPoint(
+            Recording rec, out RewindPoint rp, out int slotListIndex)
+        {
+            string reason;
+            return ResolveUnfinishedFlightRewindRoute(
+                rec, out rp, out slotListIndex, out reason)
+                == UnfinishedFlightRewindRoute.Resolved;
+        }
+
+        /// <summary>
+        /// Cheap, non-logging front gate for row rendering. The full
+        /// <see cref="EffectiveState.IsUnfinishedFlight"/> predicate emits
+        /// diagnostic Verbose lines for every rejection, so normal table rows
+        /// use this shape check before asking the full RP-backed predicate.
+        /// </summary>
+        internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.MergeState != MergeState.Immutable) return false;
+            if (!EffectiveState.IsTerminalCrashed(rec)) return false;
+            return !string.IsNullOrEmpty(rec.ParentBranchPointId);
+        }
+
+        internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
+        {
+            reason = null;
+            if (!IsUnfinishedFlightCandidateShape(rec))
+            {
+                reason = "not an unfinished flight";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            var supersedes = !object.ReferenceEquals(null, scenario)
+                ? scenario.RecordingSupersedes
+                : null;
+            if (!EffectiveState.IsVisible(rec, supersedes))
+            {
+                reason = "recording is superseded";
+                return false;
+            }
+
+            if (!EffectiveState.IsUnfinishedFlight(rec))
+            {
+                reason = "no matching rewind point";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the RewindPoint + child-slot list index for a recording with
+        /// a parent branch point. This helper does not apply the unfinished
+        /// flight classifier; callers that expose user actions should decide the
+        /// eligibility predicate first.
+        /// </summary>
+        internal static bool TryResolveRewindPointForRecording(
+            Recording rec, out RewindPoint rp, out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId))
+                return false;
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return false;
+
+            string bpId = rec.ParentBranchPointId;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var candidate = scenario.RewindPoints[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
+                    continue;
+
+                int resolved = ResolveSlotListIndexForRecording(candidate, rec);
+                if (resolved < 0)
+                    return false;
+
+                rp = candidate;
+                slotListIndex = resolved;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Slot-aware precondition for an RP invocation. The global RP
+        /// precondition can pass while a specific child slot is disabled
+        /// because the split-time vessel could not be correlated into the
+        /// quicksave; keep that disabled row from starting an invocation that
+        /// would fail only after a scene load.
+        /// </summary>
+        internal static bool CanInvokeRewindPointSlot(
+            RewindPoint rp, int slotListIndex, out string reason)
+        {
+            if (rp == null)
+            {
+                reason = "rewind point is null";
+                return false;
+            }
+            if (rp.ChildSlots == null || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
+            {
+                reason = "rewind slot missing";
+                return false;
+            }
+
+            var slot = rp.ChildSlots[slotListIndex];
+            if (slot == null)
+            {
+                reason = "rewind slot missing";
+                return false;
+            }
+            if (slot.Disabled)
+            {
+                reason = !string.IsNullOrEmpty(slot.DisabledReason)
+                    ? "rewind slot disabled: " + slot.DisabledReason
+                    : "rewind slot disabled";
+                return false;
+            }
+
+            return RewindInvoker.CanInvoke(rp, out reason);
+        }
+
+        /// <summary>
+        /// Resolves the child-slot list index inside <paramref name="rp"/> whose
         /// <see cref="ChildSlot.OriginChildRecordingId"/> matches
         /// <paramref name="rec"/> (or the forward-walked effective recording
         /// id so that a re-fly that produced another crash still maps back to
         /// its slot).
         /// </summary>
-        private static int ResolveSlotIndexForRecording(RewindPoint rp, Recording rec)
+        internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)
         {
             if (rp == null || rp.ChildSlots == null || rec == null) return -1;
             var supersedes = ParsekScenario.Instance?.RecordingSupersedes
@@ -2428,9 +2620,9 @@ namespace Parsek
                 if (slot == null) continue;
                 string effective = slot.EffectiveRecordingId(supersedes);
                 if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
-                    return slot.SlotIndex;
+                    return i;
                 if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
-                    return slot.SlotIndex;
+                    return i;
             }
             return -1;
         }

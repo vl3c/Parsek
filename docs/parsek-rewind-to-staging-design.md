@@ -14,7 +14,7 @@
 
 A Parsek career is a committed timeline of missions. The player flies, commits, the ghost plays back, and the next mission begins on top. Before v0.9 the timeline had a sharp edge: once a multi-controllable split happened — a stage decoupled with a probe core on each side, a lander undocked from a station, a kerbal popped out on EVA — whichever half the player did not personally fly was recorded in the background and, if things went badly, committed as a crashed or destroyed sibling. There was no in-game path back to re-fly that half. The successful side was locked in with the failed side, and the only "fix" was to discard the entire tree and re-fly the whole mission.
 
-Rewind to Staging is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends badly (destroyed, BG-crashed, or even just stranded in a state the player wants to redo), the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
+Rewind to Staging is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends badly (destroyed, BG-crashed, or even just stranded in a state the player wants to redo), the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
 
 ### 1.1 Scope
 
@@ -84,7 +84,7 @@ The provisional re-fly Recording and its `ReFlySessionMarker` must land in the s
 
 ### 2.6 Player-visible opt-in
 
-A re-fly never happens behind the player's back. It requires an explicit click on the Rewind button in the Unfinished Flights row; the confirmation dialog names the canonical semantics (`RewindInvoker.ShowDialog` body at `RewindInvoker.cs:157`). Rewind Points are written automatically on every multi-controllable split, but they are invisible until a sibling ends up Unfinished — the player sees the UI entry only when it is actionable.
+A re-fly never happens behind the player's back. It requires an explicit click on the Rewind button for an Unfinished Flight row; both the virtual group copy and the normal recordings-table copy route through `RewindInvoker` instead of the legacy tree-root launch rewind. The confirmation dialog names the canonical semantics (`RewindInvoker.ShowDialog` body at `RewindInvoker.cs:157`). Rewind Points are written automatically on every multi-controllable split, but they are invisible until a sibling ends up Unfinished — the player sees the UI entry only when it is actionable.
 
 ### 2.7 Observable from logs alone
 
@@ -571,6 +571,8 @@ The transient `Parsek_Rewind_<sessionId>.sfs` at save-root exists only between `
 File: `Source/Parsek/UI/UnfinishedFlightsGroup.cs`.
 
 Not stored in `GroupHierarchyStore`. Membership derived per frame from ERS filtered by `EffectiveState.IsUnfinishedFlight`. As a system group it **cannot be hidden** and **cannot be a drop target** for manual group assignment. Rename on an individual member row still persists through the standard `Recording.VesselName` path; hide on a member row warns and refuses via `ParsekLog` → `ScreenMessages` advisory.
+
+The virtual group is not the only safe affordance. The same recording can also appear in the normal recordings table, where its tree root still carries a legacy launch rewind save. RP-backed unfinished-flight rows therefore preempt the normal `RecordingStore.CanRewind` / `InitiateRewind` path and resolve the row's child slot before any legacy fallback is considered.
 
 ---
 
@@ -1194,8 +1196,8 @@ Narrower tag for the RP save pipeline. Used by `RewindPointAuthor`.
 
 UI-layer decisions. Used by `RewindInvoker.ShowDialog` and `ReFlyRevertDialog`.
 
-- Invoke button clicked: `Info: Invoked rec=<rid> rp=<rpId> slot=<idx>`.
-- Dialog cancelled: `Info: Cancelled rp=<rpId> slot=<idx>`.
+- Invoke button clicked: `Info: Invoked rec=<rid> rp=<rpId> slot=<idx> listIndex=<i>`.
+- Dialog cancelled: `Info: Cancelled rp=<rpId> slot=<idx> listIndex=<i>`.
 - ReFlyRevertDialog input lock: `Verbose: ReFlyRevertDialog input lock set (<lockId>)` / `... cleared`.
 - Null callbacks on dialog buttons: `Warn: ReFlyRevertDialog: <Button> button had null callback sess=<sid>`.
 - Callback throws: `Error: ReFlyRevertDialog <Button> callback threw: <Type>: <message>`.

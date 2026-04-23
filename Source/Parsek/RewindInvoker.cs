@@ -135,35 +135,37 @@ namespace Parsek
         /// is driven by <see cref="ParsekScenario.OnLoad"/> calling
         /// <see cref="ConsumePostLoad"/> once the scene reload lands.
         /// </summary>
-        internal static void ShowDialog(RewindPoint rp, int selectedSlotIndex)
+        internal static void ShowDialog(RewindPoint rp, int selectedSlotListIndex)
         {
             if (rp == null)
             {
                 ParsekLog.Warn(UITag, "ShowDialog called with null RP");
                 return;
             }
-            if (rp.ChildSlots == null || selectedSlotIndex < 0 || selectedSlotIndex >= rp.ChildSlots.Count)
+            if (rp.ChildSlots == null || selectedSlotListIndex < 0 || selectedSlotListIndex >= rp.ChildSlots.Count)
             {
                 ParsekLog.Warn(UITag,
-                    $"ShowDialog: invalid slot index {selectedSlotIndex} (slots={rp.ChildSlots?.Count ?? 0}) for rp={rp.RewindPointId}");
+                    $"ShowDialog: invalid slot list index {selectedSlotListIndex} (slots={rp.ChildSlots?.Count ?? 0}) for rp={rp.RewindPointId}");
                 return;
             }
 
-            var selected = rp.ChildSlots[selectedSlotIndex];
+            var selected = rp.ChildSlots[selectedSlotListIndex];
             string slotName = selected?.OriginChildRecordingId ?? "<unknown>";
+            int selectedSlotId = selected != null ? selected.SlotIndex : selectedSlotListIndex;
             string title = "Parsek - Rewind to Staging";
             var ic = CultureInfo.InvariantCulture;
             string utText = rp.UT.ToString("F1", ic);
             string message =
                 $"Rewind to rewind point {rp.RewindPointId} at UT {utText}?\n" +
-                $"Spawning the selected child (slot {selectedSlotIndex}, origin={slotName}) live; " +
+                $"Spawning the selected child (slot {selectedSlotId}, origin={slotName}) live; " +
                 $"merged siblings will play as ghosts.\n\n" +
                 "Career state during this attempt stays as it is now. Supersede on merge " +
                 "retires only kerbal-death events; contract / milestone / facility / strategy " +
                 "/ tech / science / funds state is unchanged.";
 
             var capturedRp = rp;
-            var capturedSlotIdx = selectedSlotIndex;
+            var capturedSlotListIdx = selectedSlotListIndex;
+            var capturedSlotId = selectedSlotId;
             var capturedSelected = selected;
 
             PopupDialog.SpawnPopupDialog(
@@ -178,13 +180,13 @@ namespace Parsek
                     {
                         ParsekLog.Info(UITag,
                             $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +
-                            $"rp={capturedRp.RewindPointId} slot={capturedSlotIdx}");
+                            $"rp={capturedRp.RewindPointId} slot={capturedSlotId} listIndex={capturedSlotListIdx}");
                         StartInvoke(capturedRp, capturedSelected);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
                         ParsekLog.Info(UITag,
-                            $"Cancelled rp={capturedRp.RewindPointId} slot={capturedSlotIdx}");
+                            $"Cancelled rp={capturedRp.RewindPointId} slot={capturedSlotId} listIndex={capturedSlotListIdx}");
                     })
                 ),
                 false, HighLogic.UISkin);

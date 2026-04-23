@@ -24,6 +24,8 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
@@ -36,6 +38,8 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         private static Recording MakeRec(double startUT, double endUT, string name = "Test")
@@ -54,6 +58,34 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static ChildSlot MakeSlot(
+            int slotIndex, string recId, bool disabled = false, string disabledReason = null)
+        {
+            return new ChildSlot
+            {
+                SlotIndex = slotIndex,
+                OriginChildRecordingId = recId,
+                Controllable = true,
+                Disabled = disabled,
+                DisabledReason = disabledReason
+            };
+        }
+
+        private static ParsekScenario InstallScenarioWithRp(
+            RewindPoint rp, List<RecordingSupersedeRelation> supersedes = null)
+        {
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint> { rp },
+                RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+            return scenario;
+        }
+
         private static Recording MakeDisplayRec(
             double startUT, double endUT, string name, string groupName = null,
             string treeId = null, uint pid = 0, string chainId = null, int chainIndex = -1)
@@ -66,6 +98,180 @@ namespace Parsek.Tests
             if (groupName != null)
                 rec.RecordingGroups = new List<string> { groupName };
             return rec;
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_NormalRowFindsRpSlot()
+        {
+            // Regression for the Kerbal X Probe staging case: the normal
+            // recordings list row for an RP-backed unfinished child must route
+            // to the child slot, not fall through to RecordingStore's tree-root
+            // launch rewind.
+            var probe = new Recording
+            {
+                RecordingId = "rec_probe",
+                VesselName = "Kerbal X Probe",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(0, "rec_upper"),
+                    MakeSlot(1, "rec_probe")
+                }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                probe, out RewindPoint resolvedRp, out int slotListIndex);
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                probe, out RewindPoint routeRp, out int routeSlotListIndex, out string reason);
+
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(1, slotListIndex);
+            Assert.Equal("rec_probe", resolvedRp.ChildSlots[slotListIndex].OriginChildRecordingId);
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved, route);
+            Assert.Same(rp, routeRp);
+            Assert.Equal(1, routeSlotListIndex);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_NonCrashedChildDoesNotPreemptLegacyButtons()
+        {
+            var landed = new Recording
+            {
+                RecordingId = "rec_landed",
+                VesselName = "Safe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed") }
+            });
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                landed, out RewindPoint resolvedRp, out int slotListIndex);
+
+            Assert.False(resolved);
+            Assert.Null(resolvedRp);
+            Assert.Equal(-1, slotListIndex);
+        }
+
+        [Fact]
+        public void ResolveUnfinishedFlightRewindRoute_SupersededOriginDoesNotPreemptLegacyButtons()
+        {
+            // The normal recordings list is backed by raw committed recordings,
+            // unlike the virtual group. A superseded crashed origin may still
+            // be present in that raw list, but it must not expose an RP button.
+            var oldCrash = new Recording
+            {
+                RecordingId = "rec_old_crash",
+                VesselName = "Old Booster Crash",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    RelationId = "rel_old_new",
+                    OldRecordingId = "rec_old_crash",
+                    NewRecordingId = "rec_new_landed",
+                    UT = 200.0
+                }
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_old_crash") }
+            }, supersedes);
+
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                oldCrash, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+            Assert.Contains("superseded", reason);
+        }
+
+        [Fact]
+        public void ResolveUnfinishedFlightRewindRoute_MissingSlotConsumesRowAsDisabled()
+        {
+            var probe = new Recording
+            {
+                RecordingId = "rec_probe",
+                VesselName = "Kerbal X Probe",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_upper") }
+            });
+
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                probe, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.MissingSlot, route);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+            Assert.Contains("slot", reason);
+        }
+
+        [Fact]
+        public void ResolveSlotListIndexForRecording_ReturnsListIndexNotSlotId()
+        {
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_sparse",
+                BranchPointId = "bp_sparse",
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(10, "rec_upper"),
+                    MakeSlot(20, "rec_probe")
+                }
+            };
+            var probe = new Recording { RecordingId = "rec_probe" };
+
+            int slotListIndex = RecordingsTableUI.ResolveSlotListIndexForRecording(rp, probe);
+
+            Assert.Equal(1, slotListIndex);
+        }
+
+        [Fact]
+        public void CanInvokeRewindPointSlot_DisabledSlotBlocksBeforeGlobalPreconditions()
+        {
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_disabled",
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(0, "rec_probe", disabled: true, disabledReason: "no-live-vessel")
+                }
+            };
+
+            bool canInvoke = RecordingsTableUI.CanInvokeRewindPointSlot(
+                rp, 0, out string reason);
+
+            Assert.False(canInvoke);
+            Assert.Contains("no-live-vessel", reason);
         }
 
         // ── PruneStaleWatchEntries (bug #279 follow-up) ──
@@ -250,6 +456,32 @@ namespace Parsek.Tests
             Assert.Contains("if (!string.IsNullOrEmpty(mainRecId))", uiSrc);
             // And the dangerous coalesce pattern must be GONE.
             Assert.DoesNotContain("groupName + \"/\" + (mainRecId ?? \"\")", uiSrc);
+        }
+
+        [Fact]
+        public void TemporalButtons_RpBackedUnfinishedRowsPreemptLegacyRewind_PinnedBySourceInspection()
+        {
+            // The row-level RP route must run for normal list rows, not only
+            // while unfinishedFlightRowDepth > 0, otherwise a crashed staging
+            // child can inherit the tree root launch save and rewind to launch.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
+            string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
+
+            int rpRoute = rowBlock.IndexOf("DrawUnfinishedFlightRewindButton(rec, ri", StringComparison.Ordinal);
+            int legacyRoute = rowBlock.IndexOf("RecordingStore.CanRewind(rec, out rewindReason", StringComparison.Ordinal);
+
+            Assert.True(rpRoute >= 0, "Row block should try RP-backed unfinished-flight rewind first.");
+            Assert.True(legacyRoute > rpRoute, "Legacy tree-root rewind must remain a fallback after RP routing.");
+            Assert.DoesNotContain("unfinishedFlightRowDepth > 0 && DrawUnfinishedFlightRewindButton", rowBlock);
+            Assert.Contains("DrawDisabledUnfinishedFlightRewindButton(", uiSrc);
+            Assert.Contains("ResolveUnfinishedFlightRewindRoute(", uiSrc);
         }
 
         [Fact]
