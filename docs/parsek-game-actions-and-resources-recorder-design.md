@@ -32,7 +32,7 @@ When you **commit** the recording, all captured events are added to the timeline
 
 Rewinding loads an earlier save state, but all committed recordings survive. The system recalculates the full timeline up to the rewind point. You may see different numbers than before — if you committed a new recording to the past, it gets chronological priority for science subjects and milestones, reducing credit for later recordings. Fund balances shift accordingly.
 
-Resources committed to future recordings are **reserved**. If you rewound to before a vessel launch, those funds are still spoken for — you can't spend them on a new vessel. Kerbals assigned to future missions are reserved and replaced by temporary stand-ins. Contract and strategy slots committed in the future are held from the start.
+Resources committed to future recordings are **reserved**. If you rewound to before a vessel launch, that future launch still constrains the spendable funds shown now; you cannot spend money that the projected future cashflow still needs. Kerbals assigned to future missions are reserved and replaced by temporary stand-ins. Contract and strategy slots committed in the future are held from the start.
 
 ### 1.3 What the player sees
 
@@ -42,7 +42,7 @@ Resources committed to future recordings are **reserved**. If you rewound to bef
 | Rewind to earlier point | All committed data survives. Balances recalculated. Reserved resources reduce what you can spend. Stand-in kerbals fill reserved crew slots. |
 | Two recordings collect the same science | Chronologically first recording gets full credit. Later recording's effective science is reduced (subject cap). Total never exceeds the cap. |
 | Kerbal used in a committed recording | Reserved from the start of time until recovery. A free stand-in fills their roster slot. Original returns when their recording resolves. |
-| Tech node unlocked at KSC | Science cost is reserved against all future tech unlocks. Can't unlock if total committed spendings exceed available science. |
+| Tech node unlocked at KSC | Science cost is reserved against the future science cashflow. Can't unlock if the projected science balance would dip negative. |
 | Facility upgraded at KSC | Fund cost reserved. Building visuals update during fast-forward. |
 | Contract accepted | Slot reserved from start of time. Can't over-accept after rewind. |
 | KSP load (hard reset) | Everything resets to the loaded save. Ledger is pruned to match. This is the only destructive operation. |
@@ -53,7 +53,7 @@ Parsek prevents time-travel paradoxes through three complementary layers, all wo
 
 **Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. Total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid.
 
-**Layer 2: Spending reservation.** All committed spendings — past, present, and future — are reserved against available earnings. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
+**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
 
 **Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time. Kerbals used in any recording are reserved as a continuous block — no gaps, no reuse until all recordings resolve. Contracts and strategies consume their slots from the start until resolved. This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
 
@@ -144,7 +144,7 @@ These principles govern every design decision in the game actions system. They a
 
 5. **Prevention, not detection.** Every constraint works by making paradoxes structurally impossible, not by detecting them after the fact.
 
-6. **Spending reservation locks resources globally.** All committed spendings (past and future) are reserved against available earnings. The player can only add new spendings if the remaining balance covers them.
+6. **Spending reservation locks resources globally.** Committed spendings (past and future) are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance covers them.
 
 7. **Identity reservation locks from UT=0.** Kerbals, contract slots, and strategy slots are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved.
 
@@ -156,7 +156,7 @@ These principles govern every design decision in the game actions system. They a
 
 10. **The player never sees a broken state.** No manual resolution needed, no unresolvable deficits, no duplicate kerbals. If something goes truly wrong, KSP load is the escape hatch.
 
-11. **Available balance shows what you can spend.** KSP's fund and science displays are patched to show the available balance (earnings minus all reservations), not the gross balance. No surprises at launch time.
+11. **Available balance shows what you can spend.** KSP's fund and science displays are patched to show the spendable balance after cashflow-aware reservations, not the gross running balance. No surprises at launch time.
 
 ---
 
@@ -209,7 +209,7 @@ Because recordings can only be added to the timeline (never removed by the playe
 
 However, the invariant does not prevent the player from adding **new** spendings after a rewind that would exceed the available budget. Each new recording adds a vessel build cost (funds), and the player can unlock new tech nodes (science) or hire kerbals (funds) at KSC. Without further protection, these new spendings could create a deficit downstream.
 
-The **reservation system** (sections 6.5 and 7.6) covers this gap: all committed spendings — past, present, and future — are reserved against total earnings. The player can only add new spendings if the available balance (earnings minus all reservations) is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
+The **reservation system** (sections 6.5 and 7.6) covers this gap: committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
 
 ### 3.6 Recalculation triggers
 
@@ -286,7 +286,7 @@ Events on the timeline are locked once committed — their immutable values neve
 
 **Derived field reset:** Before each walk, the engine resets all derived fields on every action to defaults (`Effective=true`, `EffectiveScience=0`, `Affordable=false`, `EffectiveRep=0`, `TransformedFundsReward=FundsReward`, etc.). This prevents stale values from a previous recalculation from leaking into the next walk. Critical for idempotency — calling Recalculate twice on the same actions must produce identical results.
 
-**PrePass phase:** Between Reset and the walk, the engine calls `PrePass(actions)` on every module. `ScienceModule` and `FundsModule` use this to compute total committed spendings across the entire timeline (needed for the reservation formula). Other modules (`ContractsModule`, `MilestonesModule`, `FacilitiesModule`, `ReputationModule`, `StrategiesModule`) have no-op PrePass implementations.
+**PrePass phase:** Between Reset and the walk, the engine calls `PrePass(actions)` on every module. `ScienceModule` and `FundsModule` use this to compute committed spendings for the current walk. In a full-ledger walk that is the whole timeline; in a UT-cutoff walk it is only the visible/current action scope. Cutoff availability is then installed from a separate full-timeline cashflow projection. Other modules (`ContractsModule`, `MilestonesModule`, `FacilitiesModule`, `ReputationModule`, `StrategiesModule`) have no-op PrePass implementations.
 
 **Strategy transform mechanism:** Strategy transforms modify `TransformedFundsReward`, `TransformedScienceReward`, and `TransformedRepReward` derived fields — NOT the persisted `FundsReward`/`ScienceReward`/`RepReward`. Second-tier modules read the Transformed fields. This prevents data corruption if the ledger is saved between recalculations.
 
@@ -298,16 +298,21 @@ Events on the timeline are locked once committed — their immutable values neve
 
 Any resource that has both earnings and spendings requires a **spending reservation system** to prevent the player from adding new spendings that would create a deficit at any point on the timeline.
 
-When the player rewinds to an earlier UT, all committed spendings on the timeline (past and future relative to the current UT) are reserved against the available earnings. The player can only add a new spending if the available balance covers it.
+When the player rewinds to an earlier UT, the visible game state is recomputed only through that UT, while committed future spendings still constrain what can be spent now. The player can only add a new spending if the projected resource balance would stay non-negative from the current UT through the future committed ledger.
 
 ```
-available(ut) = sum(effective earnings up to ut) - sum(ALL committed spendings on entire timeline)
+currentBalance(ut) = balance after replaying actions with action.UT <= ut
+projectedBalance starts at currentBalance(ut)
+for each future earning/spending in chronological order:
+  projectedBalance += futureDelta
+
+available(ut) = max(0, min(currentBalance(ut), every future projectedBalance))
 ```
 
 This applies to:
 
-- **Science**: available science = effective science earned up to current UT minus ALL committed tech node costs. Prevents unlocking tech nodes that would create a science deficit.
-- **Funds**: available funds = seed + fund earnings up to current UT minus ALL committed fund spendings (vessel builds, facility upgrades, hires, etc.). Prevents building vessels or upgrading facilities beyond the budget.
+- **Science**: available science is the minimum projected science balance from the current UT through future science earnings and spendings. Future science earnings cannot make more science spendable now than the current balance, but they can cover later committed tech unlocks before those unlocks happen.
+- **Funds**: available funds are the minimum projected fund balance from the current UT through future fund earnings and spendings (vessel builds, facility upgrades, hires, etc.). Future earnings cannot inflate current spendability above the current balance, but they can cover later committed fund spendings before those spendings happen.
 
 **Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation — and strategies are already gated by UT=0 reservation (section 13.3), which blocks new strategy activations entirely while existing ones are on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
 
@@ -315,9 +320,9 @@ The reservation pattern is analogous to the kerbal reservation system — future
 
 **The no-delete invariant protects existing spendings.** Adding a recording can only add new earnings (and for funds, a vessel cost). It cannot remove existing earnings. For science, subject caps mean the total credited science is stable — redistribution happens, but the total doesn't decrease. So existing spendings that were valid when committed remain valid.
 
-**The reservation system protects against new spendings.** Even though existing spendings stay valid, the player could attempt to add new spendings (tech nodes, facility upgrades) at a UT where the running balance can't support them alongside existing future spendings. The reservation blocks this.
+**The reservation system protects against new spendings.** Even though existing spendings stay valid, the player could attempt to add new spendings (tech nodes, facility upgrades) at a UT where the running balance cannot support them alongside existing future cashflow. The reservation blocks this.
 
-Together, the two mechanisms guarantee that the walk never shows a negative balance for science or funds. Reputation can go negative by design (penalties are unconditional).
+Together, the two mechanisms keep new player spendings from making science or funds negative anywhere on the committed timeline. Reputation can go negative by design (penalties are unconditional).
 
 ### 3.10 Three layers of paradox prevention
 
@@ -325,7 +330,7 @@ Parsek prevents time-travel paradoxes through three complementary design layers:
 
 **Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. This guarantees that total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid — there is no scenario in normal play where an earlier-valid spending becomes unaffordable due to a new recording being added.
 
-**Layer 2: Spending reservation.** All committed spendings — past, present, and future — are reserved against available earnings. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the available balance covers them. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
+**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
 
 **Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block — no gaps, no reuse until all recordings resolve. Contracts and strategies consume their slots from UT=0 until resolved or deactivated. This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
 
@@ -596,17 +601,22 @@ ScienceSpending
 
 ### 12.5 Science reservation system
 
-Science uses the same reservation system as funds (section 7.6). All committed science spendings (tech node unlocks) — past, present, and future — are reserved against total effective earnings. The player can only spend what remains after all reservations.
+Science uses the same cashflow reservation system as funds (section 7.6). Committed science spendings (tech node unlocks) — past, present, and future — constrain the amount that is spendable at the current UT. The player can only spend an amount that leaves the science balance non-negative from the current UT through the future committed ledger.
 
 **Available science at any UT:**
 
 ```
-availableScience(ut) = sum(effective science earnings up to ut) - sum(ALL committed science spendings on entire timeline)
+currentScience(ut) = science balance after replaying actions with action.UT <= ut
+projectedScience starts at currentScience(ut)
+for each future science earning/spending in chronological order:
+  projectedScience += futureScienceDelta
+
+availableScience(ut) = max(0, min(currentScience(ut), every future projectedScience))
 ```
 
-Note: this uses `effectiveScience` (post-cap derived values), not raw `scienceAwarded`. The recalculation must run first to compute effective values, then available is derived from those.
+Note: this uses `effectiveScience` (post-cap derived values), not raw `scienceAwarded`. The recalculation must run an isolated full-timeline shadow walk first to compute future effective values, then the cutoff walk patches the current visible state and installs the projected available value.
 
-**Why this is needed:** without reservation, a player who rewinds to a UT where only some earnings have accumulated could see a science balance that appears sufficient to unlock a new tech node, but existing future spendings already consume that budget.
+**Why this is needed:** without reservation, a player who rewinds to a UT where only some earnings have accumulated could see a science balance that appears sufficient to unlock a new tech node, but existing future spendings may already need that current headroom.
 
 ```
 Example without reservation:
@@ -618,12 +628,22 @@ Example without reservation:
   Walk: UT=500 +30, UT=600 -25, UT=1000 +20, UT=1500 -45 → -20. DEFICIT.
 
 With reservation:
-  Available at UT=600: 30 (earned) - 45 (future tech node) = -15 → 0. Blocked.
+  Current at UT=600: 30.
+  Project future: UT=1000 +20 -> 50, UT=1500 -45 -> 5.
+  Minimum from now forward is 5, so availableScience(UT=600)=5.
+  A 25-cost node is blocked.
+
+Future earnings can cover future spendings before they happen:
+  Current at UT=600: 30.
+  Future earning at UT=1000: +40, future tech at UT=1500: -45.
+  Projected balances: 30 -> 70 -> 25.
+  Minimum from now forward is 25, so availableScience(UT=600)=25.
+  Future earnings did not raise available above the current 30, but they did reduce the reservation needed for the future tech node.
 ```
 
 **At KSC spending time:** the ledger checks `availableScience(currentUT) >= cost` before allowing a new tech node unlock. If insufficient, the unlock is blocked.
 
-**UI patching:** Parsek patches KSP's R&D science balance to show `availableScience(currentUT)` clamped to 0, not the raw running balance. The player sees what they can actually spend. Parsek's own UI can show the full breakdown (earned, reserved, available).
+**UI patching:** Parsek patches KSP's R&D science balance to show `availableScience(currentUT)` clamped to 0, not the raw running balance. The player sees what they can actually spend right now. Parsek's own UI can show the full breakdown (current balance, projected reservation, available).
 
 ### 12.6 Science recalculation
 
@@ -719,15 +739,27 @@ Recording A earns 30 science at UT=500. Recording B earns 20 at UT=1000.
 Tech node at UT=1500 costs 45. Balance after walk: 5.
 
 Player rewinds, fast-forwards to UT=600.
-  Effective earnings up to UT=600: 30 (recording A only).
-  ALL committed spendings: 45 (tech node).
-  Available: 30 - 45 = -15 → 0.
-  Player cannot unlock a new tech node. Correct.
+  Current science at UT=600: 30 (recording A only).
+  Future projection: UT=1000 +20 -> 50, UT=1500 -45 -> 5.
+  Available: min(30, 50, 5) = 5.
+  Player cannot unlock a node costing more than 5. Correct.
 
 Player fast-forwards to UT=1100.
-  Effective earnings up to UT=1100: 50 (both recordings).
-  Available: 50 - 45 = 5.
+  Current science at UT=1100: 50 (both recordings).
+  Future projection: UT=1500 -45 -> 5.
+  Available: min(50, 5) = 5.
   Player can unlock a node costing up to 5. Correct.
+```
+
+If the future earning happens before the future spending, it preserves current headroom:
+
+```
+Current UT=600. Current science: 100.
+UT=1000: Future science earning +80.
+UT=1500: Future tech unlock -80.
+
+Projected balances: 100 -> 180 -> 100.
+Available science at UT=600: 100.
 ```
 
 ### 12.8 Edge cases
@@ -736,7 +768,7 @@ Player fast-forwards to UT=1100.
 
 **Hard cap vs KSP's diminishing curve.** The recalculation uses a hard cap (`scienceCap`) rather than simulating KSP's asymptotic diminishing returns curve. This is conservative — it may sometimes credit slightly more than KSP's curve would in a sequential playthrough, but never more than `scienceCap`. Simulating the exact curve would require replacing the clean hard-cap walk with curve simulation across recordings, adding significant complexity for marginal accuracy. The hard cap is correct in the way that matters: no overcredit, no paradox.
 
-**Science Archive (R&D building).** KSP's Research and Development building has a Science Archive tab that displays per-subject progress bars based on `ResearchAndDevelopment.Instance` state. After recalculation, Parsek patches the per-subject collected totals via `KspStatePatcher.PatchPerSubjectScience` so the Science Archive reflects the recalculated timeline — progress bars correctly account for retroactive recordings.
+**Research and Development building.** On rewind or fast-forward, Parsek patches the R&D state to the current UT. Tech nodes whose `ScienceSpending` action is after the current UT are locked again in the player-facing research tree, even though their future spending remains on the committed ledger for projection. Only technology available at or before the current UT should appear unlocked. The Science Archive tab also reflects the recalculated timeline: Parsek patches per-subject collected totals via `KspStatePatcher.PatchPerSubjectScience`, so progress bars correctly account for retroactive recordings.
 
 ---
 
@@ -816,15 +848,20 @@ ReputationInitial (seed — handles mid-career Parsek install)
 
 ### 15.6 Reservation system
 
-Funds use a reservation system to prevent overspending when the player rewinds to an earlier UT. All committed spendings on the timeline — past, present, and future — are reserved against the total earnings. The player can only spend what remains after all reservations.
+Funds use a cashflow reservation system to prevent overspending when the player rewinds to an earlier UT. Committed spendings on the timeline — past, present, and future — constrain the amount spendable at the current UT. The player can only spend an amount that leaves the fund balance non-negative from the current UT through the future committed ledger.
 
 **Available funds at any UT:**
 
 ```
-availableFunds(ut) = sum(seed + all earnings up to ut) - sum(ALL committed spendings on entire timeline)
+currentFunds(ut) = fund balance after replaying actions with action.UT <= ut
+projectedFunds starts at currentFunds(ut)
+for each future fund earning/spending in chronological order:
+  projectedFunds += futureFundsDelta
+
+availableFunds(ut) = max(0, min(currentFunds(ut), every future projectedFunds))
 ```
 
-The key insight: spendings from the future (after the current UT) are included in the reservation. This is analogous to the kerbal reservation system — future committed recordings lock resources retroactively.
+The key insight: future committed spendings reserve current funds only to the extent the future cashflow would otherwise dip below the current balance. Future earnings cannot increase what the player can spend now above `currentFunds(ut)`, but future earnings that occur before future spendings can cover those spendings without reserving current funds.
 
 **At commit time:** the ledger checks whether the recording's vessel build cost fits within the available budget at launch UT. If `availableFunds(launchUT) >= vesselCost`, the commit is allowed. Otherwise it is blocked — the player must earn more funds, fast-forward to a later UT where more earnings are available, or revert and use a cheaper vessel.
 
@@ -832,7 +869,7 @@ The key insight: spendings from the future (after the current UT) are included i
 
 ### 15.7 Why available can appear low or zero at early UTs
 
-After committing multiple recordings, the total committed spendings may exceed the earnings available at an early UT. This is not a bug — each spending was individually valid when committed (available >= cost at the time of commitment). But viewed from an earlier UT where earnings haven't accumulated yet, the available balance is low or zero.
+After committing multiple recordings, the future cashflow may need some or all of the funds available at an early UT. This is not a bug: each spending was individually valid when committed. But viewed from an earlier UT, a future spending before the future earnings that cover it can reserve current headroom.
 
 ```
 Example:
@@ -842,12 +879,21 @@ Example:
   UT=500:  Earn 40k (contract). Balance: 85k.
   UT=600:  Spend 60k (facility). Balance: 25k.
 
-  Total spendings: 90k. Seed + earnings up to UT=0: 25k.
-  Available at UT=0: 25k - 90k = -65k → effectively 0.
+  Player rewinds to UT=0.
+    Projected balances: 25k -> 75k -> 45k -> 85k -> 25k.
+    Available at UT=0: 25k.
 
-  Player rewinds to UT=0. Cannot build anything — budget fully committed.
-  Player fast-forwards to UT=150 (after milestone): 75k - 90k = -15k → still 0.
-  Player fast-forwards to UT=550 (after contract): 115k - 90k = 25k → can spend.
+  Player fast-forwards to UT=150 (after milestone).
+    Projected balances: 75k -> 45k -> 85k -> 25k.
+    Available at UT=150: 25k.
+
+  Player fast-forwards to UT=550 (after contract).
+    Projected balances: 85k -> 25k.
+    Available at UT=550: 25k.
+
+  If the facility spend at UT=600 were 100k instead:
+    Projected balances from UT=0: 25k -> 75k -> 45k -> 85k -> -15k.
+    Available at UT=0: 0; the timeline is overcommitted and new spendings are blocked.
 ```
 
 The available value is clamped to 0 in the KSP UI. The player sees "no funds available" rather than a negative number. Parsek's detail panel can show the full breakdown (balance, reserved, available) for players who want to understand why.
@@ -859,7 +905,6 @@ Funds is a second-tier module. It runs after first-tier modules (Milestones, Con
 ```
 RecalculateFunds():
   runningBalance = initialFunds
-  totalReserved = sum(ALL committed spendings on timeline)
 
   For each fund-affecting action in UT order:
     if EARNING:
@@ -873,8 +918,8 @@ RecalculateFunds():
       runningBalance -= fundsSpent
       action.affordable = (runningBalance >= 0)  // defensive check
 
-  // Available at any UT can be derived:
-  // availableFunds(ut) = runningBalance(ut) - sum(spendings after ut)
+  // Available at a cutoff UT is derived by replaying future fund deltas from
+  // runningBalance(ut) and taking the minimum projected balance.
 ```
 
 The `affordable` flag is defensive. With proper seeding and the reservation system preventing overspending, it should always be true. If it's false, it indicates a bug or data corruption.
@@ -885,8 +930,8 @@ The `affordable` flag is defensive. With proper seeding and the reservation syst
 
 On warp exit / rewind, Parsek patches KSP's fund display:
 
-- `Funding.Instance.Funds` is set to `availableFunds(currentUT)`, not `runningBalance(currentUT)`. The player sees what they can spend, not the gross balance.
-- Parsek's own UI shows the breakdown: gross balance, reserved amount (future committed spendings), and available amount.
+- `Funding.Instance.Funds` is set to `availableFunds(currentUT)`, not `runningBalance(currentUT)`. The player sees what they can spend now, not the gross balance.
+- Parsek's own UI can show the breakdown: current balance, projected reservation, and available amount.
 
 This means the KSP toolbar funds display always reflects what the player can actually spend on a new vessel or facility. No surprises.
 
@@ -926,7 +971,7 @@ Available at UT=100: 31,000 - 0 future spendings = 31,000.
 Player can spend up to 31,000 on next vessel.
 ```
 
-**Reservation blocks overspending on rewind:**
+**Reservation uses the minimum projected balance on rewind:**
 
 ```
 Seed: 25,000.
@@ -938,11 +983,9 @@ UT=100: Vessel B -15,000.  Balance: 16,000.
 UT=200: Earn +20,000.      Balance: 36,000.
 UT=250: Earn +12,000.      Balance: 48,000.
 
-Total spendings: 20,000. Total budget: 73,000.
-
 Player rewinds to UT=50:
-  Earnings up to UT=50: 25,000 + 8,000 = 33,000.
-  All spendings: 20,000.
+  Current funds at UT=50: 28,000.
+  Future projection: -15,000 -> 13,000, +20,000 -> 33,000, +12,000 -> 45,000.
   Available: 13,000.
   Can build 10k vessel? Yes.
   Can build 20k vessel? No.
@@ -963,9 +1006,8 @@ UT=600: Hire kerbal -25,000.  Balance: 55,000.
 UT=700: Facility -35,000.     Balance: 20,000.
 
 Walk: all balances non-negative ✓.
-Total spendings: 125,000. Total budget: 195,000.
-Available at UT=0: 50,000 - 125,000 = -75,000 → 0.
-Available at UT=500: 170,000 - 125,000 = 45,000.
+Available at UT=0: min(50, 30, 60, 45, 70, 40, 80, 55, 20) = 20,000.
+Available at UT=500: min(80, 55, 20) = 20,000.
 ```
 
 **New recording adds earnings, expanding budget:**
@@ -973,11 +1015,12 @@ Available at UT=500: 170,000 - 125,000 = 45,000.
 ```
 Seed: 25,000. Existing timeline:
   UT=100: Earn +100,000. UT=500: Vessel -40,000. UT=1500: Facility -50,000.
-  Total spendings: 90,000. Budget at UT=200: 125,000. Available at UT=200: 35,000.
+  Current funds at UT=200: 125,000. Projected minimum: 35,000. Available at UT=200: 35,000.
 
 Player rewinds to UT=200, commits rec_B (earns 30k contract, vessel costs 15k):
-  New spendings total: 105,000. New budget at UT=300: 155,000.
-  Available at UT=300: 155,000 - 105,000 = 50,000.
+  New current funds at UT=300: 140,000.
+  Future projection: old vessel -40,000 -> 100,000, facility -50,000 -> 50,000.
+  Available at UT=300: 50,000.
   Net effect: +15,000 available (earned 30k, spent 15k).
 ```
 

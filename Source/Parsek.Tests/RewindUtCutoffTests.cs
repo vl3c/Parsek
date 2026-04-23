@@ -808,10 +808,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Mixed_SpendingAfterCutoffNotPreCounted()
+        public void Mixed_SpendingAfterCutoffReservesProjectedHeadroom()
         {
-            // The pre-pass (ComputeTotalSpendings) must respect the same filter, otherwise
-            // the reservation system would over-count future spendings.
+            // Visible/current aggregate fields still respect the cutoff, but available funds
+            // are cashflow-projected through future spendings so the player cannot spend
+            // resources already needed later in the committed timeline.
             AddAll(
                 FundsSeed(1000f),
                 FundsSpending(100.0, 50f),
@@ -820,7 +821,21 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatch(500.0);
 
             Assert.Equal(50.0, LedgerOrchestrator.Funds.GetTotalCommittedSpendings(), 1);
-            Assert.Equal(950.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(50.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+        }
+
+        [Fact]
+        public void CutoffProjection_DoesNotLeakFutureContractLogs()
+        {
+            AddAll(
+                FundsSeed(1000f),
+                ContractAccept(100.0, "future-contract", 50f));
+
+            LedgerOrchestrator.RecalculateAndPatch(50.0);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("future-contract"));
         }
 
         // ================================================================
@@ -910,6 +925,29 @@ namespace Parsek.Tests
             Assert.Equal(1, sciSeed);
             Assert.Equal(1, repSeed);
             Assert.Equal(0, milestones);
+
+            RecalculationEngine.ClearModules();
+        }
+
+        [Fact]
+        public void DirectEngine_CutoffProjection_UsesProjectionCloneInsteadOfRegisteredModule()
+        {
+            var counting = new CountingModule();
+            RecalculationEngine.ClearModules();
+            RecalculationEngine.RegisterModule(counting, RecalculationEngine.ModuleTier.FirstTier);
+
+            var actions = new List<GameAction>
+            {
+                FundsSeed(1000f),
+                Milestone(100.0, "future-only", 50f)
+            };
+
+            RecalculationEngine.Recalculate(actions, 50.0);
+
+            Assert.Equal(1, counting.ResetCalls);
+            Assert.Equal(1, counting.ProcessCalls);
+            Assert.Equal(1, counting.PostWalkCalls);
+            Assert.Equal(0, counting.FutureProcessCalls);
 
             RecalculationEngine.ClearModules();
         }
@@ -1062,10 +1100,11 @@ namespace Parsek.Tests
         // Affordability helpers scope to Planetarium UT cutoff
         // (Phase D round 3 — #436 follow-up)
         //
-        // CanAfford{Science,Funds}Spending must walk the ledger with
-        // cutoff = Planetarium.GetUniversalTime() so post-rewind future earnings
-        // and spendings that still live on the persisted ledger don't leak into
-        // "right now" affordability decisions (TechResearchPatch call site).
+        // CanAfford{Science,Funds}Spending must walk visible state with
+        // cutoff = Planetarium.GetUniversalTime(), then reserve the minimum projected
+        // future cashflow balance. Future earnings do not inflate present spendability;
+        // future spendings only reduce present spendability when the future cashflow
+        // minimum dips below the current balance.
         //
         // Planetarium throws NRE in xUnit's Unity-static-free harness, so these
         // tests drive LedgerOrchestrator.NowUtProviderForTesting instead.
@@ -1158,13 +1197,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanAffordScienceSpending_FutureSpendingDoesNotPreBlockPresent()
+        public void CanAffordScienceSpending_FutureSpendingReservesCurrentHeadroom()
         {
             // Seed = 100 sci at UT=0. Future spending at UT=500 consumes 80.
-            // "Now" = UT=200. Without cutoff the pre-pass's ComputeTotalSpendings
-            // would count the 80, leaving availableScience = 100 - 80 = 20 and
-            // blocking a cost=50 unlock. With cutoff the future spending is
-            // excluded, so 100 sci is available and cost=50 is affordable.
+            // "Now" = UT=200. Current visible science is 100, but the projected
+            // future cashflow minimum is 20, so a cost=50 unlock is blocked.
             AddAll(
                 ScienceSeed(100f),
                 new GameAction
@@ -1180,7 +1217,84 @@ namespace Parsek.Tests
 
             bool affordable = LedgerOrchestrator.CanAffordScienceSpending(50f);
 
+            Assert.False(affordable);
+            Assert.Equal(20.0, LedgerOrchestrator.Science.GetAvailableScience(), 1);
+        }
+
+        [Fact]
+        public void CanAffordScienceSpending_FutureEarningBeforeFutureSpendingPreservesCurrentHeadroom()
+        {
+            // Seed = 100 sci. Future earning at UT=300 covers a future spending at UT=500,
+            // so the minimum projected balance never drops below the current 100.
+            AddAll(
+                ScienceSeed(100f),
+                ScienceEarning(300.0, 80f, "future-cover"),
+                new GameAction
+                {
+                    UT = 500.0,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "future-node",
+                    Cost = 80f,
+                    RecordingId = "rec-future-spend"
+                });
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(100f);
+
             Assert.True(affordable);
+            Assert.Equal(100.0, LedgerOrchestrator.Science.GetAvailableScience(), 1);
+        }
+
+        [Fact]
+        public void CanAffordFundsSpending_FutureSpendingReservesCurrentHeadroom()
+        {
+            AddAll(
+                FundsSeed(1000f),
+                FundsSpending(500.0, 800f, "future-build"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(500f);
+
+            Assert.False(affordable);
+            Assert.Equal(200.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+        }
+
+        [Fact]
+        public void CanAffordFundsSpending_FutureEarningBeforeFutureSpendingPreservesCurrentHeadroom()
+        {
+            AddAll(
+                FundsSeed(1000f),
+                FundsEarning(300.0, 800f, "future-funds-cover"),
+                FundsSpending(500.0, 800f, "future-build"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(1000f);
+
+            Assert.True(affordable);
+            Assert.Equal(1000.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+        }
+
+        [Fact]
+        public void CanAffordFundsSpending_FutureDeadlinePenaltyAfterLastActionReservesCurrentHeadroom()
+        {
+            AddAll(
+                FundsSeed(1000f),
+                ContractAcceptWithDeadline(
+                    100.0,
+                    "deadline-only-penalty",
+                    advance: 0f,
+                    deadlineUt: 800f,
+                    fundsPenalty: 700f));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(400f);
+
+            Assert.False(affordable);
+            Assert.Equal(300.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
         }
 
         [Fact]
@@ -1199,6 +1313,107 @@ namespace Parsek.Tests
                 LedgerOrchestrator.CanAffordScienceSpending(50f));
         }
 
+        [Fact]
+        public void BaselineZeroScienceAndRep_AreSeededBeforeFutureTimelineValues()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 25000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            AddAll(
+                FundsSpending(36.54, 3805f, "rollout"),
+                Milestone(72.96, "future-rep", 4800f, rep: 1f),
+                ScienceEarning(99.93, 7.728f, "future-science"),
+                new GameAction
+                {
+                    UT = 124.43,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "future-node",
+                    Cost = 5f
+                });
+
+            LedgerOrchestrator.RecalculateAndPatch(49.42);
+
+            Assert.Equal(21195.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, LedgerOrchestrator.Science.GetRunningScience(), 3);
+            Assert.InRange(LedgerOrchestrator.Reputation.GetRunningRep(), -0.001f, 0.001f);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+        }
+
+        [Fact]
+        public void ZeroFundsInitialBaseline_DoesNotSealFundsBeforeFundingLoads()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 0.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+        }
+
+        [Fact]
+        public void ExistingZeroFundsSeed_IsRepairedFromInitialBaseline()
+        {
+            AddAll(FundsSeed(0f));
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 25000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsInitial && a.InitialFunds == 25000f);
+            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void LaterBaselineWithTimelineActions_IsNotPromotedToInitialSeed()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 108.97,
+                funds = 42795.0,
+                science = 11.04,
+                reputation = 1f
+            });
+
+            AddAll(
+                ScienceEarning(99.93, 7.728f, "future-science"),
+                Milestone(108.97, "future-rep", 0f, rep: 1f));
+
+            LedgerOrchestrator.RecalculateAndPatch(49.42);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && Math.Abs(a.InitialScience - 11.04f) < 0.001f);
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && Math.Abs(a.InitialReputation - 1f) < 0.001f);
+        }
+
         // ================================================================
         // Test support
         // ================================================================
@@ -1215,6 +1430,38 @@ namespace Parsek.Tests
             public void PrePass(List<GameAction> actions, double? walkNowUT = null) { }
             public void ProcessAction(GameAction action) { ProcessedActions.Add(action); }
             public void PostWalk() { }
+        }
+
+        private sealed class CountingModule : IResourceModule, IProjectionCloneableModule
+        {
+            public int ResetCalls;
+            public int ProcessCalls;
+            public int FutureProcessCalls;
+            public int PostWalkCalls;
+
+            public void Reset()
+            {
+                ResetCalls++;
+            }
+
+            public void PrePass(List<GameAction> actions, double? walkNowUT = null) { }
+
+            public void ProcessAction(GameAction action)
+            {
+                ProcessCalls++;
+                if (action != null && action.UT > 50.0)
+                    FutureProcessCalls++;
+            }
+
+            public void PostWalk()
+            {
+                PostWalkCalls++;
+            }
+
+            public IResourceModule CreateProjectionClone()
+            {
+                return new CountingModule();
+            }
         }
     }
 }

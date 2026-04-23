@@ -11,14 +11,15 @@ namespace Parsek
     ///   - For each ScienceSpending: check affordability, deduct from running balance
     ///
     /// Reservation system (design doc section 4.5):
-    ///   availableScience(ut) = sum(effective earnings up to ut) - sum(ALL committed spendings on entire timeline)
-    ///   The pre-pass <see cref="ComputeTotalSpendings"/> sums all spending costs before the walk starts.
+    ///   availableScience(ut) is the minimum projected science balance from ut through
+    ///   the future committed ledger, clamped to zero.
     ///   During the walk, <see cref="totalEffectiveEarnings"/> accumulates effective earnings.
-    ///   <see cref="GetAvailableScience"/> returns the amount the player can actually spend at the current point.
+    ///   <see cref="GetAvailableScience"/> returns the amount the player can actually spend
+    ///   without making a future committed science spending unaffordable.
     ///
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class ScienceModule : IResourceModule
+    internal class ScienceModule : IResourceModule, ICashflowProjectionModule
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -39,18 +40,25 @@ namespace Parsek
         private double runningScience;
 
         /// <summary>
-        /// Sum of ALL committed science spending costs on the entire timeline.
-        /// Computed by <see cref="ComputeTotalSpendings"/> before the walk starts.
-        /// Used by <see cref="GetAvailableScience"/> for the reservation check.
+        /// Sum of committed science spending costs in the current pre-pass action scope.
+        /// Full-timeline cutoff availability is installed separately by the projection pass.
         /// </summary>
         private double totalCommittedSpendings;
 
         /// <summary>
         /// Running sum of effective science earnings accumulated during the walk.
         /// Updated in <see cref="ProcessEarning"/> alongside runningScience.
-        /// Used by <see cref="GetAvailableScience"/> for the reservation check.
+        /// Used by <see cref="GetAvailableScience"/> for the full-ledger reservation check.
         /// </summary>
         private double totalEffectiveEarnings;
+
+        /// <summary>
+        /// Optional cashflow-aware availability computed by the recalculation engine after a
+        /// cutoff walk. It projects future ledger deltas from the current running balance and
+        /// returns the minimum future balance as the amount spendable right now.
+        /// </summary>
+        private bool hasProjectedAvailableScience;
+        private double projectedAvailableScience;
 
         /// <summary>
         /// True when a ScienceInitial action was processed during the current walk.
@@ -73,6 +81,8 @@ namespace Parsek
             runningScience = 0.0;
             totalCommittedSpendings = 0.0;
             totalEffectiveEarnings = 0.0;
+            hasProjectedAvailableScience = false;
+            projectedAvailableScience = 0.0;
             hasInitialSeed = false;
 
             ParsekLog.Verbose("ScienceModule",
@@ -81,8 +91,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pre-pass: sums all ScienceSpending costs from the sorted action list before the walk starts.
-        /// This is required for the reservation system: available = effective earnings - ALL spendings.
+        /// Pre-pass: sums ScienceSpending costs from the sorted action list before the walk starts.
+        /// For cutoff walks, the engine supplies only visible/current actions here and later
+        /// installs a full-timeline projected availability value.
         /// </summary>
         /// <remarks>
         /// <paramref name="walkNowUT"/> is unused — the engine has already applied any UT
@@ -133,9 +144,10 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Pre-pass: sums all ScienceSpending costs from the action list before the walk starts.
+        /// Pre-pass: sums ScienceSpending costs from the action list before the walk starts.
         /// Called by the engine (or test harness) before <see cref="ProcessAction"/> is invoked.
-        /// This is required for the reservation system: available = effective earnings - ALL spendings.
+        /// This supports the full-ledger reservation calculation; cutoff walks install a
+        /// cashflow-projected value after the visible/current walk.
         /// </summary>
         internal void ComputeTotalSpendings(List<GameAction> actions)
         {
@@ -409,15 +421,76 @@ namespace Parsek
         /// This is the amount the player can actually spend at the current point in the walk.
         ///
         /// Formula (design doc 4.5):
-        ///   availableScience = totalEffectiveEarnings - totalCommittedSpendings
+        ///   availableScience = min(projected science balance from current UT through future ledger)
         ///
-        /// Requires <see cref="ComputeTotalSpendings"/> to have been called before the walk.
+        /// For non-cutoff/full-ledger walks, this collapses to the legacy
+        /// <c>totalEffectiveEarnings - totalCommittedSpendings</c> calculation.
         /// Returns 0 if the result would be negative (player cannot spend negative science).
         /// </summary>
         internal double GetAvailableScience()
         {
+            if (hasProjectedAvailableScience)
+                return projectedAvailableScience;
+
             double available = totalEffectiveEarnings - totalCommittedSpendings;
             return available > 0.0 ? available : 0.0;
+        }
+
+        /// <summary>
+        /// Installs a cashflow-aware availability value after a cutoff recalculation.
+        /// </summary>
+        public double GetProjectionCurrentBalance()
+        {
+            return runningScience;
+        }
+
+        public bool TryGetProjectionDelta(GameAction action, out double delta)
+        {
+            delta = 0.0;
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ScienceEarning:
+                    delta = (double)action.EffectiveScience;
+                    return true;
+                case GameActionType.MilestoneAchievement:
+                    if (!action.Effective) return false;
+                    delta = (double)action.MilestoneScienceAwarded;
+                    return true;
+                case GameActionType.ContractComplete:
+                    if (!action.Effective) return false;
+                    delta = (double)action.TransformedScienceReward;
+                    return true;
+                case GameActionType.ScienceSpending:
+                    delta = -(double)action.Cost;
+                    return true;
+                case GameActionType.StrategyActivate:
+                    delta = -(double)action.SetupScienceCost;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public void SetProjectedAvailable(
+            double available,
+            double currentBalance,
+            double minProjectedBalance,
+            double finalProjectedBalance,
+            int futureActions,
+            int deltaActions)
+        {
+            projectedAvailableScience = available > 0.0 ? available : 0.0;
+            hasProjectedAvailableScience = true;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"Projected availability: current={currentBalance.ToString("R", IC)}, " +
+                $"minProjected={minProjectedBalance.ToString("R", IC)}, " +
+                $"finalProjected={finalProjectedBalance.ToString("R", IC)}, " +
+                $"available={projectedAvailableScience.ToString("R", IC)}, " +
+                $"futureActions={futureActions}, deltaActions={deltaActions}");
         }
 
         /// <summary>

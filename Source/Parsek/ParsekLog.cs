@@ -83,6 +83,32 @@ namespace Parsek
             ResetRecStateForTesting();
         }
 
+        internal static IDisposable SuppressScope()
+        {
+            return new SuppressLoggingScope(SuppressLogging);
+        }
+
+        private sealed class SuppressLoggingScope : IDisposable
+        {
+            private readonly bool previous;
+            private bool disposed;
+
+            internal SuppressLoggingScope(bool previous)
+            {
+                this.previous = previous;
+                SuppressLogging = true;
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                    return;
+
+                SuppressLogging = previous;
+                disposed = true;
+            }
+        }
+
         /// <summary>
         /// Resets the [RecState] sequence counter and last-seen-recId cache.
         /// Tests call this before asserting on emitted lines so sequence numbers
