@@ -9269,6 +9269,15 @@ namespace Parsek
                     continue;
                 }
 
+                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                    leaf,
+                    "Flight",
+                    $"SpawnTreeLeaves leaf '{leaf.VesselName ?? leaf.RecordingId}'"))
+                {
+                    leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
+                    continue;
+                }
+
                 // Before spawning, recover any timeline-spawned vessel with the same name
                 // to prevent overlap collisions (e.g. an older committed recording already
                 // spawned the same vessel on the pad).
@@ -11055,25 +11064,12 @@ namespace Parsek
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
-            // Real vessel dedup: if a vessel with this PID still exists in the game world,
-            // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
-            // not every frame like ShouldSpawnAtRecordingEnd.
-            // Exceptions that bypass dedup (spawn a fresh copy with new PID):
-            //   - Recording PID matches scene-entry active vessel (stateless revert detection)
-            //   - Current active vessel shares PID (covers mid-scene vessel switches)
-            bool matchesSceneEntryVessel = rec.VesselPersistentId != 0 &&
-                rec.VesselPersistentId == RecordingStore.SceneEntryActiveVesselPid;
-            bool activeVesselSharesPid = FlightGlobals.ActiveVessel != null &&
-                FlightGlobals.ActiveVessel.persistentId == rec.VesselPersistentId;
-            if (!matchesSceneEntryVessel && !activeVesselSharesPid &&
-                rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
-            {
-                rec.VesselSpawned = true;
-                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
-                ParsekLog.Info("Flight",
-                    $"Spawn skipped: #{index} \"{rec.VesselName}\" — real vessel pid={rec.VesselPersistentId} already exists");
-                return;
-            }
+            // Existing source-vessel adoption is enforced by VesselSpawner. The #226
+            // replay/revert path remains an explicit duplicate-spawn exception for the
+            // scene-entry/current active vessel only.
+            bool allowExistingSourceDuplicate =
+                VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
+                    rec.VesselPersistentId);
 
             GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
             if (chain != null && vesselGhoster != null)
@@ -11082,7 +11078,10 @@ namespace Parsek
                 {
                     // Chain was previously blocked — retry at propagated position
                     double currentUT = Planetarium.GetUniversalTime();
-                    uint spawnedPid = vesselGhoster.TrySpawnBlockedChain(chain, currentUT);
+                    uint spawnedPid = vesselGhoster.TrySpawnBlockedChain(
+                        chain,
+                        currentUT,
+                        allowExistingSourceDuplicate);
                     if (spawnedPid != 0)
                     {
                         rec.SpawnedVesselPersistentId = spawnedPid;
@@ -11097,7 +11096,9 @@ namespace Parsek
                 }
                 else
                 {
-                    uint spawnedPid = vesselGhoster.SpawnAtChainTip(chain);
+                    uint spawnedPid = vesselGhoster.SpawnAtChainTip(
+                        chain,
+                        allowExistingSourceDuplicate);
                     if (spawnedPid != 0)
                     {
                         rec.SpawnedVesselPersistentId = spawnedPid;
@@ -11123,7 +11124,11 @@ namespace Parsek
             }
             else
             {
-                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index);
+                VesselSpawner.SpawnOrRecoverIfTooClose(
+                    rec,
+                    index,
+                    preserveIdentity: false,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
             }
         }
 

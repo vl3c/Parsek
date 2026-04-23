@@ -623,6 +623,20 @@ Observation-only / cosmetic-only changes stay ignored. Checks are suppressed whi
 
 ---
 
+## ~~550. KSC merge spawn can duplicate the surviving source vessel at the same landed endpoint, then both unpack and collide~~
+
+**Source:** user repro and fresh package `logs/2026-04-23_1909_recording-resume-spawn-explosion`. `KSP.log` shows `Butterfly Rover` and `Crater Crawler` each being merged in SPACECENTER, then `KSCSpawn` spawning a real vessel for the committed recording while the source vessel still existed in the save. The save snapshot confirms the duplicate: `quicksave.sfs` contains source `persistentId = 22060629` and spawned copy `persistentId = 3693161297` at the same `lat/lon`, with only the altitude clamp separating them. Later FLIGHT loads unpacked two same-name vessels and produced collision/debris/crash-through-terrain logs.
+
+**Concern:** the KSC spawn path only checked intrinsic recording eligibility and the recording's prior `spawnedPid`. It did not check whether the original source vessel was still present after a normal Space Center scene exit. That created a second real vessel at the terminal pose. It also meant the resume mechanism depended on the duplicate's PID instead of the vehicle the user had actually just recorded.
+
+**Fix:** real-vessel materialization now goes through a shared `VesselSpawner` source-vessel adoption guard. Before KSC spawn, Flight tree-leaf spawn, Flight/Tracking Station spawn handoffs, or chain-tip spawns create a vessel from a recording snapshot, Parsek checks loaded vessels and `HighLogic.CurrentGame.flightState.protoVessels` for the recording's original `VesselPersistentId`. If the source vessel still exists, Parsek adopts that PID by setting `VesselSpawned` and `SpawnedVesselPersistentId` instead of spawning a copy. The committed-tree restore path already keys off `SpawnedVesselPersistentId`, so returning to that craft can resume the committed tree from the recorded endpoint. The older #226 replay/revert path remains an explicit duplicate-spawn opt-in instead of an accidental bypass.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/TimeJumpManager.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/VesselGhosterTests.cs`, `Source/Parsek.Tests/TimeJumpManagerTests.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0 with source-vessel adoption and focused headless restore coverage.
+
+---
+
 ## 547. Recording optimizer should surface cross-body exo segments more clearly than the current first-body label
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), especially the traced Kerbin-launch-to-Mun-landing scenario.

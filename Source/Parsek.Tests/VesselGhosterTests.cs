@@ -13,21 +13,25 @@ namespace Parsek.Tests
         public VesselGhosterTests()
         {
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ghoster = new VesselGhoster();
         }
 
         public void Dispose()
         {
             ghoster.ResetForTesting();
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
         }
 
         #region ShouldAttemptGhosting — pure decision
@@ -112,6 +116,71 @@ namespace Parsek.Tests
                 IsTerminated = false
             };
             Assert.True(VesselGhoster.CanSpawnAtChainTip(chain));
+        }
+
+        #endregion
+
+        #region Chain tip source adoption
+
+        [Fact]
+        public void SpawnAtChainTip_SourceExists_AdoptsBeforeSnapshotOrCollisionChecks()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "tip-rec",
+                VesselName = "Tip Vessel",
+                VesselPersistentId = 4242,
+                VesselSnapshot = null
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 4242);
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 4242,
+                TipRecordingId = "tip-rec",
+                IsTerminated = false
+            };
+
+            uint pid = ghoster.SpawnAtChainTip(chain);
+
+            Assert.Equal(4242u, pid);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(4242u, rec.SpawnedVesselPersistentId);
+            Assert.False(chain.SpawnBlocked);
+            Assert.Contains(logLines, l => l.Contains("Chain tip adoption"));
+            Assert.DoesNotContain(logLines, l => l.Contains("has no VesselSnapshot"));
+        }
+
+        [Fact]
+        public void TrySpawnBlockedChain_SourceExists_AdoptsBeforeBlockedCollisionRecheck()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "blocked-tip-rec",
+                VesselName = "Blocked Tip Vessel",
+                VesselPersistentId = 5151,
+                VesselSnapshot = null
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 5151);
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 5151,
+                TipRecordingId = "blocked-tip-rec",
+                IsTerminated = false,
+                SpawnBlocked = true,
+                BlockedSinceUT = 100,
+                BlockedInitialDistance = 1f
+            };
+
+            uint pid = ghoster.TrySpawnBlockedChain(chain, currentUT: 110);
+
+            Assert.Equal(5151u, pid);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(5151u, rec.SpawnedVesselPersistentId);
+            Assert.False(chain.SpawnBlocked);
+            Assert.Contains(logLines, l => l.Contains("Chain tip adoption"));
+            Assert.DoesNotContain(logLines, l => l.Contains("has no VesselSnapshot"));
         }
 
         #endregion

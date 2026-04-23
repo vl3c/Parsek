@@ -68,6 +68,59 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Source vessel adoption
+
+        [Fact]
+        public void TryAdoptExistingSourceVesselForSpawn_SourceExists_UsesSourcePid()
+        {
+            var rec = MakeEligibleRecording();
+
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists: true,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
+
+            Assert.True(adopted);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(rec.VesselPersistentId, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TryAdoptExistingSourceVesselForSpawn_SourceMissing_DoesNotMutate()
+        {
+            var rec = MakeEligibleRecording();
+
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists: false,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
+
+            Assert.False(adopted);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TryAdoptExistingSourceVesselForSpawn_AlreadySpawned_DoesNotOverwrite()
+        {
+            var rec = MakeEligibleRecording();
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = 99999;
+
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists: true,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
+
+            Assert.False(adopted);
+            Assert.Equal(99999u, rec.SpawnedVesselPersistentId);
+        }
+
+        #endregion
+
         #region ShouldSpawnAtKscEnd — eligible cases
 
         [Fact]

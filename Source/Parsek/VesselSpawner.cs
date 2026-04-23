@@ -27,6 +27,182 @@ namespace Parsek
         internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
         internal static ResolveBodyByNameDelegate BodyResolverForTesting;
         internal static ResolveBodyIndexDelegate BodyIndexResolverForTesting;
+        private static Func<uint, bool> materializedSourceVesselExistsOverrideForTesting;
+
+        internal static void SetMaterializedSourceVesselExistsOverrideForTesting(Func<uint, bool> checker)
+        {
+            materializedSourceVesselExistsOverrideForTesting = checker;
+        }
+
+        internal static void ResetMaterializedSourceVesselExistsOverrideForTesting()
+        {
+            materializedSourceVesselExistsOverrideForTesting = null;
+        }
+
+        internal static bool TryAdoptExistingSourceVesselForSpawn(
+            Recording rec,
+            string logTag,
+            string logContext,
+            bool allowExistingSourceDuplicate = false)
+        {
+            uint sourcePid = rec != null ? rec.VesselPersistentId : 0u;
+            bool sourceVesselExists = MaterializedSourceVesselExists(sourcePid);
+            return TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists,
+                logTag,
+                logContext,
+                allowExistingSourceDuplicate);
+        }
+
+        internal static bool TryAdoptExistingSourceVesselForSpawn(
+            Recording rec,
+            bool sourceVesselExists,
+            string logTag,
+            string logContext,
+            bool allowExistingSourceDuplicate = false)
+        {
+            if (allowExistingSourceDuplicate)
+                return false;
+            if (rec == null || !sourceVesselExists)
+                return false;
+            if (rec.VesselPersistentId == 0)
+                return false;
+            if (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0)
+                return false;
+
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
+
+            string tag = string.IsNullOrEmpty(logTag) ? "Spawner" : logTag;
+            string context = string.IsNullOrEmpty(logContext)
+                ? rec.VesselName ?? rec.RecordingId ?? "(unknown)"
+                : logContext;
+            ParsekLog.Info(tag,
+                $"{context}: source vessel pid={rec.VesselPersistentId} already exists - " +
+                "adopting instead of spawning duplicate");
+            return true;
+        }
+
+        internal static bool ShouldAllowExistingSourceDuplicateForReplay(
+            uint sourcePid,
+            uint sceneEntryActiveVesselPid,
+            uint activeVesselPid)
+        {
+            if (sourcePid == 0)
+                return false;
+
+            return sourcePid == sceneEntryActiveVesselPid
+                || sourcePid == activeVesselPid;
+        }
+
+        internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(uint sourcePid)
+        {
+            uint activeVesselPid = 0;
+            try
+            {
+                activeVesselPid = FlightGlobals.ActiveVessel != null
+                    ? FlightGlobals.ActiveVessel.persistentId
+                    : 0u;
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+            }
+
+            return ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid,
+                RecordingStore.SceneEntryActiveVesselPid,
+                activeVesselPid);
+        }
+
+        internal static bool MaterializedSourceVesselExists(uint sourcePid)
+        {
+            if (sourcePid == 0 || GhostMapPresence.IsGhostMapVessel(sourcePid))
+                return false;
+
+            if (materializedSourceVesselExistsOverrideForTesting != null)
+                return materializedSourceVesselExistsOverrideForTesting(sourcePid);
+
+            if (LoadedRealVesselExists(sourcePid))
+                return true;
+
+            return ProtoVesselExists(sourcePid);
+        }
+
+        private static bool LoadedRealVesselExists(uint sourcePid)
+        {
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels == null)
+                    return false;
+
+                for (int i = 0; i < vessels.Count; i++)
+                {
+                    Vessel vessel = vessels[i];
+                    if (vessel != null
+                        && vessel.persistentId == sourcePid
+                        && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+
+                ParsekLog.Verbose("Spawner",
+                    $"LoadedRealVesselExists: FlightGlobals unavailable for pid={sourcePid}");
+            }
+
+            return false;
+        }
+
+        private static bool ProtoVesselExists(uint sourcePid)
+        {
+            try
+            {
+                var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
+                if (protoVessels == null)
+                    return false;
+
+                for (int i = 0; i < protoVessels.Count; i++)
+                {
+                    ProtoVessel pv = protoVessels[i];
+                    if (pv != null
+                        && pv.persistentId == sourcePid
+                        && !GhostMapPresence.IsGhostMapVessel(pv.persistentId))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+
+                ParsekLog.Verbose("Spawner",
+                    $"ProtoVesselExists: flightState unavailable for pid={sourcePid}");
+            }
+
+            return false;
+        }
+
+        private static bool IsHeadlessKspAccessFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is System.Security.SecurityException || current is MethodAccessException)
+                    return true;
+            }
+
+            return false;
+        }
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -741,10 +917,30 @@ namespace Parsek
             SpawnOrRecoverIfTooClose(rec, index, preserveIdentity: false);
         }
 
-        public static void SpawnOrRecoverIfTooClose(Recording rec, int index, bool preserveIdentity)
+        public static void SpawnOrRecoverIfTooClose(
+            Recording rec,
+            int index,
+            bool preserveIdentity,
+            bool allowExistingSourceDuplicate = false)
         {
             const int maxSpawnAttempts = 3;
             string logContext = $"recording #{index} ({rec?.VesselName ?? "(unknown)"})";
+            if (rec == null)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"Spawn skipped for {logContext}: recording is null");
+                return;
+            }
+
+            if (TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                "Spawner",
+                logContext,
+                allowExistingSourceDuplicate))
+            {
+                return;
+            }
+
             if (rec.SpawnAttempts >= maxSpawnAttempts)
             {
                 ParsekLog.Verbose("Spawner",
@@ -761,7 +957,8 @@ namespace Parsek
                     rec,
                     logContext,
                     excludeCrew,
-                    preserveIdentity: preserveIdentity);
+                    preserveIdentity: preserveIdentity,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -793,7 +990,8 @@ namespace Parsek
                     rec,
                     logContext,
                     excludeCrew,
-                    preserveIdentity: preserveIdentity);
+                    preserveIdentity: preserveIdentity,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -1043,7 +1241,8 @@ namespace Parsek
                 rec,
                 logContext,
                 excludeCrew,
-                preserveIdentity: preserveIdentity);
+                preserveIdentity: preserveIdentity,
+                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
@@ -2792,8 +2991,18 @@ namespace Parsek
             string logContext,
             HashSet<string> excludeCrew = null,
             bool preserveIdentity = false,
-            double currentUT = double.NaN)
+            double currentUT = double.NaN,
+            bool allowExistingSourceDuplicate = false)
         {
+            if (TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                "Spawner",
+                logContext,
+                allowExistingSourceDuplicate))
+            {
+                return rec.SpawnedVesselPersistentId;
+            }
+
             if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
             {
                 try

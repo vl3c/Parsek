@@ -334,6 +334,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_AdoptedSourcePidMatchesSourceVessel()
+        {
+            var tree = MakeTree("rec_active");
+            tree.Recordings["rec_active"].VesselPersistentId = 12345;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 12345;
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 12345,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found);
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_active", matchedRecordingId);
+        }
+
+        [Fact]
         public void PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry()
         {
             var tree = MakeTree("rec_active", (20, "rec_tip"));
