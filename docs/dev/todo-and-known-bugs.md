@@ -790,7 +790,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+## ~~554. Tracking Station runtime coverage is missing from the collected in-game test package~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
 
@@ -805,7 +805,9 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
 
-**Status:** TODO. High priority validation gap before claiming full TS parity.
+**Fix:** Added deterministic `TrackingStation` in-game canaries in `RuntimeTests.cs`: scene entry verifies the Parsek/stock TS hosts, the synthetic orbital toggle canary forces show/hide/recreate without depending on save-local recordings, and the object-count canary validates the synthetic TS ghost object stays unique/resolvable without captured TS error spam. Added a manual-only materialized orbital Fly canary for the Learstar stale-selection class: it seeds a stale alternate selection, proves focusing a Parsek ghost clears the stale private stock selection, then focuses/flys a materialized orbital vessel and asserts the loaded FLIGHT vessel PID is the materialized one. `validate-release-bundle.py` now has a `release-tracking-station` profile requiring the batch-safe TS rows and documenting the optional Fly row when it was not captured.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 

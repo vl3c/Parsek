@@ -2564,6 +2564,682 @@ namespace Parsek.InGameTests
     }
 
     /// <summary>
+    /// Tracking Station scene canaries for runtime-only behavior that headless
+    /// tests cannot exercise through KSP's live vessel list.
+    /// </summary>
+    public class TrackingStationRuntimeTests
+    {
+        private const string SyntheticVesselNamePrefix = "Parsek TS Runtime Canary";
+        private const string KerbinBodyName = "Kerbin";
+        private const double SyntheticOrbitSma = 700000.0;
+        private const double SyntheticOrbitEcc = 0.001;
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#554: Tracking Station scene host, stock SpaceTracking, MapView, and flightState are present")]
+        public void TrackingStationSceneEntry_HostIsActive()
+        {
+            EnsureTrackingStationScene();
+
+            var ts = Object.FindObjectOfType<ParsekTrackingStation>();
+            InGameAssert.IsNotNull(ts,
+                "ParsekTrackingStation MonoBehaviour should be active in Tracking Station scene");
+
+            var spaceTracking = Object.FindObjectOfType<KSP.UI.Screens.SpaceTracking>();
+            InGameAssert.IsNotNull(spaceTracking,
+                "SpaceTracking should be active in Tracking Station scene");
+
+            InGameAssert.IsNotNull(MapView.fetch,
+                "MapView.fetch should exist in Tracking Station scene");
+            InGameAssert.IsNotNull(HighLogic.CurrentGame?.flightState,
+                "CurrentGame.flightState should exist in Tracking Station scene");
+            InGameAssert.IsNotNull(FlightGlobals.Vessels,
+                "FlightGlobals.Vessels should be available in Tracking Station scene");
+
+            ParsekLog.Info("TestRunner",
+                string.Format(CultureInfo.InvariantCulture,
+                    "TrackingStationSceneEntry_HostIsActive: vessels={0} ghostPids={1}",
+                    FlightGlobals.Vessels.Count,
+                    GhostMapPresence.ghostMapVesselPids.Count));
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#554: synthetic orbital TS ghost is removed when hidden and recreated when shown")]
+        public void TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates()
+        {
+            using (var scope = new SyntheticTrackingStationRecordingScope("toggle"))
+            using (var capture = new TrackingStationLogCapture())
+            {
+                var trackingHost = Object.FindObjectOfType<ParsekTrackingStation>();
+                InGameAssert.IsNotNull(trackingHost,
+                    "ParsekTrackingStation host should exist while toggling TS ghosts");
+
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                uint firstPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(firstPid != 0,
+                    "Synthetic TS recording should create a ghost vessel when the setting is enabled");
+                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(firstPid),
+                    "Created synthetic TS vessel should be registered as a ghost map vessel");
+
+                ParsekSettings.Current.showGhostsInTrackingStation = false;
+                ForceTrackingStationHostUpdate(trackingHost);
+
+                InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(scope.RecordingIndex),
+                    "Synthetic TS ghost should be removed when showGhostsInTrackingStation is disabled");
+
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                ForceTrackingStationHostUpdate(trackingHost);
+
+                uint recreatedPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(recreatedPid != 0,
+                    "Synthetic TS recording should recreate a ghost vessel when the setting is re-enabled");
+                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(recreatedPid),
+                    "Recreated synthetic TS vessel should be registered as a ghost map vessel");
+
+                AssertNoCapturedTrackingStationErrors(capture,
+                    "show/hide/recreate synthetic TS ghost lifecycle");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates: firstPid={0} recreatedPid={1}",
+                        firstPid,
+                        recreatedPid));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#554: TS ghost bookkeeping stays bounded, resolvable, and quiet during a live lifecycle tick")]
+        public IEnumerator TrackingStationGhostObjects_SyntheticOrbit_ResolvableAndQuiet()
+        {
+            using (var scope = new SyntheticTrackingStationRecordingScope("object-count"))
+            using (var capture = new TrackingStationLogCapture())
+            {
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP process the ProtoVessel load and any stock Tracking Station
+                // UI callbacks that run after the lifecycle tick.
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after lifecycle update");
+
+                Vessel ghost = FindVesselByPersistentId(ghostPid);
+                InGameAssert.IsNotNull(ghost,
+                    "Synthetic TS ghost PID should resolve to a live Vessel");
+                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(ghost.persistentId),
+                    "Resolved synthetic TS vessel should still be tagged as a ghost");
+                InGameAssert.IsTrue(ghost.orbitDriver != null && ghost.orbitDriver.orbit != null,
+                    "Synthetic TS ghost should have an OrbitDriver with an orbit");
+                InGameAssert.IsNotNull(ghost.mapObject,
+                    "Synthetic TS ghost should have a map object");
+
+                string expectedGhostName = "Ghost: " + scope.Recording.VesselName;
+                int matchingGhostCount = 0;
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel candidate = vessels[i];
+                        if (candidate == null)
+                            continue;
+                        if (!string.Equals(candidate.vesselName, expectedGhostName, System.StringComparison.Ordinal))
+                            continue;
+                        if (GhostMapPresence.IsGhostMapVessel(candidate.persistentId))
+                            matchingGhostCount++;
+                    }
+                }
+
+                InGameAssert.AreEqual(1, matchingGhostCount,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Synthetic TS recording should materialize exactly one live ghost vessel named '{0}'",
+                        expectedGhostName));
+
+                AssertNoCapturedTrackingStationErrors(capture,
+                    "synthetic TS ghost object-count lifecycle");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TrackingStationGhostObjects_SyntheticOrbit_ResolvableAndQuiet: ghostPid={0} matchingGhostCount={1} ghostName='{2}'",
+                        ghostPid,
+                        matchingGhostCount,
+                        expectedGhostName));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a materialized orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has materialized.",
+            Description = "#554/#550: materialized orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]
+        public IEnumerator TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection()
+        {
+            EnsureTrackingStationScene();
+
+            var tracking = Object.FindObjectOfType<KSP.UI.Screens.SpaceTracking>();
+            if (tracking == null)
+            {
+                InGameAssert.Skip("SpaceTracking instance not found");
+                yield break;
+            }
+
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+            int recordingIndex;
+            Recording recording;
+            Vessel materialized;
+            if (!TryFindMaterializedTrackingStationRecording(
+                out recordingIndex,
+                out recording,
+                out materialized))
+            {
+                InGameAssert.Skip(
+                    "No materialized orbital Parsek spawn-handoff recording was present after the TS lifecycle tick");
+                yield break;
+            }
+
+            Vessel staleCandidate = FindStaleSelectionCandidate(materialized);
+            if (staleCandidate == null)
+            {
+                InGameAssert.Skip(
+                    "No alternate stock vessel or asteroid/comet was available to seed a stale Tracking Station selection");
+                yield break;
+            }
+
+            System.Reflection.FieldInfo selectedField = typeof(KSP.UI.Screens.SpaceTracking).GetField(
+                "selectedVessel",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            System.Reflection.MethodInfo setVesselMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
+                "SetVessel",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Vessel) },
+                null);
+            System.Reflection.MethodInfo flySelectedMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
+                "BtnOnClick_FlySelectedVessel",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                null,
+                System.Type.EmptyTypes,
+                null);
+
+            if (selectedField == null || setVesselMethod == null || flySelectedMethod == null)
+            {
+                InGameAssert.Skip("SpaceTracking selection/Fly reflection helpers are unavailable");
+                yield break;
+            }
+
+            using (var ghostScope = new SyntheticTrackingStationRecordingScope("manual-fly-selection"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(ghostScope.RecordingIndex);
+                if (ghostPid == 0)
+                {
+                    InGameAssert.Skip(
+                        "Synthetic ghost selection helper was not available to exercise the Tracking Station ghost-selection block");
+                    yield break;
+                }
+
+                Vessel ghost = FindVesselByPersistentId(ghostPid);
+                if (ghost == null)
+                {
+                    InGameAssert.Skip(
+                        "Synthetic ghost selection helper did not resolve to a live ghost vessel");
+                    yield break;
+                }
+
+                selectedField.SetValue(tracking, staleCandidate);
+                setVesselMethod.Invoke(tracking, new object[] { ghost });
+
+                Vessel selectedAfterGhostFocus = selectedField.GetValue(tracking) as Vessel;
+                InGameAssert.IsNull(selectedAfterGhostFocus,
+                    "Focusing a Parsek ghost should clear any stale private Tracking Station selection");
+
+                setVesselMethod.Invoke(tracking, new object[] { materialized });
+            }
+
+            Vessel selectedAfterFocus = selectedField.GetValue(tracking) as Vessel;
+            InGameAssert.IsNotNull(selectedAfterFocus,
+                "Focusing the materialized Parsek vessel should leave a selected vessel");
+            InGameAssert.AreEqual(materialized.persistentId, selectedAfterFocus.persistentId,
+                "Focusing the materialized Parsek vessel should replace any stale private selection");
+            InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(recordingIndex),
+                "Materialized Tracking Station recording should not retain a ghost ProtoVessel");
+
+            uint expectedPid = materialized.persistentId;
+            string expectedName = materialized.vesselName;
+            uint stalePid = staleCandidate.persistentId;
+            string staleName = staleCandidate.vesselName;
+
+            flySelectedMethod.Invoke(tracking, null);
+            yield return WaitForLoadedScene(GameScenes.FLIGHT, 20f);
+            yield return WaitForFlightReadyAndActiveVessel(expectedPid, 20f);
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(active,
+                "Tracking Station Fly should load a FLIGHT active vessel");
+            InGameAssert.AreEqual(expectedPid, active.persistentId,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Tracking Station Fly should load materialized Parsek vessel '{0}' pid={1}, not stale '{2}' pid={3}",
+                    expectedName,
+                    expectedPid,
+                    staleName,
+                    stalePid));
+            InGameAssert.AreNotEqual(stalePid, active.persistentId,
+                "Tracking Station Fly loaded the stale selection candidate");
+
+            ParsekLog.Info("TestRunner",
+                string.Format(CultureInfo.InvariantCulture,
+                    "TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection: recIndex={0} recId={1} activePid={2} stalePid={3}",
+                    recordingIndex,
+                    recording.RecordingId,
+                    active.persistentId,
+                    stalePid));
+        }
+
+        private static void EnsureTrackingStationScene()
+        {
+            InGameAssert.AreEqual(GameScenes.TRACKSTATION, HighLogic.LoadedScene,
+                "test must run in Tracking Station scene");
+        }
+
+        private static Recording BuildSyntheticTrackingStationOrbitRecording(
+            double currentUT,
+            string label)
+        {
+            double startUT = currentUT - 60.0;
+            double endUT = currentUT + 600.0;
+            string safeLabel = string.IsNullOrEmpty(label) ? "canary" : label;
+
+            var rec = new Recording
+            {
+                RecordingId = "ts-runtime-" + System.Guid.NewGuid().ToString("N"),
+                VesselName = SyntheticVesselNamePrefix + " " + safeLabel,
+                TerminalStateValue = null,
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = KerbinBodyName,
+                TerminalOrbitBody = KerbinBodyName,
+                TerminalOrbitSemiMajorAxis = SyntheticOrbitSma,
+                TerminalOrbitEccentricity = SyntheticOrbitEcc,
+                TerminalOrbitInclination = 0.0,
+                TerminalOrbitLAN = 0.0,
+                TerminalOrbitArgumentOfPeriapsis = 0.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.0,
+                TerminalOrbitEpoch = startUT,
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                PlaybackEnabled = true,
+            };
+
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100000.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, 2300f, 0f),
+                bodyName = KerbinBodyName,
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = endUT,
+                latitude = 0.0,
+                longitude = 5.0,
+                altitude = 100000.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, 2300f, 0f),
+                bodyName = KerbinBodyName,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 0.0,
+                eccentricity = SyntheticOrbitEcc,
+                semiMajorAxis = SyntheticOrbitSma,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                bodyName = KerbinBodyName,
+                isPredicted = false,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            });
+            rec.MarkFilesDirty();
+            return rec;
+        }
+
+        private static void ForceTrackingStationHostUpdate(ParsekTrackingStation host)
+        {
+            InGameAssert.IsNotNull(host, "Tracking Station host should exist before forcing an update");
+
+            System.Reflection.MethodInfo updateMethod = typeof(ParsekTrackingStation).GetMethod(
+                "Update",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                null,
+                System.Type.EmptyTypes,
+                null);
+            InGameAssert.IsNotNull(updateMethod,
+                "ParsekTrackingStation.Update reflection helper should be available");
+            updateMethod.Invoke(host, null);
+        }
+
+        private static Vessel FindVesselByPersistentId(uint persistentId)
+        {
+            var vessels = FlightGlobals.Vessels;
+            if (vessels == null)
+                return null;
+
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel vessel = vessels[i];
+                if (vessel != null && vessel.persistentId == persistentId)
+                    return vessel;
+            }
+
+            return null;
+        }
+
+        private static bool TryFindMaterializedTrackingStationRecording(
+            out int recordingIndex,
+            out Recording recording,
+            out Vessel materialized)
+        {
+            recordingIndex = -1;
+            recording = null;
+            materialized = null;
+            int fallbackIndex = -1;
+            Recording fallbackRecording = null;
+            Vessel fallbackVessel = null;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                return false;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null)
+                    continue;
+                if (rec.TerminalStateValue != TerminalState.Orbiting
+                    && rec.TerminalStateValue != TerminalState.Docked)
+                    continue;
+                if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0)
+                    continue;
+
+                uint pid = rec.SpawnedVesselPersistentId;
+                Vessel vessel = FindVesselByPersistentId(pid);
+                if (vessel == null || GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                    continue;
+                if (GhostMapPresence.HasGhostVesselForRecording(i))
+                    continue;
+
+                if (rec.SpawnedVesselPersistentId == rec.VesselPersistentId)
+                {
+                    if (fallbackRecording == null)
+                    {
+                        fallbackIndex = i;
+                        fallbackRecording = rec;
+                        fallbackVessel = vessel;
+                    }
+                    continue;
+                }
+
+                recordingIndex = i;
+                recording = rec;
+                materialized = vessel;
+                return true;
+            }
+
+            if (fallbackRecording == null)
+                return false;
+
+            recordingIndex = fallbackIndex;
+            recording = fallbackRecording;
+            materialized = fallbackVessel;
+            return true;
+        }
+
+        private static Vessel FindStaleSelectionCandidate(Vessel materialized)
+        {
+            var vessels = FlightGlobals.Vessels;
+            if (vessels == null)
+                return null;
+
+            Vessel fallback = null;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel vessel = vessels[i];
+                if (vessel == null)
+                    continue;
+                if (materialized != null && vessel.persistentId == materialized.persistentId)
+                    continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                    continue;
+
+                if (vessel.vesselType == VesselType.SpaceObject)
+                    return vessel;
+
+                if (fallback == null)
+                    fallback = vessel;
+            }
+
+            return fallback;
+        }
+
+        private static IEnumerator WaitForLoadedScene(GameScenes scene, float timeoutSeconds)
+        {
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (HighLogic.LoadedScene != scene && Time.realtimeSinceStartup < deadline)
+                yield return null;
+
+            InGameAssert.AreEqual(scene, HighLogic.LoadedScene,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Timed out waiting for scene {0}; current scene is {1}",
+                    scene,
+                    HighLogic.LoadedScene));
+        }
+
+        private static IEnumerator WaitForFlightReadyAndActiveVessel(uint expectedPersistentId, float timeoutSeconds)
+        {
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                if (FlightGlobals.ready
+                    && active != null
+                    && active.persistentId == expectedPersistentId)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            Vessel finalActive = FlightGlobals.ActiveVessel;
+            string finalActiveText = finalActive == null
+                ? "(null)"
+                : string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0} pid={1}",
+                    finalActive.vesselName,
+                    finalActive.persistentId);
+            InGameAssert.Fail(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Timed out waiting for FLIGHT readiness and active vessel pid={0}; ready={1}, active={2}",
+                    expectedPersistentId,
+                    FlightGlobals.ready,
+                    finalActiveText));
+        }
+
+        private static void AssertNoCapturedTrackingStationErrors(
+            TrackingStationLogCapture capture,
+            string context)
+        {
+            if (capture == null || capture.ErrorLines.Count == 0)
+                return;
+
+            InGameAssert.Fail(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Tracking Station emitted {0} error/exception line(s) during {1}: {2}",
+                    capture.ErrorLines.Count,
+                    context,
+                    string.Join(" | ", capture.ErrorLines.ToArray())));
+        }
+
+        private sealed class SyntheticTrackingStationRecordingScope : System.IDisposable
+        {
+            private readonly System.Func<double> previousCurrentUTNow;
+            private readonly bool previousShowGhosts;
+            private readonly List<Recording> previousCommittedRecordings;
+            private readonly List<RecordingTree> previousCommittedTrees;
+            private bool disposed;
+
+            internal Recording Recording { get; private set; }
+            internal int RecordingIndex { get; private set; }
+            internal double CurrentUT { get; private set; }
+
+            internal SyntheticTrackingStationRecordingScope(string label)
+            {
+                EnsureTrackingStationScene();
+
+                if (ParsekSettings.Current == null)
+                    InGameAssert.Skip("ParsekSettings.Current is null");
+                if (HighLogic.CurrentGame?.flightState == null)
+                    InGameAssert.Skip("CurrentGame.flightState is null");
+
+                previousCurrentUTNow = GhostMapPresence.CurrentUTNow;
+                previousShowGhosts = ParsekSettings.Current.showGhostsInTrackingStation;
+                previousCommittedRecordings = RecordingStore.CommittedRecordings != null
+                    ? new List<Recording>(RecordingStore.CommittedRecordings)
+                    : new List<Recording>();
+                previousCommittedTrees = RecordingStore.CommittedTrees != null
+                    ? new List<RecordingTree>(RecordingStore.CommittedTrees)
+                    : new List<RecordingTree>();
+
+                CurrentUT = Planetarium.GetUniversalTime();
+                Recording = BuildSyntheticTrackingStationOrbitRecording(CurrentUT, label);
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                RecordingStore.AddCommittedInternal(Recording);
+                RecordingIndex = RecordingStore.CommittedRecordings.Count - 1;
+
+                GhostMapPresence.CurrentUTNow = () => CurrentUT;
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.RemoveAllGhostVessels("ts-runtime-canary-start");
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                    return;
+                disposed = true;
+
+                try
+                {
+                    GhostMapPresence.RemoveAllGhostVessels("ts-runtime-canary-cleanup");
+                }
+                finally
+                {
+                    RestoreCommittedState();
+                    GhostMapPresence.CurrentUTNow = previousCurrentUTNow;
+                    if (ParsekSettings.Current != null)
+                        ParsekSettings.Current.showGhostsInTrackingStation = previousShowGhosts;
+                    AlignTrackingStationHostCacheAfterRestore(
+                        previousCommittedRecordings.Count,
+                        previousShowGhosts);
+                }
+            }
+
+            private void RestoreCommittedState()
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+
+                for (int i = 0; i < previousCommittedRecordings.Count; i++)
+                    RecordingStore.AddCommittedInternal(previousCommittedRecordings[i]);
+                for (int i = 0; i < previousCommittedTrees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(previousCommittedTrees[i]);
+            }
+
+            private static void AlignTrackingStationHostCacheAfterRestore(
+                int committedCount,
+                bool showGhosts)
+            {
+                var host = Object.FindObjectOfType<ParsekTrackingStation>();
+                if (host == null)
+                    return;
+
+                SetTrackingStationHostField(host, "lastKnownCommittedCount", committedCount);
+                SetTrackingStationHostField(host, "lastKnownShowGhosts", showGhosts);
+                SetTrackingStationHostField(host, "nextLifecycleCheckTime", Time.time + 2.0f);
+            }
+
+            private static void SetTrackingStationHostField(
+                ParsekTrackingStation host,
+                string fieldName,
+                object value)
+            {
+                FieldInfo field = typeof(ParsekTrackingStation).GetField(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                InGameAssert.IsNotNull(field,
+                    "ParsekTrackingStation private field should exist: " + fieldName);
+                field.SetValue(host, value);
+            }
+        }
+
+        private sealed class TrackingStationLogCapture : System.IDisposable
+        {
+            private readonly System.Action<string> previousObserver;
+            private bool disposed;
+
+            internal readonly List<string> ErrorLines = new List<string>();
+
+            internal TrackingStationLogCapture()
+            {
+                previousObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    if (line != null
+                        && line.IndexOf("[ERROR]", System.StringComparison.Ordinal) >= 0)
+                    {
+                        ErrorLines.Add(line);
+                    }
+                    previousObserver?.Invoke(line);
+                };
+                Application.logMessageReceived += HandleUnityLog;
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                    return;
+                disposed = true;
+
+                Application.logMessageReceived -= HandleUnityLog;
+                ParsekLog.TestObserverForTesting = previousObserver;
+            }
+
+            private void HandleUnityLog(string condition, string stackTrace, LogType type)
+            {
+                if (type != LogType.Error && type != LogType.Exception)
+                    return;
+
+                string safeCondition = condition ?? "(null)";
+                string safeStackTrace = stackTrace ?? string.Empty;
+                ErrorLines.Add(type + ": " + safeCondition + " " + safeStackTrace);
+            }
+        }
+    }
+
+    /// <summary>
     /// Tests that require active ghost playback to verify visual and positioning systems.
     /// </summary>
     public class GhostPlaybackTests
