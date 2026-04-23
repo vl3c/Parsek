@@ -312,6 +312,66 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
 
+        [Fact]
+        public void RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch()
+        {
+            LedgerOrchestrator.Initialize();
+            RecordingStore.StashPendingTree(new RecordingTree
+            {
+                Id = "tree-scene-load",
+                TreeName = "SceneLoadTree",
+                RootRecordingId = "rec-scene-load",
+                ActiveRecordingId = "rec-scene-load"
+            });
+
+            LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(100.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("SceneLoadTree"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void HasActionsAfterUT_WhenLaterActionExists_ReturnsTrue()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 250.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f
+            });
+
+            Assert.True(LedgerOrchestrator.HasActionsAfterUT(200.0));
+        }
+
+        [Fact]
+        public void HasActionsAfterUT_WhenAllActionsAreAtOrBeforeThreshold_ReturnsFalse()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f
+            });
+
+            Assert.False(LedgerOrchestrator.HasActionsAfterUT(200.0));
+        }
+
         // ================================================================
         // Multiple recalculations (idempotency)
         // ================================================================

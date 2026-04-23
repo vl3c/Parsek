@@ -4558,6 +4558,46 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
+        private static IEnumerator WaitForCommittedRecording(
+            string recordingId, int committedBefore, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                bool committed = RecordingStore.CommittedRecordings.Any(
+                    r => r != null && r.RecordingId == recordingId);
+                bool countIncreased = RecordingStore.CommittedRecordings.Count > committedBefore;
+                bool stillRecording = ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording;
+                if (committed && countIncreased && !stillRecording)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForCommittedRecording timed out after {timeoutSeconds:F0}s " +
+                $"(recordingId={recordingId ?? "null"}, committedBefore={committedBefore}, " +
+                $"committedNow={RecordingStore.CommittedRecordings.Count}, " +
+                $"isRecording={ParsekFlight.Instance?.IsRecording == true})");
+        }
+
+        private static IEnumerator WaitForCapturedLogLine(
+            List<string> captured, string containsText, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (captured.Any(line => line.Contains(containsText)))
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForCapturedLogLine timed out after {timeoutSeconds:F0}s " +
+                $"(text='{containsText}', captured={captured?.Count ?? 0})");
+        }
+
         private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
         {
             float deadline = Time.time + durationSeconds;
@@ -6225,6 +6265,195 @@ namespace Parsek.InGameTests
             {
                 FlightInputHandler.state.mainThrottle = originalThrottle;
                 ParsekLog.TestObserverForTesting = priorObserver;
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+            }
+        }
+
+        /// <summary>
+        /// Live rewind canary for #527. Commits a real launch recording to get a real
+        /// rewind save, injects future ledger actions, then drives the actual rewind
+        /// load path and asserts the post-rewind FLIGHT follow-up keeps those future
+        /// funds/contracts filtered.
+        /// </summary>
+        [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a real launch recording, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
+            Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
+        public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip("requires a Career-mode FLIGHT save");
+                yield break;
+            }
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can launch, commit, and rewind, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (Funding.Instance == null)
+            {
+                InGameAssert.Skip("Funding.Instance is null — this live rewind cutoff canary needs career funds");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string syntheticLedgerTag = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the rewind canary");
+
+                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the live rewind canary");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 0f;
+                flight.StopRecording();
+                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f);
+
+                Recording committedRecording = RecordingStore.CommittedRecordings.FirstOrDefault(
+                    r => r != null && r.RecordingId == activeRecId);
+                InGameAssert.IsNotNull(committedRecording,
+                    "Stopping the live rewind canary recording should commit it into the timeline");
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
+                    "Committed rewind canary recording must have a rewind save file");
+
+                double fundsBeforeFutureActions = Funding.Instance.Funds;
+                int activeContractsBeforeFutureActions = LedgerOrchestrator.Contracts.GetActiveContractCount();
+
+                syntheticLedgerTag = "ingame-rewind-cutoff-" + System.Guid.NewGuid().ToString("N");
+                string futureContractId = syntheticLedgerTag + "-contract";
+                double futureUT = Planetarium.GetUniversalTime() + 120.0;
+
+                Ledger.AddAction(new GameAction
+                {
+                    UT = futureUT,
+                    Type = GameActionType.ContractAccept,
+                    RecordingId = syntheticLedgerTag,
+                    ContractId = futureContractId,
+                    ContractType = "ParsekRewindCutoffCanary",
+                    ContractTitle = "Parsek Rewind Cutoff Canary",
+                    AdvanceFunds = 321f,
+                    DeadlineUT = (float)(futureUT + 3600.0)
+                });
+                Ledger.AddAction(new GameAction
+                {
+                    UT = futureUT + 1.0,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = syntheticLedgerTag,
+                    MilestoneId = syntheticLedgerTag + "-milestone",
+                    MilestoneFundsAwarded = 654f
+                });
+
+                InGameAssert.IsTrue(
+                    LedgerOrchestrator.HasActionsAfterUT(Planetarium.GetUniversalTime()),
+                    "Injected future ledger actions should sit after the current UT before rewind");
+
+                int previousFlightInstanceId = flight.GetInstanceID();
+                RecordingStore.InitiateRewind(committedRecording);
+
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
+                yield return WaitForCapturedLogLine(
+                    captured,
+                    "post-rewind FLIGHT recalc using current-UT cutoff",
+                    10f);
+                yield return new WaitForSeconds(0.5f);
+
+                InGameAssert.IsNotNull(Funding.Instance,
+                    "Funding.Instance must exist after the live rewind cutoff canary reloads");
+
+                double postFunds = Funding.Instance.Funds;
+                int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
+                bool sawDecisionInputs = captured.Any(
+                    line => line.Contains("post-rewind FLIGHT cutoff decision")
+                        && line.Contains("useCurrentUtCutoff=True")
+                        && line.Contains("hasFutureLedgerActions=True"));
+
+                InGameAssert.IsTrue(
+                    sawDecisionInputs,
+                    "Expected OnLoad to log the post-rewind FLIGHT cutoff decision inputs");
+                InGameAssert.IsTrue(
+                    System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
+                    $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +
+                    $"(before={fundsBeforeFutureActions:F1}, after={postFunds:F1})");
+                InGameAssert.AreEqual(
+                    activeContractsBeforeFutureActions,
+                    postActiveContracts,
+                    "Post-rewind active-contract count should stay at the pre-future baseline");
+                InGameAssert.IsFalse(
+                    LedgerOrchestrator.Contracts.GetActiveContractIds().Contains(futureContractId),
+                    "Future contract should stay filtered until replay catches up");
+
+                ParsekLog.Info("TestRunner",
+                    $"Rewind cutoff runtime: rec='{activeRecId}' fundsBefore={fundsBeforeFutureActions.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"fundsAfter={postFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"activeContractsBefore={activeContractsBeforeFutureActions} activeContractsAfter={postActiveContracts}");
+            }
+            finally
+            {
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                if (!string.IsNullOrEmpty(syntheticLedgerTag))
+                {
+                    try
+                    {
+                        Ledger.RemoveActionsForRecording(syntheticLedgerTag);
+                        if (HighLogic.CurrentGame != null)
+                            LedgerOrchestrator.RecalculateAndPatch();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"Rewind cutoff runtime cleanup failed for synthetic ledger tag '{syntheticLedgerTag}': {ex.Message}");
+                    }
+                }
+
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
                     ParsekFlight.Instance.StopRecording();
             }
