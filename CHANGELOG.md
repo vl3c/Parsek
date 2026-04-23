@@ -15,6 +15,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#526` Timeline FF and other time jumps no longer let the real pad vessel auto-start a bogus launch recording during the jump transient.
+- `#527` Rewind follow-up post-rewind FLIGHT-load recalculations now rebuild career state at the current loaded UT instead of walking the full ledger. The later FLIGHT `OnLoad` pass no longer restores future funds/contracts immediately after rewind; those actions stay filtered until replay reaches their UT again. The cutoff-dispatch log now includes every decision input, the other deferred `ParsekScenario` recalcs were audited as intentional full-ledger non-rewind paths, and a manual-only live rewind canary now exercises the real load flow.
 - `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.
 - `#532` `PatchScience` now holds back recent unmatched `RnDTechResearch` debits when KSP has already deducted science but the matching KSC `TechResearched` action has not landed in the ledger yet, so same-UT tech unlock bursts no longer momentarily refund science back into the pool.
 - `#535` Tracking Station ghost creation now prefers the recording's currently visible orbit segment over any later terminal-orbit tuple, and it only falls back to terminal orbit after that recording has actually reached its own end UT. `KSP.log` now also records each source decision and splits `before-activation` / `before-terminal-orbit` skips out of the startup `noOrbit` bucket, so future-tip suppression is diagnosable instead of looking like generic missing orbit data.
@@ -30,6 +32,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
 - `#534` Added spawned chain-tip restore regressions covering committed-tree ownership, restorable-leaf filtering, multi-tree selection, and the throttled Update-time retry guard.
@@ -57,6 +60,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
+- `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
 
 ## 0.8.3
@@ -143,7 +147,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#527` Rewind follow-up post-rewind FLIGHT-load recalculations now rebuild career state at the current loaded UT instead of walking the full ledger. The later FLIGHT `OnLoad` pass no longer restores future funds/contracts immediately after rewind; those actions stay filtered until replay reaches their UT again. The cutoff-dispatch log now includes every decision input, the other deferred `ParsekScenario` recalcs were audited as intentional full-ledger non-rewind paths, and a manual-only live rewind canary now exercises the real load flow.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

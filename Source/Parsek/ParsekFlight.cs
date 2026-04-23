@@ -30,6 +30,7 @@ namespace Parsek
             SkipBounce,
             SkipNotLaunchTransition,
             SkipDisabled,
+            SkipTimeJumpTransient,
             StartFromPrelaunch,
             StartFromSettledLanded
         }
@@ -4128,6 +4129,11 @@ namespace Parsek
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
             double currentUT = Planetarium.GetUniversalTime();
+            bool suppressLaunchAutoRecordForTimeJump =
+                TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
 
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
@@ -4143,7 +4149,8 @@ namespace Parsek
                 autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
                 lastLandedUt: lastLandedUT,
                 currentUt: currentUT,
-                landedSettleThreshold: LandedSettleThreshold);
+                landedSettleThreshold: LandedSettleThreshold,
+                suppressForTimeJumpTransient: suppressLaunchAutoRecordForTimeJump);
 
             switch (launchDecision)
             {
@@ -4170,6 +4177,13 @@ namespace Parsek
 
                 case AutoRecordLaunchDecision.SkipDisabled:
                     ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                    return;
+
+                case AutoRecordLaunchDecision.SkipTimeJumpTransient:
+                    ParsekLog.Info("Flight",
+                        $"OnVesselSituationChange: suppressing time-jump transient ({data.from} → {data.to}) " +
+                        $"for '{data.host?.vesselName ?? "null"}' frame={Time.frameCount} " +
+                        $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame}");
                     return;
             }
 
@@ -4269,13 +4283,17 @@ namespace Parsek
             bool autoRecordOnLaunchEnabled,
             double lastLandedUt,
             double currentUt,
-            double landedSettleThreshold)
+            double landedSettleThreshold,
+            bool suppressForTimeJumpTransient)
         {
             if (isRecording)
                 return AutoRecordLaunchDecision.SkipAlreadyRecording;
 
             if (!isActiveVessel)
                 return AutoRecordLaunchDecision.SkipInactiveVessel;
+
+            if (suppressForTimeJumpTransient)
+                return AutoRecordLaunchDecision.SkipTimeJumpTransient;
 
             if (fromSituation == Vessel.Situations.PRELAUNCH)
             {

@@ -280,15 +280,19 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump
+## ~~526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump~~
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:32:24-23:32:25. After `Timeline FF button clicked: "x"` and `FastForwardToRecording: jumping to UT=102.9`, the real vessel `r0` is put on rails/unrails for the forward jump. Immediately after, Parsek starts a fresh tree recording on `r0`: `Recording started: vessel="r0"` plus `Auto-record started (PRELAUNCH -> FLYING)`. The new recording seeds `Start location captured: body=Kerbin, biome=Shores, situation=Flying, launchSite=Launch Pad`, then 0.5s later the recorder corrects back to `SurfaceStationary`.
 
 **Concern:** the FF/time-jump path transiently makes the real launchpad vessel look like a `PRELAUNCH -> FLYING` launch transition, so the normal auto-record logic creates a bogus recording even though the vessel is just sitting on the pad. This is a direct regression with a tight repro sequence in the collected package.
 
-**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange` / `EvaluateAutoRecordLaunchDecision`), `Source/Parsek/TimeJumpManager.cs` (forward-jump rails/unrails path), `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`.
+**Fix:** Time-jump launch-auto-record suppression now covers both `ExecuteForwardJump()` and `ExecuteJump()` while the jump is in progress and for a short shared frame-bounded tail afterward. `OnVesselSituationChange()` threads that transient into `EvaluateAutoRecordLaunchDecision()`, logs the skip at `INFO`, and ignores the stock `PRELAUNCH/LANDED -> FLYING` callback instead of starting a new tree recording on the real pad vessel. Added headless coverage for the shared suppression boundary plus an isolated FLIGHT canary that fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no auto-record starts.
 
-**Status:** OPEN. Repro captured in-package.
+**Resolution (2026-04-23):** CLOSED for v0.9.0. Investigation confirmed the bogus recording was coming from stock time-jump situation-change noise, not from post-switch auto-record or playback spawn ownership. Follow-up hardening widened the initial proof-of-concept from a 2-frame FF-only window into one shared frame-bounded suppression path for both Timeline FF and Real Spawn Control jumps, so earlier-save loads cannot resurrect stale suppression and normal launches stay unchanged outside the jump transient.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange` / `EvaluateAutoRecordLaunchDecision`), `Source/Parsek/TimeJumpManager.cs` (shared Timeline FF / Real Spawn Control jump suppression), `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
 
 ---
 
