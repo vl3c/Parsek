@@ -793,7 +793,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #550 fix
+## ~~555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #550 fix~~
 
 **Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#550` investigation.
 
@@ -808,7 +808,11 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
 
-**Status:** TODO. Medium priority observability cleanup.
+**Resolution:** Added first-occurrence plus aggregate Tracking Station orbit-source diagnostics for visible segment, terminal orbit, endpoint conflict, already-materialized suppression, and repeated no-orbit skip buckets. Endpoint-aligned seed resolution now carries diagnostic metadata, ProtoVessel creation logs include orbit-source detail, and visible-window fallback logs share rate-limited keys.
+
+**Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter GhostMapPresenceTests`.
+
+**Status:** CLOSED in `#555`.
 
 ---
 

@@ -1148,7 +1148,10 @@ namespace Parsek.Tests
         {
             var rec = new Recording
             {
+                RecordingId = "already-spawned",
+                VesselName = "Already Spawned",
                 VesselSpawned = true,
+                SpawnedVesselPersistentId = 424242,
                 TerminalOrbitBody = "Kerbin",
                 TerminalOrbitSemiMajorAxis = 700000,
                 TerminalStateValue = TerminalState.Orbiting
@@ -1156,6 +1159,12 @@ namespace Parsek.Tests
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
             Assert.False(should);
             Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("reason=already-spawned") &&
+                l.Contains("vesselSpawned=True") &&
+                l.Contains("spawnedPid=424242"));
         }
 
         /// <summary>
@@ -1296,6 +1305,7 @@ namespace Parsek.Tests
                 l.Contains("[GhostMap]") &&
                 l.Contains("ResolveTrackingStationGhostSource") &&
                 l.Contains("source=Segment") &&
+                l.Contains("orbitSource=visible-segment") &&
                 l.Contains("segmentBody=Kerbin"));
         }
 
@@ -1367,6 +1377,8 @@ namespace Parsek.Tests
                 l.Contains("[GhostMap]") &&
                 l.Contains("ResolveTrackingStationGhostSource") &&
                 l.Contains("source=TerminalOrbit") &&
+                l.Contains("orbitSource=terminal-orbit") &&
+                l.Contains("seedSource=") &&
                 l.Contains("terminalBody=Mun"));
         }
 
@@ -1421,6 +1433,71 @@ namespace Parsek.Tests
                     l.Contains("beforeActivation=1") &&
                     l.Contains("beforeTerminalOrbit=1") &&
                     l.Contains("noOrbit=1"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+                ParsekSettingsPersistence.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// Repeated startup skips should keep one detailed sample and aggregate the rest.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_AggregatesRepeatedSkipReasons()
+        {
+            GhostMapPresence.CurrentUTNow = () => 500.0;
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+
+            try
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    RecordingStore.AddCommittedInternal(new Recording
+                    {
+                        RecordingId = "no-orbit-" + i,
+                        VesselName = "No Orbit " + i,
+                        TerminalStateValue = null
+                    });
+                }
+
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "spawned",
+                    VesselName = "Spawned Vessel",
+                    VesselSpawned = true,
+                    SpawnedVesselPersistentId = 424242,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000,
+                    TerminalStateValue = TerminalState.Orbiting
+                });
+
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+                Assert.Equal(0, created);
+                int detailedNoOrbitLines = 0;
+                foreach (string line in logLines)
+                {
+                    if (line.Contains("Tracking-station orbit source") &&
+                        line.Contains("reason=no-orbit-data"))
+                    {
+                        detailedNoOrbitLines++;
+                    }
+                }
+
+                Assert.Equal(1, detailedNoOrbitLines);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("Tracking-station orbit-source summary") &&
+                    l.Contains("skip-no-orbit-data=3") &&
+                    l.Contains("skip-already-spawned=1"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 4 recordings") &&
+                    l.Contains("spawned=1") &&
+                    l.Contains("noOrbit=3"));
             }
             finally
             {
@@ -1697,7 +1774,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldCreate_TerminalOrbitWithComputedConflictingEndpoint_SkippedAsUnseedable()
+        public void ShouldCreate_TerminalOrbitWithComputedConflictingEndpoint_SkippedAsEndpointConflict()
         {
             var rec = new Recording
             {
@@ -1714,7 +1791,13 @@ namespace Parsek.Tests
             var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
 
             Assert.False(should);
-            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipUnseedableTerminalOrbit, reason);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipEndpointConflict, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") &&
+                l.Contains("ResolveTrackingStationGhostSource") &&
+                l.Contains("reason=endpoint-conflict") &&
+                l.Contains("seedFailure=endpoint-conflict") &&
+                l.Contains("endpointBody=Mun"));
         }
 
         #endregion
@@ -1746,7 +1829,8 @@ namespace Parsek.Tests
                 out double argumentOfPeriapsis,
                 out double meanAnomalyAtEpoch,
                 out double epoch,
-                out string bodyName));
+                out string bodyName,
+                out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
             Assert.Equal("Kerbin", bodyName);
             Assert.Equal(700000.0, semiMajorAxis, 10);
@@ -1756,6 +1840,8 @@ namespace Parsek.Tests
             Assert.Equal(5.0, argumentOfPeriapsis, 10);
             Assert.Equal(0.6, meanAnomalyAtEpoch, 10);
             Assert.Equal(200.0, epoch, 10);
+            Assert.Equal("terminal-orbit", diagnostics.Source);
+            Assert.Equal("no-endpoint-body", diagnostics.FallbackReason);
         }
 
         [Fact]
@@ -1826,7 +1912,37 @@ namespace Parsek.Tests
                 out _,
                 out _,
                 out _,
-                out _));
+                out _,
+                out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
+            Assert.Equal("endpoint-conflict", diagnostics.FailureReason);
+            Assert.Equal("Mun", diagnostics.EndpointBodyName);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedOrbitSeed_ConflictingEndpoint_ReportsEndpointConflict()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun"
+            };
+
+            Assert.False(RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics diagnostics));
+            Assert.Equal("none", diagnostics.Source);
+            Assert.Equal("Mun", diagnostics.EndpointBodyName);
+            Assert.Equal("endpoint-conflict", diagnostics.FailureReason);
         }
 
         #endregion
