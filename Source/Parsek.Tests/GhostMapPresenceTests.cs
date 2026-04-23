@@ -1314,7 +1314,7 @@ namespace Parsek.Tests
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 1000, bodyName = "Mun" }
                 }
             };
 
@@ -1349,7 +1349,7 @@ namespace Parsek.Tests
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 1000, bodyName = "Mun" }
                 }
             };
 
@@ -1696,9 +1696,67 @@ namespace Parsek.Tests
             Assert.True(should);
         }
 
+        [Fact]
+        public void ShouldCreate_TerminalOrbitWithComputedConflictingEndpoint_SkippedAsUnseedable()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting,
+                ExplicitEndUT = 200,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200, bodyName = "Mun", latitude = 1, longitude = 2, altitude = 3000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+
+            Assert.False(should);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipUnseedableTerminalOrbit, reason);
+        }
+
         #endregion
 
         #region Endpoint-Aligned Orbit Seeds
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_TerminalOrbitOnly_UsesTerminalSeed()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+                TerminalOrbitEccentricity = 0.01,
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitLAN = 4.0,
+                TerminalOrbitArgumentOfPeriapsis = 5.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.6,
+                TerminalOrbitEpoch = 200.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            Assert.True(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Kerbin", bodyName);
+            Assert.Equal(700000.0, semiMajorAxis, 10);
+            Assert.Equal(0.01, eccentricity, 10);
+            Assert.Equal(3.0, inclination, 10);
+            Assert.Equal(4.0, lan, 10);
+            Assert.Equal(5.0, argumentOfPeriapsis, 10);
+            Assert.Equal(0.6, meanAnomalyAtEpoch, 10);
+            Assert.Equal(200.0, epoch, 10);
+        }
 
         [Fact]
         public void TryResolveGhostProtoOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed()

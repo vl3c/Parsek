@@ -35,6 +35,7 @@ namespace Parsek
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
+        internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
@@ -1220,13 +1221,35 @@ namespace Parsek
                     string.Format(ic, "endUT={0:F1}", rec.EndUT));
             }
 
+            if (!TryResolveGhostProtoOrbitSeed(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out string seedBodyName))
+            {
+                skipReason = TrackingStationGhostSkipUnseedableTerminalOrbit;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic,
+                        "terminalBody={0} endUT={1:F1} no endpoint-aligned orbit seed",
+                        rec.TerminalOrbitBody ?? "(null)",
+                        rec.EndUT));
+            }
+
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
                 skipReason,
                 string.Format(ic,
-                    "terminalBody={0} endUT={1:F1}",
+                    "terminalBody={0} endUT={1:F1} seedBody={2}",
                     rec.TerminalOrbitBody ?? "(null)",
-                    rec.EndUT));
+                    rec.EndUT,
+                    seedBodyName ?? "(null)"));
         }
 
         /// <summary>
@@ -1745,7 +1768,21 @@ namespace Parsek
             out double epoch,
             out string bodyName)
         {
-            return RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+            if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName))
+            {
+                return true;
+            }
+
+            return TryResolveTerminalOrbitGhostSeed(
                 traj,
                 out inclination,
                 out eccentricity,
@@ -1755,6 +1792,69 @@ namespace Parsek
                 out meanAnomalyAtEpoch,
                 out epoch,
                 out bodyName);
+        }
+
+        private static bool TryResolveTerminalOrbitGhostSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+
+            if (traj == null
+                || string.IsNullOrEmpty(traj.TerminalOrbitBody)
+                || traj.TerminalOrbitSemiMajorAxis <= 0.0)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(traj.EndpointBodyName)
+                && traj.EndpointPhase != RecordingEndpointPhase.Unknown
+                && !string.Equals(traj.EndpointBodyName, traj.TerminalOrbitBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (RecordingEndpointResolver.TryGetPreferredEndpointBodyName(traj, out string endpointBodyName)
+                && !string.IsNullOrEmpty(endpointBodyName)
+                && !string.Equals(endpointBodyName, traj.TerminalOrbitBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (traj.TerminalStateValue.HasValue)
+            {
+                TerminalState terminalState = traj.TerminalStateValue.Value;
+                if (terminalState != TerminalState.Orbiting
+                    && terminalState != TerminalState.SubOrbital
+                    && terminalState != TerminalState.Docked)
+                {
+                    return false;
+                }
+            }
+
+            inclination = traj.TerminalOrbitInclination;
+            eccentricity = traj.TerminalOrbitEccentricity;
+            semiMajorAxis = traj.TerminalOrbitSemiMajorAxis;
+            lan = traj.TerminalOrbitLAN;
+            argumentOfPeriapsis = traj.TerminalOrbitArgumentOfPeriapsis;
+            meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch;
+            epoch = traj.TerminalOrbitEpoch;
+            bodyName = traj.TerminalOrbitBody;
+            return true;
         }
 
         private static Vessel BuildAndLoadGhostProtoVesselCore(
@@ -1861,7 +1961,7 @@ namespace Parsek
                         "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6} " +
                         "mapObj={7} orbitRenderer={8} scene={9}",
                         vesselName, v.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState,
+                        vtype, body.name, orbit.semiMajorAxis, logContext, driverState,
                         v.mapObject != null, v.orbitRenderer != null,
                         HighLogic.LoadedScene));
 

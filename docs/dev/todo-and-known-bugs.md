@@ -685,6 +685,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~550. Tracking Station ghost selection can leave a stale stock vessel as the private fly target~~
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and `persistent.sfs`. The session created `Learstar A1` correctly as a real `Plane` in Kerbol orbit (`SpawnAtPosition ... pid=3517645340, body=Sun`), but the later Tracking Station fly path loaded stock asteroid `Ast. QME-914` (`persistentId=2902671035`, `type=SpaceObject`, `PotatoRoid`) instead.
+
+**Concern:** `SpaceTracking.BtnOnClick_FlySelectedVessel()` flies KSP's private `selectedVessel`. Parsek blocked ghost `SetVessel` calls and disabled the visible buttons, but did not clear that private field, so a previous stock asteroid/comet selection could survive behind the ghost focus flow and become the eventual fly target. The same log package also showed repeated terminal-orbit ghost creation failures for unseedable records and misleading segment-ghost creation lines that printed the recording terminal SMA rather than the actual segment orbit SMA.
+
+**Fix:** ghost Fly/Delete/Recover/SetVessel blocks now clear the Tracking Station `selectedVessel` field before returning, and the blocked `SetVessel` log records whether a previous selection was cleared. Tracking Station terminal-orbit ghosts now pass through the same endpoint-aligned orbit-seed gate before creation, while terminal-orbit-only recordings can seed from their own terminal orbit when there is no conflicting endpoint evidence. Segment ghost creation logs now print the actual ProtoVessel orbit SMA.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
 ## ~~552. Vessel recovery funds can log a false missing-pair warning when stock delivers the funds event after recovery~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows `OnVesselRecoveryFunds` warning at `18:23:16.943` because no paired `FundsChanged(VesselRecovery)` was found yet, then the actual `FundsChanged` recovery event arrived at `18:23:16.961`, within the intended pairing window.

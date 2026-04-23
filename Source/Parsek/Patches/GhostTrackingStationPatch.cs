@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using KSP.UI.Screens;
 
@@ -87,6 +88,10 @@ namespace Parsek.Patches
             ParsekLog.Info("GhostMap",
                 $"Blocked FlyVessel for ghost '{v.vesselName}' pid={v.persistentId}");
 
+            GhostTrackingStationSelection.TryClearSelectedVessel(__instance, out _, out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn("GhostMap", $"Failed to clear Tracking Station ghost selection after Fly block: {clearError}");
+
             // Release the input lock that selecting the vessel may have set.
             // The original FlyVessel transitions to flight scene (clearing locks implicitly).
             // Since we skip the original, we must dismiss ourselves to avoid trapping
@@ -118,6 +123,10 @@ namespace Parsek.Patches
                 5f, ScreenMessageStyle.UPPER_CENTER);
             ParsekLog.Info("GhostMap",
                 $"Blocked Delete for ghost '{selected.vesselName}' pid={selected.persistentId}");
+
+            GhostTrackingStationSelection.TryClearSelectedVessel(__instance, out _, out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn("GhostMap", $"Failed to clear Tracking Station ghost selection after Delete block: {clearError}");
 
             // Release the input lock that the confirmation dialog set.
             // The original OnVesselDeleteConfirm calls OnDialogDismiss which unlocks UI.
@@ -152,8 +161,13 @@ namespace Parsek.Patches
             __instance.DeleteButton.interactable = false;
             __instance.RecoverButton.interactable = false;
 
+            bool cleared = GhostTrackingStationSelection.TryClearSelectedVessel(__instance, out object previousSelection, out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn("GhostMap", $"Failed to clear Tracking Station ghost selection after SetVessel block: {clearError}");
+
             ParsekLog.Info("GhostMap",
-                $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station");
+                $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station " +
+                $"clearedSelection={cleared} hadPreviousSelection={previousSelection != null}");
             return false;
         }
     }
@@ -179,9 +193,46 @@ namespace Parsek.Patches
             ParsekLog.Info("GhostMap",
                 $"Blocked Recover for ghost '{selected.vesselName}' pid={selected.persistentId}");
 
+            GhostTrackingStationSelection.TryClearSelectedVessel(__instance, out _, out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn("GhostMap", $"Failed to clear Tracking Station ghost selection after Recover block: {clearError}");
+
             // Release input lock (same reason as Delete patch above)
             Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
             return false;
+        }
+    }
+
+    internal static class GhostTrackingStationSelection
+    {
+        internal static bool TryClearSelectedVessel(object trackingInstance, out object previousSelection, out string error)
+        {
+            previousSelection = null;
+            error = null;
+
+            if (trackingInstance == null)
+                return false;
+
+            try
+            {
+                FieldInfo selectedField = trackingInstance.GetType().GetField(
+                    "selectedVessel",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (selectedField == null)
+                {
+                    error = "selectedVessel field not found";
+                    return false;
+                }
+
+                previousSelection = selectedField.GetValue(trackingInstance);
+                selectedField.SetValue(trackingInstance, null);
+                return previousSelection != null;
+            }
+            catch (Exception ex)
+            {
+                error = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
         }
     }
 }

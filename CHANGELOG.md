@@ -115,6 +115,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#550` Tracking Station ghost clicks now clear KSP's private selected-vessel field before blocking Fly/Delete/Recover, so a stale asteroid/comet selection cannot be flown after focusing a materialized Parsek vessel. Tracking Station terminal-orbit ghosts also require an endpoint-aligned orbit seed before creation, terminal-orbit-only records can seed from their own terminal orbit when there is no conflicting endpoint evidence, and ghost creation logs now report the actual ProtoVessel orbit SMA for segment ghosts.
 - `#552` Vessel recovery funds now tolerate stock firing `onVesselRecovered` before the paired `FundsChanged(VesselRecovery)` event. Parsek defers the recovery request and pairs it when the funds event arrives, preferring vessel-name matches over nearest-UT, warning on ambiguous ties, and evicting unclaimed requests on scene switches, rewind boundaries, and save loads.
 - `#553` Untagged lifecycle events (contract accept/complete/fail/cancel, tech, part purchase, crew hire, milestone, strategy activate/deactivate, facility upgrade) now forward directly to the ledger even in FLIGHT, so launch-site events that occur before any Parsek recording owner exists do not get stranded only in `GameStateStore`. Tagged FLIGHT teardown events remain protected by the non-empty recording tag gate.
 - `#557` Initial science and reputation seeds now prefer captured game-state baselines (including legitimate zero values) over live KSP singleton balances. A zero seed is now authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
@@ -123,6 +124,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#550` Added headless coverage for Tracking Station private-selection clearing, terminal-orbit-only ghost seed resolution, and the conflicting-endpoint skip that prevents repeated unseedable terminal-orbit ghost creation attempts.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.
 - `#553` Added direct-ledger forwarding predicate coverage for tagged teardown suppression, untagged KSC events, and untagged pre-recording FLIGHT events across tech, part-purchase, crew-hire, milestone, strategy activate/deactivate, and facility upgrade handlers, plus an evt.recordingId-vs-resolver drift test.
 - `#557` Added a rewind cutoff regression based on the April 23 log package shape: funds stay on the seed-minus-rollout path, while zero baseline science/reputation remain zero even when future science earnings, tech spending, and reputation milestones exist later in the ledger.
