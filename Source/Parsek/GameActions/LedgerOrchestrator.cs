@@ -1517,8 +1517,13 @@ namespace Parsek
                 // live in-tier best value because that finer-grained partial progress is not
                 // persisted in the ledger.
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+                var targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
+                    GameStateStore.Baselines,
+                    actions,
+                    utCutoff);
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
+                    targetTechIds,
                     authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
             }
 

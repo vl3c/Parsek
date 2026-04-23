@@ -154,6 +154,149 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void BuildTargetTechIdsForPatch_RewindCutoffUsesPastBaselineOnly()
+        {
+            var baselines = new List<GameStateBaseline>
+            {
+                MakeTechBaseline(0.0, "start"),
+                MakeTechBaseline(108.97003112793047, "start"),
+                MakeTechBaseline(251.32699401860728, "start", "basicRocketry", "engineering101")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 124.43003112792739,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "basicRocketry",
+                    Affordable = true
+                },
+                new GameAction
+                {
+                    UT = 124.43003112792739,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "engineering101",
+                    Affordable = true
+                }
+            };
+
+            var target = KspStatePatcher.BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff: 49.420000000004322);
+
+            Assert.NotNull(target);
+            Assert.Single(target);
+            Assert.Contains("start", target);
+            Assert.DoesNotContain("basicRocketry", target);
+            Assert.DoesNotContain("engineering101", target);
+        }
+
+        [Fact]
+        public void BuildTargetTechIdsForPatch_CutoffAddsAffordableSpendingsAfterSelectedBaseline()
+        {
+            var baselines = new List<GameStateBaseline>
+            {
+                MakeTechBaseline(0.0, "start"),
+                MakeTechBaseline(108.97003112793047, "start"),
+                MakeTechBaseline(251.32699401860728, "start", "basicRocketry", "engineering101")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 124.43003112792739,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "basicRocketry",
+                    Affordable = true
+                },
+                new GameAction
+                {
+                    UT = 124.43003112792739,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "engineering101",
+                    Affordable = true
+                },
+                new GameAction
+                {
+                    UT = 140.0,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "futureTech",
+                    Affordable = true
+                }
+            };
+
+            var target = KspStatePatcher.BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff: 130.0);
+
+            Assert.NotNull(target);
+            Assert.Equal(3, target.Count);
+            Assert.Contains("start", target);
+            Assert.Contains("basicRocketry", target);
+            Assert.Contains("engineering101", target);
+            Assert.DoesNotContain("futureTech", target);
+        }
+
+        [Fact]
+        public void BuildTargetTechIdsForPatch_IgnoresUnaffordableScienceSpending()
+        {
+            var baselines = new List<GameStateBaseline>
+            {
+                MakeTechBaseline(0.0, "start")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 20.0,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "basicRocketry",
+                    Affordable = false
+                }
+            };
+
+            var target = KspStatePatcher.BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff: 25.0);
+
+            Assert.NotNull(target);
+            Assert.Single(target);
+            Assert.Contains("start", target);
+            Assert.DoesNotContain("basicRocketry", target);
+        }
+
+        [Fact]
+        public void AddPurchasedPartsForTech_AddsLoadedPartsMatchingTechAndDedups()
+        {
+            var proto = new ProtoTechNode
+            {
+                techID = "basicRocketry",
+                partsPurchased = new List<AvailablePart>()
+            };
+            var booster = new AvailablePart { name = "solidBooster.sm", TechRequired = "basicRocketry" };
+            var ignored = new AvailablePart { name = "mk1pod.v2", TechRequired = "start" };
+
+            int added = KspStatePatcher.AddPurchasedPartsForTech(
+                proto,
+                "basicRocketry",
+                new[] { booster, ignored, booster });
+
+            Assert.Equal(1, added);
+            var purchased = Assert.Single(proto.partsPurchased);
+            Assert.Same(booster, purchased);
+        }
+
+        private static GameStateBaseline MakeTechBaseline(double ut, params string[] techIds)
+        {
+            var baseline = new GameStateBaseline { ut = ut };
+            baseline.researchedTechIds.AddRange(techIds);
+            return baseline;
+        }
+
         // ================================================================
         // PatchFunds — null singleton
         // ================================================================
