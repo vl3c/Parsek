@@ -7994,6 +7994,32 @@ namespace Parsek
                 return false;
             }
 
+            // The recording we're about to resume carries VesselSpawned=true and a
+            // non-zero SpawnedVesselPersistentId from its prior commit (set by the KSC
+            // adoption path). While the tree was committed, those flags correctly meant
+            // "a real vessel already represents this recording". Now the tree is live
+            // again and will be re-committed at next scene exit; the merge dialog's
+            // CanPersistVessel → ShouldSpawnAtRecordingEnd chain reads VesselSpawned
+            // as "already spawned, don't persist again" and defaults the leaf to
+            // ghost-only, which nulls the VesselSnapshot at commit time. Subsequent
+            // KSC spawns then skip with "no vessel snapshot". Clearing the flags here
+            // lets the next commit re-evaluate spawn eligibility from scratch; the KSC
+            // adoption path will re-establish VesselSpawned=true after the commit if
+            // the source vessel still exists.
+            if (committedTree.Recordings != null
+                && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
+                && resumedRec != null
+                && (resumedRec.VesselSpawned || resumedRec.SpawnedVesselPersistentId != 0))
+            {
+                uint priorSpawnedPid = resumedRec.SpawnedVesselPersistentId;
+                resumedRec.VesselSpawned = false;
+                resumedRec.SpawnedVesselPersistentId = 0;
+                ParsekLog.Info("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on " +
+                    $"resumed recording '{targetRecordingId}' (wasSpawnedPid={priorSpawnedPid}) so the " +
+                    $"next commit re-evaluates persist eligibility instead of defaulting to ghost-only");
+            }
+
             tree = committedTree;
             recordingId = targetRecordingId;
             action = preparedAction;

@@ -487,6 +487,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsOnResumedRecording()
+        {
+            // Regression for v0.8.3 post-fix playtest: after the detach-for-resume
+            // lands a committed tree back into the active slot, the target recording's
+            // prior-commit VesselSpawned / SpawnedVesselPersistentId must be cleared.
+            // Otherwise the merge dialog's CanPersistVessel → ShouldSpawnAtRecordingEnd
+            // chain sees "already spawned (VesselSpawned=true)" and defaults the leaf
+            // to ghost-only, which nulls the VesselSnapshot at commit time and breaks
+            // subsequent KSC spawns with "no vessel snapshot".
+            var tree = MakeTree("rec_resume");
+            tree.Id = "tree_clear_flags";
+            tree.RootRecordingId = "rec_resume";
+            tree.ActiveRecordingId = "rec_resume";
+
+            tree.Recordings["rec_resume"].TreeId = tree.Id;
+            tree.Recordings["rec_resume"].VesselPersistentId = 12345;
+            tree.Recordings["rec_resume"].VesselSpawned = true;
+            tree.Recordings["rec_resume"].SpawnedVesselPersistentId = 12345;
+            tree.Recordings["rec_resume"].TerminalStateValue = TerminalState.Landed;
+
+            AddTreeToCommittedStore(tree);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                activeVesselPid: 12345,
+                out RecordingTree liveTree,
+                out string matchedRecordingId,
+                out ParsekFlight.CommittedSpawnedVesselRestoreAction action);
+
+            Assert.True(taken);
+            Assert.Equal("rec_resume", matchedRecordingId);
+            Assert.Equal(
+                ParsekFlight.CommittedSpawnedVesselRestoreAction.ResumeActiveRecording,
+                action);
+
+            Recording resumed = liveTree.Recordings["rec_resume"];
+            Assert.False(resumed.VesselSpawned,
+                "VesselSpawned must reset on detach so CanPersistVessel returns true at re-commit.");
+            Assert.Equal(0u, resumed.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
         public void IsCommittedSpawnedRecordingRestorable_RejectsTerminalStates()
         {
             TerminalState[] blockedStates =
