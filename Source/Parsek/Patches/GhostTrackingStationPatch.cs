@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using HarmonyLib;
@@ -6,6 +7,218 @@ using KSP.UI.Screens;
 
 namespace Parsek.Patches
 {
+    internal enum TrackingStationGhostActionKind
+    {
+        Focus,
+        SetTarget,
+        ShowRecording,
+        Materialize,
+        Fly,
+        Delete,
+        Recover
+    }
+
+    internal enum TrackingStationGhostActionSafety
+    {
+        SafeOnGhost,
+        SafeWhenEligible,
+        SafeOnlyAfterMaterialization,
+        BlockedOnGhost
+    }
+
+    internal readonly struct TrackingStationGhostActionState
+    {
+        internal TrackingStationGhostActionState(
+            TrackingStationGhostActionKind kind,
+            string label,
+            TrackingStationGhostActionSafety safety,
+            bool enabled,
+            string reason)
+        {
+            Kind = kind;
+            Label = label ?? string.Empty;
+            Safety = safety;
+            Enabled = enabled;
+            Reason = reason ?? string.Empty;
+        }
+
+        internal TrackingStationGhostActionKind Kind { get; }
+        internal string Label { get; }
+        internal TrackingStationGhostActionSafety Safety { get; }
+        internal bool Enabled { get; }
+        internal string Reason { get; }
+    }
+
+    internal readonly struct TrackingStationGhostActionContext
+    {
+        internal TrackingStationGhostActionContext(
+            bool hasGhostVessel,
+            bool canFocus,
+            bool canSetTarget,
+            int recordingIndex,
+            bool hasRecording,
+            bool materializeEligible,
+            string materializeReason,
+            bool alreadyMaterialized)
+        {
+            HasGhostVessel = hasGhostVessel;
+            CanFocus = canFocus;
+            CanSetTarget = canSetTarget;
+            RecordingIndex = recordingIndex;
+            HasRecording = hasRecording;
+            MaterializeEligible = materializeEligible;
+            MaterializeReason = materializeReason;
+            AlreadyMaterialized = alreadyMaterialized;
+        }
+
+        internal bool HasGhostVessel { get; }
+        internal bool CanFocus { get; }
+        internal bool CanSetTarget { get; }
+        internal int RecordingIndex { get; }
+        internal bool HasRecording { get; }
+        internal bool MaterializeEligible { get; }
+        internal string MaterializeReason { get; }
+        internal bool AlreadyMaterialized { get; }
+    }
+
+    internal static class TrackingStationGhostActionPresentation
+    {
+        internal static TrackingStationGhostActionState[] BuildActionStates(
+            TrackingStationGhostActionContext context)
+        {
+            bool hasRecording = context.RecordingIndex >= 0 && context.HasRecording;
+            bool canMaterialize = hasRecording
+                && context.MaterializeEligible
+                && !context.AlreadyMaterialized;
+
+            return new[]
+            {
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.Focus,
+                    "Focus",
+                    TrackingStationGhostActionSafety.SafeOnGhost,
+                    context.HasGhostVessel && context.CanFocus,
+                    context.HasGhostVessel && context.CanFocus
+                        ? "Center the Tracking Station camera on this ghost."
+                        : "Tracking Station camera or ghost map object is not ready."),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.SetTarget,
+                    "Target",
+                    TrackingStationGhostActionSafety.SafeOnGhost,
+                    context.HasGhostVessel && context.CanSetTarget,
+                    context.HasGhostVessel && context.CanSetTarget
+                        ? "Set this ghost as the navigation target."
+                        : "Targeting is not available in the current Tracking Station state."),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.ShowRecording,
+                    "Recording",
+                    TrackingStationGhostActionSafety.SafeOnGhost,
+                    hasRecording,
+                    hasRecording
+                        ? "Open the owning recording details."
+                        : "This chain ghost has no direct committed recording row."),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.Materialize,
+                    "Materialize",
+                    TrackingStationGhostActionSafety.SafeWhenEligible,
+                    canMaterialize,
+                    DescribeMaterializeReason(context, hasRecording)),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.Fly,
+                    "Fly",
+                    TrackingStationGhostActionSafety.SafeOnlyAfterMaterialization,
+                    false,
+                    "Blocked on ghosts; materialize the recording before using stock Fly."),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.Delete,
+                    "Delete",
+                    TrackingStationGhostActionSafety.BlockedOnGhost,
+                    false,
+                    "Blocked on ghosts; they are removed automatically when the chain resolves."),
+
+                new TrackingStationGhostActionState(
+                    TrackingStationGhostActionKind.Recover,
+                    "Recover",
+                    TrackingStationGhostActionSafety.BlockedOnGhost,
+                    false,
+                    "Blocked on ghosts; recover the real vessel after materialization.")
+            };
+        }
+
+        private static string DescribeMaterializeReason(
+            TrackingStationGhostActionContext context,
+            bool hasRecording)
+        {
+            if (!hasRecording)
+                return "No committed recording is attached to this ghost.";
+            if (context.AlreadyMaterialized)
+                return "The owning recording is already materialized.";
+            if (context.MaterializeEligible)
+                return "Spawn the recorded vessel at its resolved Tracking Station endpoint.";
+
+            switch (context.MaterializeReason)
+            {
+                case GhostMapPresence.TrackingStationSpawnSkipBeforeEnd:
+                    return "Recording has not reached its endpoint yet.";
+                case GhostMapPresence.TrackingStationSpawnSkipRewindPending:
+                    return "Waiting for the pending rewind UT adjustment.";
+                case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
+                case GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink:
+                    return "Intermediate chain segments materialize through their chain tip.";
+                case GhostMapPresence.TrackingStationSpawnSkipTerminatedGhostChain:
+                    return "Terminated ghost chains do not materialize.";
+                case null:
+                case "":
+                    return "Recording is not eligible to materialize yet.";
+                default:
+                    return "Materialize blocked: " + context.MaterializeReason;
+            }
+        }
+    }
+
+    internal readonly struct TrackingStationGhostSelectionInfo
+    {
+        internal TrackingStationGhostSelectionInfo(
+            uint ghostPid,
+            string vesselName,
+            int recordingIndex,
+            string recordingId,
+            double startUT,
+            double endUT,
+            TerminalState? terminalState,
+            bool vesselSpawned,
+            uint spawnedVesselPersistentId,
+            bool hasRecording)
+        {
+            GhostPid = ghostPid;
+            VesselName = vesselName ?? "Ghost";
+            RecordingIndex = recordingIndex;
+            RecordingId = recordingId;
+            StartUT = startUT;
+            EndUT = endUT;
+            TerminalState = terminalState;
+            VesselSpawned = vesselSpawned;
+            SpawnedVesselPersistentId = spawnedVesselPersistentId;
+            HasRecording = hasRecording;
+        }
+
+        internal uint GhostPid { get; }
+        internal string VesselName { get; }
+        internal int RecordingIndex { get; }
+        internal string RecordingId { get; }
+        internal double StartUT { get; }
+        internal double EndUT { get; }
+        internal TerminalState? TerminalState { get; }
+        internal bool VesselSpawned { get; }
+        internal uint SpawnedVesselPersistentId { get; }
+        internal bool HasRecording { get; }
+    }
+
     /// <summary>
     /// Prevents tracking station actions (Fly, Delete, Recover) on ghost map ProtoVessels.
     /// Ghost vessels are transient map-presence objects — they cannot be flown, deleted, or recovered.
@@ -277,6 +490,7 @@ namespace Parsek.Patches
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
 
+            GhostTrackingStationSelection.SelectGhost(v, "Fly block");
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost vessel — it will materialize when its timeline reaches the spawn point.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
@@ -312,6 +526,7 @@ namespace Parsek.Patches
             if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
                 return true;
 
+            GhostTrackingStationSelection.SelectGhost(selected, "Delete block");
             ScreenMessages.PostScreenMessage(
                 $"<b>{selected.vesselName}</b> is a ghost vessel and cannot be deleted. " +
                 "It will be removed automatically when its chain resolves.",
@@ -346,6 +561,7 @@ namespace Parsek.Patches
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
 
+            GhostTrackingStationSelection.SelectGhost(v, "SetVessel block");
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
@@ -365,6 +581,21 @@ namespace Parsek.Patches
                 $"clearedSelection={cleared} hadPreviousSelection={previousSelection != null}");
             return false;
         }
+
+        static void Postfix(Vessel v)
+        {
+            if (v == null)
+            {
+                GhostTrackingStationSelection.ClearSelectedGhost("stock SetVessel(null)");
+                return;
+            }
+
+            if (!GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            {
+                GhostTrackingStationSelection.ClearSelectedGhost(
+                    $"stock SetVessel '{v.vesselName}' pid={v.persistentId}");
+            }
+        }
     }
 
     [HarmonyPatch(typeof(SpaceTracking), "OnRecoverConfirm")]
@@ -381,6 +612,7 @@ namespace Parsek.Patches
             if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
                 return true;
 
+            GhostTrackingStationSelection.SelectGhost(selected, "Recover block");
             ScreenMessages.PostScreenMessage(
                 $"<b>{selected.vesselName}</b> is a ghost vessel and cannot be recovered. " +
                 "It will be removed automatically when its chain resolves.",
@@ -400,6 +632,128 @@ namespace Parsek.Patches
 
     internal static class GhostTrackingStationSelection
     {
+        private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        private static TrackingStationGhostSelectionInfo selectedGhost;
+        private static bool hasSelectedGhost;
+
+        internal static bool HasSelectedGhost => hasSelectedGhost;
+
+        internal static TrackingStationGhostSelectionInfo SelectedGhost => selectedGhost;
+
+        internal static void SelectGhost(Vessel vessel, string source)
+        {
+            if (vessel == null)
+                return;
+
+            int recordingIndex = GhostMapPresence.FindRecordingIndexByVesselPid(vessel.persistentId);
+            string recordingId = GhostMapPresence.FindRecordingIdByVesselPid(vessel.persistentId);
+            Recording rec = TryGetRecording(recordingId, recordingIndex);
+            if (string.IsNullOrEmpty(recordingId))
+                recordingId = rec?.RecordingId;
+            selectedGhost = new TrackingStationGhostSelectionInfo(
+                vessel.persistentId,
+                vessel.vesselName,
+                recordingIndex,
+                recordingId,
+                rec != null ? rec.StartUT : double.NaN,
+                rec != null ? rec.EndUT : double.NaN,
+                rec?.TerminalStateValue,
+                rec != null && rec.VesselSpawned,
+                rec != null ? rec.SpawnedVesselPersistentId : 0u,
+                rec != null);
+            hasSelectedGhost = true;
+
+            ParsekLog.Info("GhostMap",
+                string.Format(ic,
+                    "Selected Tracking Station ghost '{0}' pid={1} recIndex={2} recId={3} source={4}",
+                    selectedGhost.VesselName,
+                    selectedGhost.GhostPid,
+                    selectedGhost.RecordingIndex,
+                    selectedGhost.RecordingId ?? "(none)",
+                    source ?? "(unknown)"));
+        }
+
+        internal static void ClearSelectedGhost(string reason)
+        {
+            if (!hasSelectedGhost)
+                return;
+
+            ParsekLog.Verbose("GhostMap",
+                string.Format(ic,
+                    "Cleared Tracking Station ghost selection '{0}' pid={1} reason={2}",
+                    selectedGhost.VesselName,
+                    selectedGhost.GhostPid,
+                    reason ?? "(none)"));
+            selectedGhost = default;
+            hasSelectedGhost = false;
+        }
+
+        internal static TrackingStationGhostActionContext BuildActionContext(
+            TrackingStationGhostSelectionInfo selection,
+            bool hasGhostVessel,
+            bool canFocus,
+            bool canSetTarget,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains)
+        {
+            bool hasRecording = TryResolveRecording(
+                selection,
+                out Recording rec,
+                out int recordingIndex);
+            bool alreadyMaterialized = GhostMapPresence.IsTrackingStationRecordingAlreadyMaterialized(rec);
+            var materialize = hasRecording
+                ? GhostMapPresence.ShouldSpawnAtTrackingStationEnd(rec, currentUT, chains)
+                : (needsSpawn: false, reason: "no-recording");
+
+            return new TrackingStationGhostActionContext(
+                hasGhostVessel,
+                canFocus,
+                canSetTarget,
+                recordingIndex,
+                hasRecording,
+                materialize.needsSpawn,
+                materialize.reason,
+                alreadyMaterialized);
+        }
+
+        internal static void SetSelectedGhostForTesting(TrackingStationGhostSelectionInfo selection)
+        {
+            selectedGhost = selection;
+            hasSelectedGhost = selection.GhostPid != 0;
+        }
+
+        internal static void ClearSelectedGhostForTesting()
+        {
+            selectedGhost = default;
+            hasSelectedGhost = false;
+        }
+
+        private static Recording TryGetRecording(string recordingId, int recordingIndex)
+        {
+            if (!string.IsNullOrEmpty(recordingId))
+            {
+                return GhostMapPresence.TryGetCommittedRecordingById(
+                    recordingId,
+                    out _,
+                    out Recording recording)
+                    ? recording
+                    : null;
+            }
+
+            return GhostMapPresence.GetCommittedRecordingByRawIndex(recordingIndex);
+        }
+
+        private static bool TryResolveRecording(
+            TrackingStationGhostSelectionInfo selection,
+            out Recording recording,
+            out int recordingIndex)
+        {
+            return GhostMapPresence.TryGetCommittedRecordingById(
+                selection.RecordingId,
+                out recordingIndex,
+                out recording);
+        }
+
         internal static bool TryClearSelectedVessel(object trackingInstance, out object previousSelection, out string error)
         {
             previousSelection = null;

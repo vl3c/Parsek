@@ -876,6 +876,27 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~564. Tracking Station ghost objects need safe first-class interactions, not only Fly/Delete/Recover blocking~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** Ghost ProtoVessels in the Tracking Station only had the stock Fly/Delete/Recover buttons, all of which Parsek blocks for ghosts. There was no safe positive affordance to focus the camera on the ghost, set it as a target, inspect its owning recording, or materialize the recorded vessel when it was eligible to spawn.
+
+**Action plan:**
+
+1. Add a Parsek-owned selected-ghost action surface in the Tracking Station that exposes Focus, Target, Recording details, and Materialize.
+2. Key the selection by stable recording ID so raw index churn in `CommittedRecordings` does not move the panel off the ghost the player clicked.
+3. Keep stock Fly/Delete/Recover blocked for ghost-only objects and continue clearing private `SpaceTracking.selectedVessel` on every blocked path.
+4. Add tests for action-state decisions and for stale-selection clearing when a player alternates between stock asteroids/comets and Parsek ghosts.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Fix:** Added a Parsek-owned selected-ghost action surface in Tracking Station. Ghost `SetVessel`/Fly/Delete/Recover blocks now also record the Parsek ghost selection by stable recording ID, clear stock `selectedVessel`, and leave stock Fly/Delete/Recover disabled. The selected ghost panel refreshes action eligibility every GUI frame and exposes safe Focus, Target, owning Recording details, and a selected-recording-only Materialize action when the existing Tracking Station spawn eligibility says that recording is ready; when that ghost resolves, the nav target and map focus hand off to the materialized real vessel. Chain ghosts without a direct committed recording row show disabled recording/materialize states instead of falling through stock actions.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
