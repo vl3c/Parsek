@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -309,10 +310,21 @@ namespace Parsek.Tests
         {
             GhostMapPresence.ghostMapVesselPids.Add(111);
             GhostMapPresence.ghostMapVesselPids.Add(222);
+            var stateVectorTrajectories = (Dictionary<int, IPlaybackTrajectory>)typeof(GhostMapPresence)
+                .GetField("trackingStationStateVectorOrbitTrajectories", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+            var stateVectorCachedIndices = (Dictionary<int, int>)typeof(GhostMapPresence)
+                .GetField("trackingStationStateVectorCachedIndices", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+            stateVectorTrajectories[3] = new Recording { RecordingId = "state-vector-reset" };
+            stateVectorCachedIndices[3] = 7;
+
             GhostMapPresence.ResetForTesting();
             Assert.False(GhostMapPresence.IsGhostMapVessel(111));
             Assert.False(GhostMapPresence.IsGhostMapVessel(222));
             Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+            Assert.Empty(stateVectorTrajectories);
+            Assert.Empty(stateVectorCachedIndices);
         }
 
         #endregion
@@ -572,9 +584,9 @@ namespace Parsek.Tests
 
         /// <summary>
         /// SubOrbital terminal state has valid orbit data (CaptureTerminalOrbit captures
-        /// it for SUB_ORBITAL/FLYING situations). This data is used for state-vector orbit
-        /// line display during flight playback. Tracking station filter (in
-        /// CreateGhostVesselsFromCommittedRecordings) separately excludes SubOrbital.
+        /// it for SUB_ORBITAL/FLYING situations). Terminal-orbit fallback still excludes
+        /// SubOrbital, but the shared map-presence source resolver can show active
+        /// state-vector orbit lines during coast phases.
         /// </summary>
         [Fact]
         public void SubOrbital_HasOrbitData_ReturnsTrue()
@@ -1687,6 +1699,56 @@ namespace Parsek.Tests
             Assert.Equal("tracking-station-child-started", reason);
         }
 
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_MaterializedRealVessel_RemovesExistingGhost()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "real-vessel-parent",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: true,
+                hasOrbitBounds: false,
+                isStateVector: false,
+                currentUT: 320);
+
+            Assert.Equal("tracking-station-materialized-real-vessel", reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_StateVectorPastEndUT_ExpiresGhost()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "state-vector-expiry",
+                ExplicitEndUT = 200
+            };
+
+            string reasonAtEnd = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: false,
+                hasOrbitBounds: false,
+                isStateVector: true,
+                currentUT: 200);
+            string reasonPastEnd = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: false,
+                hasOrbitBounds: false,
+                isStateVector: true,
+                currentUT: 201);
+
+            Assert.Null(reasonAtEnd);
+            Assert.Equal("tracking-station-state-vector-expired", reasonPastEnd);
+        }
+
         /// <summary>
         /// Same-body gap with a real orbit change should not be carried across.
         /// </summary>
@@ -1798,6 +1860,218 @@ namespace Parsek.Tests
                 l.Contains("reason=endpoint-conflict") &&
                 l.Contains("seedFailure=endpoint-conflict") &&
                 l.Contains("endpointBody=Mun"));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "segment-parity",
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 260300,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 30000, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 400,
+                        endUT = 600,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 694160,
+                        eccentricity = 0.05,
+                        inclination = 0.3,
+                        longitudeOfAscendingNode = 0,
+                        argumentOfPeriapsis = 0,
+                        meanAnomalyAtEpoch = 0,
+                        epoch = 400
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var mapSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                500,
+                true,
+                "test-map",
+                ref mapCached,
+                out OrbitSegment mapSegment,
+                out _,
+                out string mapReason);
+
+            int tsCached = -1;
+            var tsSource = GhostMapPresence.ResolveTrackingStationGhostSource(
+                rec,
+                false,
+                false,
+                500,
+                ref tsCached,
+                out OrbitSegment tsSegment,
+                out _,
+                out string tsReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, mapSource);
+            Assert.Equal(mapSource, tsSource);
+            Assert.Equal(mapSegment.bodyName, tsSegment.bodyName);
+            Assert.Equal(mapSegment.semiMajorAxis, tsSegment.semiMajorAxis);
+            Assert.Null(mapReason);
+            Assert.Null(tsReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_StateVectorFallback_MatchesTrackingStationWrapper()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "state-vector-parity",
+                TerminalStateValue = TerminalState.SubOrbital,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Mun",
+                        altitude = 3000,
+                        velocity = new UnityEngine.Vector3(0, 100, 0)
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200,
+                        bodyName = "Mun",
+                        altitude = 3200,
+                        velocity = new UnityEngine.Vector3(0, 110, 0)
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var mapSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                150,
+                false,
+                "test-map",
+                ref mapCached,
+                out _,
+                out TrajectoryPoint mapPoint,
+                out string mapReason);
+
+            int tsCached = -1;
+            var tsSource = GhostMapPresence.ResolveTrackingStationGhostSource(
+                rec,
+                false,
+                false,
+                150,
+                ref tsCached,
+                out _,
+                out TrajectoryPoint tsPoint,
+                out string tsReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, mapSource);
+            Assert.Equal(mapSource, tsSource);
+            Assert.Equal("Mun", mapPoint.bodyName);
+            Assert.Equal(mapPoint.altitude, tsPoint.altitude);
+            Assert.Null(mapReason);
+            Assert.Null(tsReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_EndpointConflict_MatchesTrackingStationWrapper()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "endpoint-conflict-parity",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting,
+                ExplicitEndUT = 200,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200, bodyName = "Mun", latitude = 1, longitude = 2, altitude = 3000 }
+                }
+            };
+
+            int mapCached = -1;
+            var mapSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                1000,
+                true,
+                "test-map",
+                ref mapCached,
+                out _,
+                out _,
+                out string mapReason);
+
+            int tsCached = -1;
+            var tsSource = GhostMapPresence.ResolveTrackingStationGhostSource(
+                rec,
+                false,
+                false,
+                1000,
+                ref tsCached,
+                out _,
+                out _,
+                out string tsReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, mapSource);
+            Assert.Equal(mapSource, tsSource);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipEndpointConflict, mapReason);
+            Assert.Equal(mapReason, tsReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_MaterializedRealVessel_MatchesTrackingStationWrapper()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "materialized-parity",
+                VesselPersistentId = 424242,
+                TerminalStateValue = TerminalState.Orbiting,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            int mapCached = -1;
+            var mapSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                true,
+                300,
+                true,
+                "test-map",
+                ref mapCached,
+                out _,
+                out _,
+                out string mapReason);
+
+            int tsCached = -1;
+            var tsSource = GhostMapPresence.ResolveTrackingStationGhostSource(
+                rec,
+                false,
+                true,
+                300,
+                ref tsCached,
+                out _,
+                out _,
+                out string tsReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, mapSource);
+            Assert.Equal(mapSource, tsSource);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipAlreadySpawned, mapReason);
+            Assert.Equal(mapReason, tsReason);
         }
 
         #endregion

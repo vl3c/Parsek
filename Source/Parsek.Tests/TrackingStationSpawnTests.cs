@@ -270,5 +270,24 @@ namespace Parsek.Tests
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }
+
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_RealVesselAlreadyMaterialized_SkipsGhostCreation()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 1000, endUT = 2000, bodyName = "Mun", semiMajorAxis = 250000 }
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostMapPresence.CurrentUTNow = () => 1500;
+
+            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+            Assert.Equal(0, created);
+            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
+        }
     }
 }

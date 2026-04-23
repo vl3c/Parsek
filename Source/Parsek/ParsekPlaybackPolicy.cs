@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
+using TrackingStationGhostSource = Parsek.GhostMapPresence.TrackingStationGhostSource;
 
 namespace Parsek
 {
@@ -671,10 +672,10 @@ namespace Parsek
         // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
         // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are
         // only meaningful in vacuum — atmospheric drag makes the Keplerian approximation wild).
-        internal const double StateVectorCreateAltitude = 1500;   // meters (airless bodies only)
-        internal const double StateVectorCreateSpeed = 60;        // m/s
-        internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
-        internal const double StateVectorRemoveSpeed = 30;        // m/s
+        internal const double StateVectorCreateAltitude = GhostMapPresence.StateVectorCreateAltitude;
+        internal const double StateVectorCreateSpeed = GhostMapPresence.StateVectorCreateSpeed;
+        internal const double StateVectorRemoveAltitude = GhostMapPresence.StateVectorRemoveAltitude;
+        internal const double StateVectorRemoveSpeed = GhostMapPresence.StateVectorRemoveSpeed;
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
@@ -686,14 +687,8 @@ namespace Parsek
                 return;
             }
 
-            // Skip recordings with non-orbital terminal states (Destroyed, Landed, etc.)
-            // but allow: terminal=null (intermediate chain segments), Orbiting, Docked,
-            // SubOrbital (ballistic arc orbit line during coast phases).
             var terminal = evt.Trajectory.TerminalStateValue;
-            if (terminal.HasValue
-                && terminal.Value != TerminalState.Orbiting
-                && terminal.Value != TerminalState.Docked
-                && terminal.Value != TerminalState.SubOrbital)
+            if (!GhostMapPresence.IsTerminalStateEligibleForMapPresence(terminal))
             {
                 ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
                     $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
@@ -713,18 +708,45 @@ namespace Parsek
             // lines during fast time warp across chain boundaries.
             RemovePreviousChainMapVessel(evt.Index);
 
-            // Check if the ghost starts in an orbital segment (orbit-only recording
-            // or UT is already within an orbital segment). If so, create immediately.
-            // Otherwise, defer — the per-frame check will create it when the ghost
-            // enters its first orbital segment.
+            // Check whether the ghost starts in a map-visible source. Otherwise,
+            // defer — the per-frame shared resolver will create it when it enters
+            // an orbital segment or state-vector fallback range.
             double startUT = evt.Trajectory.StartUT;
-            if (StartsInOrbit(evt.Trajectory, startUT))
+            int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(evt.Index, out int cached)
+                ? cached
+                : -1;
+            TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                evt.Trajectory,
+                false,
+                false,
+                startUT,
+                false,
+                "ResolveMapPresenceGhostSource",
+                ref cachedStateVectorIndex,
+                out OrbitSegment segment,
+                out TrajectoryPoint stateVectorPoint,
+                out _);
+            stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
+
+            if (source != TrackingStationGhostSource.None)
             {
-                GhostMapPresence.CreateGhostVesselForRecording(evt.Index, evt.Trajectory);
-                // Seed segment tracking for per-frame orbit updates
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(evt.Trajectory.OrbitSegments, startUT);
-                if (seg.HasValue)
-                    lastMapOrbitByIndex[evt.Index] = (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity);
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    evt.Index,
+                    evt.Trajectory,
+                    source,
+                    segment,
+                    stateVectorPoint,
+                    startUT);
+                if (ghost != null)
+                {
+                    if (source == TrackingStationGhostSource.StateVector)
+                        stateVectorOrbitTrajectories[evt.Index] = evt.Trajectory;
+                    else if (source == TrackingStationGhostSource.Segment)
+                        lastMapOrbitByIndex[evt.Index] = (
+                            segment.bodyName,
+                            segment.semiMajorAxis,
+                            segment.eccentricity);
+                }
             }
             else
             {
@@ -743,8 +765,7 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
-            double minAltitude = atmosphereDepth > 0 ? atmosphereDepth : StateVectorCreateAltitude;
-            return altitude > minAltitude && speed > StateVectorCreateSpeed;
+            return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
         }
 
         /// <summary>
@@ -754,9 +775,7 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
-            if (atmosphereDepth > 0 && altitude < atmosphereDepth)
-                return true;
-            return altitude < StateVectorRemoveAltitude || speed < StateVectorRemoveSpeed;
+            return GhostMapPresence.ShouldRemoveStateVectorOrbit(altitude, speed, atmosphereDepth);
         }
 
         /// <summary>
@@ -765,14 +784,7 @@ namespace Parsek
         /// </summary>
         internal static double GetAtmosphereDepth(string bodyName)
         {
-            var bodies = FlightGlobals.Bodies;
-            if (bodies == null) return 0;
-            for (int i = 0; i < bodies.Count; i++)
-            {
-                if (bodies[i].name == bodyName && bodies[i].atmosphere)
-                    return bodies[i].atmosphereDepth;
-            }
-            return 0;
+            return GhostMapPresence.GetAtmosphereDepth(bodyName);
         }
 
         /// <summary>
@@ -782,11 +794,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsInRelativeFrame(IPlaybackTrajectory traj, double ut)
         {
-            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
-                return false;
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
-            return sectionIdx >= 0
-                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
+            return GhostMapPresence.IsInRelativeFrame(traj, ut);
         }
 
         /// <summary>
@@ -801,90 +809,80 @@ namespace Parsek
             //    OR for physics-only recordings that crossed the state-vector threshold.
             if (pendingMapVessels.Count > 0)
             {
-                List<KeyValuePair<int, OrbitSegment>> toCreateFromSegment = null;
-                List<KeyValuePair<int, TrajectoryPoint>> toCreateFromStateVectors = null;
+                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point)> toCreate = null;
 
                 foreach (var kvp in pendingMapVessels)
                 {
                     int idx = kvp.Key;
                     IPlaybackTrajectory traj = kvp.Value;
 
-                    // Path A: orbit-segment-based (existing)
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(traj.OrbitSegments, currentUT);
-                    if (seg.HasValue)
+                    int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
+                        ? cached
+                        : -1;
+                    TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                        traj,
+                        false,
+                        false,
+                        currentUT,
+                        false,
+                        "ResolveMapPresenceGhostSource",
+                        ref cachedStateVectorIndex,
+                        out OrbitSegment segment,
+                        out TrajectoryPoint point,
+                        out _);
+                    stateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+                    if (source == TrackingStationGhostSource.Segment
+                        || source == TrackingStationGhostSource.StateVector)
                     {
-                        if (toCreateFromSegment == null)
-                            toCreateFromSegment = new List<KeyValuePair<int, OrbitSegment>>();
-                        toCreateFromSegment.Add(new KeyValuePair<int, OrbitSegment>(idx, seg.Value));
-                        continue;
-                    }
-
-                    // Path B: state-vector-based (new — physics-only suborbital)
-                    if (!traj.HasOrbitSegments)
-                    {
-                        if (traj.Points == null || traj.Points.Count == 0) continue;
-                        if (IsInRelativeFrame(traj, currentUT)) continue;
-
-                        if (!stateVectorCachedIndices.ContainsKey(idx))
-                            stateVectorCachedIndices[idx] = -1;
-                        int cached = stateVectorCachedIndices[idx];
-                        TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
-                        stateVectorCachedIndices[idx] = cached;
-
-                        double atmosCreate = pt.HasValue ? GetAtmosphereDepth(pt.Value.bodyName) : 0;
-                        if (pt.HasValue && ShouldCreateStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosCreate))
-                        {
-                            if (toCreateFromStateVectors == null)
-                                toCreateFromStateVectors = new List<KeyValuePair<int, TrajectoryPoint>>();
-                            toCreateFromStateVectors.Add(new KeyValuePair<int, TrajectoryPoint>(idx, pt.Value));
-                        }
+                        if (toCreate == null)
+                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint)>();
+                        toCreate.Add((idx, source, segment, point));
                     }
                 }
 
-                // Apply segment-based creations
-                if (toCreateFromSegment != null)
+                if (toCreate != null)
                 {
-                    for (int i = 0; i < toCreateFromSegment.Count; i++)
+                    for (int i = 0; i < toCreate.Count; i++)
                     {
-                        int idx = toCreateFromSegment[i].Key;
-                        OrbitSegment initialSeg = toCreateFromSegment[i].Value;
+                        int idx = toCreate[i].idx;
                         if (pendingMapVessels.TryGetValue(idx, out var traj))
                         {
                             // Per-chain dedup before deferred creation
                             RemovePreviousChainMapVessel(idx);
-                            Vessel ghost = GhostMapPresence.HasOrbitData(traj)
-                                ? GhostMapPresence.CreateGhostVesselForRecording(idx, traj)
-                                : GhostMapPresence.CreateGhostVesselFromSegment(idx, traj, initialSeg);
+                            Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                                idx,
+                                traj,
+                                toCreate[i].source,
+                                toCreate[i].segment,
+                                toCreate[i].point,
+                                currentUT);
                             pendingMapVessels.Remove(idx);
 
                             if (ghost != null)
-                                GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
+                            {
+                                if (toCreate[i].source == TrackingStationGhostSource.StateVector)
+                                {
+                                    stateVectorOrbitTrajectories[idx] = traj;
+                                    ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                        "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1}",
+                                        idx, traj.VesselName,
+                                        toCreate[i].point.altitude,
+                                        toCreate[i].point.velocity.magnitude));
+                                }
+                                else
+                                {
+                                    OrbitSegment initialSeg = toCreate[i].segment;
+                                    lastMapOrbitByIndex[idx] = (
+                                        initialSeg.bodyName,
+                                        initialSeg.semiMajorAxis,
+                                        initialSeg.eccentricity);
 
-                            lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis, initialSeg.eccentricity);
-
-                            ParsekLog.Info("Policy",
-                                $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
-                                $"— entered segment body={initialSeg.bodyName} sma={initialSeg.semiMajorAxis:F0}");
-                        }
-                    }
-                }
-
-                // Apply state-vector-based creations
-                if (toCreateFromStateVectors != null)
-                {
-                    for (int i = 0; i < toCreateFromStateVectors.Count; i++)
-                    {
-                        int idx = toCreateFromStateVectors[i].Key;
-                        TrajectoryPoint pt = toCreateFromStateVectors[i].Value;
-                        if (pendingMapVessels.TryGetValue(idx, out var traj))
-                        {
-                            Vessel ghost = GhostMapPresence.CreateGhostVesselFromStateVectors(idx, traj, pt, currentUT);
-                            pendingMapVessels.Remove(idx);
-                            stateVectorOrbitTrajectories[idx] = traj;
-
-                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
-                                "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1}",
-                                idx, traj.VesselName, pt.altitude, pt.velocity.magnitude));
+                                    ParsekLog.Info("Policy",
+                                        $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
+                                        $"— entered segment body={initialSeg.bodyName} sma={initialSeg.semiMajorAxis:F0}");
+                                }
+                            }
                         }
                     }
                 }
@@ -1031,12 +1029,7 @@ namespace Parsek
         /// </summary>
         internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
         {
-            if (!traj.HasOrbitSegments)
-                return false;
-            // If recording has no trajectory points, it's orbit-only
-            if (traj.Points == null || traj.Points.Count == 0)
-                return true;
-            return TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, ut) != null;
+            return GhostMapPresence.StartsInOrbit(traj, ut);
         }
 
         /// <summary>
