@@ -1184,6 +1184,240 @@ namespace Parsek
                 authoritativeRepeatableRecordState: false);
         }
 
+        private const double InitialResourceBaselineMaxUtSeconds = 1.0;
+
+        private static void SeedInitialResourceBalances()
+        {
+            GameStateBaseline initialBaseline;
+            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
+
+            if (!fundsSeedDone)
+                fundsSeedDone = EnsureInitialFundsSeed(hasInitialBaseline, initialBaseline);
+            if (!scienceSeedDone)
+                scienceSeedDone = EnsureInitialScienceSeed(hasInitialBaseline, initialBaseline);
+            if (!repSeedDone)
+                repSeedDone = EnsureInitialReputationSeed(hasInitialBaseline, initialBaseline);
+        }
+
+        private static bool EnsureInitialFundsSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            GameAction existingSeed;
+            if (TryGetFundsSeed(out existingSeed) && existingSeed.InitialFunds != 0f)
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                if (initialBaseline.funds != 0.0)
+                {
+                    Ledger.SeedInitialFunds(initialBaseline.funds);
+                    return true;
+                }
+
+                ParsekLog.Verbose(Tag,
+                    "SeedInitialFunds: initial baseline has zero funds; waiting for a non-zero Funding seed");
+            }
+
+            if (Funding.Instance != null && Funding.Instance.Funds != 0.0)
+            {
+                Ledger.SeedInitialFunds(Funding.Instance.Funds);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetFundsSeed(out GameAction seed)
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action != null && action.Type == GameActionType.FundsInitial)
+                {
+                    seed = action;
+                    return true;
+                }
+            }
+
+            seed = null;
+            return false;
+        }
+
+        private static bool EnsureInitialScienceSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            if (LedgerHasSeed(GameActionType.ScienceInitial))
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                Ledger.SeedInitialScience((float)initialBaseline.science);
+                return true;
+            }
+
+            if (LedgerHasScienceTimelineActions())
+            {
+                Ledger.SeedInitialScience(0f);
+                ParsekLog.Warn(Tag,
+                    "SeedInitialScience: refusing to treat current science as initial " +
+                    "because science timeline actions already exist and no baseline was available");
+                return true;
+            }
+
+            if (ResearchAndDevelopment.Instance == null
+                || ResearchAndDevelopment.Instance.Science == 0f)
+                return false;
+
+            Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+            return true;
+        }
+
+        private static bool EnsureInitialReputationSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            if (LedgerHasSeed(GameActionType.ReputationInitial))
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                Ledger.SeedInitialReputation(initialBaseline.reputation);
+                return true;
+            }
+
+            if (LedgerHasReputationTimelineActions())
+            {
+                Ledger.SeedInitialReputation(0f);
+                ParsekLog.Warn(Tag,
+                    "SeedInitialReputation: refusing to treat current reputation as initial " +
+                    "because reputation timeline actions already exist and no baseline was available");
+                return true;
+            }
+
+            if (global::Reputation.Instance == null
+                || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
+                return false;
+
+            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            return true;
+        }
+
+        private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
+        {
+            initialBaseline = null;
+
+            var baselines = GameStateStore.Baselines;
+            if (baselines == null || baselines.Count == 0)
+                return false;
+
+            for (int i = 0; i < baselines.Count; i++)
+            {
+                var candidate = baselines[i];
+                if (candidate == null)
+                    continue;
+
+                if (!IsInitialResourceBaseline(candidate))
+                    continue;
+
+                if (initialBaseline == null || candidate.ut < initialBaseline.ut)
+                    initialBaseline = candidate;
+            }
+
+            return initialBaseline != null;
+        }
+
+        private static bool IsInitialResourceBaseline(GameStateBaseline candidate)
+        {
+            if (candidate == null)
+                return false;
+
+            return candidate.ut >= -InitialResourceBaselineMaxUtSeconds
+                && candidate.ut <= InitialResourceBaselineMaxUtSeconds;
+        }
+
+        private static bool LedgerHasSeed(GameActionType seedType)
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action != null && action.Type == seedType)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool LedgerHasScienceTimelineActions()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (ActionTouchesScienceBudget(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool LedgerHasReputationTimelineActions()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (ActionTouchesReputationBudget(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ActionTouchesScienceBudget(GameAction action)
+        {
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceSpending:
+                    return true;
+                case GameActionType.ContractComplete:
+                    return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;
+                case GameActionType.MilestoneAchievement:
+                    return action.MilestoneScienceAwarded != 0f;
+                case GameActionType.StrategyActivate:
+                    return action.SetupScienceCost != 0f;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ActionTouchesReputationBudget(GameAction action)
+        {
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return true;
+                case GameActionType.ContractAccept:
+                    return action.RepPenalty != 0f;
+                case GameActionType.ContractComplete:
+                    return action.RepReward != 0f || action.TransformedRepReward != 0f;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return action.RepPenalty != 0f;
+                case GameActionType.MilestoneAchievement:
+                    return action.MilestoneRepAwarded != 0f;
+                case GameActionType.StrategyActivate:
+                    return action.SetupReputationCost != 0f;
+                default:
+                    return false;
+            }
+        }
+
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
@@ -1192,29 +1426,9 @@ namespace Parsek
             Initialize();
 
             // Seed initial balances for career mode (per-resource, idempotent).
-            // Each resource is tracked independently — a partial seed (e.g., only
-            // reputation ready) must not lock out future funds/science seeding.
-            // Skip zero values: KSP singletons exist but report 0 before their
-            // OnLoad populates save data. If value is legitimately 0, HasSeed stays
-            // false and patching is skipped, preserving KSP's own 0.
-            if (!fundsSeedDone && Funding.Instance != null
-                && Funding.Instance.Funds != 0.0)
-            {
-                Ledger.SeedInitialFunds(Funding.Instance.Funds);
-                fundsSeedDone = true;
-            }
-            if (!scienceSeedDone && ResearchAndDevelopment.Instance != null
-                && ResearchAndDevelopment.Instance.Science != 0f)
-            {
-                Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
-                scienceSeedDone = true;
-            }
-            if (!repSeedDone && global::Reputation.Instance != null
-                && Math.Abs(global::Reputation.Instance.reputation) > 0.01f)
-            {
-                Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
-                repSeedDone = true;
-            }
+            // Baselines can represent legitimate zero science/rep values; once such
+            // a seed exists it must not be upgraded later from future live state.
+            SeedInitialResourceBalances();
 
             // Update contract and strategy slot limits based on facility levels
             // from the previous recalculation walk. On the very first call, defaults

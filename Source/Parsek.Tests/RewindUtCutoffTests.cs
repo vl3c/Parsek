@@ -1199,6 +1199,107 @@ namespace Parsek.Tests
                 LedgerOrchestrator.CanAffordScienceSpending(50f));
         }
 
+        [Fact]
+        public void BaselineZeroScienceAndRep_AreSeededBeforeFutureTimelineValues()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 25000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            AddAll(
+                FundsSpending(36.54, 3805f, "rollout"),
+                Milestone(72.96, "future-rep", 4800f, rep: 1f),
+                ScienceEarning(99.93, 7.728f, "future-science"),
+                new GameAction
+                {
+                    UT = 124.43,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "future-node",
+                    Cost = 5f
+                });
+
+            LedgerOrchestrator.RecalculateAndPatch(49.42);
+
+            Assert.Equal(21195.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, LedgerOrchestrator.Science.GetRunningScience(), 3);
+            Assert.InRange(LedgerOrchestrator.Reputation.GetRunningRep(), -0.001f, 0.001f);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+        }
+
+        [Fact]
+        public void ZeroFundsInitialBaseline_DoesNotSealFundsBeforeFundingLoads()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 0.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+        }
+
+        [Fact]
+        public void ExistingZeroFundsSeed_IsRepairedFromInitialBaseline()
+        {
+            AddAll(FundsSeed(0f));
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 25000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsInitial && a.InitialFunds == 25000f);
+            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void LaterBaselineWithTimelineActions_IsNotPromotedToInitialSeed()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 108.97,
+                funds = 42795.0,
+                science = 11.04,
+                reputation = 1f
+            });
+
+            AddAll(
+                ScienceEarning(99.93, 7.728f, "future-science"),
+                Milestone(108.97, "future-rep", 0f, rep: 1f));
+
+            LedgerOrchestrator.RecalculateAndPatch(49.42);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && a.InitialScience == 0f);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && a.InitialReputation == 0f);
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceInitial && Math.Abs(a.InitialScience - 11.04f) < 0.001f);
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationInitial && Math.Abs(a.InitialReputation - 1f) < 0.001f);
+        }
+
         // ================================================================
         // Test support
         // ================================================================

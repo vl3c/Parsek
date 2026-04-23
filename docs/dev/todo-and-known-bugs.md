@@ -630,6 +630,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~550. Delayed science/reputation seeding can turn future balances into UT0 after rewind~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows initial deferred seeding stopped as soon as Funding reported 25000 while Science and Reputation still read zero. Later, after the first committed flight and before the rewind, `ledger.pgld` gained `ScienceInitial = 11.04` and `ReputationInitial = 0.999999464` at UT0 even though the earliest baseline had both resources at zero. The rewind recalculation at adjusted UT 49.4 then included those UT0 seeds and patched science/reputation from future state.
+
+**Concern:** a zero science or reputation balance can be legitimate at career start. Because `LedgerOrchestrator` skipped zero seeds and `Ledger.SeedInitialScience/Reputation` could later upgrade an existing zero-like seed, a future live balance could be mistaken for initial state. That breaks rewind/cutoff budget reconstruction and can make future science or reputation available in the past.
+
+**Fix:** `LedgerOrchestrator` now seeds per-resource initial balances through a baseline-aware path. Existing seed actions mark that resource seeded, captured baselines can create authoritative zero seeds, and the fallback path refuses to treat non-zero live science/reputation as initial when timeline actions for that same resource already exist without a baseline.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused headless rewind-cutoff coverage.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

@@ -84,9 +84,11 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#550` Initial science and reputation seeds now prefer captured game-state baselines, including legitimate zero values, before falling back to live KSP singleton balances. A zero seed is now treated as authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
 
 ### Tests
 
+- `#550` Added a rewind cutoff regression based on the April 23 log package shape: funds stay on the seed-minus-rollout path, while zero baseline science/reputation remain zero even when future science earnings, tech spending, and reputation milestones exist later in the ledger.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
