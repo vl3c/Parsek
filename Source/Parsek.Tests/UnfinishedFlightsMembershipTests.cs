@@ -133,6 +133,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommittedProvisionalDestroyedUnderRP_IsMember()
+        {
+            // Regression: crash-terminal re-fly attempts and newly stamped
+            // RP children use CommittedProvisional so their rewind slot stays
+            // open. They must still appear in the virtual Unfinished Flights
+            // group.
+            var rec = Rec("rec_A", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, parentBranchPointId: "bp_1",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
+        }
+
+        [Fact]
         public void ImmutableLandedUnderRP_NotMember()
         {
             // Regression: Landed terminals are NOT unfinished flights even if

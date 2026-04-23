@@ -17,8 +17,8 @@ namespace Parsek
     /// (design §6.9):
     /// <list type="number">
     ///   <item><description>Marker validation (6 fields).</description></item>
-    ///   <item><description>Spare set: session-provisional recordings and RPs
-    ///   referenced by a valid marker.</description></item>
+    ///   <item><description>Spare set: session-provisional recordings and
+    ///   session-scoped RPs referenced by a valid marker.</description></item>
     ///   <item><description>Discard set: NotCommitted provisional recordings
     ///   with no marker reference.</description></item>
     ///   <item><description>Orphan supersede / tombstone log (kept per §3.5
@@ -26,7 +26,7 @@ namespace Parsek
     ///   <item><description>Stray <see cref="Recording.SupersedeTargetId"/>
     ///   on Immutable/CommittedProvisional recordings (log Warn + clear).</description></item>
     ///   <item><description>Nested session-provisional cleanup (§7.11):
-    ///   when the marker cleared in step 1, every session-provisional RP and
+    ///   when the marker cleared in step 1, every session-scoped RP and
     ///   NotCommitted recording created by that session is discarded.</description></item>
     ///   <item><description>Zombie cleanup: discard-set recordings removed.</description></item>
     ///   <item><description>Load summary log (§10.7).</description></item>
@@ -123,10 +123,11 @@ namespace Parsek
                 }
             }
 
-            // RPs: session-provisional AND not in the spare set are dead
-            // weight. Session-provisional RPs that belong to no-longer-live
-            // sessions are purged directly here, including their quicksave
-            // file and BranchPoint back-reference.
+            // RPs: session-scoped provisionals not in the spare set are dead
+            // weight. Normal staging RPs are also born SessionProvisional, but
+            // carry no CreatingSessionId; those are durable split points until
+            // their owning tree is accepted, so they must survive ordinary scene
+            // loads and merge-dialog deferrals.
             var discardRps = new List<RewindPoint>();
             if (scenario.RewindPoints != null)
             {
@@ -137,6 +138,13 @@ namespace Parsek
                     if (!rp.SessionProvisional) continue;
                     if (rp.RewindPointId != null && spareRpIds.Contains(rp.RewindPointId))
                         continue;
+                    if (!IsSessionScopedProvisionalRp(rp))
+                    {
+                        ParsekLog.Verbose(RewindTag,
+                            $"Keeping session-prov rp={rp.RewindPointId ?? "<no-id>"} " +
+                            $"bp={rp.BranchPointId ?? "<no-bp>"} with no session scope");
+                        continue;
+                    }
                     discardRps.Add(rp);
                 }
             }
@@ -371,6 +379,13 @@ namespace Parsek
                     count++;
             }
             return count;
+        }
+
+        private static bool IsSessionScopedProvisionalRp(RewindPoint rp)
+        {
+            return rp != null
+                   && rp.SessionProvisional
+                   && !string.IsNullOrEmpty(rp.CreatingSessionId);
         }
 
         // ------------------------------------------------------------------

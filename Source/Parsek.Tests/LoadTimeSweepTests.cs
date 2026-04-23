@@ -444,6 +444,39 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]") && l.Contains("Purged session-prov rp=rp_dead"));
         }
 
+        [Fact]
+        public void DiscardSet_NormalStagingRpWithoutSessionScope_Preserved()
+        {
+            // Normal multi-controllable staging RPs are born SessionProvisional
+            // before any re-fly session exists. They have no CreatingSessionId
+            // and must survive the KSC/TrackingStation OnLoad that shows the
+            // pending-tree merge dialog; otherwise the destroyed child cannot
+            // appear in Unfinished Flights after merge.
+            var bp = Bp("bp_stage", "rp_stage");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_upper", MergeState.Immutable),
+                    Rec("rec_probe", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var normalRp = Rp("rp_stage", "bp_stage", sessionProvisional: true,
+                creatingSessionId: null, slots: new[] { Slot(1, "rec_probe") });
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { normalRp },
+                marker: null);
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_stage", scenario.RewindPoints[0].RewindPointId);
+            Assert.Equal("rp_stage", bp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Keeping session-prov rp=rp_stage") &&
+                l.Contains("no session scope"));
+        }
+
         // ---------- Orphan supersede + tombstone -------------------------
 
         [Fact]

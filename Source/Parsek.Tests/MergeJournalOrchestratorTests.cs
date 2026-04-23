@@ -263,6 +263,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TagRpsForReap_NormalOriginRpWithNullCreatingSession_Promotes()
+        {
+            var marker = Marker("rec_origin", "rec_provisional");
+            var originRp = Rp("rp_1", null, sessionProvisional: true);
+            var unrelatedNormalRp = Rp("rp_other", null, sessionProvisional: true);
+            var scenario = InstallScenario(marker,
+                new List<RewindPoint> { originRp, unrelatedNormalRp });
+
+            MergeJournalOrchestrator.TagRpsForReap(marker, scenario);
+
+            Assert.False(originRp.SessionProvisional);
+            Assert.Null(originRp.CreatingSessionId);
+            Assert.True(unrelatedNormalRp.SessionProvisional);
+        }
+
+        [Fact]
         public void RunMerge_Crashed_PromotesProvisionalToCommittedProvisional()
         {
             var (scenario, provisional) = MakeStandardFixture(TerminalState.Destroyed);

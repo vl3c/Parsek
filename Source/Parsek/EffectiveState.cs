@@ -141,24 +141,20 @@ namespace Parsek
 
         /// <summary>
         /// True iff <paramref name="rec"/> is an Unfinished Flight per design §3.1.
-        /// Phase 2 formulation: <c>MergeState == Immutable</c> AND the terminal
-        /// indicates a crash (see <see cref="IsTerminalCrashed"/>) AND the parent
-        /// BranchPoint carries a non-null <c>RewindPointId</c>.
-        /// The design's final form (§3.1) further requires <c>CommittedProvisional</c>
-        /// AND <c>TerminalKind in {BGCrash, Crashed}</c> — Phase 2 uses the
-        /// simpler formula because <c>CommittedProvisional</c> / <c>TerminalKind</c>
-        /// semantics will be wired in later phases; the classifier is centralized
-        /// here so the upgrade lands in one place.
+        /// Current formulation: the recording is committed-visible
+        /// (<c>Immutable</c> legacy/original child or <c>CommittedProvisional</c>
+        /// live rewind slot), the terminal indicates a crash (see
+        /// <see cref="IsTerminalCrashed"/>), and the parent BranchPoint carries
+        /// a RewindPoint.
         /// </summary>
-        // TODO(phase >=3): flip Immutable->CommittedProvisional once the classifier emits CommittedProvisional (design §3.1).
-        // Tracked in docs/dev/todo-and-known-bugs.md (Phase 3+ work).
         public static bool IsUnfinishedFlight(Recording rec)
         {
             if (rec == null) return false;
 
             string recId = rec.RecordingId ?? "<no-id>";
 
-            if (rec.MergeState != MergeState.Immutable)
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
             {
                 ParsekLog.Verbose("UnfinishedFlights",
                     $"IsUnfinishedFlight=false rec={recId} reason=mergeState:{rec.MergeState}");
