@@ -116,6 +116,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Follow-up cleanup to `#431/#432`: retired `MilestoneStore.CurrentEpoch` from production branch filtering. Timeline rows, milestone bundling, reward enrichment, revert bookkeeping, and load-time ledger recovery now exclude abandoned branches through recording-tag visibility plus deterministic discard/unstash behavior instead of epoch stamping/filtering.
 - `#552` Vessel recovery funds now tolerate stock firing `onVesselRecovered` before the paired `FundsChanged(VesselRecovery)` event. Parsek defers the recovery request and pairs it when the funds event arrives, preferring vessel-name matches over nearest-UT, warning on ambiguous ties, and evicting unclaimed requests on scene switches, rewind boundaries, and save loads.
 - `#553` Untagged lifecycle events (contract accept/complete/fail/cancel, tech, part purchase, crew hire, milestone, strategy activate/deactivate, facility upgrade) now forward directly to the ledger even in FLIGHT, so launch-site events that occur before any Parsek recording owner exists do not get stranded only in `GameStateStore`. Tagged FLIGHT teardown events remain protected by the non-empty recording tag gate.
 - `#555` Tracking Station orbit-source diagnostics now report visible-segment, terminal-orbit, state-vector fallback, endpoint-conflict, and already-materialized decisions with endpoint/seed metadata. Startup and lifecycle scans now aggregate repeated skip reasons while preserving the first detailed sample for each source/reason, and map-visible window fallback logs use shared rate-limit keys to avoid per-vessel spam.
@@ -128,6 +129,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.
 - `#553` Added direct-ledger forwarding predicate coverage for tagged teardown suppression, untagged KSC events, and untagged pre-recording FLIGHT events across tech, part-purchase, crew-hire, milestone, strategy activate/deactivate, and facility upgrade handlers, plus an evt.recordingId-vs-resolver drift test.
 - `#555` Expanded `GhostMapPresenceTests` log assertions for segment and terminal source decisions, endpoint-conflict skips, already-materialized suppression, endpoint seed diagnostics, and aggregated repeated Tracking Station skip reasons.

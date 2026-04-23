@@ -33,6 +33,7 @@ namespace Parsek.Tests
 
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
             KspStatePatcher.SuppressUnityCallsForTesting = true;
@@ -49,6 +50,7 @@ namespace Parsek.Tests
             GameStateRecorder.PendingMilestoneEventById.Clear();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
+            RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -318,11 +320,12 @@ namespace Parsek.Tests
         // (and other OnProgressComplete-emitting nodes) reported in the v0.8.2 smoke test.
         // Two failure modes were proven from the code:
         //
-        //   1. GameStateEvent is a struct, so AddEvent's e.epoch = MilestoneStore.CurrentEpoch
-        //      stamp lands on the appended slot but NOT on the caller's local `evt`. The
+        //   1. GameStateEvent is a struct, so AddEvent's legacy epoch stamp lands on the
+        //      appended slot but NOT on the caller's local `evt`. The
         //      cached pending entry kept epoch=0 and UpdateEventDetail's ut+type+key+epoch
-        //      lookup missed on every save where CurrentEpoch had been bumped (i.e. any save
-        //      with at least one revert in its history) — silently, because the postfix
+        //      lookup missed on every save where the stored slot carried a bumped legacy
+        //      epoch (i.e. any save with at least one revert in its history) — silently,
+        //      because the postfix
         //      logged "Milestone enriched" before checking UpdateEventDetail's return value.
         //
         //   2. The pending map keyed by ProgressNode reference would also miss if KSP ever
@@ -334,57 +337,38 @@ namespace Parsek.Tests
         // and verifies the stored event's detail actually carries the rewards on read-back.
 
         [Fact]
-        public void RegisterAndEnrich_NonZeroEpoch_PatchesStoredDetailEndToEnd()
+        public void RegisterAndEnrich_TaggedEvent_PatchesStoredDetailEndToEnd()
         {
-            // Reproduces the v0.8.2 smoke-test failure exactly. With CurrentEpoch != 0
-            // (the case after any revert), the OnProgressComplete -> AwardProgress
-            // postfix pair must still successfully write the real funds into the stored
-            // event slot. Pre-#443 the cached pending entry kept epoch=0 while the stored
-            // slot carried epoch=3, the UpdateEventDetail lookup missed, and the stored
-            // detail stayed "funds=0;rep=0;sci=0" — exactly what KSP.log:18024 showed for
-            // the Kerbin/Landing FundsChanged +800 event.
-            //
-            // The "Kerbin/" prefix on the id is decorative for this test: FakeProgressNode
-            // has no `body` field, so QualifyMilestoneId takes the no-body branch and
-            // returns the constructor argument verbatim; the qualified id is only matched
-            // by string equality between Register and Enrich. The body-reflection path
-            // cannot be unit-tested (CelestialBody can't be constructed outside KSP) —
-            // see #453 follow-up in docs/dev/todo-and-known-bugs.md.
-            uint savedEpoch = MilestoneStore.CurrentEpoch;
+            var savedResolver = GameStateRecorder.TagResolverForTesting;
+            var savedScene = HighLogic.LoadedScene;
             try
             {
-                MilestoneStore.CurrentEpoch = 3;
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
+                GameStateRecorder.TagResolverForTesting = () => "rec-milestone";
 
-                // Half 1: emulate OnProgressComplete via the extracted seam.
                 GameStateRecorder.RegisterPendingMilestoneEvent("Kerbin/Landing", ut: 4134.8);
                 Assert.True(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Kerbin/Landing"));
 
-                // Half 2: emulate the AwardProgress postfix carrying the real reward.
                 var node = new FakeProgressNode("Kerbin/Landing");
                 GameStateRecorder.EnrichPendingMilestoneRewards(node, 800.0, 0f, 0.0);
 
-                // Stored slot must now carry the real funds, not the original zeros.
                 var stored = FindLastMilestoneEvent("Kerbin/Landing");
                 Assert.True(stored.HasValue);
-                Assert.Equal((uint)3, stored.Value.epoch);
+                Assert.Equal("rec-milestone", stored.Value.recordingId);
                 Assert.Contains("funds=800", stored.Value.detail);
 
-                // Pending map drained.
                 Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Kerbin/Landing"));
 
-                // Defensive Warn (store match miss) must not fire on the happy path.
                 Assert.DoesNotContain(logLines, l =>
                     l.Contains("[WARN]") && l.Contains("store had no matching event"));
 
-                // Converter must produce a non-zero MilestoneAchievement action — this is
-                // what feeds ReconcileEarningsWindow and what was committing as funds=0
-                // in the smoke-test bundle.
                 var action = GameStateEventConverter.ConvertMilestoneAchieved(stored.Value, null);
                 Assert.Equal(800f, action.MilestoneFundsAwarded);
             }
             finally
             {
-                MilestoneStore.CurrentEpoch = savedEpoch;
+                GameStateRecorder.TagResolverForTesting = savedResolver;
+                HighLogic.LoadedScene = savedScene;
                 GameStateRecorder.PendingMilestoneEventById.Clear();
             }
         }
@@ -392,11 +376,6 @@ namespace Parsek.Tests
         [Fact]
         public void EnrichPendingMilestoneRewards_StoredSlotMissing_LogsDefensiveWarn()
         {
-            // Belt-and-braces for the cached-vs-stored slot mismatch. If a future change
-            // ever broke the epoch (or ut, or key) mirror, EnrichPendingMilestoneRewards
-            // would silently no-op the store-side write and only the in-flight ledger
-            // action would be patched. Surfacing the miss as Warn keeps it visible at
-            // default log level.
             var node = new FakeProgressNode("Mun/Orbit");
             var evt = new GameStateEvent
             {
@@ -404,10 +383,8 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = "Mun/Orbit",
                 detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0),
-                epoch = 99 // intentionally mismatched — no event with this epoch in store
+                recordingId = "missing-rec"
             };
-            // Note: we do NOT call GameStateStore.AddEvent here, so the stored slot
-            // never exists. This isolates the UpdateEventDetail miss path.
             GameStateRecorder.PendingMilestoneEventById["Mun/Orbit"] = evt;
 
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 500, 1f, 0);
@@ -417,28 +394,18 @@ namespace Parsek.Tests
                 l.Contains("[GameStateRecorder]") &&
                 l.Contains("store had no matching event") &&
                 l.Contains("Mun/Orbit") &&
-                l.Contains("epoch=99"));
+                l.Contains("tag='missing-rec'"));
         }
 
         [Fact]
-        public void EnrichPendingMilestoneRewards_CachedEpochMismatch_WarnsThenRegisterPendingSeamSucceeds()
+        public void EnrichPendingMilestoneRewards_CachedRecordingIdMismatch_WarnsThenRegisterPendingSeamSucceeds()
         {
-            // Post-#454: Emit/AddEvent take `ref GameStateEvent`, so the caller's local
-            // automatically receives the stamped epoch — RegisterPendingMilestoneEvent no
-            // longer carries an explicit mirror. Two invariants are pinned here:
-            //  (a) The defensive Warn path in EnrichPendingMilestoneRewards still fires
-            //      when the cached entry's epoch disagrees with the stored slot. We force
-            //      a stale cache by manually clearing evt.epoch after AddEvent, since the
-            //      production code path can no longer produce that mismatch on its own.
-            //      This keeps the safety net live for any future caller that caches by
-            //      value and mutates the field.
-            //  (b) The production RegisterPendingMilestoneEvent seam, relying on the ref
-            //      signature, caches an event whose epoch matches the stored slot, so
-            //      the enrichment UpdateEventDetail hits and no Warn fires.
-            uint savedEpoch = MilestoneStore.CurrentEpoch;
+            var savedResolver = GameStateRecorder.TagResolverForTesting;
+            var savedScene = HighLogic.LoadedScene;
             try
             {
-                MilestoneStore.CurrentEpoch = 7;
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
+                GameStateRecorder.TagResolverForTesting = () => "rec-tagged";
 
                 var node = new FakeProgressNode("Mun/Flyby");
                 var evtForStore = new GameStateEvent
@@ -448,18 +415,10 @@ namespace Parsek.Tests
                     key = "Mun/Flyby",
                     detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
                 };
-                // AddEvent stamps the live epoch (7) onto the appended slot AND, thanks
-                // to the #454 ref signature, propagates that stamp back to evtForStore.
-                GameStateStore.AddEvent(ref evtForStore);
-                Assert.Equal(7u, evtForStore.epoch); // sanity: ref propagated the stamp
+                GameStateRecorder.Emit(ref evtForStore, "test");
+                Assert.Equal("rec-tagged", evtForStore.recordingId);
 
-                // Artificially force the cached copy's epoch back to 0 so the defensive
-                // Warn path in EnrichPendingMilestoneRewards is still reachable. Not
-                // constructable through production code post-#454 — the mismatch shape
-                // this models is only possible if a future caller copies the struct
-                // out of the ref call and mutates the field by hand. Keeping the Warn
-                // pinned guards the UpdateEventDetail miss path against that regression.
-                evtForStore.epoch = 0;
+                evtForStore.recordingId = "stale-rec";
                 GameStateRecorder.PendingMilestoneEventById["Mun/Flyby"] = evtForStore;
 
                 GameStateRecorder.EnrichPendingMilestoneRewards(node, 1200, 3f, 0);
@@ -468,18 +427,14 @@ namespace Parsek.Tests
                     l.Contains("[WARN]") &&
                     l.Contains("store had no matching event") &&
                     l.Contains("Mun/Flyby") &&
-                    l.Contains("epoch=0"));
+                    l.Contains("tag='stale-rec'"));
                 var storedAfterMiss = FindLastMilestoneEvent("Mun/Flyby");
                 Assert.True(storedAfterMiss.HasValue);
                 Assert.Contains("funds=0", storedAfterMiss.Value.detail);
 
-                // Now run the same scenario through the production seam. Post-#454 it
-                // relies on the ref signature to get the stamped evt back into the cache,
-                // so the store-side detail must end up patched and no Warn fires.
                 logLines.Clear();
                 GameStateRecorder.PendingMilestoneEventById.Clear();
                 GameStateStore.ResetForTesting();
-                MilestoneStore.CurrentEpoch = 7; // reset for the second half
                 GameStateRecorder.RegisterPendingMilestoneEvent("Mun/Flyby", ut: 800);
 
                 GameStateRecorder.EnrichPendingMilestoneRewards(node, 1200, 3f, 0);
@@ -488,12 +443,13 @@ namespace Parsek.Tests
                     l.Contains("[WARN]") && l.Contains("store had no matching event"));
                 var storedAfterFix = FindLastMilestoneEvent("Mun/Flyby");
                 Assert.True(storedAfterFix.HasValue);
-                Assert.Equal(7u, storedAfterFix.Value.epoch);
+                Assert.Equal("rec-tagged", storedAfterFix.Value.recordingId);
                 Assert.Contains("funds=1200", storedAfterFix.Value.detail);
             }
             finally
             {
-                MilestoneStore.CurrentEpoch = savedEpoch;
+                GameStateRecorder.TagResolverForTesting = savedResolver;
+                HighLogic.LoadedScene = savedScene;
                 GameStateRecorder.PendingMilestoneEventById.Clear();
             }
         }
@@ -857,46 +813,36 @@ namespace Parsek.Tests
         }
 
         // #454 regression: Emit/AddEvent take `ref GameStateEvent` so field stamps
-        // (epoch, recordingId) propagate to the caller's local. If either signature
+        // (recordingId, plus any pre-set legacy fields) propagate to the caller's local. If either signature
         // ever drifts back to pass-by-value, these tests fail at compile time on the
-        // `ref` keyword AND at runtime on the epoch/recordingId asserts — a belt-and-
+        // `ref` keyword AND at runtime on the identity asserts — a belt-and-
         // braces guard against reintroducing the #443 silent-miss bug class.
         [Fact]
-        public void AddEvent_Ref_PropagatesEpochStampToCaller()
+        public void AddEvent_Ref_PreservesExplicitLegacyEpochOnCallerAndStore()
         {
-            uint savedEpoch = MilestoneStore.CurrentEpoch;
-            try
+            var evt = new GameStateEvent
             {
-                MilestoneStore.CurrentEpoch = 11;
-                var evt = new GameStateEvent
-                {
-                    ut = 100,
-                    eventType = GameStateEventType.TechResearched,
-                    key = "bug454-epoch",
-                };
-                Assert.Equal(0u, evt.epoch); // precondition: caller has not set it
+                ut = 100,
+                eventType = GameStateEventType.TechResearched,
+                key = "bug454-epoch",
+                epoch = 11,
+            };
 
-                GameStateStore.AddEvent(ref evt);
+            GameStateStore.AddEvent(ref evt);
 
-                // Post-ref: caller's local carries the stamp the store wrote on the slot.
-                Assert.Equal(11u, evt.epoch);
-                var stored = GameStateStore.Events.Last(e => e.key == "bug454-epoch");
-                Assert.Equal(evt.epoch, stored.epoch);
-            }
-            finally
-            {
-                MilestoneStore.CurrentEpoch = savedEpoch;
-            }
+            Assert.Equal(11u, evt.epoch);
+            var stored = GameStateStore.Events.Last(e => e.key == "bug454-epoch");
+            Assert.Equal(evt.epoch, stored.epoch);
         }
 
         [Fact]
-        public void Emit_Ref_PropagatesRecordingIdAndEpochToCaller()
+        public void Emit_Ref_PropagatesRecordingIdToCaller_AndPreservesLegacyEpoch()
         {
-            uint savedEpoch = MilestoneStore.CurrentEpoch;
             var savedResolver = GameStateRecorder.TagResolverForTesting;
+            var savedScene = HighLogic.LoadedScene;
             try
             {
-                MilestoneStore.CurrentEpoch = 13;
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
                 GameStateRecorder.TagResolverForTesting = () => "rec-bug454";
 
                 var evt = new GameStateEvent
@@ -904,17 +850,13 @@ namespace Parsek.Tests
                     ut = 200,
                     eventType = GameStateEventType.TechResearched,
                     key = "bug454-tag",
+                    epoch = 13,
                 };
                 Assert.True(string.IsNullOrEmpty(evt.recordingId));
-                Assert.Equal(0u, evt.epoch);
+                Assert.Equal(13u, evt.epoch);
 
                 GameStateRecorder.Emit(ref evt, "test-454");
 
-                // Emit's drift-A guard fires here (non-empty tag + no live flight context)
-                // because the test sets a tag without entering FLIGHT scene — an expected
-                // side effect of the minimal fixture, not an assertion target.
-
-                // Both stamps must be visible on the caller's local under ref.
                 Assert.Equal("rec-bug454", evt.recordingId);
                 Assert.Equal(13u, evt.epoch);
                 var stored = GameStateStore.Events.Last(e => e.key == "bug454-tag");
@@ -923,41 +865,38 @@ namespace Parsek.Tests
             }
             finally
             {
-                MilestoneStore.CurrentEpoch = savedEpoch;
                 GameStateRecorder.TagResolverForTesting = savedResolver;
+                HighLogic.LoadedScene = savedScene;
             }
         }
 
         [Fact]
-        public void RegisterPendingMilestoneEvent_CachesStampedEvent_WithoutExplicitMirror()
+        public void RegisterPendingMilestoneEvent_CachesTaggedEvent_WithoutExplicitMirror()
         {
-            // Post-#454 RegisterPendingMilestoneEvent no longer mirrors epoch/recordingId
-            // by hand — it relies entirely on Emit's ref signature to stamp the local
-            // that then gets cached in PendingMilestoneEventById. The cached entry must
-            // match the stored slot on the key fields, otherwise the follow-up
-            // EnrichPendingMilestoneRewards' UpdateEventDetail lookup misses (the shape
-            // #443 was originally filed for).
-            uint savedEpoch = MilestoneStore.CurrentEpoch;
+            var savedResolver = GameStateRecorder.TagResolverForTesting;
+            var savedScene = HighLogic.LoadedScene;
             try
             {
-                MilestoneStore.CurrentEpoch = 17;
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
+                GameStateRecorder.TagResolverForTesting = () => "rec-pending";
 
                 GameStateRecorder.RegisterPendingMilestoneEvent("bug454/milestone", ut: 500);
 
                 Assert.True(GameStateRecorder.PendingMilestoneEventById
                     .TryGetValue("bug454/milestone", out var cached));
-                Assert.Equal(17u, cached.epoch);
+                Assert.Equal("rec-pending", cached.recordingId);
 
                 var stored = GameStateStore.Events
                     .Last(e => e.eventType == GameStateEventType.MilestoneAchieved
                         && e.key == "bug454/milestone");
-                Assert.Equal(stored.epoch, cached.epoch);
+                Assert.Equal(stored.recordingId, cached.recordingId);
                 Assert.Equal(stored.ut, cached.ut);
                 Assert.Equal(stored.key, cached.key);
             }
             finally
             {
-                MilestoneStore.CurrentEpoch = savedEpoch;
+                GameStateRecorder.TagResolverForTesting = savedResolver;
+                HighLogic.LoadedScene = savedScene;
                 GameStateRecorder.PendingMilestoneEventById.Clear();
             }
         }

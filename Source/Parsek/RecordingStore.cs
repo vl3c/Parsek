@@ -1287,10 +1287,10 @@ namespace Parsek
         /// in that quicksave's persistent.sfs references sidecar files by recording id, which
         /// would dangle if we deleted them.
         ///
-        /// Event-store staleness after revert is handled by the existing
-        /// <see cref="MilestoneStore.CurrentEpoch"/> filter (bumped on revert elsewhere in
-        /// the <c>isRevert</c> branch). <see cref="CleanOrphanFiles"/> at the next cold-start
-        /// reclaims sidecars no quicksave still references.
+        /// Event-store staleness after revert is handled by the recording-id visibility
+        /// filter: tagged events stay hidden until a matching quickload restores the
+        /// active tree. <see cref="CleanOrphanFiles"/> at the next cold-start reclaims
+        /// sidecars no quicksave still references.
         ///
         /// Contrast with <see cref="DiscardPendingTree"/>, which runs the full #431 purge +
         /// file deletion for the merge-dialog Discard button's explicit "throw it away" choice.
@@ -1330,20 +1330,37 @@ namespace Parsek
             Log($"[Parsek] Unstashed pending tree '{treeName}' on revert " +
                 $"(was state={prevState}, {recCount} recording(s), {subjectsCleared} pending science subject(s) cleared): " +
                 "sidecar files preserved for F9-from-flight-quicksave; " +
-                "events stay in-memory and on-disk, filtered by bumped epoch");
+                "events stay in-memory and on-disk, filtered by recording-id visibility");
+        }
+
+        internal static bool IsPendingRecordingId(string recordingId)
+        {
+            return !string.IsNullOrEmpty(recordingId)
+                && pendingTree != null
+                && pendingTree.Recordings != null
+                && pendingTree.Recordings.ContainsKey(recordingId);
         }
 
         /// <summary>
-        /// #431: true when <paramref name="recordingId"/> belongs to a currently-committed recording.
-        /// Used by the legacy epoch-filter cohabitation log in <see cref="MilestoneStore.CreateMilestone"/>
-        /// to surface drift between the two filter mechanisms.
+        /// True when <paramref name="recordingId"/> belongs to the current live timeline:
+        /// a committed recording that survives ERS supersede/session-suppression filtering,
+        /// the pending tree, or the active in-flight tree being recorded/resumed.
+        /// This replaces the old epoch gate for "is this branch still live?" decisions.
         /// </summary>
-        internal static bool IsCommittedRecordingId(string recordingId)
+        internal static bool IsCurrentTimelineRecordingId(string recordingId)
         {
-            if (string.IsNullOrEmpty(recordingId)) return false;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                if (committedRecordings[i].RecordingId == recordingId)
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            if (IsPendingRecordingId(recordingId) || ParsekFlight.IsActiveTreeRecordingId(recordingId))
+                return true;
+
+            var ers = EffectiveState.ComputeERS();
+            for (int i = 0; i < ers.Count; i++)
+            {
+                if (string.Equals(ers[i].RecordingId, recordingId, StringComparison.Ordinal))
                     return true;
+            }
+
             return false;
         }
 

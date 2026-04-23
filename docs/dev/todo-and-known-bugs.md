@@ -12,7 +12,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ## Priority queue — deterministic-timeline correctness
 
-The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the v0.8.2 cycle. Remaining follow-up: retire `MilestoneStore.CurrentEpoch` as the legacy work-around (now redundant with purge-on-discard + ghost-only event filtering). See #431's notes in `done/todo-and-known-bugs-v3.md`.
+The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the v0.8.2 cycle, and the follow-up epoch-retirement cleanup shipped on 2026-04-23. `MilestoneStore.CurrentEpoch` is now gone from production; abandoned-branch exclusion is owned by discard/unstash recording visibility and ghost-only event filtering. Legacy `epoch` fields remain load-only compatibility for older saves. See #431's archived notes in `done/todo-and-known-bugs-v3.md`.
 
 ---
 

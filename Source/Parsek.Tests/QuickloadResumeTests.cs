@@ -176,12 +176,12 @@ namespace Parsek.Tests
             replacementEntry.AddValue("replacement", "Bill");
             CrewReservationManager.LoadCrewReplacements(crewNode);
 
-            MilestoneStore.CurrentEpoch = 3;
             var e = new GameStateEvent
             {
                 eventType = GameStateEventType.FacilityUpgraded,
                 key = "KSC",
-                ut = 1.0
+                ut = 1.0,
+                epoch = 3
             };
             GameStateStore.AddEvent(ref e);
 
@@ -194,7 +194,7 @@ namespace Parsek.Tests
             RevertDetector.SetPendingForTesting(RevertKind.Launch);
 
             SetPrivateStaticField(typeof(ParsekScenario), "initialLoadDone", true);
-            SetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionEpoch", (uint)9);
+            SetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionApplied", true);
             SetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPending", true);
             SetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPendingFrame", 123);
             ParsekScenario.MergeDialogPending = true;
@@ -218,7 +218,7 @@ namespace Parsek.Tests
             Assert.True(unsubscribeCalled);
             Assert.True(stateStillPopulatedDuringUnsubscribe);
             Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "initialLoadDone"));
-            Assert.Equal((uint)0, (uint)GetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionEpoch"));
+            Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionApplied"));
             Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPending"));
             Assert.Equal(-1, (int)GetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPendingFrame"));
             Assert.False(ParsekScenario.MergeDialogPending);
@@ -1456,7 +1456,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 5,
-                currentEpoch: 6,
+                liveEpoch: 6,
                 totalSavedRecCount: 10,
                 memoryRecordingsCount: 10);
             Assert.True(isRevert);
@@ -1468,7 +1468,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 5,
-                currentEpoch: 5,
+                liveEpoch: 5,
                 totalSavedRecCount: 8,
                 memoryRecordingsCount: 10);
             Assert.True(isRevert);
@@ -1482,7 +1482,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 5,
-                currentEpoch: 5,
+                liveEpoch: 5,
                 totalSavedRecCount: 10,
                 memoryRecordingsCount: 10);
             Assert.False(isRevert);
@@ -1497,7 +1497,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 0,
-                currentEpoch: 0,
+                liveEpoch: 0,
                 totalSavedRecCount: 0,
                 memoryRecordingsCount: 0,
                 isFlightToFlight: true,
@@ -1513,7 +1513,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 0,
-                currentEpoch: 0,
+                liveEpoch: 0,
                 totalSavedRecCount: 0,
                 memoryRecordingsCount: 0,
                 isFlightToFlight: false,
@@ -1530,7 +1530,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 0,
-                currentEpoch: 0,
+                liveEpoch: 0,
                 totalSavedRecCount: 0,
                 memoryRecordingsCount: 0,
                 isFlightToFlight: true,
@@ -1545,7 +1545,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: true,
                 savedEpoch: 0,
-                currentEpoch: 0,
+                liveEpoch: 0,
                 totalSavedRecCount: 0,
                 memoryRecordingsCount: 0,
                 isFlightToFlight: true,
@@ -1561,7 +1561,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: true,
                 savedEpoch: 4,
-                currentEpoch: 6,
+                liveEpoch: 6,
                 totalSavedRecCount: 5,
                 memoryRecordingsCount: 10);
             Assert.False(isRevert);
@@ -1573,12 +1573,12 @@ namespace Parsek.Tests
         /// full ParsekScenario instance.
         /// </summary>
         private static bool ComputeIsRevert(
-            bool isVesselSwitch, uint savedEpoch, uint currentEpoch,
+            bool isVesselSwitch, uint savedEpoch, uint liveEpoch,
             int totalSavedRecCount, int memoryRecordingsCount,
             bool isFlightToFlight = false, bool hasOrphanedLimboTree = false)
         {
             return !isVesselSwitch
-                && (savedEpoch < currentEpoch
+                && (savedEpoch < liveEpoch
                     || totalSavedRecCount < memoryRecordingsCount
                     || (isFlightToFlight && hasOrphanedLimboTree));
         }
@@ -1688,7 +1688,7 @@ namespace Parsek.Tests
             bool isRevert = ComputeIsRevert(
                 isVesselSwitch: false,
                 savedEpoch: 0,
-                currentEpoch: 0,
+                liveEpoch: 0,
                 totalSavedRecCount: 0,
                 memoryRecordingsCount: 0,
                 isFlightToFlight: true,

@@ -17,10 +17,12 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            RecordingStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             ParsekTimeFormat.ResetForTesting();
@@ -55,7 +57,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Empty(result);
         }
@@ -72,7 +74,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count);
 
@@ -98,7 +100,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Empty(result);
         }
@@ -118,7 +120,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count);
             Assert.Contains(result, e => e.Type == TimelineEntryType.RecordingStart);
@@ -143,7 +145,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             // Verify ascending UT order
             for (int i = 1; i < result.Count; i++)
@@ -171,7 +173,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(3, result.Count);
             Assert.Equal(TimelineEntryType.ScienceEarning, result[0].Type);
@@ -195,7 +197,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Single(result);
             Assert.Equal("Starting science: 150.5", result[0].DisplayText);
@@ -217,7 +219,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Single(result);
             Assert.Equal("Starting reputation: 25", result[0].DisplayText);
@@ -262,7 +264,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Single(result);
             Assert.Equal(SignificanceTier.T2, result[0].Tier);
@@ -298,7 +300,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var milestone = Assert.Single(result);
             Assert.Equal(TimelineEntryType.MilestoneAchievement, milestone.Type);
@@ -335,7 +337,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count);
         }
@@ -368,7 +370,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var milestone = Assert.Single(result);
             Assert.Equal("Milestone: Kerbin - Records Distance +4800 funds +2 rep", milestone.DisplayText);
@@ -412,7 +414,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count);
             Assert.Contains(result, e => e.Type == TimelineEntryType.MilestoneAchievement &&
@@ -447,7 +449,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count);
             Assert.Contains(result, e => e.DisplayText == "Milestone: Kerbin - Records Distance +4800 funds");
@@ -476,7 +478,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Single(result);
             Assert.Equal(SignificanceTier.T2, result[0].Tier);
@@ -586,7 +588,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec0, rec1 },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             // Only the chain root (index 0) gets a Launch entry.
             // Chain children (index > 0) are optimizer splits, not player-visible launches.
@@ -613,7 +615,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec0, rec1 },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             // rec0 (branch 0) should show duration of branch 0 only (100s = 1m, 40s)
             var start0 = result.First(e => e.Type == TimelineEntryType.RecordingStart && e.VesselName == "Main Ship");
@@ -635,7 +637,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec0, rec1 },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
 
@@ -671,7 +673,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 new List<GameAction>(),
                 new List<Milestone> { milestone },
-                0);
+                _ => true);
 
             Assert.Single(result);
             Assert.Equal(TimelineEntryType.LegacyEvent, result[0].Type);
@@ -680,23 +682,23 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // 17. Legacy events — wrong epoch filtered
+        // 17. Legacy events — hidden tagged rows filtered
         // ================================================================
 
         [Fact]
-        public void LegacyEvents_WrongEpochFiltered()
+        public void LegacyEvents_HiddenTaggedRowsFiltered()
         {
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 5,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
                     {
                         ut = 150,
                         eventType = GameStateEventType.ContractCompleted,
-                        key = "old-contract"
+                        key = "old-contract",
+                        recordingId = "old-rec"
                     }
                 }
             };
@@ -705,7 +707,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 new List<GameAction>(),
                 new List<Milestone> { milestone },
-                3); // currentEpoch = 3, milestone epoch = 5
+                GameStateStore.IsEventVisibleToCurrentTimeline);
 
             Assert.Empty(result);
         }
@@ -736,7 +738,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 new List<GameAction>(),
                 new List<Milestone> { milestone },
-                0);
+                _ => true);
 
             Assert.Empty(result);
         }
@@ -813,7 +815,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone> { milestone },
-                0);
+                _ => true);
 
             Assert.Contains(result, e =>
                 e.Source == TimelineSource.GameAction &&
@@ -909,7 +911,7 @@ namespace Parsek.Tests
                 new List<Recording>(),
                 actions,
                 new List<Milestone> { milestone },
-                0);
+                _ => true);
 
             Assert.Contains(result, e =>
                 e.Source == TimelineSource.Legacy &&
@@ -948,7 +950,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var scienceEntry = result.First(e => e.Type == TimelineEntryType.ScienceEarning);
             Assert.Equal("Mun Lander", scienceEntry.VesselName);
@@ -970,7 +972,7 @@ namespace Parsek.Tests
                 new List<Recording> { recRecovered, recDestroyed, recNone },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             // Destroyed terminals are filtered — "Spawn: Destroyed" makes no sense
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
@@ -998,7 +1000,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Timeline]") && l.Contains("Build complete"));
@@ -1040,7 +1042,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec1, rec2 },
                 actions,
                 new List<Milestone> { milestone },
-                1); // epoch matches milestone
+                _ => true);
 
             // 2 recordings x 2 entries each (Start + Spawn) = 4
             // 3 game actions = 3
@@ -1110,7 +1112,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Equal(2, result.Count); // Start + Spawn
             Assert.All(result, e => Assert.Equal(100.0, e.UT));
@@ -1131,7 +1133,7 @@ namespace Parsek.Tests
                 new List<Recording> { visible, hidden1, hidden2 },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Timeline]") && l.Contains("hidden=2"));
@@ -1225,7 +1227,7 @@ namespace Parsek.Tests
                 new List<Recording> { root, continuation },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
 
@@ -1260,7 +1262,7 @@ namespace Parsek.Tests
                 new List<Recording> { root, debris },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
 
@@ -1364,7 +1366,7 @@ namespace Parsek.Tests
                 new List<Recording> { root, seg1, seg2 },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
 
@@ -1404,7 +1406,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var deaths = result.FindAll(e => e.Type == TimelineEntryType.CrewDeath);
             Assert.Single(deaths);
@@ -1429,7 +1431,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             var deaths = result.FindAll(e => e.Type == TimelineEntryType.CrewDeath);
             Assert.Equal(2, deaths.Count);
@@ -1449,7 +1451,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
         }
@@ -1464,7 +1466,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
         }
@@ -1482,7 +1484,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
         }
@@ -1500,7 +1502,7 @@ namespace Parsek.Tests
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Timeline]") && l.Contains("crewDeath=1"));
@@ -1554,7 +1556,7 @@ namespace Parsek.Tests
                 new List<Recording> { parentRec, evaRec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             // Bill's reassignment at UT=300 should be filtered (same UT + same recordingId as EVA parent)
             Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.KerbalAssignment);
@@ -1587,7 +1589,7 @@ namespace Parsek.Tests
                 new List<Recording> { parentRec, evaRec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(result, e => e.Type == TimelineEntryType.KerbalAssignment);
         }
@@ -1620,7 +1622,7 @@ namespace Parsek.Tests
                 new List<Recording> { parentRec, otherRec, evaRec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(result, e => e.Type == TimelineEntryType.KerbalAssignment);
         }
@@ -1654,7 +1656,7 @@ namespace Parsek.Tests
                 new List<Recording> { parentRec, evaRec },
                 actions,
                 new List<Milestone>(),
-                0);
+                _ => true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Timeline]") && l.Contains("Filtered 2 KerbalAssignment"));

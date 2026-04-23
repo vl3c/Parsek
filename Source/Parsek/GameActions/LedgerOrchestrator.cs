@@ -1681,6 +1681,21 @@ namespace Parsek
             // actions enter the same walk that patches KSP state.
             MigrateLegacyTreeResources();
 
+            // #401/#396 one-shot save recovery now runs here, after committed recordings
+            // (and any cold-start pending active tree) have been loaded. That gives the
+            // post-epoch visibility filter an authoritative recording-id scope and keeps
+            // old hidden branch events out of the synthesized ledger rows for the right
+            // reason: their recording ids are no longer part of the current timeline.
+            try
+            {
+                TryRecoverBrokenLedgerOnLoad();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
+            }
+
             RecalculateAndPatch();
             KerbalLoadRepairDiagnostics.EmitAndReset();
         }
@@ -2905,10 +2920,9 @@ namespace Parsek
         /// science subjects, synthesizes a matching GameAction for any entry that
         /// does NOT already have one in the ledger, and adds them.
         ///
-        /// Must be called AFTER <see cref="OnLoad"/> has populated the ledger and
-        /// AFTER <see cref="MilestoneStore.CurrentEpoch"/> has been restored from
-        /// the save, because the migration respects epoch isolation (review §5.6)
-        /// — only acts on events whose epoch matches CurrentEpoch.
+        /// Must be called AFTER committed recordings (and any cold-start pending
+        /// tree) have been restored, because the migration only acts on events
+        /// whose recording tags are still visible in the current timeline.
         ///
         /// Idempotent: the LedgerHasMatchingAction guard makes repeat loads a no-op.
         /// </summary>
@@ -2920,18 +2934,16 @@ namespace Parsek
             int recoveredFundsParts = 0;
             int recoveredContracts = 0;
             int recoveredScience = 0;
-            int skippedByEpoch = 0;
-
-            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            int skippedHidden = 0;
 
             // 1) Funds + contract events
             var events = GameStateStore.Events;
             for (int i = 0; i < events.Count; i++)
             {
                 var evt = events[i];
-                if (evt.epoch != currentEpoch)
+                if (!GameStateStore.IsEventVisibleToCurrentTimeline(evt))
                 {
-                    skippedByEpoch++;
+                    skippedHidden++;
                     continue;
                 }
                 if (!IsRecoverableEventType(evt.eventType)) continue;
@@ -2972,9 +2984,9 @@ namespace Parsek
 
                     var action = new GameAction
                     {
-                        // Science earnings need a UT for ordering; use CurrentEpoch's
-                        // first pseudo-UT (close to zero) so the synthesized action
-                        // slots in at the beginning of the current epoch.
+                        // Science earnings need a UT for ordering; use the earliest
+                        // pseudo-UT so the synthesized action slots in at the beginning
+                        // of the currently-visible timeline.
                         UT = 0.0,
                         Type = GameActionType.ScienceEarning,
                         RecordingId = null,
@@ -2998,13 +3010,13 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
                     $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
-                    $"(epoch={currentEpoch}, skippedByEpoch={skippedByEpoch}).");
+                    $"(skippedHidden={skippedHidden}).");
             }
             else
             {
                 ParsekLog.Verbose(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad: no recovery needed (epoch={currentEpoch}, " +
-                    $"skippedByEpoch={skippedByEpoch})");
+                    $"TryRecoverBrokenLedgerOnLoad: no recovery needed " +
+                    $"(skippedHidden={skippedHidden})");
             }
 
             return totalRecovered;
@@ -3309,7 +3321,7 @@ namespace Parsek
                 e.ut,
                 e.valueBefore,
                 e.valueAfter,
-                e.epoch);
+                e.recordingId ?? "");
         }
 
         /// <summary>
@@ -5178,9 +5190,6 @@ namespace Parsek
                 return true;
             }
 
-            if (MilestoneStore.CurrentEpoch == 0)
-                return false;
-
             GameStateEventType anchorType;
             string anchorKey;
             if (!TryGetPostWalkSourceAnchor(action, out anchorType, out anchorKey))
@@ -5193,8 +5202,7 @@ namespace Parsek
             {
                 LogPostWalkLiveCoverageSkip(
                     action,
-                    "no live source anchor or observed reward leg remains in epoch=" +
-                    MilestoneStore.CurrentEpoch.ToString(CultureInfo.InvariantCulture));
+                    "no live source anchor or observed reward leg remains in the current timeline");
                 return true;
             }
 
@@ -5284,13 +5292,12 @@ namespace Parsek
             if (action == null || events == null || events.Count == 0)
                 return false;
 
-            uint currentEpoch = MilestoneStore.CurrentEpoch;
             string expectedKey = anchorKey ?? "";
 
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.epoch != currentEpoch) continue;
+                if (!GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
                 if (e.eventType != anchorType) continue;
                 if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
                 if (!PostWalkEventMatchesAction(e, action)) continue;
@@ -5351,10 +5358,7 @@ namespace Parsek
             if (e.ut <= livePruneThreshold)
                 return false;
 
-            if (MilestoneStore.CurrentEpoch > 0 && e.epoch != MilestoneStore.CurrentEpoch)
-                return false;
-
-            return true;
+            return GameStateStore.IsEventVisibleToCurrentTimeline(e);
         }
 
         private static bool HasAmbiguousLiveCoverageOverlap(

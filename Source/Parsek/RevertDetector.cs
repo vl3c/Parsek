@@ -6,10 +6,10 @@ namespace Parsek
     /// which fire synchronously inside <c>FlightDriver.RevertToLaunch</c> /
     /// <c>FlightDriver.RevertToPrelaunch</c> BEFORE <c>HighLogic.LoadScene</c>.
     ///
-    /// The previous revert-detection heuristic (savedEpoch &lt; CurrentEpoch, or recording-count
-    /// regression) false-positived on an F9 to a pre-revert flight quicksave: the quicksave's
-    /// epoch/recording count are legitimately older than the post-revert in-memory state, so the
-    /// load was mis-classified as a second revert. Event-based detection consumes a one-shot
+    /// The previous revert-detection heuristic (save-state regression by epoch/recording count)
+    /// false-positived on an F9 to a pre-revert flight quicksave: the quicksave's metadata was
+    /// legitimately older than the post-revert in-memory state, so the load was mis-classified
+    /// as a second revert. Event-based detection consumes a one-shot
     /// flag: the flag is set by the KSP event and cleared by the first OnLoad that reads it.
     /// F9 into an older quicksave after that consumption sees <see cref="RevertKind.None"/>
     /// and runs as a plain quickload resume, preserving the pending tree.
