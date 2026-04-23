@@ -230,6 +230,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True iff <paramref name="rec"/> is part of a chain whose head
+        /// (the segment carrying the <c>ParentBranchPointId</c> link to a
+        /// RewindPoint) qualifies as an Unfinished Flight. Used by the
+        /// recordings-table row rendering to suppress the legacy
+        /// rewind-to-launch <c>R</c> button on chain continuations: a booster
+        /// that re-flies via its chain-head Rewind-to-Staging button should
+        /// NOT also offer a chain-continuation row another R that silently
+        /// rewinds the entire mission to the pad. The chain head itself also
+        /// trips this check, which is fine — its new Rewind-to-Staging button
+        /// already takes over, so the legacy branch would never run.
+        /// </summary>
+        public static bool IsChainMemberOfUnfinishedFlight(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return false;
+
+            var ers = ComputeERS();
+            if (ers == null) return false;
+
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var candidate = ers[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (IsUnfinishedFlight(candidate))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Resolves the recording whose <c>TerminalStateValue</c> actually
         /// represents the ending of <paramref name="rec"/>'s vessel. For a
         /// chained recording, merge-time <c>Optimizer.SplitAtSection</c>

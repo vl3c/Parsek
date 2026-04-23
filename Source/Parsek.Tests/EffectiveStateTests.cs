@@ -421,6 +421,113 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsChainMemberOfUnfinishedFlight_ChainHeadUnfinishedFlight_ContinuationTripsGate()
+        {
+            // The chain continuation has no parentBranchPointId of its own, so
+            // its IsUnfinishedFlight is false. But its chain head qualifies —
+            // the recordings-table row must suppress the legacy rewind-to-
+            // launch R button on the continuation via this helper.
+            var bp = new BranchPoint { Id = "bp_stage", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_boost",
+                TreeName = "Booster",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_atmo",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp_stage",
+                TreeId = "tree_boost",
+                ChainId = "chain_boost",
+                ChainIndex = 0
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_exo",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = null,
+                TreeId = "tree_boost",
+                ChainId = "chain_boost",
+                ChainIndex = 1
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+
+            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(tip));
+        }
+
+        [Fact]
+        public void IsChainMemberOfUnfinishedFlight_ChainHeadStable_DoesNotTrip()
+        {
+            // Chain head with safe-terminal tip: NOT an unfinished flight,
+            // so the legacy R button should stay available on the continuation.
+            var bp = new BranchPoint { Id = "bp_stage", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_safe",
+                TreeName = "Safe",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp_stage",
+                TreeId = "tree_safe",
+                ChainId = "chain_safe",
+                ChainIndex = 0
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                TreeId = "tree_safe",
+                ChainId = "chain_safe",
+                ChainIndex = 1
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+
+            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.False(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
+            Assert.False(EffectiveState.IsChainMemberOfUnfinishedFlight(tip));
+        }
+
+        [Fact]
+        public void IsChainMemberOfUnfinishedFlight_NoChain_DoesNotTrip()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_solo",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp",
+                ChainId = null
+            };
+            MakeScenario();
+
+            Assert.False(EffectiveState.IsChainMemberOfUnfinishedFlight(rec));
+        }
+
+        [Fact]
         public void ResolveChainTerminalRecording_DifferentChainBranch_DoesNotCrossBranches()
         {
             // Two siblings on different ChainBranch values must not be treated
