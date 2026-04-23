@@ -64,15 +64,6 @@ namespace Parsek
             return entries;
         }
 
-        internal static List<TimelineEntry> Build(
-            IReadOnlyList<Recording> committedRecordings,
-            IReadOnlyList<GameAction> ledgerActions,
-            IReadOnlyList<Milestone> milestones,
-            uint _unusedLegacyVisibilityCompatibility)
-        {
-            return Build(committedRecordings, ledgerActions, milestones, null);
-        }
-
         internal static int CompactAdjacentMilestoneEntries(List<TimelineEntry> entries)
         {
             if (entries == null || entries.Count < 2)

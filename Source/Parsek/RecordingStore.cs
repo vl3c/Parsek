@@ -1333,20 +1333,6 @@ namespace Parsek
                 "events stay in-memory and on-disk, filtered by recording-id visibility");
         }
 
-        /// <summary>
-        /// True when <paramref name="recordingId"/> exists in the raw committed list.
-        /// Historical helper only; current-timeline visibility should prefer
-        /// <see cref="IsCurrentTimelineRecordingId"/>.
-        /// </summary>
-        internal static bool IsCommittedRecordingId(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return false;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                if (committedRecordings[i].RecordingId == recordingId)
-                    return true;
-            return false;
-        }
-
         internal static bool IsPendingRecordingId(string recordingId)
         {
             return !string.IsNullOrEmpty(recordingId)

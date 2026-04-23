@@ -1342,23 +1342,23 @@ namespace Parsek
                             ReconcileSpawnStateAfterStrip(flightStateForReconcile.protoVessels, recordings);
                     }
 
-                if (isRevert)
-                {
-                    // Restore milestone mutable state from .sfs.
-                    // resetUnmatched: true — milestones created after the launch quicksave
-                    // (not in the saved state) must be reset to unreplayed (-1). Hidden
-                    // branch exclusion now comes from recording-id visibility, not a
-                    // synthetic epoch bump.
-                    MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+                    if (isRevert)
+                    {
+                        // Restore milestone mutable state from .sfs.
+                        // resetUnmatched: true — milestones created after the launch quicksave
+                        // (not in the saved state) must be reset to unreplayed (-1). Hidden
+                        // branch exclusion now comes from recording-id visibility, not a
+                        // synthetic epoch bump.
+                        MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
 
-                    // #434: Revert is a player declaration that "this mission never happened."
-                    // Soft-unstash the pending tree — clear the slot but preserve sidecar files
-                    // and event state so that a quicksave taken during the flight can still be
-                    // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
-                    // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
-                    // Events stay in-memory and on-disk; recording-id visibility filters
-                    // them out of the post-revert ledger walks until a matching quickload
-                    // restores the tree.
+                        // #434: Revert is a player declaration that "this mission never happened."
+                        // Soft-unstash the pending tree — clear the slot but preserve sidecar files
+                        // and event state so that a quicksave taken during the flight can still be
+                        // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
+                        // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
+                        // Events stay in-memory and on-disk; recording-id visibility filters
+                        // them out of the post-revert ledger walks until a matching quickload
+                        // restores the tree.
                         //
                         // This runs BEFORE the limbo-dispatch block below — clearing the pending
                         // slot short-circuits the finalize/restore paths because the tree is gone.
@@ -1383,11 +1383,11 @@ namespace Parsek
                             catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
                         }
 
-                    // Schedule committed resource deduction (singletons may not be ready yet)
-                    ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-                    budgetDeductionApplied = false;
-                    StartCoroutine(ApplyBudgetDeductionWhenReady());
-                }
+                        // Schedule committed resource deduction (singletons may not be ready yet)
+                        ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
+                        budgetDeductionApplied = false;
+                        StartCoroutine(ApplyBudgetDeductionWhenReady());
+                    }
                     else
                     {
                         // Scene change — restore milestone state without resetting unmatched.
