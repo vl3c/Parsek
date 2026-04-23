@@ -10,8 +10,8 @@ namespace Parsek
     /// events that are purely informational (resource deltas, status changes) are skipped.
     ///
     /// Also converts <see cref="PendingScienceSubject"/> entries into ScienceEarning actions.
-    ///
-    /// Pure static — no KSP state access.
+    /// ContractAccepted backfill may consult the stored contract snapshot when older event
+    /// detail rows predate newer fields.
     /// </summary>
     internal static class GameStateEventConverter
     {
@@ -201,6 +201,10 @@ namespace Parsek
             }
 
             int sequence = 1;
+            int taggedMatches = 0;
+            int untaggedInWindow = 0;
+            int skippedCrossRecording = 0;
+            int skippedOutsideWindow = 0;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -221,6 +225,27 @@ namespace Parsek
                     continue;
                 }
 
+                if (!TryResolveScienceSubjectStartUt(
+                        subj,
+                        recordingId,
+                        startUT,
+                        endUT,
+                        out double resolvedStartUt,
+                        out bool matchedViaUntaggedWindow,
+                        out bool skippedDueToCrossRecording))
+                {
+                    if (skippedDueToCrossRecording)
+                        skippedCrossRecording++;
+                    else
+                        skippedOutsideWindow++;
+                    continue;
+                }
+
+                if (matchedViaUntaggedWindow)
+                    untaggedInWindow++;
+                else
+                    taggedMatches++;
+
                 result.Add(new GameAction
                 {
                     UT = endUT,
@@ -230,7 +255,7 @@ namespace Parsek
                     ScienceAwarded = subj.science,
                     Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
-                    StartUT = (float)ResolveScienceWindowStart(subj, recordingId, startUT, endUT),
+                    StartUT = (float)resolvedStartUt,
                     EndUT = (float)endUT,
                     Sequence = sequence++
                 });
@@ -238,34 +263,87 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"ConvertScienceSubjects: converted={result.Count} from {subjects.Count} subjects, " +
-                $"recordingId={recordingId ?? "(none)"}");
+                $"recordingId={recordingId ?? "(none)"}, tagged={taggedMatches}, " +
+                $"untaggedInWindow={untaggedInWindow}, skippedCrossRecording={skippedCrossRecording}, " +
+                $"skippedOutsideWindow={skippedOutsideWindow}");
 
             return result;
         }
 
-        private static double ResolveScienceWindowStart(
+        private static bool TryResolveScienceSubjectStartUt(
             PendingScienceSubject subject,
             string recordingId,
             double defaultStartUT,
-            double endUT)
+            double endUT,
+            out double resolvedStartUt,
+            out bool matchedViaUntaggedWindow,
+            out bool skippedDueToCrossRecording)
         {
-            if (!string.Equals(
-                    subject.recordingId ?? "",
-                    recordingId ?? "",
-                    StringComparison.Ordinal))
-                return defaultStartUT;
+            resolvedStartUt = defaultStartUT;
+            matchedViaUntaggedWindow = false;
+            skippedDueToCrossRecording = false;
+
+            string subjectRecordingId = subject.recordingId ?? "";
+            string ownerRecordingId = recordingId ?? "";
+            if (!string.IsNullOrEmpty(subjectRecordingId))
+            {
+                if (!string.Equals(subjectRecordingId, ownerRecordingId, StringComparison.Ordinal))
+                {
+                    skippedDueToCrossRecording = true;
+                    return false;
+                }
+
+                if (!TryResolveTaggedScienceWindowStart(subject, defaultStartUT, endUT, out resolvedStartUt))
+                    return false;
+
+                return true;
+            }
 
             double captureUt = subject.captureUT;
-            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
-                return defaultStartUT;
-            if (captureUt < 0.0)
-                return defaultStartUT;
-            if (captureUt == 0.0 && defaultStartUT > 0.0)
-                return defaultStartUT;
-            if (captureUt > endUT)
-                return defaultStartUT;
+            if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))
+                return false;
 
-            return captureUt;
+            matchedViaUntaggedWindow = true;
+            resolvedStartUt = captureUt;
+            return true;
+        }
+
+        private static bool TryResolveTaggedScienceWindowStart(
+            PendingScienceSubject subject,
+            double defaultStartUT,
+            double endUT,
+            out double resolvedStartUt)
+        {
+            resolvedStartUt = defaultStartUT;
+            double captureUt = subject.captureUT;
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return false;
+            if (captureUt < 0.0)
+                return false;
+            if (captureUt == 0.0 && defaultStartUT > 0.0)
+                return true;
+            if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))
+                return false;
+
+            resolvedStartUt = captureUt;
+            return true;
+        }
+
+        private static bool IsScienceCaptureWithinRecordingWindow(
+            double captureUt,
+            double startUT,
+            double endUT)
+        {
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return false;
+            if (captureUt < 0.0)
+                return false;
+            if (captureUt < startUT)
+                return false;
+            if (captureUt > endUT)
+                return false;
+
+            return true;
         }
 
         private static ScienceMethod ResolveScienceMethod(string reasonKey)
@@ -405,24 +483,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/advance/penalties from detail).
-        /// New format (v3): "title=...;deadline=...;funds=...;failFunds=...;failRep=..."
+        /// ContractAccepted -> ContractAccept (contractId=key, title/type/deadline/advance/penalties from detail).
+        /// New format (v4): "title=...;deadline=...;type=...;funds=...;failFunds=...;failRep=..."
+        /// v3 (no type= key): backward compatible via snapshot fallback.
         /// v2 (no funds= key): backward compatible, advance defaults to 0.
         /// Legacy (v1): plain title string (no semicolons). Backward compatible.
         /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
             string title;
+            string contractType = null;
             float deadlineUT = float.NaN;
             float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
+            bool structured = evt.detail != null && evt.detail.Contains(";");
+            string typeSource = "missing";
 
             // Detect structured vs legacy format by checking for semicolons
-            if (evt.detail != null && evt.detail.Contains(";"))
+            if (structured)
             {
                 // Structured format: extract fields
                 title = ExtractDetail(evt.detail, "title") ?? "";
+                contractType = ExtractDetail(evt.detail, "type");
+                if (!string.IsNullOrEmpty(contractType))
+                    typeSource = "detail";
 
                 string deadlineStr = ExtractDetail(evt.detail, "deadline");
                 if (deadlineStr != null && deadlineStr != "NaN")
@@ -441,20 +526,29 @@ namespace Parsek
                 string failRepStr = ExtractDetail(evt.detail, "failRep");
                 if (failRepStr != null)
                     float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
-
-                ParsekLog.Verbose(Tag,
-                    $"ConvertContractAccepted: structured format contractId='{evt.key}' " +
-                    $"title='{title}' deadline={deadlineUT} advance={advanceFunds} " +
-                    $"failFunds={fundsPenalty} failRep={repPenalty}");
             }
             else
             {
                 // Legacy format: entire detail is the title
                 title = evt.detail ?? "";
-
-                ParsekLog.Verbose(Tag,
-                    $"ConvertContractAccepted: legacy format contractId='{evt.key}' title='{title}'");
             }
+
+            if (string.IsNullOrEmpty(contractType))
+            {
+                ConfigNode snapshot = GameStateStore.GetContractSnapshot(evt.key);
+                if (snapshot != null)
+                {
+                    contractType = snapshot.GetValue("type");
+                    if (!string.IsNullOrEmpty(contractType))
+                        typeSource = "snapshot";
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ConvertContractAccepted: {(structured ? "structured" : "legacy")} format " +
+                $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
+                $"typeSource={typeSource} deadline={deadlineUT} advance={advanceFunds} " +
+                $"failFunds={fundsPenalty} failRep={repPenalty}");
 
             return new GameAction
             {
@@ -463,6 +557,7 @@ namespace Parsek
                 RecordingId = recordingId,
                 ContractId = evt.key,
                 ContractTitle = title,
+                ContractType = contractType,
                 DeadlineUT = deadlineUT,
                 AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,

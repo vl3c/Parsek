@@ -15,10 +15,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            GameStateStore.ResetForTesting();
+            GameStateStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -415,8 +419,8 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f },
-                new PendingScienceSubject { subjectId = "evaReport@MunSrfLandedMidlands", science = 8.0f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "evaReport@MunSrfLandedMidlands", science = 8.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
@@ -432,7 +436,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertScienceSubjects_PropagatesCaptureWindowAndScienceMethod()
+        public void ConvertScienceSubjects_TaggedCaptureInsideRecordingWindow_PropagatesCaptureWindowAndScienceMethod()
         {
             var subjects = new List<PendingScienceSubject>
             {
@@ -440,7 +444,7 @@ namespace Parsek.Tests
                 {
                     subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
                     science = 1.5f,
-                    captureUT = 88.7,
+                    captureUT = 117.8,
                     reasonKey = "ScienceTransmission",
                     recordingId = "rec"
                 },
@@ -448,7 +452,7 @@ namespace Parsek.Tests
                 {
                     subjectId = "temperatureScan@KerbinSrfLandedLaunchPad",
                     science = 1.2f,
-                    captureUT = 94.6,
+                    captureUT = 194.6,
                     reasonKey = "VesselRecovery",
                     recordingId = "rec"
                 }
@@ -457,15 +461,95 @@ namespace Parsek.Tests
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
 
             Assert.Equal(2, actions.Count);
-            Assert.Equal(88.7f, actions[0].StartUT);
+            Assert.Equal(117.8f, actions[0].StartUT);
             Assert.Equal(ScienceMethod.Transmitted, actions[0].Method);
-            Assert.Equal(94.6f, actions[1].StartUT);
+            Assert.Equal(194.6f, actions[1].StartUT);
             Assert.Equal(ScienceMethod.Recovered, actions[1].Method);
             Assert.Equal(248.8f, actions[1].EndUT);
         }
 
         [Fact]
-        public void ConvertScienceSubjects_CrossRecordingCapture_FallsBackToRecordingStart()
+        public void ConvertScienceSubjects_TaggedCaptureBeforeRecordingStart_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = 88.7,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureNaN_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = double.NaN,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureInfinity_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = double.PositiveInfinity,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureNegative_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = -1.0,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_CrossRecordingCapture_IsSkipped()
         {
             var subjects = new List<PendingScienceSubject>
             {
@@ -481,9 +565,49 @@ namespace Parsek.Tests
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
 
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_UntaggedCaptureInsideRecordingWindow_UsesCaptureUt()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = 117.8,
+                    reasonKey = "VesselRecovery",
+                    recordingId = ""
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
             Assert.Single(actions);
-            Assert.Equal(100.3f, actions[0].StartUT);
+            Assert.Equal(117.8f, actions[0].StartUT);
             Assert.Equal(ScienceMethod.Recovered, actions[0].Method);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_UntaggedCaptureBeforeRecordingStart_IsSkipped()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = 88.7,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = ""
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Empty(actions);
         }
 
         [Fact]
@@ -491,8 +615,8 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "", science = 5.0f },
-                new PendingScienceSubject { subjectId = "valid@subject", science = 3.0f },
+                new PendingScienceSubject { subjectId = "", science = 5.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "valid@subject", science = 3.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 50.0, 100.0);
@@ -506,8 +630,8 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "zero@subject", science = 0.0f },
-                new PendingScienceSubject { subjectId = "negative@subject", science = -1.0f },
+                new PendingScienceSubject { subjectId = "zero@subject", science = 0.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "negative@subject", science = -1.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 50.0, 100.0);
@@ -598,9 +722,9 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f },
-                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f },
-                new PendingScienceSubject { subjectId = "temperatureScan@KerbinFlyingLow", science = 3.0f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "temperatureScan@KerbinFlyingLow", science = 3.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
@@ -616,10 +740,10 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "valid1@subject", science = 5.0f },
-                new PendingScienceSubject { subjectId = "", science = 3.0f },
-                new PendingScienceSubject { subjectId = "zero@subject", science = 0.0f },
-                new PendingScienceSubject { subjectId = "valid2@subject", science = 8.0f },
+                new PendingScienceSubject { subjectId = "valid1@subject", science = 5.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "", science = 3.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "zero@subject", science = 0.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "valid2@subject", science = 8.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
@@ -634,8 +758,8 @@ namespace Parsek.Tests
         {
             var subjects = new List<PendingScienceSubject>
             {
-                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f, subjectMaxValue = 10.0f },
-                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f, subjectMaxValue = 24.0f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f, subjectMaxValue = 10.0f, recordingId = "rec" },
+                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f, subjectMaxValue = 24.0f, recordingId = "rec" },
             };
 
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
@@ -654,13 +778,14 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=50000;failFunds=12000;failRep=5");
+                detail: "title=Orbit the Mun;deadline=50000;type=ExploreBody;failFunds=12000;failRep=5");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
 
             Assert.NotNull(action);
             Assert.Equal(GameActionType.ContractAccept, action.Type);
             Assert.Equal("guid-1234", action.ContractId);
             Assert.Equal("Orbit the Mun", action.ContractTitle);
+            Assert.Equal("ExploreBody", action.ContractType);
             Assert.Equal(50000f, action.DeadlineUT);
             Assert.Equal(12000f, action.FundsPenalty);
             Assert.Equal(5f, action.RepPenalty);
@@ -703,13 +828,15 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
-                detail: "title=Test;deadline=50000;failFunds=1000;failRep=2");
+                detail: "title=Test;deadline=50000;type=PartTest;failFunds=1000;failRep=2");
             GameStateEventConverter.ConvertEvent(evt, "rec");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[GameStateEventConverter]") &&
                 l.Contains("structured format") &&
-                l.Contains("guid-1234"));
+                l.Contains("guid-1234") &&
+                l.Contains("type='PartTest'") &&
+                l.Contains("typeSource=detail"));
         }
 
         [Fact]
@@ -772,6 +899,27 @@ namespace Parsek.Tests
 
             Assert.NotNull(action);
             Assert.Equal(0f, action.AdvanceFunds);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_WhenDetailOmitsType_BackfillsFromSnapshot()
+        {
+            var snapshot = new ConfigNode("CONTRACT");
+            snapshot.AddValue("type", "PartTest");
+            GameStateStore.AddContractSnapshot("guid-snap", snapshot);
+
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-snap",
+                detail: "title=Test Part;deadline=NaN;funds=0;failFunds=3000;failRep=1");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-snap");
+
+            Assert.NotNull(action);
+            Assert.Equal("Test Part", action.ContractTitle);
+            Assert.Equal("PartTest", action.ContractType);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateEventConverter]") &&
+                l.Contains("guid-snap") &&
+                l.Contains("typeSource=snapshot"));
         }
 
         // ================================================================

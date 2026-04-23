@@ -17,6 +17,7 @@ namespace Parsek.InGameTests
     {
         internal const float TimeScalePositiveThreshold = 0.01f;
         internal const int TimeScalePositiveProbeFrames = 8;
+        internal const float TimeJumpLaunchAutoRecordTransientTimeoutSeconds = 3f;
 
         internal enum TimeScalePositiveProbeOutcome
         {
@@ -1714,6 +1715,50 @@ namespace Parsek.InGameTests
             }
         }
 
+        internal static IEnumerator WaitForTimeJumpLaunchAutoRecordTransientToClear(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                bool suppressed = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
+                if (!suppressed)
+                {
+                    yield return new WaitForFixedUpdate();
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForTimeJumpLaunchAutoRecordTransientToClear timed out after {timeoutSeconds:F0}s " +
+                $"(inProgress={TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress}, frame={Time.frameCount}, " +
+                $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame})");
+        }
+
+        internal static int CountAnyAutoRecordStartLogLines(List<string> captured)
+        {
+            if (captured == null)
+                return 0;
+
+            return captured.Count(
+                line => line.Contains("[Flight]")
+                    && line.Contains("Auto-record started ("));
+        }
+
+        internal static int CountTimeJumpTransientSkipLogLines(List<string> captured)
+        {
+            if (captured == null)
+                return 0;
+
+            return captured.Count(
+                line => line.Contains("[INFO][Flight]")
+                    && line.Contains("suppressing time-jump transient"));
+        }
+
         private static int CountPostSwitchAutoStartLogLines(List<string> captured)
         {
             if (captured == null)
@@ -2779,29 +2824,18 @@ namespace Parsek.InGameTests
             if (engine == null)
                 InGameAssert.Skip("no GhostPlaybackEngine");
 
-            var committed = RecordingStore.CommittedRecordings;
-            Recording rec = null;
-            int recordingIndex = -1;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var candidate = committed[i];
-                if (candidate != null
-                    && candidate.Points != null
-                    && candidate.Points.Count >= 2
-                    && !string.IsNullOrEmpty(candidate.Points[0].bodyName))
-                {
-                    rec = candidate;
-                    recordingIndex = i;
-                    break;
-                }
-            }
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+                InGameAssert.Skip("requires a non-EVA active vessel");
+            if (!FlightIntegrationTests.TryBuildSyntheticKeepVesselTree(
+                    activeVessel, out _, out Recording rec, out string skipReason))
+                InGameAssert.Skip(skipReason ?? "failed to build synthetic playback recording");
 
-            if (rec == null)
-                InGameAssert.Skip("needs a committed recording with a non-empty trajectory");
-
-            int sentinelIndex = committed.Count + 1000;
-            if (engine.ghostStates.ContainsKey(sentinelIndex))
-                InGameAssert.Skip("sentinel index collision");
+            int sentinelIndex = 1000;
+            while (engine.ghostStates.ContainsKey(sentinelIndex))
+                sentinelIndex++;
 
             double primingUT = rec.Points[rec.Points.Count / 2].ut;
 
@@ -2829,7 +2863,7 @@ namespace Parsek.InGameTests
                     $"priming should move ghost away from origin, got distance={ghostOriginDist:F2}");
 
                 ParsekLog.Verbose("TestRunner",
-                    $"SpawnGhost priming in-game: recordingIndex={recordingIndex} " +
+                    $"SpawnGhost priming in-game: rec='{rec.RecordingId}' " +
                     $"vessel=\"{rec.VesselName}\" sentinelIndex={sentinelIndex} " +
                     $"primingUT={primingUT:F2} body=\"{state.lastInterpolatedBodyName}\" " +
                     $"altitude={state.lastInterpolatedAltitude:F1} " +
@@ -4570,6 +4604,46 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
+        private static IEnumerator WaitForCommittedRecording(
+            string recordingId, int committedBefore, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                bool committed = RecordingStore.CommittedRecordings.Any(
+                    r => r != null && r.RecordingId == recordingId);
+                bool countIncreased = RecordingStore.CommittedRecordings.Count > committedBefore;
+                bool stillRecording = ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording;
+                if (committed && countIncreased && !stillRecording)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForCommittedRecording timed out after {timeoutSeconds:F0}s " +
+                $"(recordingId={recordingId ?? "null"}, committedBefore={committedBefore}, " +
+                $"committedNow={RecordingStore.CommittedRecordings.Count}, " +
+                $"isRecording={ParsekFlight.Instance?.IsRecording == true})");
+        }
+
+        private static IEnumerator WaitForCapturedLogLine(
+            List<string> captured, string containsText, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (captured.Any(line => line.Contains(containsText)))
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForCapturedLogLine timed out after {timeoutSeconds:F0}s " +
+                $"(text='{containsText}', captured={captured?.Count ?? 0})");
+        }
+
         private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
         {
             float deadline = Time.time + durationSeconds;
@@ -5078,6 +5152,118 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(clamped.altitude, floor - 0.001,
                 $"Recorded altitude below PQS floor must be pushed up to floor: " +
                 $"expected >= {floor:F2} (got {clamped.altitude:F2})");
+        }
+
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Loop explosion camera holds use the engine's terrain-clamped anchor instead of the buried raw root (#525)")]
+        public void ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                InGameAssert.Skip("needs ParsekFlight instance");
+                return;
+            }
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double terrainAlt = body.TerrainAltitude(lat, lon, true);
+            Vector3 rawWorldPos = body.GetWorldSurfacePosition(lat, lon, terrainAlt - 1.0);
+            double expectedClearance = ParsekFlight.ComputeTerrainClearance(
+                Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D()));
+
+            var ghostRoot = new GameObject("ParsekTestGhost_Bug525ExplosionAnchor");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = rawWorldPos;
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug525ExplosionAnchor",
+                ghost = ghostRoot,
+                loopCycleIndex = 0,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = terrainAlt - 1.0
+            };
+
+            var traj = new Recording
+            {
+                RecordingId = "bug525-loop-explosion-anchor",
+                VesselName = "Bug525ExplosionAnchor",
+                TerrainHeightAtEnd = terrainAlt,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 100.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt + 5.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt - 1.0,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+
+            var engine = new GhostPlaybackEngine(flight);
+            engine.ghostStates[525] = state;
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.UpdateLoopingPlaybackForTesting(
+                index: 525,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 210.0,
+                    warpRate = 1f,
+                    activeVesselPos = activeVessel.GetWorldPos3D(),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 100.0,
+                },
+                suppressGhosts: false,
+                suppressVisualFx: false);
+
+            InGameAssert.AreEqual(1, cameraEvents.Count,
+                "Loop cycle-change explosion should emit exactly one camera hold event");
+            InGameAssert.AreEqual(1, restartedEvents.Count,
+                "Loop cycle-change explosion should emit exactly one loop-restarted event");
+            InGameAssert.AreEqual(CameraActionType.ExplosionHoldStart, cameraEvents[0].Action,
+                "Destroyed loop cycle boundary must emit ExplosionHoldStart");
+            InGameAssert.IsTrue(restartedEvents[0].ExplosionFired,
+                "Loop restart event must mark the boundary explosion as fired");
+
+            double eventAnchorAlt = body.GetAltitude(cameraEvents[0].AnchorPosition);
+            double eventExplosionAlt = body.GetAltitude(restartedEvents[0].ExplosionPosition);
+
+            InGameAssert.IsGreaterThan(eventAnchorAlt, terrainAlt + expectedClearance - 0.001,
+                $"Explosion anchor must clamp above terrain+clearance before watch hold: expected >= {(terrainAlt + expectedClearance):F2}, got {eventAnchorAlt:F2}");
+            InGameAssert.IsLessThan(
+                System.Math.Abs(eventAnchorAlt - eventExplosionAlt), 0.01,
+                "Loop camera hold and loop-restart explosion payloads must reuse the same terrain-clamped anchor");
         }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
@@ -6131,6 +6317,195 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Live rewind canary for #527. Commits a real launch recording to get a real
+        /// rewind save, injects future ledger actions, then drives the actual rewind
+        /// load path and asserts the post-rewind FLIGHT follow-up keeps those future
+        /// funds/contracts filtered.
+        /// </summary>
+        [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a real launch recording, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
+            Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
+        public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip("requires a Career-mode FLIGHT save");
+                yield break;
+            }
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can launch, commit, and rewind, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (Funding.Instance == null)
+            {
+                InGameAssert.Skip("Funding.Instance is null — this live rewind cutoff canary needs career funds");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string syntheticLedgerTag = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the rewind canary");
+
+                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the live rewind canary");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 0f;
+                flight.StopRecording();
+                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f);
+
+                Recording committedRecording = RecordingStore.CommittedRecordings.FirstOrDefault(
+                    r => r != null && r.RecordingId == activeRecId);
+                InGameAssert.IsNotNull(committedRecording,
+                    "Stopping the live rewind canary recording should commit it into the timeline");
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
+                    "Committed rewind canary recording must have a rewind save file");
+
+                double fundsBeforeFutureActions = Funding.Instance.Funds;
+                int activeContractsBeforeFutureActions = LedgerOrchestrator.Contracts.GetActiveContractCount();
+
+                syntheticLedgerTag = "ingame-rewind-cutoff-" + System.Guid.NewGuid().ToString("N");
+                string futureContractId = syntheticLedgerTag + "-contract";
+                double futureUT = Planetarium.GetUniversalTime() + 120.0;
+
+                Ledger.AddAction(new GameAction
+                {
+                    UT = futureUT,
+                    Type = GameActionType.ContractAccept,
+                    RecordingId = syntheticLedgerTag,
+                    ContractId = futureContractId,
+                    ContractType = "ParsekRewindCutoffCanary",
+                    ContractTitle = "Parsek Rewind Cutoff Canary",
+                    AdvanceFunds = 321f,
+                    DeadlineUT = (float)(futureUT + 3600.0)
+                });
+                Ledger.AddAction(new GameAction
+                {
+                    UT = futureUT + 1.0,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = syntheticLedgerTag,
+                    MilestoneId = syntheticLedgerTag + "-milestone",
+                    MilestoneFundsAwarded = 654f
+                });
+
+                InGameAssert.IsTrue(
+                    LedgerOrchestrator.HasActionsAfterUT(Planetarium.GetUniversalTime()),
+                    "Injected future ledger actions should sit after the current UT before rewind");
+
+                int previousFlightInstanceId = flight.GetInstanceID();
+                RecordingStore.InitiateRewind(committedRecording);
+
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
+                yield return WaitForCapturedLogLine(
+                    captured,
+                    "post-rewind FLIGHT recalc using current-UT cutoff",
+                    10f);
+                yield return new WaitForSeconds(0.5f);
+
+                InGameAssert.IsNotNull(Funding.Instance,
+                    "Funding.Instance must exist after the live rewind cutoff canary reloads");
+
+                double postFunds = Funding.Instance.Funds;
+                int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
+                bool sawDecisionInputs = captured.Any(
+                    line => line.Contains("post-rewind FLIGHT cutoff decision")
+                        && line.Contains("useCurrentUtCutoff=True")
+                        && line.Contains("hasFutureLedgerActions=True"));
+
+                InGameAssert.IsTrue(
+                    sawDecisionInputs,
+                    "Expected OnLoad to log the post-rewind FLIGHT cutoff decision inputs");
+                InGameAssert.IsTrue(
+                    System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
+                    $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +
+                    $"(before={fundsBeforeFutureActions:F1}, after={postFunds:F1})");
+                InGameAssert.AreEqual(
+                    activeContractsBeforeFutureActions,
+                    postActiveContracts,
+                    "Post-rewind active-contract count should stay at the pre-future baseline");
+                InGameAssert.IsFalse(
+                    LedgerOrchestrator.Contracts.GetActiveContractIds().Contains(futureContractId),
+                    "Future contract should stay filtered until replay catches up");
+
+                ParsekLog.Info("TestRunner",
+                    $"Rewind cutoff runtime: rec='{activeRecId}' fundsBefore={fundsBeforeFutureActions.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"fundsAfter={postFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"activeContractsBefore={activeContractsBeforeFutureActions} activeContractsAfter={postActiveContracts}");
+            }
+            finally
+            {
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                if (!string.IsNullOrEmpty(syntheticLedgerTag))
+                {
+                    try
+                    {
+                        Ledger.RemoveActionsForRecording(syntheticLedgerTag);
+                        if (HighLogic.CurrentGame != null)
+                            LedgerOrchestrator.RecalculateAndPatch();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"Rewind cutoff runtime cleanup failed for synthetic ledger tag '{syntheticLedgerTag}': {ex.Message}");
+                    }
+                }
+
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+            }
+        }
+
+        /// <summary>
         /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
@@ -6610,6 +6985,256 @@ namespace Parsek.InGameTests
                 }
 
                 RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic timeline recording, fast-forwards UT on a real pad vessel, and verifies that FLIGHT does not start a bogus launch recording during the FF transient. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "#526: Timeline FF on a real pad vessel must not auto-start a bogus recording")]
+        public IEnumerator TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for the FF pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            uint originalPid = activeVessel.persistentId;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            RecordingTree tree = null;
+            Recording recording = null;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.TestObserverForTesting =
+                    line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!TryBuildSyntheticKeepVesselTree(activeVessel, out tree,
+                    out recording, out string skipReason))
+                {
+                    InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                    yield break;
+                }
+
+                RecordingStore.CommitTree(tree);
+                flight.FastForwardToRecording(recording);
+
+                yield return RuntimeTests.WaitForTimeJumpLaunchAutoRecordTransientToClear(
+                    RuntimeTests.TimeJumpLaunchAutoRecordTransientTimeoutSeconds);
+
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "Timeline FF should not auto-start any new recording on the real pad vessel");
+
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(currentActive,
+                    "Active vessel should still exist after the FF pad transient canary");
+                InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
+                    "Timeline FF should keep the same real pad vessel pid focused after the jump transient");
+
+                int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
+                InGameAssert.IsGreaterThan(skipCount, 0,
+                    "Timeline FF pad canary should exercise the time-jump transient suppression path");
+
+                int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
+                InGameAssert.AreEqual(0, autoStartCount,
+                    $"Expected zero auto-record start log lines during the time-jump transient, got {autoStartCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
+                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+
+                if (tree != null)
+                    RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic timeline recording, drives the Real Spawn Control epoch-shift warp on a real pad vessel, and verifies that FLIGHT does not start a bogus launch recording during the jump transient. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "#526: Real Spawn Control warp on a real pad vessel must not auto-start a bogus recording")]
+        public IEnumerator RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for the Real Spawn Control pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            uint originalPid = activeVessel.persistentId;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            RecordingTree tree = null;
+            Recording recording = null;
+            Vessel spawnedVessel = null;
+            uint spawnedPid = 0;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.TestObserverForTesting =
+                    line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!TryBuildSyntheticKeepVesselTree(activeVessel, out tree,
+                    out recording, out string skipReason))
+                {
+                    InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                    yield break;
+                }
+
+                RecordingStore.CommitTree(tree);
+
+                int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
+                InGameAssert.IsTrue(recordingIndex >= 0,
+                    "Synthetic keep-vessel recording should be present in CommittedRecordings");
+
+                flight.WarpToRecordingEnd(recordingIndex);
+
+                yield return RuntimeTests.WaitForTimeJumpLaunchAutoRecordTransientToClear(
+                    RuntimeTests.TimeJumpLaunchAutoRecordTransientTimeoutSeconds);
+
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "Real Spawn Control warp should not auto-start any new recording on the real pad vessel");
+
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(currentActive,
+                    "Active vessel should still exist after the Real Spawn Control pad transient canary");
+                InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
+                    "Real Spawn Control warp should keep the same real pad vessel pid focused after the jump transient");
+
+                int suppressionArmCount = captured.Count(
+                    line => line.Contains("[TimeJump]")
+                        && line.Contains("Time-jump launch auto-record suppression armed: jump=epoch-shift"));
+                InGameAssert.IsGreaterThan(suppressionArmCount, 0,
+                    "Real Spawn Control pad canary should arm the epoch-shift time-jump suppression path");
+
+                int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
+                InGameAssert.IsGreaterThan(skipCount, 0,
+                    "Real Spawn Control pad canary should exercise the time-jump transient suppression path");
+
+                yield return WaitForRecordingSpawn(recording, 10f);
+
+                spawnedPid = recording.SpawnedVesselPersistentId;
+                InGameAssert.IsGreaterThan((double)spawnedPid, 0.0,
+                    "Real Spawn Control warp should leave the synthetic recording with a spawned pid");
+
+                spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Real Spawn Control warp should still materialize the synthetic vessel by recording end");
+
+                int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
+                InGameAssert.AreEqual(0, autoStartCount,
+                    $"Expected zero auto-record start log lines during the Real Spawn Control transient, got {autoStartCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"RSC warp no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
+                    $"recordingIndex={recordingIndex} spawnedPid={spawnedPid} suppressionArmCount={suppressionArmCount} " +
+                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+
+                if (spawnedVessel == null && spawnedPid != 0)
+                    spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"RSC warp cleanup failed to recover pid={spawnedPid}: {ex.Message}");
+                    }
+                }
+
+                if (tree != null)
+                    RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
             }
         }
 
@@ -7692,7 +8317,7 @@ namespace Parsek.InGameTests
 
         #region PlaybackControl helpers
 
-        private static bool TryBuildSyntheticKeepVesselTree(
+        internal static bool TryBuildSyntheticKeepVesselTree(
             Vessel activeVessel,
             out RecordingTree tree,
             out Recording recording,
@@ -8919,6 +9544,146 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
+        public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
+        {
+            const int ghostIndex = 538;
+            const string vesselName = "Test538";
+            const float minimumUsableAtmosphereDepthMeters = 1000f;
+            const double targetAltitudeMarginMeters = 500.0;
+            const double targetAltitudeAtmosphereFraction = 0.25;
+            const float initialSweepSurfaceSpeedMetersPerSecond = 1500f;
+            const float maxSweepSurfaceSpeedMetersPerSecond = 10_000f;
+            const float sweepStepMetersPerSecond = 500f;
+            const float rawIntensitySaturationTarget = 0.999f;
+            const float requiredNearMaxRawIntensity = 0.99f;
+            const float legacyEmissionRateCeiling = 2000f;
+            const float emissionSettleTimeoutSeconds = 1.5f;
+            const float expectedEmissionRateTolerance = 0.5f;
+            const float warpRate = 1f;
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(activeVessel, "Active vessel required for ReentryFx runtime coverage");
+
+            CelestialBody body = activeVessel.mainBody;
+            InGameAssert.IsNotNull(body, "Active vessel mainBody should not be null");
+            if (!body.atmosphere || body.atmosphereDepth <= minimumUsableAtmosphereDepthMeters)
+                InGameAssert.Skip($"Active vessel body '{body.name}' has no usable atmosphere for reentry-FX coverage");
+
+            float targetAltitude = (float)System.Math.Min(
+                body.atmosphereDepth - targetAltitudeMarginMeters,
+                body.atmosphereDepth * targetAltitudeAtmosphereFraction);
+            double pressure = body.GetPressure(targetAltitude);
+            double temperature = body.GetTemperature(targetAltitude);
+            double density = body.GetDensity(pressure, temperature);
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            InGameAssert.IsGreaterThan(pressure, 0.0,
+                $"Expected positive atmospheric pressure at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(temperature, 0.0,
+                $"Expected positive atmospheric temperature at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(density, 0.0,
+                $"Expected positive atmospheric density at {targetAltitude:F0} m on {body.name}");
+            InGameAssert.IsGreaterThan(speedOfSound, 0.0,
+                $"Expected positive speed of sound at {targetAltitude:F0} m on {body.name}");
+
+            float targetSurfaceSpeed = initialSweepSurfaceSpeedMetersPerSecond;
+            float lastComputedSurfaceSpeed = targetSurfaceSpeed;
+            float rawIntensity = 0f;
+            float machNumber = 0f;
+            bool rawIntensitySaturated = false;
+            while (targetSurfaceSpeed <= maxSweepSurfaceSpeedMetersPerSecond)
+            {
+                lastComputedSurfaceSpeed = targetSurfaceSpeed;
+                machNumber = (float)(targetSurfaceSpeed / speedOfSound);
+                rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
+                    targetSurfaceSpeed, (float)density, machNumber);
+                if (rawIntensity >= rawIntensitySaturationTarget)
+                {
+                    rawIntensitySaturated = true;
+                    break;
+                }
+
+                targetSurfaceSpeed += sweepStepMetersPerSecond;
+            }
+
+            string rawIntensitySweepSummary =
+                $"body={body.name} altitude={targetAltitude.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"density={density.ToString("F6", CultureInfo.InvariantCulture)} " +
+                $"speedOfSound={speedOfSound.ToString("F1", CultureInfo.InvariantCulture)}m/s " +
+                $"lastSpeed={lastComputedSurfaceSpeed.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"lastMach={machNumber.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"rawIntensity={rawIntensity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"saturated={rawIntensitySaturated} " +
+                $"saturationTarget={rawIntensitySaturationTarget.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"sweepStart={initialSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepStep={sweepStepMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s " +
+                $"sweepCeiling={maxSweepSurfaceSpeedMetersPerSecond.ToString("F0", CultureInfo.InvariantCulture)}m/s";
+
+            if (!rawIntensitySaturated && rawIntensity <= requiredNearMaxRawIntensity)
+            {
+                InGameAssert.Fail(
+                    "Reentry intensity speed sweep exhausted before reaching the near-max raw-intensity floor. " +
+                    rawIntensitySweepSummary);
+            }
+
+            InGameAssert.IsGreaterThan(rawIntensity, requiredNearMaxRawIntensity,
+                "Expected near-max raw intensity inside atmosphere before the live emission assertion. " +
+                rawIntensitySweepSummary);
+
+            var ghostRoot = new GameObject("ParsekTestGhost_538");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = activeVessel.transform.position;
+
+            ReentryFxInfo info = GhostVisualBuilder.TryBuildReentryFx(
+                ghostRoot,
+                new Dictionary<uint, HeatGhostInfo>(),
+                ghostIndex: ghostIndex,
+                vesselName: vesselName);
+
+            InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry density test");
+            InGameAssert.IsNotNull(info.fireParticles, "Reentry fire particle system should be created in live KSP");
+            InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
+                "Built reentry fire particle system should use the tuned max-particle cap");
+
+            Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostRoot.transform.position);
+            Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                reentryFxInfo = info,
+                lastInterpolatedBodyName = body.name,
+                lastInterpolatedAltitude = targetAltitude,
+                lastInterpolatedVelocity = rotatingFrameVelocity + desiredSurfaceVelocity,
+            };
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            float deadline = Time.realtimeSinceStartup + emissionSettleTimeoutSeconds;
+            float actualRate = 0f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                engine.UpdateReentryFx(recIdx: ghostIndex, state, vesselName: vesselName, warpRate: warpRate);
+                actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
+                if (actualRate > legacyEmissionRateCeiling)
+                    break;
+                yield return null;
+            }
+
+            InGameAssert.IsGreaterThan(info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
+                "Smoothed reentry intensity should cross the fire threshold before we assert the live emission rate");
+            InGameAssert.IsTrue(info.fireParticles.isPlaying,
+                "Reentry fire particles should be playing once the live intensity crosses the fire threshold");
+
+            float expectedRate = Mathf.Lerp(
+                GhostVisualBuilder.ReentryFireEmissionMin,
+                GhostVisualBuilder.ReentryFireEmissionMax,
+                Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
+            InGameAssert.ApproxEqual(expectedRate, actualRate, expectedEmissionRateTolerance,
+                "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
+            InGameAssert.IsGreaterThan(actualRate, legacyEmissionRateCeiling,
+                $"Bug #538 regression: tuned live emission rate should rise past the old {legacyEmissionRateCeiling.ToString("F0", CultureInfo.InvariantCulture)} particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
             Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
         public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
         {
@@ -9106,6 +9871,109 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#539 in-game replacement for the removed xUnit pending-cycle-boundary stub: a pending loop first-spawn that crosses into the next cycle advances loopCycleIndex without emitting loop-restart or camera events for a ghost that never materialized")]
+        public void PendingLoopCycleBoundary_PendingGhostDoesNotEmitRestartEvents_InGame()
+        {
+            var engine = new GhostPlaybackEngine(new PendingLoopBoundaryPositioner());
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            var traj = new TestPendingLoopBoundaryTrajectoryForBug539();
+            var state = new GhostPlaybackState
+            {
+                vesselName = traj.VesselName,
+                loopCycleIndex = 0,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags
+                {
+                    recordingId = traj.RecordingId,
+                    chainEndUT = traj.EndUT,
+                    segmentLabel = traj.VesselName,
+                },
+            };
+            engine.ghostStates[0] = state;
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    recordingId = traj.RecordingId,
+                    chainEndUT = traj.EndUT,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = 260.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 150.0,
+            };
+
+            var capturedLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                capturedLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "pending-build cycle-boundary path must advance loopCycleIndex so the same null ghost does not re-trigger the boundary branch every frame");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle,
+                "pending loop lifecycle must stay armed so a later snapshot availability can still finish the first spawn");
+            InGameAssert.AreEqual(traj.RecordingId, state.pendingSpawnFlags.recordingId,
+                "pending spawn flags must remain attached to the same recording after the cycle advance");
+            InGameAssert.IsTrue(ReferenceEquals(state, engine.ghostStates[0]),
+                "cycle-boundary path must keep the same pending GhostPlaybackState shell in the engine map");
+            InGameAssert.IsNull(state.ghost,
+                "this regression relies on a ghost that never materialized; no fallback GameObject should appear when the debris snapshot is still missing");
+            InGameAssert.AreEqual(0, engine.FrameSpawnCountForTesting,
+                "failing the missing-snapshot reload after the cycle advance must not consume a completed spawn slot");
+            InGameAssert.AreEqual(0, cameraEvents.Count,
+                "pending-build cycle-boundary path must not emit loop camera events for a ghost that never spawned");
+            InGameAssert.AreEqual(0, restartedEvents.Count,
+                "pending-build cycle-boundary path must not emit LoopRestarted for a ghost that never spawned");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("ReusePrimaryGhostAcrossCycle: #0 skipped")
+                    && l.Contains("state.ghost is null")
+                    && l.Contains("advanced cycle=1")),
+                "the null-ghost reuse breadcrumb must be logged so KSP.log shows that the cycle advanced without a real ghost");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains(traj.VesselName)
+                    && l.Contains("ghost reused across loop cycle")),
+                "the full reuse log line must stay absent here; this path should only advance the pending shell, not report a real ghost reuse");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "#461: loop-cycle reuse clears deferVisibilityUntilPlaybackSync and re-activates the reused ghost on the same UpdatePlayback frame when the ghost stays visible")]
         public void Bug406_ReuseClearsDeferVisOnSameFrame()
         {
@@ -9270,6 +10138,56 @@ namespace Parsek.InGameTests
             return state;
         }
 
+        private sealed class PendingLoopBoundaryPositioner : IGhostPositioner
+        {
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            {
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+        }
+
         #endregion
     }
 
@@ -9398,6 +10316,72 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    internal class TestPendingLoopBoundaryTrajectoryForBug539 : IPlaybackTrajectory
+    {
+        public TestPendingLoopBoundaryTrajectoryForBug539()
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0,
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 0.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                },
+                new TrajectoryPoint
+                {
+                    ut = 200.0,
+                    latitude = 0.0,
+                    longitude = 0.001,
+                    altitude = 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                },
+            };
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+        public double StartUT => 100.0;
+        public double EndUT => 200.0;
+        public int RecordingFormatVersion => 0;
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "PendingLoopBoundary";
+        public string RecordingId => "test-b539";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 150.0;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => true;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0.0;
+        public double TerminalOrbitEccentricity => 0.0;
+        public double TerminalOrbitInclination => 0.0;
+        public double TerminalOrbitLAN => 0.0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0.0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0.0;
+        public double TerminalOrbitEpoch => 0.0;
         public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
         public string EndpointBodyName => null;
     }

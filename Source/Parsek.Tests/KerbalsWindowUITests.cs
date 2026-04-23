@@ -642,7 +642,7 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Recovered
             };
             string text = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text, StringComparison.Ordinal);
             // And the body itself (after the indent) is the unchanged FormatEndStateRow output.
             Assert.Equal(
                 KerbalsWindowUI.SubitemIndent + KerbalsWindowUI.FormatEndStateRow(entry),
@@ -665,8 +665,8 @@ namespace Parsek.Tests
             string mid = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: false);
             string last = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
 
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid, StringComparison.Ordinal);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last, StringComparison.Ordinal);
             Assert.Contains("\u251c\u2500", mid);   // mid-child branch char (├─)
             Assert.Contains("\u2514\u2500", last);  // last-child branch char (└─)
             Assert.Contains(KerbalsWindowUI.FormatChainMember(member), mid);
@@ -697,8 +697,8 @@ namespace Parsek.Tests
             string rosterText = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
 
             // Both texts must begin with the same leading run of spaces.
-            Assert.True(outcomeText.StartsWith(KerbalsWindowUI.SubitemIndent, StringComparison.Ordinal));
-            Assert.True(rosterText.StartsWith(KerbalsWindowUI.SubitemIndent, StringComparison.Ordinal));
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, outcomeText, StringComparison.Ordinal);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, rosterText, StringComparison.Ordinal);
             // The indent length must be identical (defensive check in case a future
             // SubitemIndent becomes non-space; then startswith + equal-length still
             // holds but the content must match exactly).
