@@ -79,7 +79,9 @@ namespace Parsek
             }
 
             float currentScience = ResearchAndDevelopment.Instance.Science;
-            double targetScience = science.GetAvailableScience();
+            double targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
+                science.GetAvailableScience(),
+                currentScience);
             float delta = (float)(targetScience - (double)currentScience);
 
             if (Math.Abs(delta) < 0.001f)
@@ -110,6 +112,37 @@ namespace Parsek
             // Always patch per-subject credited totals — individual subjects may have changed
             // even when the total balance is unchanged (e.g., one experiment reverted, another added)
             PatchPerSubjectScience(science);
+        }
+
+        /// <summary>
+        /// Keeps recent stock tech-unlock debits authoritative while the matching
+        /// <c>TechResearched</c> ledger action is still catching up.
+        /// </summary>
+        internal static double AdjustSciencePatchTargetForPendingRecentTechResearch(
+            double targetScience,
+            float currentScience)
+        {
+            if (targetScience <= (double)currentScience)
+                return targetScience;
+
+            double pendingDebit = LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit();
+            if (pendingDebit <= 0.0)
+                return targetScience;
+
+            double adjustedTarget = targetScience - pendingDebit;
+            if (adjustedTarget < (double)currentScience)
+                adjustedTarget = (double)currentScience;
+
+            if (adjustedTarget < targetScience)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchScience: holding back {pendingDebit.ToString("F1", IC)} pending tech-unlock science " +
+                    $"(current={currentScience.ToString("F1", IC)}, " +
+                    $"ledgerTarget={targetScience.ToString("F1", IC)}, " +
+                    $"adjustedTarget={adjustedTarget.ToString("F1", IC)})");
+            }
+
+            return adjustedTarget;
         }
 
         /// <summary>

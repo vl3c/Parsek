@@ -21,7 +21,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             Assert.True(shouldRecover);
         }
@@ -40,7 +41,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 0,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: true);
+                activeVesselTrackedInBackground: true,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             Assert.True(shouldRecover);
         }
@@ -59,7 +61,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 100,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             Assert.False(shouldRecover);
         }
@@ -78,7 +81,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             bool dockGuard = ParsekFlight.ShouldRecoverMissedVesselSwitch(
                 isRestoringActiveTree: false,
@@ -91,7 +95,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             bool chainGuard = ParsekFlight.ShouldRecoverMissedVesselSwitch(
                 isRestoringActiveTree: false,
@@ -104,7 +109,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: true,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             Assert.False(splitGuard);
             Assert.False(dockGuard);
@@ -125,7 +131,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             bool restoring = ParsekFlight.ShouldRecoverMissedVesselSwitch(
                 isRestoringActiveTree: true,
@@ -138,7 +145,8 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 200,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             bool zeroActivePid = ParsekFlight.ShouldRecoverMissedVesselSwitch(
                 isRestoringActiveTree: false,
@@ -151,11 +159,87 @@ namespace Parsek.Tests
                 recorderChainToVesselPending: false,
                 recorderVesselPid: 100,
                 activeVesselPid: 0,
-                activeVesselTrackedInBackground: false);
+                activeVesselTrackedInBackground: false,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: false);
 
             Assert.False(noTree);
             Assert.False(restoring);
             Assert.False(zeroActivePid);
+        }
+
+        [Fact]
+        public void ShouldRecoverMissedVesselSwitch_ArmedTrackedVessel_ReturnsFalse()
+        {
+            bool shouldRecover = ParsekFlight.ShouldRecoverMissedVesselSwitch(
+                isRestoringActiveTree: false,
+                hasActiveTree: true,
+                pendingTreeDockMerge: false,
+                hasPendingSplitRecorder: false,
+                pendingSplitInProgress: false,
+                hasRecorder: false,
+                recorderIsRecording: false,
+                recorderChainToVesselPending: false,
+                recorderVesselPid: 0,
+                activeVesselPid: 200,
+                activeVesselTrackedInBackground: true,
+                activeVesselAlreadyArmedForPostSwitchAutoRecord: true);
+
+            Assert.False(shouldRecover);
+        }
+
+        [Fact]
+        public void ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenStableAndDue_ReturnsTrue()
+        {
+            bool shouldAttempt = ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 9f);
+
+            Assert.True(shouldAttempt);
+        }
+
+        [Fact]
+        public void ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenBlockedOrThrottled_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: true,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: true,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.VesselSwitch,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 0f));
+
+            Assert.False(ParsekFlight.ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                hasActiveTree: false,
+                hasRecorder: false,
+                isRestoringActiveTree: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
+                currentUnscaledTime: 10f,
+                nextRetryAt: 11f));
         }
 
         [Fact]

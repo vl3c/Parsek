@@ -232,6 +232,422 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 ---
 
+## ~~521. Main Parsek page can visibly flicker while clicking around the Parsek windows~~
+
+**Source:** user observation from `logs/2026-04-21_2335_live-collect-script`. The package does not contain a screenshot/video, but `KSP.log` shows `CareerStateWindow: rebuilt VM ...` being emitted every ~16-25 ms for long stretches even when the data is stable (for example around 23:29:45-23:29:57 with `contracts=2/2`, `strategies=0/0`, `facilities=9`, `milestones=4/4` unchanged). The same session also keeps logging `Main window position: x=20 y=100 w=250 h=0`.
+
+**Concern:** this did not look like the old transparent-window path from closed `#487`; it looked like the Career State VM and/or the shared main window layout was rebuilding at draw cadence instead of only on cache invalidation. That would explain why the main Parsek page flickered when the user clicked controls in Parsek-owned windows even though the underlying data was not changing.
+
+**Fix:** `CareerStateWindowUI` was comparing the cached VM against the raw `double` live UT from `Planetarium.GetUniversalTime()`, so the supposedly cached VM rebuilt every draw frame while time advanced. The cache now expires on the next observable UI boundary instead of on every sub-frame delta, but that boundary is mode-specific: Career invalidates on displayed `F0` live-UT changes or when the next visible projected action crosses from future into current; Science Sandbox skips the hidden banner-time check and only invalidates on visible time-sensitive facility/milestone boundaries; sandbox-like modes ignore those hidden time-driven boundaries entirely. The build path still uses exact `<= liveUT` classification, so action boundaries have to invalidate precisely. Explicit cache invalidation, game-mode changes, transient fallback VMs, and backwards time jumps in modes with visible timeline state still rebuild immediately. Added headless regression coverage for the display-rounding boundary, the next-relevant-action boundary, and the rewind/mode-change cases. The `Main window position ... h=0` breadcrumb turned out to be incidental logging noise, not the visual driver.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~522. Timeline milestone rewards can still look double-counted even when the ledger itself does not warn~~
+
+**Source:** user observation from the same `2026-04-21_2335_live-collect-script` package. When the Timeline opened at 23:30:36, `KSP.log` reported `Build complete: 35 entries (2 recording, 33 action, 0 legacy)`, and the package does not contain milestone-funds reconciliation WARNs of the kind that motivated closed `#477`. The session does, however, contain dense milestone activity (`FirstLaunch`, `RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`, plus later repeatable `stays effective` rows), so it is a good repro corpus for "this looks duplicated in the Timeline".
+
+**Concern:** this currently looks more like a presentation regression than a real funds over-credit. Closed `#464` fixed the old gray `GameStateEvent` shadow rows in Timeline Details, and closed `#477` fixed the false-positive milestone over-attribution. This package does not show either exact old signal. If the Timeline still looks double-counted, suspect duplicate/ambiguous milestone action rows or text formatting in the Timeline render path before touching the ledger math again.
+
+**Fix:** Timeline milestone presentation now compacts same-moment milestone rows for the same milestone into one richer entry instead of rendering both near-duplicates. The pass matches rows within the same 0.1s UT window, still works when another same-timestamp row sits between the duplicates, keeps the union of non-zero funds/rep/science reward legs, and leaves genuinely conflicting reward values split. Timeline milestone text also now includes science rewards, closing the last missing-leg path that made the same milestone look like two separate payouts.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3 by `#545`.
+
+---
+
+## ~~523. Two SPACECENTER strategy canaries fail because strategy readiness never hydrates~~
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
+
+**Root cause (2026-04-22, refined 2026-04-23):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, and `Strategies.Strategy.CanBeActivated()` / `Strategy.Activate()` both dereference it. In plain SPACECENTER that singleton does not exist until the Administration canvas is instantiated. Follow-up decompile of `KSP.UI.Screens.AdministrationSceneSpawner` also showed that the stock `onGUIAdministrationFacilityDespawn` path is not test-neutral: it overwrites `persistent.sfs` via `GamePersistence.SaveGame("persistent", ..., OVERWRITE)` and calls `MusicLogic.fetch.UnpauseWithCrossfade()`.
+
+**Fix:**
+
+- `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now creates a hidden stock Administration canvas when the SPACECENTER career tests need strategy readiness and `Administration.Instance` is still null.
+- The helper uses its own bounded hydration-frame wait, keeps the existing readiness probe on top of that stock singleton, and destroys the hidden canvas directly in teardown instead of firing the stock despawn event.
+- `StrategyLifecycleProbeSupport` now uses dedicated hydration diagnostics/logs (including a precise timeout reason), and the xUnit coverage splits the request predicate cases instead of packing three false cases into one `[Fact]`.
+
+**Validation (2026-04-23):**
+
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`21` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`44` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`7846` passed, `2` skipped, `7848` total).
+- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — passed cleanly (`0` warnings, `0` errors).
+- Live SPACECENTER rerun was not executed from this worktree because the repo only exposes the in-game runner via manual KSP GUI interaction (`Ctrl+Shift+T` in SPACECENTER); there is no non-interactive launcher/test harness path to drive that run from this terminal session.
+
+**Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`, `Source/Parsek/Parsek.csproj`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0. Headless validation is clean; live SPACECENTER evidence still requires a manual KSP run.
+
+---
+
+## 524. ~~Timeline row action buttons use inconsistent widths (`W=30`, `FF=35`, `R=25`, `L=25`)~~
+
+**Source:** user observation plus code read in `Source/Parsek/UI/TimelineWindowUI.cs`.
+
+**Concern:** the row-action column visibly jitters because the watch, fast-forward, rewind, and loop buttons all use different hard-coded widths. The mismatch is cosmetic, but it makes dense Timeline rows harder to scan and undermines the otherwise deliberate table alignment.
+
+**Files:** `Source/Parsek/UI/TimelineWindowUI.cs`, `Source/Parsek.Tests/TimelineWindowUITests.cs`.
+
+**Resolution (2026-04-22):** CLOSED. The current tree already had the short Timeline row actions (`W`, `FF`, `R`, `L`) aligned at the `FF` width (35px); this follow-up makes that existing contract explicit with a shared row-action width helper, keeps `GoTo` on its intentional wider width, and adds focused xUnit coverage so future UI edits cannot quietly drift the short buttons back apart.
+
+**Status:** ~~TODO / UI polish. Cheap fix, low risk.~~ Closed.
+
+---
+
+## ~~525. Watch-mode ghost explosions can still end up visually buried if FX anchors to the raw ghost root instead of a clearance-checked position~~
+
+**Source:** user observed multiple "explosion happened underground" cases in watch mode. The current `2026-04-21_2335_live-collect-script` package did not capture the underground variant directly, but it did capture a watched destroyed ghost (`"x"`) exploding at 23:32:42 immediately after a terrain-correction log (`Ghost terrain clamp: alt=65.3 terrain=64.8 -> 66.8 (clearance=2.0m)`).
+
+**Concern:** `GhostPlaybackEngine.TriggerExplosionIfDestroyed()` currently anchors the FX at `state.ghost.transform.position`. If watch mode or a late playback frame ever leaves the ghost root below terrain for even one frame, the stock/custom explosion FX and the watch hold will both anchor underground. This package narrows the bug even though it does not show the bad frame itself: explosion placement still trusts the raw ghost root instead of re-validating clearance at fire time.
+
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/TerrainCorrector.cs`, `Source/Parsek/ParsekFlight.cs`, plus a new in-game regression in the terrain/watch test coverage.
+
+**Fix (2026-04-22):** flight playback now routes destruction anchoring through the host positioner before spawning the explosion FX. `ParsekFlight` re-resolves the explosion anchor against the current body/PQS terrain and the same distance-aware watch clearance floor used by landed ghost terrain correction, then writes the corrected world position back to the ghost before the engine emits stock/custom explosion FX and the loop/overlap watch hold payloads. That keeps the visual blast and the watch camera bridge anchored to the same terrain-safe point instead of the raw buried root.
+
+**Verification:** added headless coverage for the body-name resolver that chooses the explosion-anchor body, and an in-game `TerrainClearance` regression that drives the loop-explosion engine path in Flight and asserts the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped position above `terrain + clearance`.
+
+**Status:** ~~OPEN. User-observed; current package provides a nearby watch-destruction repro and code-path confirmation.~~ Closed.
+
+---
+
+## ~~526. Timeline FF can falsely auto-start a new recording on the real pad vessel after the time jump~~
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:32:24-23:32:25. After `Timeline FF button clicked: "x"` and `FastForwardToRecording: jumping to UT=102.9`, the real vessel `r0` is put on rails/unrails for the forward jump. Immediately after, Parsek starts a fresh tree recording on `r0`: `Recording started: vessel="r0"` plus `Auto-record started (PRELAUNCH -> FLYING)`. The new recording seeds `Start location captured: body=Kerbin, biome=Shores, situation=Flying, launchSite=Launch Pad`, then 0.5s later the recorder corrects back to `SurfaceStationary`.
+
+**Concern:** the FF/time-jump path transiently makes the real launchpad vessel look like a `PRELAUNCH -> FLYING` launch transition, so the normal auto-record logic creates a bogus recording even though the vessel is just sitting on the pad. This is a direct regression with a tight repro sequence in the collected package.
+
+**Fix:** Time-jump launch-auto-record suppression now covers both `ExecuteForwardJump()` and `ExecuteJump()` while the jump is in progress and for a short shared frame-bounded tail afterward. `OnVesselSituationChange()` threads that transient into `EvaluateAutoRecordLaunchDecision()`, logs the skip at `INFO`, and ignores the stock `PRELAUNCH/LANDED -> FLYING` callback instead of starting a new tree recording on the real pad vessel. Added headless coverage for the shared suppression boundary plus an isolated FLIGHT canary that fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no auto-record starts.
+
+**Resolution (2026-04-23):** CLOSED for v0.9.0. Investigation confirmed the bogus recording was coming from stock time-jump situation-change noise, not from post-switch auto-record or playback spawn ownership. Follow-up hardening widened the initial proof-of-concept from a 2-frame FF-only window into one shared frame-bounded suppression path for both Timeline FF and Real Spawn Control jumps, so earlier-save loads cannot resurrect stale suppression and normal launches stay unchanged outside the jump transient.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`OnVesselSituationChange` / `EvaluateAutoRecordLaunchDecision`), `Source/Parsek/TimeJumpManager.cs` (shared Timeline FF / Real Spawn Control jump suppression), `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~527. Rewind's deferred recalc can drop `utCutoff` and restore future funds/contracts before replay catches up~~
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` around 23:30:25-23:30:28. The rewind path first does the expected cutoff walk (`cutoffUT=19.159999999999467`), dropping funds from `53861.7` to `21495.0` and removing two active contracts. About five seconds later, a deferred FLIGHT recalc runs with `cutoffUT=null` and restores the end-of-timeline funds/contracts before any replay has advanced.
+
+**Concern:** one rewind caller is re-entering `RecalculateAndPatch()` without forwarding the rewind cutoff. That makes career state snap back toward the future timeline immediately after rewind, explains the new `PatchFunds: suspicious drawdown` warning in the same package, and breaks the expected "rewind means pre-cutoff state until replay progresses" model.
+
+**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`.
+
+**Fix:** the generic scene-load follow-up path now applies the current-UT cutoff only in the specific post-rewind FLIGHT case with no pending/live restore state, via `ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(...)` and `LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(loadedUT)`. That keeps the later FLIGHT `OnLoad` pass aligned with the rewound clock without bypassing normal pending-tree patch deferral or same-branch repeatable-record preservation. The dispatch `Info` log now records every decision input, the other deferred `ParsekScenario.RecalculateAndPatch()` sites were audited as true revert / initial-load full-ledger paths, and `Source/Parsek/InGameTests/RuntimeTests.cs` now contains a manual-only live rewind canary for this exact regression.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
+
+**Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.
+
+**Root cause:** commit-time science ownership still treated the entire `PendingScienceSubjects` batch as belonging to the recording being committed. For launchpad science captured before the true recording window opened, `ConvertScienceSubjects` still accepted subjects carrying that later recording id instead of rejecting the stale subject, and the tree-commit path later routed the whole pending-science snapshot to one arbitrary owner recording, which could drop valid tagged science from earlier recordings in the same tree once cross-recording rejection was tightened. `RecordingStore` had also been mirroring the raw stale batch into `GameStateStore.committedScienceSubjects` before the ledger conversion even ran.
+
+**Fix:** `ConvertScienceSubjects` now rejects tagged subjects whose `captureUT` is invalid, predates the owning recording window, or belongs to another recording, while untagged captures must already fall inside that same window. Tree, chain, and fallback standalone commits now all route per-recording subsets using the same gap-adjusted start window, remove only the subset that actually committed, leave untouched pending science visible after pre-ledger failures instead of clearing it prematurely, and mirror `committedScienceSubjects` only after the matching `ScienceEarning` actions are safely in the ledger.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateStore.cs`, `Source/Parsek/ChainSegmentManager.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, `Source/Parsek.Tests/PendingScienceSubjectsClearTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~529. Stable-terminal landed re-snapshots can still persist a stale orbital `ORBIT` block~~
+
+**Source:** the finalized sidecar `parsek/Recordings/a31472b008f042848e868bf1759e1259_vessel.craft.txt` from `logs/2026-04-21_2335_live-collect-script` has `sit = LANDED` and `skipGroundPositioning = True`, but its `ORBIT` block still contains a stale orbital tuple (`SMA = 300816.6`, `ECC = 0.9948`, `REF = 1`). `KSP.log` shows the recording being finalized via the stable-terminal re-snapshot path immediately beforehand.
+
+**Concern:** closed `#479` normalized unsafe `sit` values during stable-terminal persistence, but the current persistence path only rewrites situation metadata. The surface-orbit repair logic still lived only in spawn-time healing, so landed/splashed stable-terminal sidecars could remain internally contradictory until a later repair path touched them.
+
+**Fix:** landed/splashed `BackupVessel()` snapshots now normalize through the shared live-backup path instead of only the stable-terminal finalize helper, so finalize persistence, limbo pre-capture, split/chain snapshots, and the other live snapshot call sites all rewrite stale `ORBIT` nodes to the canonical surface tuple for the live body. The rewrite is now logged explicitly, and spawn validation still treats same-body landed/splashed orbital tuples as malformed surface data and rewrites them from the recorded or snapshot surface coordinates so older bad sidecars self-heal when they spawn.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~530. Timeline `W` can open in a false disabled state until the lazy ghost build finishes~~
+
+**Source:** when Timeline opens in `logs/2026-04-21_2335_live-collect-script`, `KSP.log` records `Timeline watch button "r0" ... disabled (no ghost)` for the same recording that becomes watchable less than a second later once the ghost finishes building/spawning. No user context changed; the row just self-corrected when the ghost materialized.
+
+**Concern:** initial watchability was being computed from a pending ghost shell that existed before the lazy snapshot build finished, but that shell had no seeded playback body metadata yet. The Timeline row could therefore briefly advertise a false "not watchable" state on first open even though the recording became watchable as soon as the build completed.
+
+**Fix:** pending ghost shells now resolve and store playback interpolation metadata from the trajectory at spawn time, so same-body watch eligibility is stable before the split build completes.
+
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~531. Destroyed recordings are still being diagnosed as `no vessel snapshot` instead of `vessel destroyed`~~
+
+**Source:** the package's playback loop repeatedly logs `Spawn suppressed ... no vessel snapshot` for both committed recordings, even though the same session reports the timeline contains only destroyed recordings. The behavior is stable across many suppression cycles.
+
+**Concern:** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(...)` currently checks `rec.VesselSnapshot == null` before `rec.VesselDestroyed`, so destroyed recordings get the wrong suppression reason. This does not change the spawn outcome, but it hides the real state during FF/watch investigations and adds misleading playback noise.
+
+**Fix:** `ShouldSpawnAtRecordingEnd(...)` now checks `rec.VesselDestroyed` before the missing-snapshot guard, so destroyed recordings without a preserved snapshot still report `vessel destroyed`. Focused regressions pin both the direct playback/rewind helper and the KSC wrapper with the exact `VesselDestroyed=true` + `VesselSnapshot=null` shape.
+
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek.Tests/RewindTimelineTests.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~532. Same-UT tech unlock bursts can temporarily refund science until the `TechResearched` action lands~~
+
+**Source:** `logs/2026-04-21_2335_live-collect-script/KSP.log` shows `basicRocketry` being allowed, then `PatchScience: 17.1 -> 22.1`, and only later the matching `TechResearched` ledger event. The same pattern repeats for `engineering101`: allow tech, patch science back up, then record the action later.
+
+**Concern:** during bursty R&D activity, KSP's science pool is being patched upward in the gap between stock unlock and the recorder/ledger catching up. That means the player can briefly see refunded science or even try to re-spend it while the action stream is still converging.
+
+**Fix:** `LedgerOrchestrator` now measures the recent unmatched `ScienceChanged(RnDTechResearch)` debit against landed KSC `ScienceSpending` actions in the same 0.1s window, and `KspStatePatcher.PatchScience()` subtracts that live-only gap from its upward patch target. The pool stays at the already-deducted stock value until the matching `TechResearched` action lands, instead of briefly refunding the gap.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `Source/Parsek.Tests/LedgerOrchestratorTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~533. `ContractAccepted -> ContractAccept` conversion drops `contractType` on the ledger path~~ CLOSED 2026-04-22
+
+**Source:** replay in `logs/2026-04-21_2335_live-collect-script/KSP.log` logs both accepted launch-site test contracts as `type=''`, and the committed `ledger.pgld` actions contain title/deadline/advance/penalties but no `contractType`. The raw stored contract snapshots still carry `type = PartTest`, so the type exists at capture time and is being lost during conversion.
+
+**Concern:** `GameStateRecorder.OnContractAccepted()` preserves the full contract snapshot, but `GameStateEventConverter.ConvertContractAccepted()` only reads title/deadline/funds/penalties and never populates `GameAction.ContractType`. `PatchContracts` currently survives because it re-reads the snapshot, but any UI/rule/path that relies on `GameAction.ContractType` already sees empty data.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/GameActionDisplay.cs`.
+
+**Fix:** `GameStateRecorder.OnContractAccepted()` now writes the accepted contract's `type=` into the structured event detail using the same value saved in the contract snapshot, and `GameStateEventConverter.ConvertContractAccepted()` now populates `GameAction.ContractType`, falling back to `GameStateStore.GetContractSnapshot(contractId)` for pre-fix events that still lack the new detail token. Regression coverage pins both the direct-detail path and the snapshot-backfill path.
+
+**Status:** ~~OPEN. Data-loss bug in the ledger conversion path.~~ Closed 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~534. Returning to a spawned chain-tip vessel can miss the vessel-switch restore and strand the next continuation outside the existing mission tree~~
+
+**Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 23:56:39-00:00:38. When switching back to the spawned Mun-orbit `Kerbal X`, `ParsekScenario` logs `vesselSwitchPending flag stale ... treating FLIGHT→FLIGHT as quickload, not vessel switch`. The follow-up `OnFlightReady` state is still `mode=none tree=-`, even though scene entry active vessel pid `2641112149` is the already-spawned chain tip. The later Mun landing logs `OnVesselSituationChange: not a launch transition (SUB_ORBITAL -> LANDED)`, and the only new recording that starts afterward is a fresh single-node EVA tree for Bob Kerman.
+
+**Concern:** the FLIGHT→FLIGHT return-to-vessel path can lose the pending tree restore/promotion for a spawned chain tip, so the later continuation never rejoins the existing `Kerbal X` mission tree/group. Once that tree context is lost, landing or engine-burn follow-up on the returned vessel no longer auto-starts a chained continuation; only the separate EVA auto-record path re-arms.
+
+**Files:** `Source/Parsek/ParsekScenario.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`.
+
+**Resolution:** fixed 2026-04-22 in the dedicated `bug/534-chain-tip-restore` worktree. The failing path was not a missing `LimboVesselSwitch` dispatch: by the time `OnFlightReady` ran, the pending tree was already gone and only the committed tree copy remained. `ParsekFlight` now detects that scene-entry active vessel PID against committed spawned recordings, pre-transitions the committed tree back into the same live vessel-switch shape the in-session path expects, clears any stale `BackgroundMap` entry still keyed by the recording's historical PID instead of the live spawned PID, detaches the matched tree from committed storage before restoring it live, and restores the tree immediately on `OnFlightReady` (with the existing Update-time recovery loop as a late-active-vessel safety net). Returns to a spawned background member promote cleanly after that stale-entry cleanup; returns to the committed active member resume that same recording directly; and the later recommit still goes through the normal uncommitted-tree path instead of tripping duplicate-tree guards. This keeps `#534` narrowly on the spawned-chain-tip restore path and leaves the broader first-meaningful-modification auto-resume gap to `#546`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+
+---
+
+## ~~535. Tracking Station can show a future Mun-orbit chain tip before the current ghost has actually reached the Mun~~
+
+**Source:** `logs/2026-04-22_0012_followup-log-sweep/KSP.log` around 00:01:42-00:02:07. Tracking Station startup immediately creates recording `#3` as a ghost vessel on `body=Mun` from terminal orbit data, then still draws atmospheric markers `#0` and `#1` over Kerbin, and later creates recording `#1` as a Kerbin ghost-map vessel from the current segment.
+
+**Concern:** Tracking Station was mixing the future chain tip's terminal orbit with the earlier active leg, so the vessel list could advertise a second `Kerbal X` as already "in Mun orbit" before the current ghost had actually reached the Mun. `CreateGhostVesselsFromCommittedRecordings()` instantiated tip recordings from `HasOrbitData(rec)` even when current UT was still on an earlier chain segment.
+
+**Fix:** tracking-station ghost creation now resolves a single source of truth per recording: use the currently visible orbit segment when one exists, skip future terminal-orbit tuples before the recording has activated or while it is still in progress, and only fall back to terminal orbit after the recording's own `EndUT`. The follow-up also restores the `KSP.log` trail for `ResolveTrackingStationGhostSource()` and splits `before-activation` / `before-terminal-orbit` out of the startup `noOrbit` summary bucket. Headless regressions now cover future-tip suppression, segment-vs-terminal precedence, post-`EndUT` terminal fallback, the decision logs, and the startup summary buckets.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`. No `RuntimeTests` change landed here because the regression is fully covered at the pure decision/logging layer.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~536. Tracking Station can drop the current atmospheric continuation at the Kerbin-exit handoff~~
+
+**Source:** the same package logs `Drawing atmospheric marker #2 "Kerbal X" ... alt=69999` at 00:03:47, then immediately removes recording `#1` with `Removed ghost map vessel for recording #1 ... reason=tracking-station-expired` at 00:03:49. No same-moment replacement current-phase marker/orbit handoff is logged for the in-progress continuation before the much later Mun-leg visibility resumes.
+
+**Concern:** the Kerbin-exit handoff in Tracking Station can drop the current ghost entirely at the boundary between atmospheric-marker playback and orbit-map lifecycle. The package shows the removal, but not a synchronized successor for the current continuation, matching the user report that the icon vanished even though the craft was still on its way back out of atmosphere toward Mun transfer.
+
+**Fix:** Tracking Station suppression is now current-UT-aware instead of hiding every recording that merely has a child. The startup cache and lifecycle tick now compute the same time-aware suppression set, the lifecycle retires already-existing parent ghosts when a child with a resolvable start becomes current, and indeterminate child starts fail open instead of hiding the parent immediately. That keeps the current atmospheric continuation visible at the Kerbin-exit handoff without leaving the old parent ghost hanging around after the real child-start boundary. Added headless regressions for suppression timing, existing-parent retirement, indeterminate child-start handling, current orbit-continuation ghost creation, and atmospheric-marker handoff.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, related tests/docs.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~537. Tracking Station never runs the real-vessel spawn handoff that flight/map playback does~~
+
+**Source:** user observed the missing Mun-orbit materialization in Tracking Station; the same package shows the contrast directly. In TRACKSTATION, the host only initializes and updates ghost ProtoVessels (`ParsekTrackingStation initialized`, atmospheric markers, ghost create/remove). Later in FLIGHT/map playback, the same recording `#3` does execute the normal handoff: `Spawn #3 (Kerbal X) ... body=Mun` followed by `SpawnAtPosition: vessel spawned (sit=ORBITING, pid=3724180956, body=Mun, alt=63723m)`.
+
+**Concern:** fixed on `2026-04-22`. `GhostMapPresence` now runs a Tracking Station end-of-recording handoff that reuses the shared spawn eligibility rules, dedups against already-live real vessels, and calls `VesselSpawner` directly for eligible recordings instead of waiting for a later FLIGHT/map scene. The same pass now also suppresses/removes already-materialized terminal-orbit ghosts so stale map entries do not linger after the handoff.
+
+**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-22 for v0.9.0. Tracking Station now materializes eligible real vessels directly and clears the stale spawned-ghost edge that was keeping terminal orbit ghosts around.
+
+---
+
+## ~~538. Atmospheric reentry fire still looks too sparse; tuning target is roughly 2x the current particle density~~
+
+**Source:** user observed that the atmospheric drag/heating fire is too thin and should emit about twice as many particles. Current code still hardcodes a single fire-particle layer at `ReentryFireEmissionMin=300`, `ReentryFireEmissionMax=2000`, and `ReentryFireMaxParticles=1500`. The package's reentry run confirms the path is active (`Lazy reentry build fired`, later `rebuilt emission mesh ... and 105 fire shell meshes after decouple`), but does not measure visual density.
+
+**Fix:** kept the primary tuning surface in `DriveReentryLayers()` by doubling the fire-particle emission range from `300-2000` to `600-4000` particles/sec, then raised the build-time `ReentryFireMaxParticles` cap only from `1500` to `2000` so the denser stream does not clip at peak intensity. Added deterministic headless coverage pinning the tuned emission range/cap, plus a live runtime regression that builds a real Unity reentry particle system, drives `UpdateReentryFx()` on an atmospheric body, and waits on elapsed realtime rather than a fixed frame count before asserting the emission rate rises past the old `2000` particles/sec ceiling. The live runtime check still skips on non-atmospheric saves.
+
+**Files:** `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~539. Two `GhostPlaybackEngineTests` cases are `[Fact(Skip = ...)]` stubs that xUnit should not keep shipping~~
+
+**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` had two permanently-skipped cases. `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` already had a dedicated in-game replacement, but `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` still only had indirect coverage via the pure-logic sibling `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` plus broader loop-flow regressions.
+
+**Resolution (2026-04-22):** CLOSED on branch `bug/539-remove-skipped-xunit-stubs`. Deleted both skipped xUnit placeholders from `GhostPlaybackEngineTests.cs` and also removed the now-dead `SpawnPrimingPositioner` helper that only those stubs used. Coverage decision:
+
+- `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`: removed outright. Its surviving live-Unity coverage remains the pre-existing `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame` test, which now seeds its own synthetic playback recording from the active-vessel snapshot instead of depending on pre-existing committed save data, so the shipped regression keeps direct runtime evidence for the priming invariants without the dead xUnit stub.
+- `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents`: added a dedicated `GhostPlayback` in-game regression, `PendingLoopCycleBoundary_PendingGhostDoesNotEmitRestartEvents_InGame`, which drives `UpdatePlayback -> UpdateLoopingPlayback` on a pending `LoopEnter` shell with `ghost == null`, asserts that `loopCycleIndex` advances, and proves that no `OnLoopRestarted` / `OnLoopCameraAction` events fire while the missing-snapshot debris ghost still cannot materialize. The existing headless `ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents` test stays in place as the pure-helper counterpart for the null-ghost cycle-advance invariant.
+
+**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --no-restore --filter "FullyQualifiedName~GhostPlaybackEngineTests"` passed (`109` passed, `0` failed, `0` skipped) and the full restore-backed `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` compile+run reached the xUnit runner, but still hit one unrelated existing environment-state failure in `SyntheticRecordingTests.InjectAllRecordings` (`Expected exactly 283 .prec files ... found 540`, orphan sidecars from a prior inject run). The new runtime regression compiles as part of the referenced `Parsek` project but still needs live KSP execution via `Ctrl+Shift+T` for full runtime evidence.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0.
+
+---
+
+## ~~540. Three xUnit style warnings on `dotnet test` should be cleaned up~~
+
+**Source:** `dotnet test` on current `main` emits three xUnit analyzer warnings: `InGameTestRunnerTests.cs:259` (`xUnit1013` — `FormatCoroutineState_ReportsActiveAndIdleSlots` is public but missing `[Fact]`, so it silently does not run) and `KerbalsWindowUITests.cs:700-701` (two `xUnit2009` — `Assert.True(text.StartsWith(prefix, StringComparison.Ordinal))` should be `Assert.StartsWith(prefix, text, StringComparison.Ordinal)` for better failure messages).
+
+**Concern:** the `xUnit1013` case is a real correctness gap — the orphaned method sits between two `[Fact]`-attributed siblings and looks like a test that lost its attribute during an edit, so a code path currently believed to be tested is not. The two `xUnit2009` cases are presentation-only, but leaving analyzer warnings in the baseline trains reviewers to ignore real signals.
+
+**Files:** `Source/Parsek.Tests/InGameTestRunnerTests.cs` (add `[Fact]` to `FormatCoroutineState_ReportsActiveAndIdleSlots` or reduce visibility), `Source/Parsek.Tests/KerbalsWindowUITests.cs` (swap both `Assert.True(x.StartsWith(...))` for `Assert.StartsWith(...)`).
+
+**Fix / Resolution (2026-04-22):** CLOSED for v0.9.0. `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` is now explicitly marked `[Fact]`, so the assertion runs instead of sitting as public test-shaped dead code, and the Kerbals subitem-indent regressions now use xUnit `Assert.StartsWith(...)` with the original `StringComparison.Ordinal` semantics preserved across the touched prefix checks instead of the old `Assert.True(text.StartsWith(..., StringComparison.Ordinal))` form. A forced `dotnet build Source/Parsek.Tests/Parsek.Tests.csproj -t:Rebuild --no-restore` rerun now reports `0 Warning(s)`.
+
+**Status:** CLOSED 2026-04-22. Cheap cleanup completed for v0.9.0; the test project no longer carries these baseline analyzer warnings.
+
+---
+
+## ~~541. Main Parsek button labels should be shorter and stop showing the dynamic Kerbals count~~
+
+**Source:** user request from 2026-04-22 after a main-page UI wording pass.
+
+**Concern:** the main button column still renders `Kerbals ({total})` and `Career State`. For top-level navigation the count suffix is noise, and `Career State` is longer/more formal than the rest of the button labels. Requested wording: `Kerbals` with no trailing count, and `Career` instead of `Career State`. Any detailed counts can stay inside the destination windows rather than on the launch surface.
+
+**Fix:** `ParsekUI` now renders the launch-surface buttons as `Kerbals` and `Career`, removes the dynamic Kerbals aggregate count entirely from the main column, and leaves the detailed roster counts inside the Kerbals/Career destination windows. `ParsekUITests` now pin the short-label contract so a future refactor cannot quietly reintroduce the count suffix or the longer `Career State` button label.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+
+---
+
+## ~~542. Ghost watch camera cutoff should stop being user-editable and become a fixed 300 km config default~~
+
+**Source:** user request from 2026-04-22 plus current code read of `SettingsWindowUI` / `ParsekConfig`.
+
+**Fix:** removed the `Ghosts -> Camera cutoff` field from the settings window, dropped `ghostCameraCutoffKm` from `ParsekSettings` and `ParsekSettingsPersistence`, and made watch eligibility / watch exit / watched-full-fidelity callers read the fixed `DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm = 300f` helper directly. Old persisted cutoff values are now ignored, so legacy overrides stop leaking into current watch behavior.
+
+**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/ParsekConfig.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/ParsekSettingsPersistence.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/DistanceThresholdsTests.cs`, `Source/Parsek.Tests/ParsekSettingsPersistenceTests.cs`.
+
+**Status:** DONE. Fixed in `0.8.3`.
+
+---
+
+## ~~543. Auto-loop recordings need a global launch queue instead of per-recording independent cadence~~
+
+**Source:** user request from 2026-04-22. Current code in `GhostPlaybackLogic.ResolveLoopInterval(...)` gives every `LoopTimeUnit.Auto` recording the same global period, but each recording still schedules its own cycles independently from its own start UT.
+
+**Concern:** with multiple recordings on `Auto`, the current behavior can still produce simultaneous or visually clumped relaunches because "Auto" is only a shared interval value, not a shared queue. Requested behavior: treat all looped recordings whose unit is `Auto` as one launch queue ordered by launch sequence, with the gap between launches equal to the global Auto setting. Example: three Auto recordings with Auto = 30s should launch A, then B after 30s, then C after 30s, then continue cycling through that queue instead of each recording relaunching on its own independent cadence.
+
+**Fix:** added a shared Auto-loop schedule resolver in `GhostPlaybackLogic`, cached that queue in `GhostPlaybackEngine`, and propagated the same schedule/playback split into flight watch-mode and KSC loop reconstruction. Auto recordings are now ordered once by effective loop launch UT, the shared Auto interval becomes the gap between successive queue launches, and each recording's own relaunch cadence becomes `queueLength * autoInterval`. Added direct regression coverage for the queue resolver, schedule-aware phase math, KSC loop timing, and engine cache usage.
+
+**Files:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/AutoLoopTests.cs`, `Source/Parsek.Tests/LoopPhaseTests.cs`, `Source/Parsek.Tests/KscGhostPlaybackTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+
+---
+
+## ~~544. Rewind-to-launch should give 15 seconds of lead time instead of 10~~
+
+**Source:** user request from 2026-04-22 plus current code read in `RecordingStore.InitiateRewind`.
+
+**Concern:** the rewind preprocessing path still winds UT back by only `10.0` seconds (`rewindLeadTime`) before restoring the stripped launch save. That is not enough setup time on many launches. Requested change: increase the lead time to 15 seconds and update the related tests/logging assumptions that currently pin the 10-second value.
+
+**Fix:** `RecordingStore` now routes rewind-to-launch through a shared `RewindToLaunchLeadTimeSeconds = 15.0` constant, so the stripped launch save rewinds far enough for pad setup before the ghost appears. The end-to-end rewind logging / adjusted-UT tests now read that same constant instead of pinning the old 10-second launch assumption in literals.
+
+**Files:** `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/RewindLoggingTests.cs`.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+
+---
+
+## ~~545. Timeline should squash adjacent near-duplicate milestone rows into one richer entry~~
+
+**Source:** user request from 2026-04-22 plus current code read in `TimelineBuilder` / `TimelineEntryDisplay`.
+
+**Concern:** the Timeline currently formats each milestone action independently, so near-neighbor rows can read like duplicates when they describe the same milestone with slightly different reward payloads (for example one row with funds only and a sibling row with funds + rep). `TimelineBuilder` already filters exact ledger-vs-legacy duplicates, but it does not run a second pass that compares `Prev - Current - Next` for "same milestone, same moment, richer combined message" cases. Requested behavior: add a compaction/squash pass that detects adjacent similar milestone rows and merges them into a single entry with the union of the useful reward details instead of showing multiple nearly-identical lines.
+
+**Fix:** `TimelineBuilder` now runs a post-sort compaction pass over same-moment game-action milestone rows that share both milestone id and a UT within 0.1 seconds. Compatible rows collapse into one entry even if another same-timestamp row sits between them, missing reward legs are filled from the richer sibling, and the merged row keeps the effective/T1 presentation if any source row was effective. `TimelineEntryDisplay` milestone text now uses a shared formatter that includes science rewards as well as funds/rep, and the focused timeline-builder tests pin the compacted, interleaved, near-UT, non-compacted, and conflicting-value cases.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
+
+---
+
+## ~~546. Post-switch follow-up recording still lacks general first-modification triggers once Parsek is idle or tree context is lost~~
+
+**Source:** design/code read on 2026-04-22 after reviewing `docs/parsek-flight-recorder-design.md`, `docs/dev/done/recording-chaining.md`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/FlightRecorder.cs`, and the current auto-record/runtime tests. The design says focus-vessel recording should promote/demote across vessel switches and that physical state changes are what matter; current settings/UI still expose only `Auto-record on launch` and `Auto-record on EVA`.
+
+**Concern:** outside the narrow launch / pad-EVA / live-tree-promotion paths, there was no general "switch to a real vessel, then make the first meaningful state change" arming path. `OnVesselSituationChange` only auto-started from `PRELAUNCH` or settled `LANDED`, and `PromoteRecordingFromBackground(...)` only worked while an active tree already existed and the switched-to PID was still in `BackgroundMap`. That left several follow-up cases uncaptured unless the user manually started recording: orbital/suborbital engine or RCS burns that stay in the same situation, rover/base repositioning that remains `LANDED`, and switched-to vessel part/crew/resource mutations that do not pass through the current launch/EVA gates. `#534` is the spawned-chain-tip restore variant of this broader gap.
+
+**Fix:** idle switches to real non-ghost vessels now arm a dedicated post-switch watcher instead of starting on switch alone. The watcher captures its baseline on the first stable physics frame after the switch, reuses the existing landed settle threshold before comparing landed vessels, and starts exactly once on the first meaningful physical change:
+
+- landed motion / orbital state change
+- engine ignition or sustained RCS activity
+- crew/resource/inventory delta
+- non-cosmetic part-state change (gear and similar authored physical state)
+
+Observation-only / cosmetic-only changes stay ignored. Checks are suppressed while restore is running, while split/dock/boarding transitions are pending, during regular or physics warp, for packed/on-rails vessels, for ghost-map vessels, and when the active vessel no longer matches the armed PID. Manifest-based comparisons are throttled to a short interval while armed, and vessel-modification events invalidate the cached engine / RCS module lists so post-switch checks do not keep snapshotting the full vessel every physics frame. A new setting, `Auto-record on first modification after switch`, ships enabled by default alongside the other auto-record toggles. The outsider/start-fresh path and tracked-background-member promote-on-trigger path are both implemented here. The restore-and-promote tracked seam remains intentionally gated behind open `#534` on this branch.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/Patches/PhysicsFramePatch.cs`, `Source/Parsek/ParsekSettings.cs`, `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek.Tests/PostSwitchAutoRecordTests.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`, `Source/Parsek.Tests/MissedVesselSwitchRecoveryTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/manual-testing/test-auto-record.md`, `CHANGELOG.md`. Related cluster: open `#534` is still the narrow spawned-chain-tip restore seam; `#547` / `#548` / `#549` remain separate follow-ups.
+
+**Status:** CLOSED 2026-04-22. Fixed for v0.9.0 with the post-switch arming / trigger policy, headless helper coverage, and isolated runtime canaries. Remaining gate: `#534` restore-and-promote for the spawned-chain-tip return seam stays open and separate.
+
+---
+
+## 547. Recording optimizer should surface cross-body exo segments more clearly than the current first-body label
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), especially the traced Kerbin-launch-to-Mun-landing scenario.
+
+**Concern:** the optimizer only splits on environment-class changes, not body changes, so a long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
+
+**Files:** `Source/Parsek/RecordingOptimizer.cs`, `Source/Parsek/RecordingStore.cs`, timeline/recordings UI that renders `SegmentBodyName`, `docs/dev/recording-optimizer-review.md`.
+
+**Status:** TODO. Likely UX/research follow-up, not a v0.8.3 ship blocker.
+
+---
+
+## 548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issues 1 and 2.
+
+**Concern:** two related outputs are still structurally correct but awkward in the player-facing recordings list:
+- stationary landed background continuations can end up as `SurfacePosition`/time-range placeholders with no real ghost trail
+- all-boring surface leaf segments can survive optimizer trim because they still carry the final `VesselSnapshot`/spawn responsibility
+
+Both cases are valid data, but they clutter the UI and read like broken/empty ghosts. We should either collapse them visually, mark them explicitly as static/stationary, or trim them to a minimal terminal window while preserving their structural role.
+
+**Files:** `Source/Parsek/BackgroundRecorder.cs`, `Source/Parsek/RecordingOptimizer.cs`, recordings/timeline UI that lists committed segments, `docs/dev/recording-optimizer-review.md`.
+
+**Status:** TODO. UX cleanup / follow-up analysis.
+
+---
+
+## 549. Recording optimizer needs end-to-end branch-point coverage when tree recordings are split post-commit
+
+**Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issue 5.
+
+**Concern:** the optimizer has unit coverage for split logic, but we still do not have a full tree-with-branch-points regression that proves post-commit environment splits preserve the intended branch linkage and chain navigation shape. The review did not find a live bug here, but this is exactly the seam most likely to regress silently when optimizer logic or branch-point rewrites change.
+
+**Files:** `Source/Parsek.Tests/RecordingOptimizer*`, `Source/Parsek.Tests/RecordingStore*`, any integration-style optimizer/tree fixture that exercises `RunOptimizationPass` on a multi-stage tree with branch points.
+
+**Status:** TODO. Medium-priority coverage gap.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
@@ -439,7 +855,7 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
-## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
+## ~~486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
 
@@ -487,7 +903,19 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 - `SessionMerger` now labels overlap-derived active save/load seams as `cause=save-load-teleport` instead of falling through to the generic `sample-skip` bucket.
 - Added headless regression coverage for tree-wide trim, post-trim tail-environment selection, restore-environment resync, and the merger label heuristic.
 
-**Status:** Implementation complete for `0.8.3`, but leave this item open until the original runway F5/F9 repro is rerun in KSP on a machine that can build/run the `net472` test project. Local verification on this workstation is blocked by a missing `.NET Framework 4.7.2` targeting pack, so the code path was reviewed and covered in xUnit only.
+**Validation (2026-04-21):** the archived live quickload bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/` now provide the missing runtime evidence.
+
+- `parsek-test-results.txt` records `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId` as `FLIGHT PASSED (6447.3ms)`.
+- `KSP.log` logs the pre-F9 live recording id (`preRecId=ed1b9329360f488dbfac4b15cb4750a9`), then `Quickload tree trim: ... trimmedRecordings=1/1 prunedFutureRecordings=0 prunedBranchPoints=0`, then `Quickload resume prep: activeRec='ed1b9329360f488dbfac4b15cb4750a9' treeTrimmed=True`, and finally `RestoreActiveTreeFromPending: resumed recording tree ... activeRec='ed1b9329360f488dbfac4b15cb4750a9'`.
+- That live path is launch-backed rather than the literal `r0` runway craft, so it only verified the shipped trim/resume seam and active-id reuse; it did not prove that a pre-liftoff runway quicksave would stop committing as separate `surface` + `atmo` phases.
+
+**Reinvestigation (2026-04-22):** current `main` still allows a literal runway quicksave made before liftoff to finish as a short `surface` recording followed by an `atmo` recording, but that shape is not the old save/load seam bug:
+
+- `FlightRecorder.PrepareQuickloadResumeStateIfNeeded()` trims and resumes against the post-cutoff tail environment. When that tail is still `SurfaceStationary`/`SurfaceMobile`, the later takeoff remains a real live surface→atmo boundary rather than a restore-only relabel.
+- `SessionMerger.LooksLikeSaveLoadTeleportBoundary(...)` only tags overlap-derived restored seams. A normal runway surface→atmo handoff with no overlapping active section is not classified as `save-load-teleport`.
+- `RecordingOptimizer.FindSplitCandidatesForOptimizer(...)` still intentionally splits non-EVA surface→atmo boundaries once both halves exceed 5 seconds, so the final committed runway tree can still look like a short surface segment glued to an atmo segment even though the quickload discontinuity itself is gone.
+
+**Status:** CLOSED 2026-04-22 for v0.9.0. The original seam/discontinuity bug remains fixed; the follow-up diagnosis on 2026-04-22 was stale docs plus missing runway-specific regression coverage, not a new code gap on current `main`.
 
 ---
 
@@ -543,13 +971,11 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 **Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
 
-**Remaining gap after closure:**
-
-The next runtime scenario worth adding is no longer these synthetic canaries. It is the stock `record -> revert -> soft-unstash / no merge` flow, followed by the real non-revert scene-exit deferred merge path.
+**Historical next-gap note:** after this closure, the audit moved on to the stock `record -> revert -> soft-unstash / no merge` flow (`#490`) and then the real non-revert scene-exit deferred merge path (`#491`). Both are now closed below.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gaps are the stock revert soft-unstash transition and the non-revert deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch.
 
 ---
 
@@ -570,106 +996,105 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
-**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+**Status:** CLOSED. Fixed for the audit branch. The then-open next player-flow gap (`#491`) is now closed below.
 
 ---
 
-## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+## ~~491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path~~
 
 **Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
 
-**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`), stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`), and the two manual-only `SceneExitMerge` stock save-and-exit canaries.
 
 **Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
 
-**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
+**Validation (2026-04-21):** the archived sibling-workspace bundle `../logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated/` closes the gap.
 
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
-- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
-
-Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+- `parsek-test-results.txt` records `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` as `SPACECENTER PASSED (9423.5ms)` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` as `SPACECENTER PASSED (9707.1ms)`.
+- `KSP.log` shows the real stock save-and-exit path surfacing `Showing deferred tree merge dialog in SPACECENTER`, then the discard branch logging `User chose: Tree Discard` plus `Scene-exit merge discard runtime: ... committedTreesAfter=0`, and later the merge branch logging `User chose: Tree Merge` plus `Scene-exit merge commit runtime: ... committedTreesAfter=1`.
+- Those runs exercise the shipped player flow: launch from `PRELAUNCH`, leave the pad, invoke stock `Space Center` exit semantics, and resolve the production `ParsekMerge` popup in `SPACECENTER` instead of a synthetic dialog path.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
-## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+## ~~492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence~~
 
 **Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
 
-**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+**Current state:** closed. `Source/Parsek/InGameTests/RuntimeTests.cs` contains `FlightIntegrationTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `FlightIntegrationTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` (the file is `RuntimeTests.cs`, but the owning/exported class name is `FlightIntegrationTests`). These deterministic `FLIGHT` runtime tests build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. Retained April 21, 2026 live bundles now show both tests passing in `FLIGHT`.
 
 **Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
 
-**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+**Evidence:**
 
-- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
-- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2008_finish-line-validation\parsek-test-results.txt` records both `FlightIntegrationTests.PartEventTiming_*` rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\parsek-test-results.txt` records the same two rows as `FLIGHT         PASSED`
+- `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-21_2042_live-collect-script\KSP.log` records `Running`/`PASSED` for both canaries plus the `Applied 1 part events for ghost #902/#901` diagnostics at the event boundary
 
-Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+This closes the audit's first player-visible part-event timing gap for the light/deployable slice without requiring new live interaction in this worktree.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED - LIVE KSP VALIDATED (evidence retained in `C:\Users\vlad3\Documents\Code\Parsek\logs\`).
 
 ---
 
-## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
+## ~~493. Destructive FLIGHT runtime tests now have a stronger retained isolated batch path, but final live validation is still pending~~
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
-**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
+**Fix:** the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests.
+
+**Current state:** closed. The in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline between restore-backed destructive tests. Retained evidence under sibling-workspace bundle `../logs/2026-04-21_2041_live-collect-now/` showed that path working on historical commit `80176033`: `parsek-test-results.txt` recorded `FLIGHT captured=180 Passed=153 Failed=0 Skipped=27`, including passes for:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
 - `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
 - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
-- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
 - `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
 - `FlightIntegrationTests.BridgeSurvivesSceneTransition`
 - `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
 - `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
+`GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` stayed save-dependent in that earlier retained session and skipped with `no same-body ghost available for watch-cleanup regression`, so the final widened cohort remained open until a fresh same-body packet was captured from the quickload-hardened revision.
 
-Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
+**Validation (2026-04-22):** sibling-workspace bundle `../logs/2026-04-22_2118_validate-493-watch-cleanup-pass/` closes the final live-validation gap. That packet is tied to commit `24963d87` (`test: isolate explicit finalize-backfill runtime canary`), a test-only follow-up that does not alter production FLIGHT behavior.
 
-**Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
+- `parsek-test-results.txt` records `FLIGHT captured=190 Passed=154 Failed=0 Skipped=36` and `SPACECENTER captured=91 Passed=70 Failed=0 Skipped=21`.
+- `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId` passed in `FLIGHT (6739.3ms)`.
+- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` passed in `FLIGHT (531.2ms)` once the retained session had a same-body ghost available.
+- `KSP.log` records the intended cleanup order for the watch regression: `PerformBetweenRunCleanup: begin reason=ingame-watch-cleanup-regression`, then `Exiting watch mode before timeline ghost cleanup`, then `DestroyAllGhosts: clearing 1 primary + 0 overlap entries`.
+- The same `KSP.log` contains no `Sun.LateUpdate`, `FlightGlobals.UpdateInformation`, or `NullReferenceException` signatures, and `log-validation.txt` passed.
 
-**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
+**Caveat:** `SceneExitMerge` intentionally remains manual-only because the exit-to-KSC path is still too state-dirty to trust inside the isolated `FLIGHT` batch. That is a separate caveat from the destructive FLIGHT harness gap this item tracked.
 
-**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, waits through transient-null `FlightInputHandler.state` until the input state stays stable, and then waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
-
-**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
-
-**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
-
-- the `[isolated]` tests above run in one session without manual reloads
-- the runner quickloads the baseline back between destructive tests
-- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
-- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
-
-**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+**Status:** CLOSED (2026-04-22). Final live validation retained for v0.9.0.
 
 ---
 
-## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+## ~~494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report~~ CLOSED 2026-04-22
 
 **Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. Running `pwsh -File scripts/test-coverage.ps1` from `C:\Users\vlad3\Documents\Code\Parsek\Parsek-bug-494` at commit `7216893f48b1e2c7b74ddcc3651cc3a31f531ff6` completed end-to-end and produced the first validated baseline coverage packet:
 
-**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+- restore/build succeeded for `Source/Parsek/Parsek.csproj` and `Source/Parsek.Tests/Parsek.Tests.csproj`
+- xUnit result: `Passed: 7730, Skipped: 2, Total: 7732`
+- Cobertura baseline: line `34220/82454 (41.50%)`, branch `15944/39907 (39.95%)`, method `56.28%`, `325` classes
+- generated artifacts: `coverage..cobertura.xml`, `coverage-summary.txt`, and `dotnet-test.log`
+- archived packet: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-04-22_1850_coverage-baseline\`
+- remaining non-blocking warnings: `InGameTestRunnerTests.FormatCoroutineState_ReportsActiveAndIdleSlots` (`xUnit1013`) and the two `KerbalsWindowUITests` substring assertions (`xUnit2009`)
 
-**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+**Why this matters:** the repo can now answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
 
-**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+**Follow-up:** future work should keep this packet shape repeatable, but the missing-baseline blocker itself is now closed. The next useful iteration is diff/CI retention, not more local runner churn.
 
-**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-22). Baseline captured and archived.
 
 ---
 
@@ -689,35 +1114,29 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 ---
 
-## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+## ~~496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests~~
 
 **Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+**Concern:** after the first slice landed, `TestRunnerUI` and the Ctrl+Shift+T shortcut shared `TestRunnerPresentation`, but the other thin IMGUI owners (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) still kept meaningful parse/sort/selection/tree rules inside draw code. That left UI regressions disproportionately dependent on live KSP playtests instead of direct headless ownership tests.
 
-**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+**Fix:** the remaining IMGUI owners now delegate their meaningful non-Unity logic to pure helpers: `SettingsWindowPresentation` owns auto-loop/camera-cutoff edit parsing plus the Defaults payload, `SpawnControlPresentation` owns Real Spawn Control sorting and per-row warp/state decisions, and `GroupPickerPresentation` owns normalized selection, common-group intersection, tree building, toggle rules, new-group validation, and membership deltas. Added focused headless coverage in `Source/Parsek.Tests/SettingsWindowPresentationTests.cs`, `Source/Parsek.Tests/SpawnControlPresentationTests.cs`, and `Source/Parsek.Tests/GroupPickerPresentationTests.cs`, completing the audit target list alongside the earlier `TestRunnerPresentation` tests.
 
-**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+**Deferred micro-follow-up:** this branch intentionally still reuses three older shared helpers instead of re-extracting them into the presentation layer: `SettingsWindowPresentation.TryResolveAutoLoopEdit(...)` still delegates to `ParsekUI.TryParseLoopInput(...)` / `ParsekUI.ConvertToSeconds(...)`, and `SpawnControlPresentation.BuildRowPresentation(...)` still uses `SelectiveSpawnUI.FormatCountdown(...)`. That is now a consistency follow-up rather than an audit blocker.
 
-**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 
-## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+## ~~497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles~~
 
 **Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+**Resolution (2026-04-22):** CLOSED for v0.8.3. The earlier sidecar/generator ownership bundles are now matched by dedicated builder suites: `Source/Parsek.Tests/EngineFxBuilderTests.cs` owns headless-safe effect-group filtering, model/prefab config-entry parsing, fallback Euler selection, prefab rotation-mode decisions, and seam-level diagnostic log assertions for guard/fallback branches extracted from the runtime-heavy FX builder, and `Source/Parsek.Tests/GhostVisualBuilderTests.cs` now owns ghost snapshot selection/root parsing, prefab-name normalization, color-changer grouping, and stock explosion guard behavior. Live Unity object construction stays in the in-game runtime tests instead of xUnit, while true visual confirmation still relies on runtime/manual evidence rather than new headless assertions.
 
-**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/EngineFxBuilderTests.cs`, `Source/Parsek.Tests/GhostVisualBuilderTests.cs`, `Source/Parsek.Tests/RecordingStoreTests.cs`, `Source/Parsek.Tests/GhostVisualFrameTests.cs`, `docs/dev/todo-and-known-bugs.md`.
 
-**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
-
-**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
-
-**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+**Status:** CLOSED 2026-04-22. Fixed for v0.8.3.
 
 ---
 

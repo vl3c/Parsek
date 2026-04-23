@@ -101,9 +101,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the orbit color for a ghost marker by vessel type.
-        /// Matches KSP's own orbit color scheme — single source of truth used
-        /// by both ParsekUI (flight) and ParsekTrackingStation (TS).
+        /// Returns the per-vessel-type accent color for a ghost marker.
+        /// Stock atlas icons ignore this tint, but the fallback diamond still
+        /// uses it and flight/TS callers keep one shared vessel-type palette.
         /// </summary>
         internal static Color GetColorForType(VesselType vtype)
         {
@@ -121,6 +121,15 @@ namespace Parsek
                 default:                 return new Color(0.63f, 0.63f, 0.63f); // grey
             }
         }
+
+        /// <summary>
+        /// Returns the shared ghost label color used in map view. Labels stay
+        /// yellow for every vessel type; the icon itself already carries the
+        /// vehicle distinction, so per-type label tints add noise without
+        /// improving scanability.
+        /// </summary>
+        internal static Color GetLabelColor()
+            => GetColorForType(VesselType.Ship);
 
         /// <summary>
         /// Draw a marker for a world-space position (tracking station path).
@@ -201,7 +210,7 @@ namespace Parsek
 
             if (ShouldDrawLabel(sticky))
             {
-                labelStyle.normal.textColor = color;
+                labelStyle.normal.textColor = GetLabelColor();
                 GUI.Label(
                     new Rect(x - 75, y + IconSize / 2 + 2, 150, 20),
                     "Ghost: " + (label ?? "(unknown)"),

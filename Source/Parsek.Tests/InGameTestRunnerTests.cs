@@ -256,6 +256,7 @@ namespace Parsek.Tests
             Assert.False(prepared);
         }
 
+        [Fact]
         public void FormatCoroutineState_ReportsActiveAndIdleSlots()
         {
             string state = InGameTestRunner.FormatCoroutineState(

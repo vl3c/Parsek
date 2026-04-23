@@ -70,6 +70,11 @@ namespace Parsek
         /// rename persists on the next save.
         /// </summary>
         internal const string LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
+
+        /// <summary>
+        /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
+        /// </summary>
+        internal const double RewindToLaunchLeadTimeSeconds = 15.0;
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
@@ -429,14 +434,6 @@ namespace Parsek
             // Flush to disk immediately to close the crash window.
             FlushDirtyFiles(committedRecordings);
 
-            // Commit pending science subjects. #397: do NOT clear here — the
-            // orchestrator (LedgerOrchestrator.OnRecordingCommitted via
-            // ChainSegmentManager.CommitSegmentCore, or NotifyLedgerTreeCommitted
-            // for tree paths) still needs to read PendingScienceSubjects when
-            // converting ScienceEarning actions. The clear happens in those
-            // upstream sites inside a try/finally.
-            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -519,6 +516,36 @@ namespace Parsek
             bool removed = committedRecordings.Remove(rec);
             if (removed)
                 BumpStateVersion();
+            return removed;
+        }
+
+        /// <summary>
+        /// Removes a committed tree by id, including its recordings from the flat
+        /// committed list, so a live restore can take ownership without duplicate-id
+        /// collisions or "still committed" semantics.
+        /// </summary>
+        internal static bool RemoveCommittedTreeById(string treeId, string logContext = null)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+
+            bool removed = false;
+            for (int i = committedTrees.Count - 1; i >= 0; i--)
+            {
+                if (committedTrees[i].Id != treeId)
+                    continue;
+
+                RecordingTree stale = committedTrees[i];
+                foreach (Recording rec in stale.Recordings.Values)
+                    RemoveCommittedInternal(rec);
+
+                committedTrees.RemoveAt(i);
+                removed = true;
+                ParsekLog.Info("RecordingStore",
+                    $"{logContext ?? "RemoveCommittedTreeById"}: removed committed tree " +
+                    $"'{stale.TreeName}' (id={treeId}, {stale.Recordings.Count} recording(s))");
+            }
+
             return removed;
         }
 
@@ -1000,7 +1027,7 @@ namespace Parsek
 
         /// <summary>
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
-        /// commits science subjects, captures baseline, and creates a milestone.
+        /// captures baseline, and creates a milestone.
         /// </summary>
         private static void FinalizeTreeCommit(RecordingTree tree)
         {
@@ -1028,12 +1055,6 @@ namespace Parsek
             tree.RebuildBackgroundMap();
 
             committedTrees.Add(tree);
-
-            // Commit pending science subjects. #397: do NOT clear here — the orchestrator
-            // still needs to read PendingScienceSubjects in NotifyLedgerTreeCommitted
-            // (for every recording in the tree) before the clear is safe. The clear is
-            // done there, inside a try/finally, so all recordings see the same list.
-            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
 
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
@@ -3186,8 +3207,8 @@ namespace Parsek
 
                 // Pre-process the save file before KSP parses it:
                 // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
-                // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
-                const double rewindLeadTime = 10.0;
+                // 2. Wind back UT by the rewind-to-launch lead time so the player can
+                //    regain control on the pad before launch.
 
                 // Collect all vessel names to strip — use owner's identity since the
                 // quicksave contains the owner's vessel (not the branch's).
@@ -3212,7 +3233,7 @@ namespace Parsek
                 // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                 // alongside name matching — catches renamed vessels or debris)
                 var (stripPids, _) = CollectSpawnedVesselInfo();
-                PreProcessRewindSave(tempPath, stripNames, stripPids, rewindLeadTime);
+                PreProcessRewindSave(tempPath, stripNames, stripPids, RewindToLaunchLeadTimeSeconds);
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 

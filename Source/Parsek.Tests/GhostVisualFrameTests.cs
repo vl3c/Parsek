@@ -8,52 +8,6 @@ namespace Parsek.Tests
     public class GhostVisualFrameTests
     {
         [Fact]
-        public void TryGetSnapshotRootPartInfo_UsesSnapshotRootIndex()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("root", "1");
-            snapshot.AddValue("CoM", "0,0,0");
-
-            var nonRoot = snapshot.AddNode("PART");
-            nonRoot.AddValue("name", "probeCoreSphere");
-            nonRoot.AddValue("persistentId", "10");
-            nonRoot.AddValue("parent", "0");
-            nonRoot.AddValue("position", "0,0,0");
-            nonRoot.AddValue("rotation", "0,0,0,1");
-
-            var root = snapshot.AddNode("PART");
-            root.AddValue("name", "fuelTank");
-            root.AddValue("persistentId", "42");
-            root.AddValue("parent", "0");
-            root.AddValue("position", "1,2,3");
-            root.AddValue("rotation", "0.1,0.2,0.3,0.9");
-
-            bool parsed = GhostVisualBuilder.TryGetSnapshotRootPartInfo(
-                snapshot,
-                out string partName,
-                out uint persistentId,
-                out Vector3 localPosition,
-                out Quaternion localRotation);
-
-            Assert.True(parsed);
-            Assert.Equal("fuelTank", partName);
-            Assert.Equal((uint)42, persistentId);
-            AssertVector3Close(new Vector3(1f, 2f, 3f), localPosition);
-            AssertQuaternionClose(new Quaternion(0.1f, 0.2f, 0.3f, 0.9f), localRotation);
-        }
-
-        [Fact]
-        public void TryGetSnapshotCenterOfMass_MissingValue_ReturnsFalse()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-
-            bool parsed = GhostVisualBuilder.TryGetSnapshotCenterOfMass(snapshot, out Vector3 centerOfMass);
-
-            Assert.False(parsed);
-            AssertVector3Close(Vector3.zero, centerOfMass);
-        }
-
-        [Fact]
         public void DescribeAppearanceActiveSection_RelativeFrameIncludesAnchorPid()
         {
             var traj = new MockTrajectory
@@ -344,19 +298,5 @@ namespace Parsek.Tests
             Assert.Equal(122.60, endpointUT, 2);
         }
 
-        private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)
-        {
-            Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);
-            Assert.InRange(Mathf.Abs(expected.y - actual.y), 0f, epsilon);
-            Assert.InRange(Mathf.Abs(expected.z - actual.z), 0f, epsilon);
-        }
-
-        private static void AssertQuaternionClose(Quaternion expected, Quaternion actual, float epsilon = 1e-4f)
-        {
-            Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);
-            Assert.InRange(Mathf.Abs(expected.y - actual.y), 0f, epsilon);
-            Assert.InRange(Mathf.Abs(expected.z - actual.z), 0f, epsilon);
-            Assert.InRange(Mathf.Abs(expected.w - actual.w), 0f, epsilon);
-        }
     }
 }

@@ -56,23 +56,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RewindToLaunchLeadTimeSeconds_DefaultsTo15Seconds()
+        {
+            Assert.Equal(15.0, RecordingStore.RewindToLaunchLeadTimeSeconds);
+        }
+
+        [Fact]
         public void PreProcessRewindSave_AdjustsUT_ByLeadTime()
         {
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 17000\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             // Verify file was modified
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
             double newUT = double.Parse(fs.GetValue("UT"), CultureInfo.InvariantCulture);
-            Assert.Equal(16990.0, newUT);
+            double expectedUT = 17000.0 - RecordingStore.RewindToLaunchLeadTimeSeconds;
+            Assert.Equal(expectedUT, newUT);
 
             // Verify log emitted
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("UT adjusted") &&
-                l.Contains("17000") && l.Contains("16990"));
+                l.Contains("17000") &&
+                l.Contains(Math.Floor(expectedUT).ToString(CultureInfo.InvariantCulture)));
         }
 
         [Fact]
@@ -81,7 +89,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -98,7 +106,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = MyRocket\n  }\n" +
                 "  VESSEL\n  {\n    name = Station\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -121,7 +129,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Debris\n  }\n}\n");
 
             var names = new HashSet<string> { "MyRocket", "Valentina Kerman" };
-            RecordingStore.PreProcessRewindSave(sfs, names, 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, names, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -140,7 +148,7 @@ namespace Parsek.Tests
                 "FLIGHTSTATE\n{\n  UT = 17000\n" +
                 "  VESSEL\n  {\n    name = Debris\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "NoSuchRocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "NoSuchRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Stripped 0 vessel"));
@@ -152,7 +160,7 @@ namespace Parsek.Tests
             // Save file with no FLIGHTSTATE node
             string sfs = WriteTempSave("GAME\n{\n  version = 1.12.5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -166,7 +174,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -179,7 +187,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = not_a_number\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -196,7 +204,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "NoMatch" };
             var pids = new HashSet<uint> { 42 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -218,7 +226,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "Original Name" };
             var pids = new HashSet<uint> { 55 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -236,7 +244,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "NoMatch" };
             var pids = new HashSet<uint> { 42 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -251,7 +259,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Rocket\n    persistentId = 42\n  }\n}\n");
 
             var names = new HashSet<string> { "Rocket" };
-            RecordingStore.PreProcessRewindSave(sfs, names, new HashSet<uint>(), 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, names, new HashSet<uint>(), RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -269,13 +277,13 @@ namespace Parsek.Tests
                 "GAME\n{\n  FLIGHTSTATE\n  {\n    UT = 20000\n" +
                 "    VESSEL\n    {\n      name = Rocket\n    }\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "Rocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
             var fs = gameNode.GetNode("FLIGHTSTATE");
             double newUT = double.Parse(fs.GetValue("UT"), CultureInfo.InvariantCulture);
-            Assert.Equal(19990.0, newUT);
+            Assert.Equal(20000.0 - RecordingStore.RewindToLaunchLeadTimeSeconds, newUT);
             Assert.Empty(fs.GetNodes("VESSEL"));
         }
 
@@ -286,7 +294,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 17000.5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "X", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "X", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -294,7 +302,7 @@ namespace Parsek.Tests
             // Must contain a dot, never a comma (invariant culture)
             Assert.DoesNotContain(",", utStr);
             double newUT = double.Parse(utStr, CultureInfo.InvariantCulture);
-            Assert.Equal(16990.5, newUT);
+            Assert.Equal(17000.5 - RecordingStore.RewindToLaunchLeadTimeSeconds, newUT);
         }
 
         #endregion
@@ -308,7 +316,7 @@ namespace Parsek.Tests
             {
                 reservedFunds = 100, reservedScience = 10, reservedReputation = 5
             }, 0, 0, 0);
-            RewindContext.SetAdjustedUT(16990.0);
+            RewindContext.SetAdjustedUT(17000.0 - RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             RecordingStore.ResetForTesting();
 
@@ -435,15 +443,19 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 5000\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "V", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             var utLog = logLines.FirstOrDefault(l =>
                 l.Contains("[Rewind]") && l.Contains("UT adjusted"));
             Assert.NotNull(utLog);
             // Log should contain both the original and new UT values
             Assert.Contains("5000", utLog);
-            Assert.Contains("4990", utLog);
-            Assert.Contains("lead time 10", utLog);
+            Assert.Contains(
+                Math.Floor(5000.0 - RecordingStore.RewindToLaunchLeadTimeSeconds).ToString(CultureInfo.InvariantCulture),
+                utLog);
+            Assert.Contains(
+                $"lead time {RecordingStore.RewindToLaunchLeadTimeSeconds.ToString("G", CultureInfo.InvariantCulture)}",
+                utLog);
         }
 
         [Fact]
@@ -627,23 +639,25 @@ namespace Parsek.Tests
             // 4. Coroutine captures it before yielding, then calls Planetarium.SetUniversalTime
             //
             // Steps 2-4 happen in InitiateRewind + coroutine. This test verifies steps 1+3.
+            double launchLeadTime = RecordingStore.RewindToLaunchLeadTimeSeconds;
             string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 17000.7\n}\n");
-            RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "V", launchLeadTime);
 
             // Simulate step 2: parse the adjusted UT from the processed file
             ConfigNode root = ConfigNode.Load(sfs);
             double adjustedUT = double.Parse(
                 root.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
-            Assert.Equal(16990.7, adjustedUT);
+            Assert.Equal(17000.7 - launchLeadTime, adjustedUT, 5);
 
             // Simulate step 3: store in RewindAdjustedUT (as InitiateRewind does)
             RewindContext.SetAdjustedUT(adjustedUT);
-            Assert.Equal(16990.7, RewindContext.RewindAdjustedUT);
+            Assert.Equal(17000.7 - launchLeadTime, RewindContext.RewindAdjustedUT, 5);
 
             // Verify log records the adjustment
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("UT adjusted") &&
-                l.Contains("17000") && l.Contains("16990"));
+                l.Contains("17000") &&
+                l.Contains(Math.Floor(17000.7 - launchLeadTime).ToString(CultureInfo.InvariantCulture)));
         }
 
         [Fact]
@@ -655,15 +669,16 @@ namespace Parsek.Tests
             //
             // This test verifies that RewindAdjustedUT is stored and available
             // for the coroutine to read before flags are cleared.
+            double launchLeadTime = RecordingStore.RewindToLaunchLeadTimeSeconds;
             string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 500\n}\n");
-            RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "V", launchLeadTime);
 
             ConfigNode root = ConfigNode.Load(sfs);
             double adjustedUT = double.Parse(
                 root.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
 
-            // UT = 500 - 10 (lead time) = 490
-            Assert.Equal(490.0, adjustedUT);
+            // UT = 500 - 15 (launch lead time) = 485
+            Assert.Equal(500.0 - launchLeadTime, adjustedUT, 5);
 
             // Simulate InitiateRewind storing the adjusted UT
             RewindContext.SetAdjustedUT(adjustedUT);
@@ -672,13 +687,13 @@ namespace Parsek.Tests
 
             // Simulate coroutine capturing adjustedUT BEFORE flags are cleared
             double coroutineCapturedUT = RewindContext.RewindAdjustedUT;
-            Assert.Equal(490.0, coroutineCapturedUT);
+            Assert.Equal(500.0 - launchLeadTime, coroutineCapturedUT, 5);
 
             // Simulate OnLoad clearing flags (happens AFTER coroutine captures)
             RewindContext.EndRewind();
 
             // Coroutine's captured value survives the clearing
-            Assert.Equal(490.0, coroutineCapturedUT);
+            Assert.Equal(500.0 - launchLeadTime, coroutineCapturedUT, 5);
             Assert.Equal(0.0, RewindContext.RewindAdjustedUT);
         }
 
@@ -722,7 +737,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Rocket\n  }\n" +
                 "  VESSEL\n  {\n    name = Rocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "Rocket", 10.0);
+            RecordingStore.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");

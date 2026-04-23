@@ -5,8 +5,8 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for #391: committedScienceSubjects dictionary staleness after recording
-    /// deletion. Validates RebuildCommittedScienceSubjects and CommitScienceSubjects
-    /// edge cases.
+    /// deletion. Validates RebuildCommittedScienceSubjects and the max-wins committed-
+    /// science merge path used by production.
     /// </summary>
     [Collection("Sequential")]
     public class CommittedScienceDictTests : System.IDisposable
@@ -41,13 +41,13 @@ namespace Parsek.Tests
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch1);
+            ScienceTestHelpers.CommitScienceSubjects(batch1);
 
             var batch2 = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch2);
+            ScienceTestHelpers.CommitScienceSubjects(batch2);
 
             float sci;
             bool found = GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLanded", out sci);
@@ -69,7 +69,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "subjectX", science = 5.0f },
                 new PendingScienceSubject { subjectId = "subjectY", science = 3.0f }
             };
-            GameStateStore.CommitScienceSubjects(initial);
+            ScienceTestHelpers.CommitScienceSubjects(initial);
             Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
 
             // Rebuild with only {X=5} — Y should be gone (simulates deleted recording)
@@ -97,7 +97,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "subjectA", science = 10.0f },
                 new PendingScienceSubject { subjectId = "subjectB", science = 7.5f }
             };
-            GameStateStore.CommitScienceSubjects(initial);
+            ScienceTestHelpers.CommitScienceSubjects(initial);
             Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
 
             // Rebuild with empty input — all subjects should be cleared
@@ -122,7 +122,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "subjectP", science = 1.0f },
                 new PendingScienceSubject { subjectId = "subjectQ", science = 2.0f }
             };
-            GameStateStore.CommitScienceSubjects(initial);
+            ScienceTestHelpers.CommitScienceSubjects(initial);
             logLines.Clear();
 
             // Rebuild with 1 subject
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             {
                 new PendingScienceSubject { subjectId = "subjectX", science = 5.0f }
             };
-            GameStateStore.CommitScienceSubjects(initial);
+            ScienceTestHelpers.CommitScienceSubjects(initial);
 
             // Rebuild with X=8 (updated value from recalculation walk)
             var pairs = new List<KeyValuePair<string, float>>
@@ -175,7 +175,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "B", science = 2.0f },
                 new PendingScienceSubject { subjectId = "C", science = 3.0f }
             };
-            GameStateStore.CommitScienceSubjects(initial);
+            ScienceTestHelpers.CommitScienceSubjects(initial);
 
             // Rebuild with only {A} — simulates deletion of recordings that had B and C
             var pairs = new List<KeyValuePair<string, float>>

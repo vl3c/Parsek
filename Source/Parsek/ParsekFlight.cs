@@ -39,8 +39,99 @@ namespace Parsek
             SkipBounce,
             SkipNotLaunchTransition,
             SkipDisabled,
+            SkipTimeJumpTransient,
             StartFromPrelaunch,
             StartFromSettledLanded
+        }
+
+        internal enum CommittedSpawnedVesselRestoreAction
+        {
+            None,
+            PromoteFromBackground,
+            ResumeActiveRecording
+        }
+
+        internal enum PostSwitchAutoRecordStartDecision
+        {
+            None,
+            PromoteTrackedRecording,
+            RestoreAndPromoteTrackedRecording,
+            StartFreshRecording
+        }
+
+        internal enum PostSwitchAutoRecordArmDecision
+        {
+            None,
+            ArmTrackedBackgroundMember,
+            ArmOutsider
+        }
+
+        internal enum PostSwitchAutoRecordTrigger
+        {
+            None,
+            EngineActivity,
+            SustainedRcsActivity,
+            CrewChange,
+            ResourceChange,
+            PartStateChange,
+            LandedMotion,
+            OrbitChange
+        }
+
+        internal enum PostSwitchAutoRecordSuppressionReason
+        {
+            None,
+            Disabled,
+            AlreadyRecording,
+            NoActiveVessel,
+            ActiveVesselMismatch,
+            GhostMapVessel,
+            RestoreInProgress,
+            PendingTransition,
+            WarpActive,
+            PackedOrOnRails
+        }
+
+        internal struct PostSwitchOrbitSnapshot
+        {
+            public bool IsValid;
+            public string BodyName;
+            public double SemiMajorAxis;
+            public double Eccentricity;
+            public double Inclination;
+            public double LongitudeOfAscendingNode;
+            public double ArgumentOfPeriapsis;
+        }
+
+        private sealed class PostSwitchAutoRecordState
+        {
+            public uint VesselPid;
+            public string VesselName;
+            public double ArmedAtUt;
+            public string ArmedReason;
+            public bool TrackedInActiveTree;
+            public string FreshStartParentRecordingId;
+            public bool BaselineCaptured;
+            public double BaselineCapturedUt;
+            public double ComparisonsReadyUt;
+            public double NextManifestEvaluationUt;
+            public Vector3d BaselineWorldPosition;
+            public PostSwitchOrbitSnapshot BaselineOrbit;
+            public Dictionary<string, ResourceAmount> BaselineResources;
+            public Dictionary<string, InventoryItem> BaselineInventory;
+            public Dictionary<string, int> BaselineCrew;
+            public HashSet<string> BaselinePartStateTokens = new HashSet<string>();
+            public bool ModuleCachesDirty;
+            public int CachedPartCount;
+            public List<(Part part, ModuleEngines engine, int moduleIndex)> CachedEngines
+                = new List<(Part, ModuleEngines, int)>();
+            public HashSet<ulong> ActiveEngineKeys = new HashSet<ulong>();
+            public Dictionary<ulong, float> EngineThrottleMap = new Dictionary<ulong, float>();
+            public List<(Part part, ModuleRCS rcs, int moduleIndex)> CachedRcsModules
+                = new List<(Part, ModuleRCS, int)>();
+            public Dictionary<ulong, int> RcsFrameCountMap = new Dictionary<ulong, int>();
+            public HashSet<ulong> ActiveRcsKeys = new HashSet<ulong>();
+            public Dictionary<ulong, float> RcsThrottleMap = new Dictionary<ulong, float>();
         }
 
         internal static ParsekFlight Instance { get; private set; }
@@ -93,10 +184,20 @@ namespace Parsek
         // filtering out physics bounces (rovers, crashes, EVA kerbals).
         private double lastLandedUT = -1;
         private const double LandedSettleThreshold = 5.0; // seconds
+        private const double PostSwitchLandedMotionDistanceThreshold = 0.5;
+        private const double PostSwitchLandedMotionSpeedThreshold = 0.5;
+        private const double PostSwitchOrbitSemiMajorAxisThresholdMeters = 5.0;
+        private const double PostSwitchOrbitEccentricityThreshold = 1e-6;
+        private const double PostSwitchOrbitAngleThresholdDegrees = 0.01;
+        private const double PostSwitchResourceDeltaEpsilon = 0.01;
+        private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
+        private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
+        private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
+        private float nextCommittedSpawnedRestoreRetryAt;
 
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
@@ -212,6 +313,7 @@ namespace Parsek
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
+        private PostSwitchAutoRecordState postSwitchAutoRecord;
 
         // Chain segment management (T26 extraction)
         private ChainSegmentManager chainManager;
@@ -262,6 +364,15 @@ namespace Parsek
                 chainManager,
                 Planetarium.GetUniversalTime(),
                 HighLogic.LoadedScene);
+
+        internal bool HasArmedPostSwitchAutoRecordWatch => postSwitchAutoRecord != null;
+
+        internal bool IsPostSwitchAutoRecordArmedForPid(uint vesselPid)
+        {
+            return postSwitchAutoRecord != null
+                && vesselPid != 0
+                && postSwitchAutoRecord.VesselPid == vesselPid;
+        }
 
         /// <summary>
         /// Flushes the active recorder's buffered points/events into the active tree's
@@ -474,12 +585,19 @@ namespace Parsek
 
         // Accessors for WatchModeController (delegates need host services)
         internal bool ShouldLoopPlaybackForWatch(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
-        internal double GetLoopIntervalSecondsForWatch(Recording rec)
+        internal double GetLoopIntervalSecondsForWatch(Recording rec, int recIdx = -1)
         {
-            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            return GetLoopIntervalSeconds(rec, recIdx);
         }
+        internal bool TryGetLoopScheduleForWatch(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
+            => TryGetLoopSchedule(rec, recIdx,
+                out playbackStartUT, out scheduleStartUT, out duration, out intervalSeconds);
         internal bool TryComputeLoopPlaybackUTForWatch(
             Recording rec, double currentUT,
             out double loopUT, out long cycleIndex, out bool inPauseWindow,
@@ -680,6 +798,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
+            GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
@@ -1056,6 +1175,7 @@ namespace Parsek
         {
             Instance = null;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
+            DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
 
             if (toolbarControl != null)
             {
@@ -1159,6 +1279,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+            GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
@@ -1630,12 +1751,16 @@ namespace Parsek
 
         /// <summary>
         /// Primary detection mechanism for vessel switches in tree mode.
-        /// Handles both transition (old vessel → background) AND promotion (new vessel → active).
-        /// Fires regardless of on-rails state, unlike OnPhysicsFrame.
+        /// Handles the old-vessel transition to background and, when Parsek is idle,
+        /// arms the post-switch watcher for the new active vessel instead of starting
+        /// immediately on focus change alone. Fires regardless of on-rails state,
+        /// unlike OnPhysicsFrame.
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
-            if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
+            bool newVesselIsGhost =
+                newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId);
+            if (newVesselIsGhost) return;
 
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
             if (restoringActiveTree)
@@ -1667,15 +1792,30 @@ namespace Parsek
                     $"OnVesselSwitchComplete: seeded lastLandedUT={lastLandedUT:F1} (vessel '{newVessel.vesselName}' already {newVessel.situation})");
             }
 
-            if (activeTree == null) return;
-            if (newVessel == null) return;
+            if (newVessel == null)
+            {
+                DisarmPostSwitchAutoRecord("active vessel became null");
+                return;
+            }
+
+            string freshStartParentRecordingId = activeTree != null
+                ? activeTree.ActiveRecordingId
+                : null;
 
             // Fix 1 (CRITICAL): Don't interfere with pending merge processing.
-            // Dock-induced vessel switches must not promote before Update() runs the merge handler.
-            if (pendingTreeDockMerge) return;
+            // Dock-induced vessel switches must not arm/start before Update() runs the merge handler.
+            if (pendingTreeDockMerge)
+            {
+                DisarmPostSwitchAutoRecord("pending tree dock merge");
+                return;
+            }
 
-            // Don't promote during pending board merge — the board handler in Update() owns this.
-            if (recorder != null && recorder.ChainToVesselPending) return;
+            // Don't arm/start during pending board merge — the board handler in Update() owns this.
+            if (recorder != null && recorder.ChainToVesselPending)
+            {
+                DisarmPostSwitchAutoRecord("pending boarding merge");
+                return;
+            }
 
             // Boarding detection: onCrewBoardVessel fires before onVesselChange, but no
             // physics frame runs in between — so DecideOnVesselSwitch (in OnPhysicsFrame)
@@ -1696,7 +1836,8 @@ namespace Parsek
 
             // If the current recorder is still active (OnPhysicsFrame didn't catch the switch,
             // e.g. because isOnRails was true), transition it to background now
-            if (recorder != null && recorder.IsRecording && !recorder.IsBackgrounded
+            if (activeTree != null
+                && recorder != null && recorder.IsRecording && !recorder.IsBackgrounded
                 && recorder.RecordingVesselId != newVessel.persistentId)
             {
                 recorder.TransitionToBackground();
@@ -1720,9 +1861,10 @@ namespace Parsek
                 Log($"Tree: onVesselSwitchComplete transitioned old recorder to background");
             }
             // OnPhysicsFrame already backgrounded the recorder (TransitionToBackgroundPending),
-            // but Update() hasn't flushed it yet. Flush now so promotion below can proceed
-            // with the old recorder data committed and BackgroundMap up to date.
-            else if (recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
+            // but Update() hasn't flushed it yet. Flush now so the post-switch watcher can
+            // evaluate against committed recorder data and an up-to-date BackgroundMap.
+            else if (activeTree != null
+                && recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
             {
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
@@ -1743,13 +1885,34 @@ namespace Parsek
                 Log($"Tree: onVesselSwitchComplete flushed backgrounded recorder (recId={oldRecId})");
             }
 
-            // Promote the new vessel if it's in the tree
             uint newPid = newVessel.persistentId;
-            string backgroundRecordingId;
-            if (activeTree.BackgroundMap.TryGetValue(newPid, out backgroundRecordingId))
+            bool trackedInActiveTree = activeTree != null
+                && activeTree.BackgroundMap.ContainsKey(newPid);
+            var armDecision = EvaluatePostSwitchAutoRecordArmDecision(
+                ShouldArmPostSwitchAutoRecord(
+                    ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
+                    IsRecording,
+                    hasNewVessel: true,
+                    newVesselIsGhost,
+                    newVessel.isEVA),
+                trackedInActiveTree);
+            switch (armDecision)
             {
-                backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
-                PromoteRecordingFromBackground(backgroundRecordingId, newVessel);
+                case PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember:
+                    ArmPostSwitchAutoRecord(
+                        newVessel,
+                        "vessel switch to tracked background member while idle",
+                        trackedInActiveTree: true,
+                        freshStartParentRecordingId);
+                    break;
+
+                case PostSwitchAutoRecordArmDecision.ArmOutsider:
+                    ArmPostSwitchAutoRecord(
+                        newVessel,
+                        "vessel switch to outsider while idle",
+                        trackedInActiveTree: false,
+                        freshStartParentRecordingId);
+                    break;
             }
             ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
         }
@@ -1920,7 +2083,9 @@ namespace Parsek
 
             ParsekLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
 
-            // Remove from BackgroundMap
+            // Callers pass the target recording id explicitly; BackgroundMap membership is
+            // not a hard precondition here. The committed-tree restore path may already have
+            // removed stale entries for this recording before the live promotion runs.
             activeTree.BackgroundMap.Remove(newVessel.persistentId);
 
             // Set as the active recording
@@ -1943,6 +2108,7 @@ namespace Parsek
                 activeTree.ActiveRecordingId = null;
                 // Put it back in the background map
                 activeTree.BackgroundMap[newVessel.persistentId] = backgroundRecordingId;
+                backgroundRecorder?.OnVesselBackgrounded(newVessel.persistentId);
                 return;
             }
 
@@ -1951,6 +2117,107 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
             ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
+        }
+
+        private bool TryRestoreCommittedTreeForSpawnedActiveVessel()
+        {
+            if (activeTree != null || recorder != null || restoringActiveTree)
+                return false;
+            if (RecordingStore.HasPendingTree
+                || ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady
+                    != ParsekScenario.ActiveTreeRestoreMode.None)
+            {
+                return false;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
+            if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
+                return false;
+
+            if (!TryTakeCommittedTreeForSpawnedVesselRestore(
+                    activeVesselPid,
+                    out RecordingTree committedTree,
+                    out string targetRecordingId,
+                    out CommittedSpawnedVesselRestoreAction action))
+                return false;
+
+            activeTree = committedTree;
+            chainManager.ActiveTreeId = activeTree.Id;
+            EnsureBackgroundRecorderAttached("TryRestoreCommittedTreeForSpawnedActiveVessel");
+
+            bool restored = false;
+            if (action == CommittedSpawnedVesselRestoreAction.ResumeActiveRecording)
+            {
+                restored = ResumeCommittedActiveRecording(targetRecordingId, activeVessel);
+            }
+            else
+            {
+                backgroundRecorder?.OnVesselRemovedFromBackground(activeVesselPid);
+                PromoteRecordingFromBackground(targetRecordingId, activeVessel);
+                restored = recorder != null && recorder.IsRecording;
+            }
+
+            if (!restored)
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryRestoreCommittedTreeForSpawnedActiveVessel: tree '{activeTree.TreeName}' " +
+                    $"matched vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}, " +
+                    "but recorder attach failed; tree remains restored for late recovery");
+                ParsekLog.RecState("CommittedSpawnedRestore:failed", CaptureRecorderState());
+                return false;
+            }
+
+            ParsekLog.Info("Flight",
+                $"TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '{activeTree.TreeName}' " +
+                $"for vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}");
+            ParsekLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
+            return true;
+        }
+
+        private bool ResumeCommittedActiveRecording(string recordingId, Vessel activeVessel)
+        {
+            if (activeTree == null || activeVessel == null || string.IsNullOrEmpty(recordingId))
+                return false;
+
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            if (chainManager.PendingBoundaryAnchor.HasValue)
+            {
+                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                chainManager.PendingBoundaryAnchor = null;
+            }
+            recorder.StartRecording(isPromotion: true);
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"ResumeCommittedActiveRecording: StartRecording returned IsRecording=false for " +
+                    $"recording '{recordingId}' pid={activeVessel.persistentId}");
+                recorder = null;
+                activeTree.ActiveRecordingId = null;
+                activeTree.BackgroundMap[activeVessel.persistentId] = recordingId;
+                backgroundRecorder?.OnVesselBackgrounded(activeVessel.persistentId);
+                return false;
+            }
+
+            PrepareSessionStateForRecorderStart("ResumeCommittedActiveRecording");
+            ParsekLog.Info("Flight",
+                $"ResumeCommittedActiveRecording: resumed committed recording '{recordingId}' " +
+                $"on vessel '{activeVessel.vesselName}' pid={activeVessel.persistentId}");
+            return true;
+        }
+
+        private void EnsureBackgroundRecorderAttached(string reason)
+        {
+            if (activeTree == null || backgroundRecorder != null)
+                return;
+
+            backgroundRecorder = new BackgroundRecorder(activeTree);
+            backgroundRecorder.SubscribePartEvents();
+            Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+            ParsekLog.Verbose("Flight",
+                $"{reason}: attached BackgroundRecorder for tree '{activeTree.TreeName}' " +
+                $"({activeTree.BackgroundMap.Count} background entry(ies))");
         }
 
         #region Split Event Detection (Tree Branching)
@@ -2783,21 +3050,35 @@ namespace Parsek
             double sUT = rec.StartUT;
             double eUT = rec.EndUT;
             RecordingStore.CommitRecordingDirect(rec);
+            double ledgerStartUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(rec, sUT);
             int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            IReadOnlyList<PendingScienceSubject> pendingForCommit =
+                LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                    GameStateRecorder.PendingScienceSubjects,
+                    recId,
+                    ledgerStartUT,
+                    eUT);
+            bool commitSucceeded = false;
+            bool scienceAddedToLedger = false;
             try
             {
-                LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
+                LedgerOrchestrator.OnRecordingCommitted(
+                    recId,
+                    ledgerStartUT,
+                    eUT,
+                    pendingForCommit,
+                    ref scienceAddedToLedger);
+                commitSucceeded = true;
             }
             finally
             {
-                // #397: see CommitSegmentCore comment. The direct OnRecordingCommitted
-                // path is the authoritative clear point when no tree-level commit runs.
-                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
-                GameStateRecorder.PendingScienceSubjects.Clear();
-                if (pendingBefore > 0 || cleared > 0)
-                    ParsekLog.Verbose("Flight",
-                        $"FallbackCommitSplitRecorder: cleared PendingScienceSubjects " +
-                        $"(before={pendingBefore}, atClear={cleared})");
+                LedgerOrchestrator.FinalizeScopedPendingScienceCommit(
+                    "Flight",
+                    "FallbackCommitSplitRecorder",
+                    pendingBefore,
+                    pendingForCommit,
+                    commitSucceeded,
+                    scienceAddedToLedger);
             }
             // #390: prune consumed events after milestone creation + ledger conversion
             GameStateStore.PruneProcessedEvents();
@@ -4038,6 +4319,11 @@ namespace Parsek
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
             double currentUT = Planetarium.GetUniversalTime();
+            bool suppressLaunchAutoRecordForTimeJump =
+                TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
 
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
@@ -4053,7 +4339,8 @@ namespace Parsek
                 autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
                 lastLandedUt: lastLandedUT,
                 currentUt: currentUT,
-                landedSettleThreshold: LandedSettleThreshold);
+                landedSettleThreshold: LandedSettleThreshold,
+                suppressForTimeJumpTransient: suppressLaunchAutoRecordForTimeJump);
 
             switch (launchDecision)
             {
@@ -4080,6 +4367,13 @@ namespace Parsek
 
                 case AutoRecordLaunchDecision.SkipDisabled:
                     ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                    return;
+
+                case AutoRecordLaunchDecision.SkipTimeJumpTransient:
+                    ParsekLog.Info("Flight",
+                        $"OnVesselSituationChange: suppressing time-jump transient ({data.from} → {data.to}) " +
+                        $"for '{data.host?.vesselName ?? "null"}' frame={Time.frameCount} " +
+                        $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame}");
                     return;
             }
 
@@ -4179,13 +4473,17 @@ namespace Parsek
             bool autoRecordOnLaunchEnabled,
             double lastLandedUt,
             double currentUt,
-            double landedSettleThreshold)
+            double landedSettleThreshold,
+            bool suppressForTimeJumpTransient)
         {
             if (isRecording)
                 return AutoRecordLaunchDecision.SkipAlreadyRecording;
 
             if (!isActiveVessel)
                 return AutoRecordLaunchDecision.SkipInactiveVessel;
+
+            if (suppressForTimeJumpTransient)
+                return AutoRecordLaunchDecision.SkipTimeJumpTransient;
 
             if (fromSituation == Vessel.Situations.PRELAUNCH)
             {
@@ -4238,6 +4536,789 @@ namespace Parsek
                 && restoreMode == ParsekScenario.ActiveTreeRestoreMode.None;
         }
 
+        internal static bool ShouldArmPostSwitchAutoRecord(
+            bool autoRecordOnFirstModificationAfterSwitchEnabled,
+            bool isRecording,
+            bool hasNewVessel,
+            bool newVesselIsGhost,
+            bool newVesselIsEva)
+        {
+            return autoRecordOnFirstModificationAfterSwitchEnabled
+                && !isRecording
+                && hasNewVessel
+                && !newVesselIsGhost
+                && !newVesselIsEva;
+        }
+
+        internal static PostSwitchAutoRecordArmDecision EvaluatePostSwitchAutoRecordArmDecision(
+            bool shouldArm,
+            bool trackedInActiveTree)
+        {
+            if (!shouldArm)
+                return PostSwitchAutoRecordArmDecision.None;
+
+            return trackedInActiveTree
+                ? PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember
+                : PostSwitchAutoRecordArmDecision.ArmOutsider;
+        }
+
+        internal static PostSwitchAutoRecordSuppressionReason EvaluatePostSwitchAutoRecordSuppression(
+            bool autoRecordOnFirstModificationAfterSwitchEnabled,
+            bool isRecording,
+            bool hasActiveVessel,
+            uint activeVesselPid,
+            uint armedVesselPid,
+            bool activeVesselIsGhost,
+            bool isRestoringActiveTree,
+            bool hasPendingTransition,
+            bool isWarpActive,
+            bool activeVesselPacked)
+        {
+            if (!autoRecordOnFirstModificationAfterSwitchEnabled)
+                return PostSwitchAutoRecordSuppressionReason.Disabled;
+            if (isRecording)
+                return PostSwitchAutoRecordSuppressionReason.AlreadyRecording;
+            if (!hasActiveVessel)
+                return PostSwitchAutoRecordSuppressionReason.NoActiveVessel;
+            if (activeVesselPid == 0 || activeVesselPid != armedVesselPid)
+                return PostSwitchAutoRecordSuppressionReason.ActiveVesselMismatch;
+            if (activeVesselIsGhost)
+                return PostSwitchAutoRecordSuppressionReason.GhostMapVessel;
+            if (isRestoringActiveTree)
+                return PostSwitchAutoRecordSuppressionReason.RestoreInProgress;
+            if (hasPendingTransition)
+                return PostSwitchAutoRecordSuppressionReason.PendingTransition;
+            if (isWarpActive)
+                return PostSwitchAutoRecordSuppressionReason.WarpActive;
+            if (activeVesselPacked)
+                return PostSwitchAutoRecordSuppressionReason.PackedOrOnRails;
+            return PostSwitchAutoRecordSuppressionReason.None;
+        }
+
+        internal static bool ShouldEvaluatePostSwitchManifestDiff(
+            double currentUT,
+            double nextManifestEvaluationUt,
+            bool needsCacheRefresh)
+        {
+            return needsCacheRefresh || currentUT >= nextManifestEvaluationUt;
+        }
+
+        internal static bool HasMeaningfulLandedMotionChange(
+            double distanceDeltaMeters,
+            double speedMetersPerSecond)
+        {
+            return distanceDeltaMeters >= PostSwitchLandedMotionDistanceThreshold
+                || speedMetersPerSecond >= PostSwitchLandedMotionSpeedThreshold;
+        }
+
+        internal static bool HasMeaningfulOrbitChange(
+            PostSwitchOrbitSnapshot baseline,
+            PostSwitchOrbitSnapshot current)
+        {
+            if (!baseline.IsValid || !current.IsValid)
+                return false;
+
+            if (!string.Equals(baseline.BodyName, current.BodyName, StringComparison.Ordinal))
+                return true;
+
+            if (Math.Abs(current.SemiMajorAxis - baseline.SemiMajorAxis) >=
+                PostSwitchOrbitSemiMajorAxisThresholdMeters)
+                return true;
+            if (Math.Abs(current.Eccentricity - baseline.Eccentricity) >=
+                PostSwitchOrbitEccentricityThreshold)
+                return true;
+            if (NormalizeAngleDeltaDegrees(
+                    current.Inclination,
+                    baseline.Inclination) >= PostSwitchOrbitAngleThresholdDegrees)
+                return true;
+            if (NormalizeAngleDeltaDegrees(
+                    current.LongitudeOfAscendingNode,
+                    baseline.LongitudeOfAscendingNode) >= PostSwitchOrbitAngleThresholdDegrees)
+                return true;
+            return NormalizeAngleDeltaDegrees(
+                current.ArgumentOfPeriapsis,
+                baseline.ArgumentOfPeriapsis) >= PostSwitchOrbitAngleThresholdDegrees;
+        }
+
+        internal static bool HasMeaningfulCrewDelta(Dictionary<string, int> delta)
+        {
+            if (delta == null) return false;
+            foreach (var entry in delta)
+            {
+                if (entry.Value != 0)
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool HasMeaningfulResourceDelta(
+            Dictionary<string, double> delta,
+            double epsilon = PostSwitchResourceDeltaEpsilon)
+        {
+            if (delta == null) return false;
+            foreach (var entry in delta)
+            {
+                if (Math.Abs(entry.Value) > epsilon)
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool HasMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
+        {
+            if (delta == null) return false;
+            foreach (var entry in delta)
+            {
+                if (entry.Value.count != 0 || entry.Value.slotsTaken != 0)
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool HasMeaningfulPartStateTokenChange(
+            ICollection<string> baselineTokens,
+            ICollection<string> currentTokens)
+        {
+            int baselineCount = baselineTokens != null ? baselineTokens.Count : 0;
+            int currentCount = currentTokens != null ? currentTokens.Count : 0;
+            if (baselineCount != currentCount)
+                return true;
+            if (baselineCount == 0)
+                return false;
+
+            var baselineSet = baselineTokens as HashSet<string> ?? new HashSet<string>(baselineTokens);
+            foreach (string token in currentTokens)
+            {
+                if (!baselineSet.Contains(token))
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool HasMeaningfulPartStateChange(IEnumerable<PartEventType> changedTypes)
+        {
+            if (changedTypes == null) return false;
+            foreach (PartEventType type in changedTypes)
+            {
+                if (GhostingTriggerClassifier.IsGhostingTrigger(type))
+                    return true;
+            }
+            return false;
+        }
+
+        internal static PostSwitchAutoRecordTrigger EvaluatePostSwitchAutoRecordTrigger(
+            bool engineTriggered,
+            bool rcsTriggered,
+            bool crewChanged,
+            bool resourceChanged,
+            bool partStateChanged,
+            bool landedMotionChanged,
+            bool orbitChanged)
+        {
+            if (engineTriggered)
+                return PostSwitchAutoRecordTrigger.EngineActivity;
+            if (rcsTriggered)
+                return PostSwitchAutoRecordTrigger.SustainedRcsActivity;
+            if (crewChanged)
+                return PostSwitchAutoRecordTrigger.CrewChange;
+            if (resourceChanged)
+                return PostSwitchAutoRecordTrigger.ResourceChange;
+            if (partStateChanged)
+                return PostSwitchAutoRecordTrigger.PartStateChange;
+            if (landedMotionChanged)
+                return PostSwitchAutoRecordTrigger.LandedMotion;
+            if (orbitChanged)
+                return PostSwitchAutoRecordTrigger.OrbitChange;
+            return PostSwitchAutoRecordTrigger.None;
+        }
+
+        internal static PostSwitchAutoRecordStartDecision EvaluatePostSwitchAutoRecordStartDecision(
+            uint armedVesselPid,
+            uint activeVesselPid,
+            bool hasActiveTree,
+            bool activeVesselTrackedInBackground,
+            bool canRestorePendingTrackedTree,
+            bool suppressStart)
+        {
+            if (suppressStart || armedVesselPid == 0 || activeVesselPid == 0
+                || armedVesselPid != activeVesselPid)
+                return PostSwitchAutoRecordStartDecision.None;
+            if (hasActiveTree && activeVesselTrackedInBackground)
+                return PostSwitchAutoRecordStartDecision.PromoteTrackedRecording;
+            if (canRestorePendingTrackedTree)
+                return PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording;
+            return PostSwitchAutoRecordStartDecision.StartFreshRecording;
+        }
+
+        private bool HasPendingPostSwitchAutoRecordTransition()
+        {
+            return pendingTreeDockMerge
+                || pendingSplitRecorder != null
+                || pendingSplitInProgress
+                || pendingBoardingTargetPid != 0
+                || pendingDockMergedPid != 0
+                || pendingUndockOtherPid != 0
+                || (recorder != null && recorder.ChainToVesselPending);
+        }
+
+        private void ArmPostSwitchAutoRecord(
+            Vessel vessel,
+            string armReason,
+            bool trackedInActiveTree,
+            string freshStartParentRecordingId)
+        {
+            if (vessel == null)
+                return;
+
+            postSwitchAutoRecord = new PostSwitchAutoRecordState
+            {
+                VesselPid = vessel.persistentId,
+                VesselName = vessel.vesselName ?? "Unknown",
+                ArmedAtUt = Planetarium.GetUniversalTime(),
+                ArmedReason = armReason,
+                TrackedInActiveTree = trackedInActiveTree,
+                FreshStartParentRecordingId = freshStartParentRecordingId
+            };
+
+            ParsekLog.Info("Flight",
+                $"Post-switch auto-record armed: vessel='{postSwitchAutoRecord.VesselName}' " +
+                $"pid={postSwitchAutoRecord.VesselPid} tracked={trackedInActiveTree} " +
+                $"reason={armReason}");
+        }
+
+        private void DisarmPostSwitchAutoRecord(string reason)
+        {
+            if (postSwitchAutoRecord == null)
+                return;
+
+            ParsekLog.Info("Flight",
+                $"Post-switch auto-record disarmed: vessel='{postSwitchAutoRecord.VesselName}' " +
+                $"pid={postSwitchAutoRecord.VesselPid} reason={reason}");
+            postSwitchAutoRecord = null;
+        }
+
+        private static double NormalizeAngleDeltaDegrees(double a, double b)
+        {
+            double delta = Math.Abs(a - b) % 360.0;
+            return delta > 180.0 ? 360.0 - delta : delta;
+        }
+
+        private static PostSwitchOrbitSnapshot CapturePostSwitchOrbitSnapshot(Vessel v)
+        {
+            if (v == null || v.orbit == null || v.mainBody == null)
+                return default;
+
+            return new PostSwitchOrbitSnapshot
+            {
+                IsValid = true,
+                BodyName = v.mainBody.name,
+                SemiMajorAxis = v.orbit.semiMajorAxis,
+                Eccentricity = v.orbit.eccentricity,
+                Inclination = v.orbit.inclination,
+                LongitudeOfAscendingNode = v.orbit.LAN,
+                ArgumentOfPeriapsis = v.orbit.argumentOfPeriapsis
+            };
+        }
+
+        private static void RefreshPostSwitchAutoRecordModuleCaches(
+            PostSwitchAutoRecordState state,
+            Vessel v)
+        {
+            if (state == null || v == null)
+                return;
+
+            state.CachedPartCount = v.parts != null ? v.parts.Count : 0;
+
+            state.CachedEngines = FlightRecorder.CacheEngineModules(v);
+            state.ActiveEngineKeys.Clear();
+            state.EngineThrottleMap.Clear();
+
+            for (int i = 0; i < state.CachedEngines.Count; i++)
+            {
+                var (part, engine, moduleIndex) = state.CachedEngines[i];
+                if (part == null || engine == null)
+                    continue;
+
+                if (!engine.EngineIgnited || !engine.isOperational)
+                    continue;
+
+                ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                state.ActiveEngineKeys.Add(key);
+                state.EngineThrottleMap[key] = engine.currentThrottle;
+            }
+
+            state.CachedRcsModules = FlightRecorder.CacheRcsModules(v);
+            state.RcsFrameCountMap.Clear();
+            state.ActiveRcsKeys.Clear();
+            state.RcsThrottleMap.Clear();
+
+            for (int i = 0; i < state.CachedRcsModules.Count; i++)
+            {
+                var (part, rcs, moduleIndex) = state.CachedRcsModules[i];
+                if (part == null || rcs == null)
+                    continue;
+
+                if (!rcs.rcs_active || !rcs.rcsEnabled)
+                    continue;
+
+                ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                state.RcsFrameCountMap[key] = FlightRecorder.RcsDebounceFrameThreshold;
+                state.ActiveRcsKeys.Add(key);
+                state.RcsThrottleMap[key] =
+                    FlightRecorder.ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
+            }
+
+            state.ModuleCachesDirty = false;
+        }
+
+        private bool CapturePostSwitchAutoRecordBaseline(
+            PostSwitchAutoRecordState state,
+            Vessel v,
+            double currentUT)
+        {
+            if (state == null || v == null)
+                return false;
+
+            ConfigNode vesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            state.BaselineCaptured = true;
+            state.BaselineCapturedUt = currentUT;
+            state.ComparisonsReadyUt =
+                v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED
+                    ? currentUT + LandedSettleThreshold
+                    : currentUT;
+            state.NextManifestEvaluationUt = currentUT;
+            state.BaselineWorldPosition = v.GetWorldPos3D();
+            state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
+            state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
+            state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
+            state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
+            state.BaselinePartStateTokens = CapturePostSwitchPartStateTokens(v);
+            RefreshPostSwitchAutoRecordModuleCaches(state, v);
+
+            ParsekLog.Info("Flight",
+                $"Post-switch baseline captured: vessel='{state.VesselName}' pid={state.VesselPid} " +
+                $"tracked={state.TrackedInActiveTree} settleUntil={state.ComparisonsReadyUt:F1}");
+            return true;
+        }
+
+        private static HashSet<string> CapturePostSwitchPartStateTokens(Vessel v)
+        {
+            var tokens = new HashSet<string>();
+            if (v == null || v.parts == null)
+                return tokens;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null)
+                    continue;
+
+                ModuleDeployablePart deployable = p.FindModuleImplementing<ModuleDeployablePart>();
+                if (deployable != null)
+                {
+                    ModuleDeployablePart.DeployState ds = deployable.deployState;
+                    if (ds == ModuleDeployablePart.DeployState.EXTENDED)
+                        tokens.Add($"deployable:{p.persistentId}");
+                }
+
+                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                if (fairing != null)
+                {
+                    try
+                    {
+                        if (fairing.GetScalar >= 0.5f)
+                            tokens.Add($"fairing:{p.persistentId}");
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null)
+                        continue;
+
+                    if (module is ModuleWheels.ModuleWheelDeployment wheel)
+                    {
+                        FlightRecorder.ClassifyGearState(
+                            wheel.stateString,
+                            out bool isDeployed,
+                            out bool isRetracted);
+                        if (isDeployed && !isRetracted)
+                            tokens.Add($"gear:{p.persistentId}:{m}");
+                        continue;
+                    }
+
+                    if (module is ModuleCargoBay cargoBay)
+                    {
+                        int deployIdx = cargoBay.DeployModuleIndex;
+                        if (deployIdx >= 0 && deployIdx < p.Modules.Count
+                            && p.Modules[deployIdx] is ModuleAnimateGeneric animate)
+                        {
+                            FlightRecorder.ClassifyCargoBayState(
+                                animate.animTime,
+                                cargoBay.closedPosition,
+                                out bool isOpen,
+                                out bool isClosed);
+                            if (isOpen && !isClosed)
+                                tokens.Add($"cargo:{p.persistentId}:{m}");
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                    {
+                        if (FlightRecorder.TryClassifyRetractableLadderState(
+                                module,
+                                out bool isDeployed,
+                                out bool isRetracted)
+                            && isDeployed && !isRetracted)
+                        {
+                            tokens.Add($"ladder:{p.persistentId}:{m}");
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                    {
+                        if (FlightRecorder.TryClassifyAnimationGroupState(
+                                module,
+                                out bool isDeployed,
+                                out bool isRetracted)
+                            && isDeployed && !isRetracted)
+                        {
+                            tokens.Add($"animation-group:{p.persistentId}:{m}");
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                    {
+                        if (FlightRecorder.TryClassifyAeroSurfaceState(
+                                module,
+                                out bool isDeployed,
+                                out bool isRetracted)
+                            && isDeployed && !isRetracted)
+                        {
+                            tokens.Add($"aero-surface:{p.persistentId}:{m}");
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                    {
+                        if (FlightRecorder.TryClassifyControlSurfaceState(
+                                module,
+                                out bool isDeployed,
+                                out bool isRetracted)
+                            && isDeployed && !isRetracted)
+                        {
+                            tokens.Add($"control-surface:{p.persistentId}:{m}");
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                    {
+                        if (FlightRecorder.TryClassifyRobotArmScannerState(
+                                module,
+                                out bool isDeployed,
+                                out bool isRetracted)
+                            && isDeployed && !isRetracted)
+                        {
+                            tokens.Add($"robot-arm:{p.persistentId}:{m}");
+                        }
+                    }
+                }
+            }
+
+            return tokens;
+        }
+
+        private PostSwitchAutoRecordTrigger EvaluatePostSwitchAutoRecordTrigger(
+            Vessel v,
+            PostSwitchAutoRecordState state,
+            double currentUT)
+        {
+            int currentPartCount = v != null && v.parts != null ? v.parts.Count : 0;
+            bool needsCacheRefresh =
+                state.ModuleCachesDirty || state.CachedPartCount != currentPartCount;
+            bool evaluateManifestDiff = ShouldEvaluatePostSwitchManifestDiff(
+                currentUT,
+                state.NextManifestEvaluationUt,
+                needsCacheRefresh);
+            if (needsCacheRefresh)
+            {
+                RefreshPostSwitchAutoRecordModuleCaches(state, v);
+                ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-cache-refresh",
+                    $"Post-switch watch refreshed module caches: pid={state.VesselPid} " +
+                    $"parts={state.CachedPartCount}", 1.0);
+            }
+
+            bool engineTriggered = false;
+            for (int i = 0; i < state.CachedEngines.Count && !engineTriggered; i++)
+            {
+                var (part, engine, moduleIndex) = state.CachedEngines[i];
+                if (part == null || engine == null)
+                    continue;
+
+                var engineEvents = new List<PartEvent>();
+                FlightRecorder.CheckEngineTransition(
+                    FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex),
+                    part.persistentId,
+                    moduleIndex,
+                    part.partInfo?.name ?? "unknown",
+                    engine.EngineIgnited && engine.isOperational,
+                    engine.currentThrottle,
+                    state.ActiveEngineKeys,
+                    state.EngineThrottleMap,
+                    currentUT,
+                    engineEvents);
+                engineTriggered = engineEvents.Count > 0;
+            }
+
+            bool rcsTriggered = false;
+            for (int i = 0; i < state.CachedRcsModules.Count && !rcsTriggered; i++)
+            {
+                var (part, rcs, moduleIndex) = state.CachedRcsModules[i];
+                if (part == null || rcs == null)
+                    continue;
+
+                var rcsEvents = new List<PartEvent>();
+                FlightRecorder.ProcessRcsDebounce(
+                    FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex),
+                    part.persistentId,
+                    moduleIndex,
+                    part.partInfo?.name ?? "unknown",
+                    rcs.rcs_active && rcs.rcsEnabled,
+                    rcs.thrustForces,
+                    rcs.thrusterPower,
+                    currentUT,
+                    state.RcsFrameCountMap,
+                    state.ActiveRcsKeys,
+                    state.RcsThrottleMap,
+                    rcsEvents);
+                rcsTriggered = rcsEvents.Count > 0;
+            }
+
+            bool crewChanged = false;
+            bool resourceChanged = false;
+            bool partStateChanged = false;
+            if (evaluateManifestDiff)
+            {
+                ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
+                var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
+                var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
+                crewChanged = HasMeaningfulCrewDelta(
+                    CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew));
+                resourceChanged = HasMeaningfulResourceDelta(
+                    ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources));
+                partStateChanged = HasMeaningfulPartStateTokenChange(
+                    state.BaselinePartStateTokens,
+                    currentPartStateTokens)
+                    || HasMeaningfulInventoryDelta(
+                        InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory));
+                state.NextManifestEvaluationUt =
+                    currentUT + PostSwitchManifestEvaluationIntervalSeconds;
+            }
+
+            double distanceDelta = Vector3d.Distance(state.BaselineWorldPosition, v.GetWorldPos3D());
+            bool landedMotionChanged =
+                (v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED)
+                && HasMeaningfulLandedMotionChange(distanceDelta, v.srfSpeed);
+            bool orbitChanged =
+                v.situation != Vessel.Situations.LANDED
+                && v.situation != Vessel.Situations.SPLASHED
+                && v.mainBody != null
+                && (!v.mainBody.atmosphere || v.altitude > v.mainBody.atmosphereDepth)
+                && HasMeaningfulOrbitChange(
+                    state.BaselineOrbit,
+                    CapturePostSwitchOrbitSnapshot(v));
+
+            return EvaluatePostSwitchAutoRecordTrigger(
+                engineTriggered,
+                rcsTriggered,
+                crewChanged,
+                resourceChanged,
+                partStateChanged,
+                landedMotionChanged,
+                orbitChanged);
+        }
+
+        private void PrepareActiveTreeForFreshPostSwitchRecording(
+            Vessel v,
+            PostSwitchAutoRecordState state,
+            double currentUT)
+        {
+            if (activeTree == null || v == null)
+                return;
+
+            string recordingId = Guid.NewGuid().ToString("N");
+            var recording = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = activeTree.Id,
+                VesselPersistentId = v.persistentId,
+                VesselName = Recording.ResolveLocalizedName(v.vesselName) ?? v.vesselName ?? "Unknown",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+            };
+
+            ConfigNode startSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            if (startSnapshot != null)
+                recording.GhostVisualSnapshot = startSnapshot;
+
+            activeTree.AddOrReplaceRecording(recording);
+            activeTree.ActiveRecordingId = recordingId;
+            activeTree.BackgroundMap.Remove(v.persistentId);
+
+            if (!string.IsNullOrEmpty(state.FreshStartParentRecordingId)
+                && activeTree.Recordings.TryGetValue(state.FreshStartParentRecordingId, out var parent))
+            {
+                string branchPointId = Guid.NewGuid().ToString("N");
+                var branchPoint = new BranchPoint
+                {
+                    Id = branchPointId,
+                    UT = currentUT,
+                    Type = BranchPointType.Launch,
+                    ParentRecordingIds = new List<string> { state.FreshStartParentRecordingId },
+                    ChildRecordingIds = new List<string> { recordingId }
+                };
+                parent.ChildBranchPointId = branchPointId;
+                recording.ParentBranchPointId = branchPointId;
+                activeTree.BranchPoints.Add(branchPoint);
+            }
+        }
+
+        private bool TryStartPostSwitchAutoRecord(
+            Vessel v,
+            PostSwitchAutoRecordState state,
+            PostSwitchAutoRecordTrigger trigger,
+            double currentUT)
+        {
+            bool activeVesselTrackedInBackground = activeTree != null
+                && activeTree.BackgroundMap.ContainsKey(v.persistentId);
+            var decision = EvaluatePostSwitchAutoRecordStartDecision(
+                state.VesselPid,
+                v.persistentId,
+                activeTree != null,
+                activeVesselTrackedInBackground,
+                canRestorePendingTrackedTree: false,
+                suppressStart: false);
+
+            ParsekLog.Info("Flight",
+                $"Post-switch trigger accepted: vessel='{v.vesselName}' pid={v.persistentId} " +
+                $"trigger={trigger} decision={decision}");
+
+            switch (decision)
+            {
+                case PostSwitchAutoRecordStartDecision.PromoteTrackedRecording:
+                    if (activeTree != null
+                        && activeTree.BackgroundMap.TryGetValue(v.persistentId, out string recordingId))
+                    {
+                        backgroundRecorder?.OnVesselRemovedFromBackground(v.persistentId);
+                        PromoteRecordingFromBackground(recordingId, v);
+                    }
+                    break;
+
+                case PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording:
+                    ParsekLog.Verbose("Flight",
+                        "Post-switch trigger hit restore-and-promote seam, but #534 restore wiring is gated on this branch");
+                    return false;
+
+                case PostSwitchAutoRecordStartDecision.StartFreshRecording:
+                    PrepareActiveTreeForFreshPostSwitchRecording(v, state, currentUT);
+                    StartRecording();
+                    if (IsRecording)
+                    {
+                        Log($"Auto-record started (post-switch {trigger})");
+                        ScreenMessage("Recording STARTED (auto - post switch)", 2f);
+                    }
+                    break;
+            }
+
+            if (!IsRecording)
+                return false;
+
+            DisarmPostSwitchAutoRecord($"recording started via {trigger}");
+            return true;
+        }
+
+        internal void OnPostSwitchAutoRecordPhysicsFrame(Vessel v)
+        {
+            PostSwitchAutoRecordState state = postSwitchAutoRecord;
+            if (state == null)
+                return;
+
+            uint activePid = v != null ? v.persistentId : 0;
+            var suppression = EvaluatePostSwitchAutoRecordSuppression(
+                ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
+                IsRecording,
+                v != null,
+                activePid,
+                state.VesselPid,
+                v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId),
+                restoringActiveTree,
+                HasPendingPostSwitchAutoRecordTransition(),
+                IsAnyWarpActive(),
+                v != null && v.packed);
+
+            ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-watch",
+                $"Post-switch watch: pid={state.VesselPid} activePid={activePid} " +
+                $"baseline={state.BaselineCaptured} suppression={suppression}", 1.0);
+
+            if (suppression == PostSwitchAutoRecordSuppressionReason.Disabled
+                || suppression == PostSwitchAutoRecordSuppressionReason.AlreadyRecording)
+            {
+                DisarmPostSwitchAutoRecord($"suppressed by {suppression}");
+                return;
+            }
+
+            if (suppression != PostSwitchAutoRecordSuppressionReason.None)
+                return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+            if (!state.BaselineCaptured)
+            {
+                CapturePostSwitchAutoRecordBaseline(state, v, currentUT);
+                return;
+            }
+
+            if (currentUT < state.ComparisonsReadyUt)
+            {
+                ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-landed-settle",
+                    $"Post-switch watch: waiting for landed settle pid={state.VesselPid} " +
+                    $"readyAt={state.ComparisonsReadyUt:F1} now={currentUT:F1}", 1.0);
+                return;
+            }
+
+            PostSwitchAutoRecordTrigger trigger =
+                EvaluatePostSwitchAutoRecordTrigger(v, state, currentUT);
+            if (trigger == PostSwitchAutoRecordTrigger.None)
+                return;
+
+            TryStartPostSwitchAutoRecord(v, state, trigger, currentUT);
+        }
+
+        void OnVesselWasModified(Vessel v)
+        {
+            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            PostSwitchAutoRecordState state = postSwitchAutoRecord;
+            if (state == null || state.VesselPid != v.persistentId)
+                return;
+
+            state.ModuleCachesDirty = true;
+            state.NextManifestEvaluationUt = PostSwitchManifestEvaluateNextFrameUt;
+            ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-invalidated",
+                $"Post-switch watch invalidated module caches: pid={state.VesselPid} " +
+                $"vessel='{state.VesselName}'", 1.0);
+        }
+
         void OnVesselGoOnRails(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
@@ -4276,15 +5357,24 @@ namespace Parsek
                     continue;
 
                 double currentUT = Planetarium.GetUniversalTime();
-                double interval = GetLoopIntervalSeconds(rec);
-                double effectiveStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-                double effectiveEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
-                var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                    currentUT, effectiveStart, effectiveEnd, interval);
-
-                ParsekLog.Info("Loop",
-                    $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
-                    $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
+                if (TryComputeLoopPlaybackUT(rec, currentUT,
+                        out double loopUT, out long cycleIndex, out bool isInPause, i))
+                {
+                    ParsekLog.Info("Loop",
+                        $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
+                        $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
+                }
+                else if (TryGetLoopSchedule(
+                             rec, i,
+                             out _,
+                             out double scheduleStartUT,
+                             out _,
+                             out double intervalSeconds))
+                {
+                    ParsekLog.Info("Loop",
+                        $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
+                        $"queued launch pending scheduleStartUT={scheduleStartUT:F2} interval={intervalSeconds:F2}");
+                }
 
                 // The loop playback system in GhostPlaybackEngine.UpdateLoopingPlayback
                 // will pick up this recording on the next Update frame and spawn the
@@ -4754,9 +5844,8 @@ namespace Parsek
             // Active-tree restore: ParsekScenario.OnLoad detected a pending tree on the
             // !isRevert branch and deferred restore to this point. Two modes:
             //   - Quickload (existing path): name-match against active vessel and resume.
-            //   - VesselSwitch (#266): tree was pre-transitioned at stash time, just
-            //     reinstall it and (optionally) promote the new active vessel from
-            //     BackgroundMap.
+            //   - VesselSwitch (#266 / #546): tree was pre-transitioned at stash time, just
+            //     reinstall it and arm the post-switch watcher for the new active vessel.
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
@@ -4769,6 +5858,10 @@ namespace Parsek
                 {
                     StartCoroutine(RestoreActiveTreeFromPending());
                 }
+            }
+            else
+            {
+                TryRestoreCommittedTreeForSpawnedActiveVessel();
             }
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
@@ -4867,6 +5960,8 @@ namespace Parsek
         /// </summary>
         private void ClearSceneChangeTransientState()
         {
+            DisarmPostSwitchAutoRecord("scene change transient reset");
+
             // Clear dock/undock pending state
             ClearDockUndockState();
 
@@ -4896,6 +5991,7 @@ namespace Parsek
         {
             ParsekLog.Info("Flight", "Resetting flight-ready state");
             ParsekLog.RecState("ResetFlightReady:entry", CaptureRecorderState());
+            DisarmPostSwitchAutoRecord("flight ready reset");
 
             // Phase 6b: Clean up ghost chain state from previous flight scene
             vesselGhoster?.CleanupAll();
@@ -5119,6 +6215,37 @@ namespace Parsek
         /// </summary>
         private void HandleMissedVesselSwitchRecovery()
         {
+            if (ShouldAttemptCommittedSpawnedRestoreInUpdate(
+                    activeTree != null,
+                    recorder != null,
+                    restoringActiveTree,
+                    RecordingStore.HasPendingTree,
+                    ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady,
+                    Time.unscaledTime,
+                    nextCommittedSpawnedRestoreRetryAt))
+            {
+                nextCommittedSpawnedRestoreRetryAt =
+                    Time.unscaledTime + CommittedSpawnedRestoreRetryIntervalSeconds;
+                if (TryRestoreCommittedTreeForSpawnedActiveVessel())
+                {
+                    nextCommittedSpawnedRestoreRetryAt = 0f;
+                    return;
+                }
+
+                // A matched committed-tree restore may already have installed the tree,
+                // detached it from committed storage, and put the returned vessel back in
+                // BackgroundMap before the recorder attach failed. Falling through here is
+                // intentional: the existing missed-switch recovery path can retry the final
+                // promotion/resume from that live tree shape without rolling the tree back.
+            }
+            else if (activeTree != null || recorder != null)
+            {
+                // Only reset once a live tree/recorder takes over ownership. The other
+                // transient blockers (restore coroutine, pending tree, restore mode) are
+                // allowed to age out naturally against the 1s retry window.
+                nextCommittedSpawnedRestoreRetryAt = 0f;
+            }
+
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
             bool activeVesselTrackedInBackground = activeTree != null
@@ -5136,7 +6263,8 @@ namespace Parsek
                     recorder != null && recorder.ChainToVesselPending,
                     recorder != null ? recorder.RecordingVesselId : 0,
                     activeVesselPid,
-                    activeVesselTrackedInBackground))
+                    activeVesselTrackedInBackground,
+                    IsPostSwitchAutoRecordArmedForPid(activeVesselPid)))
             {
                 return;
             }
@@ -5913,6 +7041,8 @@ namespace Parsek
 
         private void PrepareSessionStateForRecorderStart(string reason)
         {
+            DisarmPostSwitchAutoRecord(reason);
+
             // Reset crash coalescer on every recorder start so a fresh recorder cannot
             // inherit a stale coalescing window from the previous segment or scene.
             if (crashCoalescer != null)
@@ -6435,13 +7565,8 @@ namespace Parsek
 
             PrepareSessionStateForRecorderStart("RestoreActiveTreeFromPending");
 
-            // Re-attach the BackgroundRecorder for the tree
-            if (backgroundRecorder == null)
-            {
-                backgroundRecorder = new BackgroundRecorder(activeTree);
-                backgroundRecorder.SubscribePartEvents();
-                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
-            }
+            // Re-attach the BackgroundRecorder for the tree.
+            EnsureBackgroundRecorderAttached("RestoreActiveTreeFromPending");
 
             ParsekLog.Info("Flight",
                 $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
@@ -6462,12 +7587,12 @@ namespace Parsek
         /// <c>BackgroundRecorder</c>, and inspect the new active vessel:
         /// <list type="bullet">
         ///   <item>If its PID is in <c>tree.BackgroundMap</c> (round-trip — the player
-        ///   returned to a vessel that's part of this tree), promote it via the existing
-        ///   <see cref="PromoteRecordingFromBackground"/> path.</item>
-        ///   <item>Otherwise leave <c>recorder = null</c> — the new vessel is an outsider
-        ///   from this tree's perspective, identical to the in-session
-        ///   <c>OnVesselSwitchComplete</c> outcome at lines 1539–1543 when
-        ///   <c>BackgroundMap.TryGetValue</c> returns false.</item>
+        ///   returned to a vessel that's part of this tree), arm the watcher so the
+        ///   tracked recording is only promoted after the first meaningful physical
+        ///   modification.</item>
+        ///   <item>Otherwise leave <c>recorder = null</c> and arm the same watcher for
+        ///   outsider/start-fresh follow-up. The tree remains installed, but focus switch
+        ///   alone still does not start recording.</item>
         /// </list>
         /// </summary>
         IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()
@@ -6513,27 +7638,22 @@ namespace Parsek
 
             // Re-attach the BackgroundRecorder for the tree (the previous instance was
             // shut down in FinalizeTreeOnSceneChange before the scene reload).
-            if (backgroundRecorder == null)
-            {
-                backgroundRecorder = new BackgroundRecorder(activeTree);
-                backgroundRecorder.SubscribePartEvents();
-                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
-            }
+            EnsureBackgroundRecorderAttached("RestoreActiveTreeFromPendingForVesselSwitch");
 
             // Inspect the new active vessel for promotion.
             var newActive = FlightGlobals.ActiveVessel;
             if (newActive == null)
             {
                 // Wait budget exhausted with no ActiveVessel: log Warn so playtest
-                // logs surface the missed promotion. The tree is reinstalled but
-                // any potential round-trip cannot be tested at this point.
+                // logs surface the missed arming opportunity. The tree is reinstalled but
+                // any potential round-trip watcher cannot be tested at this point.
                 // Subsequent OnVesselSwitchComplete events from the live game
-                // will still drive promotion via the in-session path.
+                // will still drive the in-session watcher path.
                 ParsekLog.Warn("Flight",
                     $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled, " +
                     $"but no active vessel resolved within {WaitBudgetSeconds:F0}s wait window " +
                     $"(timedOut={waitTimedOut}) — outsider state, recorder stays null. Round-trip " +
-                    "promotion (if any) will be missed; subsequent OnVesselSwitchComplete will recover.");
+                    "arming (if any) will be missed; subsequent OnVesselSwitchComplete will recover.");
             }
             else
             {
@@ -6544,29 +7664,39 @@ namespace Parsek
                 // path needs (RestoreActiveTreeFromPending ~5520-5535). Verified in
                 // logs/2026-04-09_f5f9_verify/KSP.log: pid 2708531065 survives the
                 // reload unchanged. If a future KSP version regenerates PIDs on TS
-                // switch, the round-trip promotion will silently fail and the player
+                // switch, the round-trip arming will silently fail and the player
                 // will land in the outsider branch — visible as a missing
-                // "promoted vessel" log line.
+                // post-switch armed log line.
                 uint newPid = newActive.persistentId;
                 if (activeTree.BackgroundMap.TryGetValue(newPid, out string bgRecId))
                 {
                     // Round-trip case: the player returned to a vessel that this tree
-                    // is already tracking. Promote it via the existing in-session path.
-                    backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
-                    PromoteRecordingFromBackground(bgRecId, newActive);
+                    // is already tracking, but post-switch auto-record now arms and waits
+                    // for the first meaningful modification instead of promoting on focus
+                    // change alone.
+                    ArmPostSwitchAutoRecord(
+                        newActive,
+                        "restore completed on tracked tree member while idle",
+                        trackedInActiveTree: true,
+                        freshStartParentRecordingId: null);
                     ParsekLog.Info("Flight",
-                        $"RestoreActiveTreeFromPendingForVesselSwitch: promoted vessel '{newActive.vesselName}' " +
-                        $"(pid={newPid}) from BackgroundMap — round-trip via TS / scene-reload switch");
+                        $"RestoreActiveTreeFromPendingForVesselSwitch: armed tracked vessel '{newActive.vesselName}' " +
+                        $"(pid={newPid}) from BackgroundMap — waiting for first modification after TS / scene-reload switch");
                 }
                 else
                 {
                     // Outsider case: the new active vessel has no recording context in
                     // this tree. recorder stays null. Future switches back to a tree
-                    // member will trigger OnVesselSwitchComplete → PromoteFromBackground.
+                    // member will arm the tracked path and later promote on trigger.
                     ParsekLog.Info("Flight",
                         $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled " +
                         $"as outsider for active vessel '{newActive.vesselName}' (pid={newPid}, not in " +
-                        $"BackgroundMap) — recorder stays null until next switch promotes a tree member");
+                        $"BackgroundMap) — recorder stays null until a post-switch trigger starts fresh or a later tracked switch promotes on trigger");
+                    ArmPostSwitchAutoRecord(
+                        newActive,
+                        "restore completed on outsider while idle",
+                        trackedInActiveTree: false,
+                        freshStartParentRecordingId: null);
                 }
             }
 
@@ -6721,7 +7851,8 @@ namespace Parsek
             bool recorderChainToVesselPending,
             uint recorderVesselPid,
             uint activeVesselPid,
-            bool activeVesselTrackedInBackground)
+            bool activeVesselTrackedInBackground,
+            bool activeVesselAlreadyArmedForPostSwitchAutoRecord)
         {
             if (isRestoringActiveTree) return false;
             if (!hasActiveTree) return false;
@@ -6737,7 +7868,266 @@ namespace Parsek
                 return recorderVesselPid != activeVesselPid;
             }
 
-            return activeVesselTrackedInBackground;
+            return activeVesselTrackedInBackground
+                && !activeVesselAlreadyArmedForPostSwitchAutoRecord;
+        }
+
+        internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(
+            bool hasActiveTree,
+            bool hasRecorder,
+            bool isRestoringActiveTree,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode,
+            float currentUnscaledTime,
+            float nextRetryAt)
+        {
+            if (hasActiveTree || hasRecorder) return false;
+            if (isRestoringActiveTree) return false;
+            if (hasPendingTree) return false;
+            if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None) return false;
+            return currentUnscaledTime >= nextRetryAt;
+        }
+
+        internal static bool TryFindCommittedTreeForSpawnedVessel(
+            IReadOnlyList<RecordingTree> committedTrees,
+            uint activeVesselPid,
+            out RecordingTree tree,
+            out string recordingId)
+        {
+            tree = null;
+            recordingId = null;
+            if (committedTrees == null || activeVesselPid == 0)
+                return false;
+
+            for (int t = committedTrees.Count - 1; t >= 0; t--)
+            {
+                RecordingTree candidate = committedTrees[t];
+                if (candidate?.Recordings == null || candidate.Recordings.Count == 0)
+                    continue;
+
+                Recording bestMatch = null;
+                foreach (Recording rec in candidate.Recordings.Values)
+                {
+                    if (rec == null
+                        || !rec.VesselSpawned
+                        || rec.SpawnedVesselPersistentId == 0
+                        || rec.SpawnedVesselPersistentId != activeVesselPid
+                        || string.IsNullOrEmpty(rec.RecordingId))
+                    {
+                        continue;
+                    }
+
+                    if (!IsCommittedSpawnedRecordingRestorable(candidate, rec))
+                        continue;
+
+                    if (bestMatch == null
+                        || IsPreferredCommittedSpawnedRestoreCandidate(candidate, rec, bestMatch))
+                    {
+                        bestMatch = rec;
+                    }
+                }
+
+                if (bestMatch != null)
+                {
+                    tree = candidate;
+                    recordingId = bestMatch.RecordingId;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(
+            uint activeVesselPid,
+            out RecordingTree tree,
+            out string recordingId,
+            out CommittedSpawnedVesselRestoreAction action)
+        {
+            tree = null;
+            recordingId = null;
+            action = CommittedSpawnedVesselRestoreAction.None;
+
+            if (!TryFindCommittedTreeForSpawnedVessel(
+                    RecordingStore.CommittedTrees,
+                    activeVesselPid,
+                    out RecordingTree committedTree,
+                    out string targetRecordingId))
+            {
+                return false;
+            }
+
+            CommittedSpawnedVesselRestoreAction preparedAction =
+                PrepareCommittedTreeRestoreForSpawnedVessel(
+                    committedTree,
+                    targetRecordingId,
+                    activeVesselPid);
+            if (preparedAction == CommittedSpawnedVesselRestoreAction.None)
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
+                    $"recording '{targetRecordingId}' for pid={activeVesselPid}, but could not prepare a restore action");
+                return false;
+            }
+
+            // Detach the tree from committed storage before making it live again. The
+            // active-flight path depends on "live tree != committed tree" for patch
+            // deferral and for the later commit to run its full side effects.
+            if (!RecordingStore.RemoveCommittedTreeById(
+                    committedTree.Id,
+                    logContext: "TryTakeCommittedTreeForSpawnedVesselRestore"))
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
+                    $"(id={committedTree.Id}) but could not detach it from committed storage");
+                return false;
+            }
+
+            tree = committedTree;
+            recordingId = targetRecordingId;
+            action = preparedAction;
+            return true;
+        }
+
+        internal static CommittedSpawnedVesselRestoreAction PrepareCommittedTreeRestoreForSpawnedVessel(
+            RecordingTree tree,
+            string targetRecordingId,
+            uint activeVesselPid)
+        {
+            if (tree == null || string.IsNullOrEmpty(targetRecordingId) || activeVesselPid == 0)
+                return CommittedSpawnedVesselRestoreAction.None;
+            if (!tree.Recordings.TryGetValue(targetRecordingId, out Recording targetRec) || targetRec == null)
+                return CommittedSpawnedVesselRestoreAction.None;
+            if (ResolveLiveTreeRecordingPidForRestore(targetRec) != activeVesselPid)
+                return CommittedSpawnedVesselRestoreAction.None;
+            if (!IsCommittedSpawnedRecordingRestorable(tree, targetRec))
+                return CommittedSpawnedVesselRestoreAction.None;
+
+            if (string.Equals(tree.ActiveRecordingId, targetRecordingId, StringComparison.Ordinal))
+            {
+                RemoveRecordingIdFromBackgroundMap(tree, targetRecordingId);
+                return CommittedSpawnedVesselRestoreAction.ResumeActiveRecording;
+            }
+
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording oldActiveRec))
+            {
+                RemoveRecordingIdFromBackgroundMap(tree, tree.ActiveRecordingId);
+                ApplyPreTransitionForVesselSwitch(
+                    tree,
+                    ResolveLiveTreeRecordingPidForRestore(oldActiveRec));
+            }
+
+            RemoveRecordingIdFromBackgroundMap(tree, targetRecordingId);
+            return CommittedSpawnedVesselRestoreAction.PromoteFromBackground;
+        }
+
+        internal static uint ResolveLiveTreeRecordingPidForRestore(Recording rec)
+        {
+            if (rec == null)
+                return 0;
+            if (rec.SpawnedVesselPersistentId != 0)
+                return rec.SpawnedVesselPersistentId;
+            return rec.VesselPersistentId;
+        }
+
+        internal static bool IsCommittedSpawnedRecordingRestorable(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (string.Equals(tree.ActiveRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                return true;
+            if (HasNextChainSegmentInTree(tree, rec))
+                return false;
+            if (rec.TerminalStateValue.HasValue)
+            {
+                TerminalState terminalState = rec.TerminalStateValue.Value;
+                if (terminalState == TerminalState.Destroyed
+                    || terminalState == TerminalState.Recovered
+                    || terminalState == TerminalState.Docked
+                    || terminalState == TerminalState.Boarded)
+                {
+                    return false;
+                }
+            }
+
+            return string.IsNullOrEmpty(rec.ChildBranchPointId)
+                || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
+        }
+
+        internal static bool HasNextChainSegmentInTree(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChainId))
+                return false;
+
+            int nextIdx = rec.ChainIndex + 1;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec))
+                    continue;
+                if (other.ChainId == rec.ChainId
+                    && other.ChainIndex == nextIdx
+                    && other.ChainBranch == rec.ChainBranch)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool IsPreferredCommittedSpawnedRestoreCandidate(
+            RecordingTree tree,
+            Recording candidate,
+            Recording currentBest)
+        {
+            bool candidateIsActive = tree != null
+                && string.Equals(tree.ActiveRecordingId, candidate?.RecordingId, StringComparison.Ordinal);
+            bool currentBestIsActive = tree != null
+                && string.Equals(tree.ActiveRecordingId, currentBest?.RecordingId, StringComparison.Ordinal);
+            if (candidateIsActive != currentBestIsActive)
+                return candidateIsActive;
+
+            int candidateChainIndex = candidate != null ? candidate.ChainIndex : int.MinValue;
+            int currentBestChainIndex = currentBest != null ? currentBest.ChainIndex : int.MinValue;
+            if (candidateChainIndex != currentBestChainIndex)
+                return candidateChainIndex > currentBestChainIndex;
+
+            int candidateOrder = candidate != null && candidate.TreeOrder >= 0 ? candidate.TreeOrder : int.MinValue;
+            int currentBestOrder = currentBest != null && currentBest.TreeOrder >= 0 ? currentBest.TreeOrder : int.MinValue;
+            if (candidateOrder != currentBestOrder)
+                return candidateOrder > currentBestOrder;
+
+            double candidateEnd = candidate != null ? candidate.EndUT : double.NegativeInfinity;
+            double currentBestEnd = currentBest != null ? currentBest.EndUT : double.NegativeInfinity;
+            if (candidateEnd != currentBestEnd)
+                return candidateEnd > currentBestEnd;
+
+            return string.CompareOrdinal(candidate?.RecordingId, currentBest?.RecordingId) > 0;
+        }
+
+        internal static int RemoveRecordingIdFromBackgroundMap(RecordingTree tree, string recordingId)
+        {
+            if (tree?.BackgroundMap == null || string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            List<uint> keysToRemove = null;
+            foreach (KeyValuePair<uint, string> entry in tree.BackgroundMap)
+            {
+                if (!string.Equals(entry.Value, recordingId, StringComparison.Ordinal))
+                    continue;
+
+                if (keysToRemove == null)
+                    keysToRemove = new List<uint>();
+                keysToRemove.Add(entry.Key);
+            }
+
+            if (keysToRemove == null)
+                return 0;
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+                tree.BackgroundMap.Remove(keysToRemove[i]);
+            return keysToRemove.Count;
         }
 
         /// <summary>
@@ -7579,28 +8969,26 @@ namespace Parsek
                 return false;
             }
 
-            freshSnapshot = NormalizeStableTerminalSnapshotForPersistence(freshSnapshot, ts);
             rec.VesselSnapshot = freshSnapshot;
             if (rec.GhostVisualSnapshot == null)
                 rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
             rec.MarkFilesDirty();
             ParsekLog.Info("Flight",
                 $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
-                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289/#354/#479]");
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit})");
             return true;
         }
 
         internal static ConfigNode NormalizeStableTerminalSnapshotForPersistence(
             ConfigNode freshSnapshot,
-            TerminalState terminalState)
+            TerminalState terminalState,
+            CelestialBody body = null)
         {
-            if (freshSnapshot == null)
-                return null;
-
-            // Stock BackupVessel can lag one frame behind the live terminal transition and
-            // still emit sit=FLYING/SUB_ORBITAL for a vessel that has already settled.
-            VesselSpawner.CorrectUnsafeSnapshotSituation(freshSnapshot, terminalState);
-            return freshSnapshot;
+            return VesselSpawner.NormalizeStableSnapshotForPersistence(
+                freshSnapshot,
+                terminalState,
+                body,
+                "stable-terminal snapshot persistence");
         }
 
         /// <summary>
@@ -9902,11 +11290,65 @@ namespace Parsek
             return false;
         }
 
-        private double GetLoopIntervalSeconds(Recording rec)
+        private bool TryGetLoopSchedule(
+            Recording rec,
+            int recIdx,
+            out double playbackStartUT,
+            out double scheduleStartUT,
+            out double duration,
+            out double intervalSeconds)
         {
+            playbackStartUT = 0.0;
+            scheduleStartUT = 0.0;
+            duration = 0.0;
+            intervalSeconds = 0.0;
+            if (rec == null || !GhostPlaybackEngine.ShouldLoopPlayback(rec))
+                return false;
+
+            playbackStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            if (duration <= LoopTiming.MinLoopDurationSeconds)
+                return false;
+
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            double baseIntervalSeconds = engine.GetLoopIntervalSeconds(rec, globalInterval);
+            scheduleStartUT = playbackStartUT;
+            intervalSeconds = baseIntervalSeconds;
+
+            if (recIdx >= 0)
+            {
+                cachedTrajectories.Clear();
+                var committed = RecordingStore.CommittedRecordings;
+                for (int i = 0; i < committed.Count; i++)
+                    cachedTrajectories.Add(committed[i]);
+
+                if (GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                        cachedTrajectories,
+                        recIdx,
+                        baseIntervalSeconds,
+                        out var autoSchedule))
+                {
+                    scheduleStartUT = autoSchedule.LaunchStartUT;
+                    intervalSeconds = autoSchedule.LaunchCadenceSeconds;
+                }
+            }
+
+            return true;
+        }
+
+        private double GetLoopIntervalSeconds(Recording rec, int recIdx = -1)
+        {
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out _, out _, out _, out double intervalSeconds))
+            {
+                double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                        ?? LoopTiming.DefaultLoopIntervalSeconds;
+                return engine.GetLoopIntervalSeconds(rec, globalInterval);
+            }
+
+            return intervalSeconds;
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -9914,10 +11356,33 @@ namespace Parsek
             out double loopUT, out long cycleIndex, out bool inPauseWindow,
             int recIdx = -1)
         {
-            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? LoopTiming.DefaultLoopIntervalSeconds;
-            return engine.TryComputeLoopPlaybackUT(rec, currentUT, globalInterval,
-                out loopUT, out cycleIndex, out inPauseWindow, recIdx);
+            loopUT = 0.0;
+            cycleIndex = 0;
+            inPauseWindow = false;
+            if (!TryGetLoopSchedule(
+                    rec, recIdx,
+                    out double playbackStartUT,
+                    out double scheduleStartUT,
+                    out double duration,
+                    out double intervalSeconds))
+                return false;
+
+            double phaseOffset;
+            if (recIdx >= 0 && engine.loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
+            {
+                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                scheduleStartUT -= phaseOffset;
+            }
+
+            if (!GhostPlaybackLogic.TryComputeLoopPlaybackPhase(
+                    currentUT, scheduleStartUT, duration, intervalSeconds,
+                    out double playbackPhase, out cycleIndex, out inPauseWindow))
+            {
+                return false;
+            }
+
+            loopUT = playbackStartUT + playbackPhase;
+            return true;
         }
 
 
@@ -10497,11 +11962,11 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
-            // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
+            // the fixed watch cutoff distance. The cutoff applies uniformly to all ghosts.
             bool forceWatchedFullFidelity = false;
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
                 if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
@@ -10714,6 +12179,81 @@ namespace Parsek
                 positioned.altitude));
         }
 
+        bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
+            IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+        {
+            if (state?.ghost == null)
+            {
+                worldPosition = Vector3.zero;
+                string missingGhostVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
+                    ? traj.VesselName
+                    : state?.vesselName ?? "?";
+                ParsekLog.Warn("TerrainCorrect",
+                    $"Explosion anchor resolve #{index} (\"{missingGhostVesselName}\") skipped: ghost root is null");
+                return false;
+            }
+
+            Vector3 rawWorldPos = state.ghost.transform.position;
+            worldPosition = rawWorldPos;
+            string safeVesselName = traj != null && !string.IsNullOrEmpty(traj.VesselName)
+                ? traj.VesselName
+                : state.vesselName ?? "?";
+            string bodyName = ResolveExplosionAnchorBodyName(
+                state.lastInterpolatedBodyName, traj);
+            if (string.IsNullOrEmpty(bodyName))
+                return true;
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null || body.pqsController == null)
+                return true;
+
+            double latitude = body.GetLatitude(rawWorldPos);
+            double longitude = body.GetLongitude(rawWorldPos);
+            double rawAltitude = body.GetAltitude(rawWorldPos);
+            double terrainHeight = body.TerrainAltitude(latitude, longitude, true);
+
+            double minClearance = ImmediateLandedGhostClearanceFallbackMeters;
+            if (FlightGlobals.ActiveVessel != null)
+            {
+                double distanceToVessel = Vector3d.Distance(
+                    rawWorldPos, FlightGlobals.ActiveVessel.GetWorldPos3D());
+                minClearance = ComputeTerrainClearance(distanceToVessel);
+            }
+            else
+            {
+                ParsekLog.Verbose("TerrainCorrect",
+                    $"Explosion anchor clearance fallback #{index} (\"{safeVesselName}\"): " +
+                    $"active vessel unavailable — using legacy floor " +
+                    $"{ImmediateLandedGhostClearanceFallbackMeters.ToString("F1", CultureInfo.InvariantCulture)}m");
+            }
+
+            double clampedAltitude = TerrainCorrector.ClampAltitude(
+                rawAltitude, terrainHeight, minClearance);
+            double resolvedAltitude = clampedAltitude > rawAltitude ? clampedAltitude : rawAltitude;
+            worldPosition = clampedAltitude > rawAltitude
+                ? body.GetWorldSurfacePosition(latitude, longitude, clampedAltitude)
+                : rawWorldPos;
+
+            // Keep the watch overlay / diagnostics aligned with the anchor we
+            // actually returned, not just the "had to clamp" branch.
+            state.lastInterpolatedBodyName = body.name;
+            state.lastInterpolatedAltitude = resolvedAltitude;
+
+            if (clampedAltitude <= rawAltitude)
+                return true;
+
+            string cycleText = state.loopCycleIndex >= 0
+                ? $" cycle={state.loopCycleIndex}"
+                : "";
+            ParsekLog.Verbose("TerrainCorrect",
+                $"Explosion anchor clamp #{index} (\"{safeVesselName}\"): " +
+                $"alt={rawAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"terrain={terrainHeight.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"-> {clampedAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"(clearance={minClearance.ToString("F1", CultureInfo.InvariantCulture)}m){cycleText}");
+            return true;
+        }
+
         // Literal floor returned by the immediate-clearance resolver when it
         // cannot compute a distance-aware value. Matches the legacy pre-#262
         // hardcoded floor — callers that hit this branch silently regress to
@@ -10735,6 +12275,17 @@ namespace Parsek
             if (!hasBody) return "no-body";
             if (!hasActiveVessel) return "no-active-vessel";
             return null;
+        }
+
+        internal static string ResolveExplosionAnchorBodyName(
+            string lastInterpolatedBodyName, IPlaybackTrajectory traj)
+        {
+            if (!string.IsNullOrEmpty(lastInterpolatedBodyName))
+                return lastInterpolatedBodyName;
+            return RecordingEndpointResolver.TryGetPreferredEndpointBodyName(
+                traj, out string bodyName)
+                ? bodyName
+                : null;
         }
 
         private static double ResolveImmediateLandedGhostClearanceMeters(

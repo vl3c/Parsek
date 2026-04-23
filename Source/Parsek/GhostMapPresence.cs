@@ -24,8 +24,23 @@ namespace Parsek
     // TODO(phase 6+): migrate GhostMapPresence to recording-id-keyed storage.
     internal static class GhostMapPresence
     {
+        internal enum TrackingStationGhostSource
+        {
+            None = 0,
+            Segment = 1,
+            TerminalOrbit = 2
+        }
+
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        internal const string TrackingStationGhostSkipSuppressed = "suppressed";
+        internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
+        internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
+        internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
+        internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
+        internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
+        internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
+        internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         /// <summary>
         /// PID tracking set — the canonical ghost vessel identification.
@@ -92,6 +107,11 @@ namespace Parsek
         internal static bool IsSuppressedByActiveSession(int recordingIndex)
         {
             return SessionSuppressionState.IsSuppressedRecordingIndex(recordingIndex);
+        }
+
+        private static double GetCurrentUTSafe()
+        {
+            return Planetarium.GetUniversalTime();
         }
 
         // ------------------------------------------------------------------
@@ -475,10 +495,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Cached superseded recording IDs from the last lifecycle tick.
+        /// Cached tracking-station-suppressed recording IDs from the last lifecycle tick.
         /// Reused by ParsekTrackingStation.OnGUI to avoid recomputing.
         /// </summary>
-        internal static HashSet<string> CachedSupersededIds { get; private set; }
+        internal static HashSet<string> CachedTrackingStationSuppressedIds { get; private set; }
+            = new HashSet<string>();
 
         /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
@@ -491,6 +512,14 @@ namespace Parsek
         /// </summary>
         internal static void UpdateTrackingStationGhostLifecycle()
         {
+            double currentUT = CurrentUTNow();
+            var committed = RecordingStore.CommittedRecordings;
+            bool hasCommittedRecordings = committed != null && committed.Count > 0;
+
+            // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
+            if (hasCommittedRecordings)
+                TryRunTrackingStationSpawnHandoffs(committed, currentUT);
+
             // #388: respect the user's tracking-station ghost visibility toggle.
             // ParsekTrackingStation.Update already handles the off-flip transition
             // (calls RemoveAllGhostVessels); here we simply skip creation so the
@@ -501,7 +530,7 @@ namespace Parsek
             // from settings.cfg, not the pre-#388 default.
             if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
-                CachedSupersededIds = new HashSet<string>();
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 ParsekLog.VerboseRateLimited(Tag,
                     "ts-lifecycle-disabled",
                     "UpdateTrackingStationGhostLifecycle: showGhostsInTrackingStation=false — skip",
@@ -509,115 +538,40 @@ namespace Parsek
                 return;
             }
 
-            double currentUT = Planetarium.GetUniversalTime();
-            var committed = RecordingStore.CommittedRecordings;
-            bool hasCommittedRecordings = committed != null && committed.Count > 0;
+            var suppressed = hasCommittedRecordings
+                ? FindTrackingStationSuppressedRecordingIds(committed, currentUT)
+                : new HashSet<string>();
+            AddActiveSessionSuppressedRecordingIds(suppressed, committed);
+            CachedTrackingStationSuppressedIds = suppressed;
 
-            // --- Phase 1: refresh existing segment-based ghosts or remove exhausted ones ---
-            if (vesselsByRecordingIndex.Count > 0)
-            {
-                List<int> toRemove = null;
-                List<int> sessionSuppressedRemove = null;
-                foreach (var kvp in vesselsByRecordingIndex)
-                {
-                    int idx = kvp.Key;
-                    if (!hasCommittedRecordings)
-                    {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
-                        continue;
-                    }
-
-                    // Phase 7 of Rewind-to-Staging (design §3.3): once a re-fly
-                    // session starts, presence for suppressed recordings is
-                    // pruned here so orbit lines / tracking-station entries
-                    // disappear while the session is live.
-                    if (IsSuppressedByActiveSession(idx))
-                    {
-                        if (sessionSuppressedRemove == null) sessionSuppressedRemove = new List<int>();
-                        sessionSuppressedRemove.Add(idx);
-                        continue;
-                    }
-
-                    uint pid = kvp.Value.persistentId;
-                    if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
-
-                    if (idx < 0 || idx >= committed.Count)
-                    {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
-                        continue;
-                    }
-
-                    var rec = committed[idx];
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                    if (!seg.HasValue)
-                    {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(idx);
-                        continue;
-                    }
-
-                    if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
-                        UpdateGhostOrbitForRecording(idx, seg.Value);
-                }
-
-                if (toRemove != null)
-                {
-                    for (int i = 0; i < toRemove.Count; i++)
-                    {
-                        int idx = toRemove[i];
-                        RemoveGhostVesselForRecording(idx, "tracking-station-expired");
-                        ParsekLog.Info(Tag,
-                            string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past visible orbit range",
-                                idx, currentUT));
-                    }
-                }
-
-                if (sessionSuppressedRemove != null)
-                {
-                    for (int i = 0; i < sessionSuppressedRemove.Count; i++)
-                        RemoveGhostVesselForRecording(sessionSuppressedRemove[i], "session-suppressed subtree");
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Removed {0} ghost presence(s) for session-suppressed recording(s)",
-                            sessionSuppressedRemove.Count));
-                }
-            }
+            RefreshTrackingStationGhosts(committed, suppressed, currentUT);
 
             if (!hasCommittedRecordings)
             {
-                CachedSupersededIds = new HashSet<string>();
                 return;
             }
 
             // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
-            // Compute once per tick — also used by ParsekTrackingStation.OnGUI via CachedSupersededIds
-            var superseded = FindSupersededRecordingIds(committed);
-            CachedSupersededIds = superseded;
-
             for (int i = 0; i < committed.Count; i++)
             {
                 // Skip recordings that already have a ghost
                 if (vesselsByRecordingIndex.ContainsKey(i)) continue;
 
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
-                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
-                if (!shouldCreate) continue;
+                bool isSuppressed = suppressed.Contains(rec.RecordingId);
+                TrackingStationGhostSource source = ResolveTrackingStationGhostSource(
+                    rec,
+                    isSuppressed,
+                    currentUT,
+                    out OrbitSegment segment,
+                    out _);
+                if (source == TrackingStationGhostSource.None) continue;
 
                 Vessel v = null;
-                if (HasOrbitData(rec))
-                {
+                if (source == TrackingStationGhostSource.TerminalOrbit)
                     v = CreateGhostVesselForRecording(i, rec);
-                }
-                else if (rec.HasOrbitSegments)
-                {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                    if (seg.HasValue)
-                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
-                }
+                else if (source == TrackingStationGhostSource.Segment)
+                    v = CreateGhostVesselFromSegment(i, rec, segment);
 
                 if (v != null)
                 {
@@ -627,6 +581,159 @@ namespace Parsek
                         string.Format(ic,
                             "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range",
                             i, rec.VesselName ?? "(null)", currentUT));
+                }
+            }
+        }
+
+        private static void RefreshTrackingStationGhosts(
+            IReadOnlyList<Recording> committed,
+            HashSet<string> suppressed,
+            double currentUT)
+        {
+            if (vesselsByRecordingIndex.Count == 0)
+                return;
+
+            List<(int idx, string reason)> toRemove = null;
+            foreach (var kvp in vesselsByRecordingIndex)
+            {
+                int idx = kvp.Key;
+                if (committed == null)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, "tracking-station-expired"));
+                    continue;
+                }
+
+                if (idx < 0 || idx >= committed.Count)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, "tracking-station-expired"));
+                    continue;
+                }
+
+                var rec = committed[idx];
+                bool isSuppressed = rec != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && suppressed != null
+                    && suppressed.Contains(rec.RecordingId);
+                uint pid = kvp.Value.persistentId;
+                bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
+
+                string removeReason = GetTrackingStationGhostRemovalReason(
+                    rec, isSuppressed, hasOrbitBounds, currentUT);
+                if (removeReason != null)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, removeReason));
+                    continue;
+                }
+
+                if (!hasOrbitBounds)
+                    continue;
+
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
+                    UpdateGhostOrbitForRecording(idx, seg.Value);
+            }
+
+            if (toRemove == null)
+                return;
+
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                int idx = toRemove[i].idx;
+                string reason = toRemove[i].reason;
+                RemoveGhostVesselForRecording(idx, reason);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Removed tracking-station ghost #{0} — UT {1:F1} reason={2}",
+                        idx, currentUT, reason));
+            }
+        }
+
+        internal static void TryRunTrackingStationSpawnHandoffs(
+            IReadOnlyList<Recording> committed,
+            double currentUT)
+        {
+            if (committed == null || committed.Count == 0)
+                return;
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+            List<int> eligibleIndices = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[i], currentUT, chains);
+                if (!needsSpawn)
+                    continue;
+
+                if (eligibleIndices == null)
+                    eligibleIndices = new List<int>();
+                eligibleIndices.Add(i);
+            }
+
+            if (eligibleIndices == null || eligibleIndices.Count == 0)
+                return;
+
+            GhostPlaybackLogic.InvalidateVesselCache();
+
+            for (int i = 0; i < eligibleIndices.Count; i++)
+            {
+                int index = eligibleIndices[i];
+                Recording rec = committed[index];
+                bool realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
+                    rec,
+                    realVesselExists);
+
+                if (alreadyMaterialized)
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
+                    RemoveAllGhostPresenceForIndex(
+                        index,
+                        rec.VesselPersistentId,
+                        "tracking-station-existing-real-vessel");
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff skipped duplicate spawn for #{0} \"{1}\" — real vessel pid={2} already exists",
+                            index,
+                            rec.VesselName ?? "(null)",
+                            rec.VesselPersistentId));
+                    continue;
+                }
+
+                bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
+                    chains,
+                    rec,
+                    realVesselExists);
+                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+                if (!rec.VesselSpawned)
+                    continue;
+
+                RemoveAllGhostPresenceForIndex(
+                    index,
+                    rec.VesselPersistentId,
+                    "tracking-station-spawn-handoff");
+
+                if (rec.SpawnedVesselPersistentId != 0)
+                {
+                    GhostPlaybackLogic.InvalidateVesselCache();
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff spawned #{0} \"{1}\" pid={2} preserveIdentity={3}",
+                            index,
+                            rec.VesselName ?? "(null)",
+                            rec.SpawnedVesselPersistentId,
+                            preserveIdentity));
+                }
+                else if (rec.SpawnAbandoned)
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
+                            index,
+                            rec.VesselName ?? "(null)"));
                 }
             }
         }
@@ -870,17 +977,187 @@ namespace Parsek
             return superseded;
         }
 
-        /// <summary>
-        /// Pure: should a tracking station ghost ProtoVessel be created for this recording?
-        /// Only chain tips with orbital terminal state and orbit data qualify.
-        /// Returns a reason string for logging when the recording is skipped.
-        /// </summary>
-        internal static (bool shouldCreate, string skipReason) ShouldCreateTrackingStationGhost(
-            Recording rec, bool isSuperseded, double currentUT)
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT)
         {
-            if (rec == null) return (false, "null");
-            if (rec.IsDebris) return (false, "debris");
-            if (isSuperseded) return (false, "superseded");
+            return ShouldSpawnAtTrackingStationEnd(rec, currentUT, chains: null);
+        }
+
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains)
+        {
+            if (rec == null)
+                return (false, "null");
+
+            if (RecordingStore.RewindUTAdjustmentPending)
+                return (false, TrackingStationSpawnSkipRewindPending);
+
+            if (currentUT < rec.EndUT)
+                return (false, TrackingStationSpawnSkipBeforeEnd);
+
+            bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
+                && RecordingStore.IsChainLooping(rec.ChainId);
+            var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false, isChainLooping);
+            if (!spawnResult.needsSpawn)
+                return spawnResult;
+
+            if (RecordingStore.IsChainMidSegment(rec))
+                return (false, TrackingStationSpawnSkipIntermediateChainSegment);
+            var chainSuppressed = GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, rec);
+            if (chainSuppressed.suppressed)
+                return (false, NormalizeTrackingStationSpawnSuppressionReason(chainSuppressed.reason));
+
+            return spawnResult;
+        }
+
+        internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
+            Dictionary<uint, GhostChain> chains,
+            Recording rec,
+            bool realVesselExists)
+        {
+            if (realVesselExists || rec == null || rec.VesselPersistentId == 0)
+                return false;
+
+            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+            return chain != null
+                && !chain.IsTerminated
+                && chain.TipRecordingId == rec.RecordingId;
+        }
+
+        internal static bool ShouldSkipTrackingStationDuplicateSpawn(
+            Recording rec,
+            bool realVesselExists)
+        {
+            // Unlike FLIGHT, Tracking Station never treats the last FLIGHT scene-entry PID
+            // as permission to spawn over an already-live real vessel.
+            return rec != null
+                && rec.VesselPersistentId != 0
+                && realVesselExists;
+        }
+
+        internal static string NormalizeTrackingStationSpawnSuppressionReason(string reason)
+        {
+            switch (reason)
+            {
+                case "intermediate ghost chain link":
+                    return TrackingStationSpawnSkipIntermediateGhostChainLink;
+                case "terminated ghost chain":
+                    return TrackingStationSpawnSkipTerminatedGhostChain;
+                default:
+                    return reason;
+            }
+        }
+
+        /// <summary>
+        /// Tracking Station visibility suppression is time-aware: a recording is hidden only
+        /// after one of its child recordings has actually started by the current UT. This keeps
+        /// the current atmospheric continuation visible even when a later future leg already
+        /// exists in the committed chain.
+        /// </summary>
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT)
+        {
+            var suppressed = new HashSet<string>();
+            if (recordings == null)
+                return suppressed;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording child = recordings[i];
+                string parentId = child?.ParentRecordingId;
+                if (string.IsNullOrEmpty(parentId))
+                    continue;
+
+                if (HasTrackingStationChildStarted(child, currentUT))
+                    suppressed.Add(parentId);
+            }
+
+            return suppressed;
+        }
+
+        private static void AddActiveSessionSuppressedRecordingIds(
+            HashSet<string> suppressed, IReadOnlyList<Recording> recordings)
+        {
+            if (suppressed == null || recordings == null)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (!IsSuppressedByActiveSession(i))
+                    continue;
+
+                string recordingId = recordings[i]?.RecordingId;
+                if (!string.IsNullOrEmpty(recordingId))
+                    suppressed.Add(recordingId);
+            }
+        }
+
+        /// <summary>
+        /// Pure: resolve which orbital representation, if any, should back a
+        /// tracking-station ghost at the current UT. Current visible orbit
+        /// segments win over eventual terminal-orbit data so the tracking
+        /// station never advertises a future body/SOI before the recording
+        /// has actually reached that phase.
+        /// </summary>
+        internal static TrackingStationGhostSource ResolveTrackingStationGhostSource(
+            Recording rec,
+            bool isSuppressed,
+            double currentUT,
+            out OrbitSegment segment,
+            out string skipReason)
+        {
+            segment = default(OrbitSegment);
+            skipReason = null;
+            string recId = rec?.RecordingId ?? "(null)";
+
+            TrackingStationGhostSource ReturnDecision(
+                TrackingStationGhostSource source,
+                string reason,
+                string detail = null)
+            {
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    string.Format(ic,
+                        "ts-ghost-source-{0}-{1}-{2}",
+                        recId,
+                        source,
+                        reason ?? "none"),
+                    string.Format(ic,
+                        "ResolveTrackingStationGhostSource: rec={0} currentUT={1:F1} source={2} reason={3}{4}",
+                        recId,
+                        currentUT,
+                        source,
+                        reason ?? "(none)",
+                        string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+                return source;
+            }
+
+            if (rec == null)
+            {
+                skipReason = "null";
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "null recording");
+            }
+
+            if (rec.IsDebris)
+            {
+                skipReason = "debris";
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
+            }
+
+            if (isSuppressed)
+            {
+                skipReason = TrackingStationGhostSkipSuppressed;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuppressed=True");
+            }
+
+            if (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0)
+            {
+                skipReason = TrackingStationGhostSkipAlreadySpawned;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already materialized");
+            }
 
             // Only chain tips with orbital terminal state get ghosts.
             // Orbiting/Docked = in orbit. Null = still active or unfinished (show orbit if available).
@@ -889,29 +1166,92 @@ namespace Parsek
             if (terminal.HasValue
                 && terminal.Value != TerminalState.Orbiting
                 && terminal.Value != TerminalState.Docked)
-                return (false, "terminal-" + terminal.Value);
-
-            // Terminal orbit data (stable orbit) → always show
-            if (HasOrbitData(rec))
-                return (true, null);
-
-            // Orbit segments: find the one matching currentUT
-            if (rec.HasOrbitSegments)
             {
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                if (seg.HasValue)
-                    return (true, null);
-                return (false, "no-current-segment");
+                skipReason = "terminal-" + terminal.Value;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "terminal={0}", terminal.Value));
             }
 
-            return (false, "no-orbit-data");
+            if (rec.HasOrbitSegments)
+            {
+                OrbitSegment? currentSegment =
+                    TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                if (currentSegment.HasValue)
+                {
+                    segment = currentSegment.Value;
+                    return ReturnDecision(
+                        TrackingStationGhostSource.Segment,
+                        skipReason,
+                        string.Format(ic,
+                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                            segment.bodyName ?? "(null)",
+                            segment.startUT,
+                            segment.endUT));
+                }
+            }
+
+            if (!HasOrbitData(rec))
+            {
+                skipReason = rec.HasOrbitSegments ? "no-current-segment" : "no-orbit-data";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments));
+            }
+
+            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
+            if (currentUT < activationStartUT)
+            {
+                skipReason = "before-activation";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
+            }
+
+            if (currentUT < rec.EndUT)
+            {
+                skipReason = "before-terminal-orbit";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "endUT={0:F1}", rec.EndUT));
+            }
+
+            return ReturnDecision(
+                TrackingStationGhostSource.TerminalOrbit,
+                skipReason,
+                string.Format(ic,
+                    "terminalBody={0} endUT={1:F1}",
+                    rec.TerminalOrbitBody ?? "(null)",
+                    rec.EndUT));
+        }
+
+        /// <summary>
+        /// Pure: should a tracking station ghost ProtoVessel be created for this recording?
+        /// Only recordings that are not currently hidden by an already-started child and that
+        /// have an active visible orbit segment or a reached terminal orbital endpoint qualify.
+        /// Returns a reason string for logging when skipped.
+        /// </summary>
+        internal static (bool shouldCreate, string skipReason) ShouldCreateTrackingStationGhost(
+            Recording rec, bool isSuppressed, double currentUT)
+        {
+            TrackingStationGhostSource source = ResolveTrackingStationGhostSource(
+                rec,
+                isSuppressed,
+                currentUT,
+                out _,
+                out string skipReason);
+            return (source != TrackingStationGhostSource.None, skipReason);
         }
 
         /// <summary>
         /// Create ghost ProtoVessels for committed recordings suitable for tracking station display.
-        /// Chain-aware: only creates ghosts for chain tip recordings (not intermediate segments
-        /// that have been superseded by later recordings). Skips debris, non-orbital terminal
-        /// states, and recordings without orbital data at the current UT.
+        /// Chain-aware: only creates ghosts for recordings that are not currently hidden by an
+        /// already-started child recording. Skips debris, non-orbital terminal states, and
+        /// recordings without orbital data at the current UT.
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
@@ -922,6 +1262,7 @@ namespace Parsek
             // settings.cfg) wins over the pre-#388 default.
             if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
                 int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
                 ParsekLog.Info(Tag,
                     string.Format(ic,
@@ -932,50 +1273,51 @@ namespace Parsek
             }
 
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return 0;
+            if (committed == null || committed.Count == 0)
+            {
+                CachedTrackingStationSuppressedIds = new HashSet<string>();
+                return 0;
+            }
 
-            // Step 1: identify superseded recordings (intermediate chain segments)
-            var superseded = FindSupersededRecordingIds(committed);
+            // Step 1: identify recordings currently hidden by a started child.
+            double currentUT = CurrentUTNow();
+            var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
+            AddActiveSessionSuppressedRecordingIds(suppressed, committed);
+            CachedTrackingStationSuppressedIds = suppressed;
 
-            int created = 0, skippedDebris = 0, skippedSuperseded = 0;
-            int skippedTerminal = 0, skippedNoOrbit = 0, skippedSessionSuppressed = 0;
-            double currentUT = Planetarium.GetUniversalTime();
+            int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;
+            int skippedTerminal = 0, skippedBeforeActivation = 0;
+            int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
+                bool isSuppressed = suppressed.Contains(rec.RecordingId);
 
-                // Phase 7 of Rewind-to-Staging (design §3.3): don't create
-                // presence for recordings inside the active session's closure.
-                if (IsSuppressedByActiveSession(i))
-                {
-                    skippedSessionSuppressed++;
-                    continue;
-                }
-
-                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
-                if (!shouldCreate)
+                TrackingStationGhostSource source = ResolveTrackingStationGhostSource(
+                    rec,
+                    isSuppressed,
+                    currentUT,
+                    out OrbitSegment segment,
+                    out string skipReason);
+                if (source == TrackingStationGhostSource.None)
                 {
                     if (skipReason == "debris") skippedDebris++;
-                    else if (skipReason == "superseded") skippedSuperseded++;
+                    else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
+                    else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
+                    else if (skipReason == "before-activation") skippedBeforeActivation++;
+                    else if (skipReason == "before-terminal-orbit") skippedBeforeTerminalOrbit++;
                     else skippedNoOrbit++;
                     continue;
                 }
 
                 // Use terminal orbit data if available; otherwise use the current orbit segment.
                 Vessel v = null;
-                if (HasOrbitData(rec))
-                {
+                if (source == TrackingStationGhostSource.TerminalOrbit)
                     v = CreateGhostVesselForRecording(i, rec);
-                }
-                else if (rec.HasOrbitSegments)
-                {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                    if (seg.HasValue)
-                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
-                }
+                else if (source == TrackingStationGhostSource.Segment)
+                    v = CreateGhostVesselFromSegment(i, rec, segment);
 
                 if (v != null) created++;
             }
@@ -983,12 +1325,40 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5} sessionSuppressed={6})",
+                    "(skipped: debris={2} suppressed={3} spawned={4} terminal={5} beforeActivation={6} " +
+                    "beforeTerminalOrbit={7} noOrbit={8})",
                     created, committed.Count,
-                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit,
-                    skippedSessionSuppressed));
+                    skippedDebris, skippedSuppressed, skippedSpawned, skippedTerminal,
+                    skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit));
 
             return created;
+        }
+
+        /// <summary>
+        /// Decide whether an already-materialized Tracking Station ghost should retire on this
+        /// lifecycle tick, and if so return the removal reason string to log/store.
+        /// </summary>
+        internal static string GetTrackingStationGhostRemovalReason(
+            Recording rec, bool isSuppressed, bool hasOrbitBounds, double currentUT)
+        {
+            if (rec == null)
+                return "tracking-station-expired";
+
+            if (isSuppressed)
+                return "tracking-station-child-started";
+
+            if (!hasOrbitBounds)
+                return null;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+            return seg.HasValue ? null : "tracking-station-expired";
+        }
+
+        private static bool HasTrackingStationChildStarted(Recording child, double currentUT)
+        {
+            return child != null
+                && child.TryGetGhostActivationStartUT(out double startUT)
+                && currentUT >= startUT;
         }
 
         /// <summary>
@@ -1208,6 +1578,7 @@ namespace Parsek
         /// </summary>
         internal static void ResetForTesting()
         {
+            CurrentUTNow = GetCurrentUTSafe;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();

@@ -702,7 +702,7 @@ namespace Parsek
             if (!sameBody)
                 return "Ghost is on a different body";
             if (!inRange)
-                return "Ghost is beyond camera cutoff";
+                return "Ghost is beyond the fixed 300 km watch range";
             return "Follow ghost in watch mode";
         }
 

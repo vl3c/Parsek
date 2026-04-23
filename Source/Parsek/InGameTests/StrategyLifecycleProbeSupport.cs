@@ -40,6 +40,16 @@ namespace Parsek.InGameTests
             return null;
         }
 
+        internal static bool ShouldHydrateAdministrationSingleton(
+            bool administrationAvailable,
+            bool isSpaceCenterScene,
+            bool isCareerMode)
+        {
+            return !administrationAvailable
+                && isSpaceCenterScene
+                && isCareerMode;
+        }
+
         internal static string FormatExceptionSummary(Exception ex)
         {
             if (ex == null)
@@ -73,6 +83,27 @@ namespace Parsek.InGameTests
         internal static string BuildReadinessWaitingSummary(string readinessReason)
         {
             return $"StrategyLifecycle readiness waiting: {NormalizeDiagnostic(readinessReason)}";
+        }
+
+        internal static string BuildAdministrationHydrationReadySummary(
+            int waitedFrames,
+            int maxFrames)
+        {
+            return $"StrategyLifecycle: hidden Administration canvas hydrated after {waitedFrames}/{maxFrames} frames";
+        }
+
+        internal static string BuildAdministrationHydrationTimeoutSummary(
+            int waitedFrames,
+            int maxFrames)
+        {
+            return $"StrategyLifecycle: hidden Administration canvas failed to hydrate after {waitedFrames}/{maxFrames} frames";
+        }
+
+        internal static string BuildAdministrationHydrationTimeoutDiagnostic(
+            int waitedFrames,
+            int maxFrames)
+        {
+            return $"Administration.Instance stayed null after hidden Administration canvas hydration wait ({waitedFrames}/{maxFrames} frames)";
         }
 
         internal static string BuildProbeDiagnostic(
@@ -152,6 +183,24 @@ namespace Parsek.InGameTests
                 "TestRunner",
                 "StrategyLifecycle-readiness",
                 BuildReadinessWaitingSummary(readinessReason));
+        }
+
+        internal static void LogAdministrationHydrationReady(
+            int waitedFrames,
+            int maxFrames)
+        {
+            ParsekLog.Info(
+                "TestRunner",
+                BuildAdministrationHydrationReadySummary(waitedFrames, maxFrames));
+        }
+
+        internal static void LogAdministrationHydrationTimeout(
+            int waitedFrames,
+            int maxFrames)
+        {
+            ParsekLog.Warn(
+                "TestRunner",
+                BuildAdministrationHydrationTimeoutSummary(waitedFrames, maxFrames));
         }
 
         internal static void LogPollExceptions(
