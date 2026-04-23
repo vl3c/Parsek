@@ -932,5 +932,158 @@ namespace Parsek.Tests
 
             Assert.Equal(before, after);
         }
+
+        // --- Review follow-up: staleness eviction for pendingRecoveryFunds. Unmatched
+        // recovery callbacks that never receive a paired FundsChanged(VesselRecovery)
+        // event must be drained at lifecycle boundaries and fire a WARN listing every
+        // unclaimed entry so missing-payout bugs stay visible.
+        [Fact]
+        public void FlushStalePendingRecoveryFunds_EvictsUnclaimedEntriesWithWarn()
+        {
+            LedgerOrchestrator.OnVesselRecoveryFunds(1000.0, "LeakyProbe", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(1050.0, "LeakyRover", fromTrackingStation: true);
+            Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("scene switch");
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("FlushStalePendingRecoveryFunds") &&
+                l.Contains("scene switch") &&
+                l.Contains("evicting 2") &&
+                l.Contains("LeakyProbe") &&
+                l.Contains("LeakyRover"));
+        }
+
+        [Fact]
+        public void FlushStalePendingRecoveryFunds_EmptyQueue_IsSilentNoOp()
+        {
+            // A scene switch with no pending requests should NOT emit the WARN.
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("scene switch");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("FlushStalePendingRecoveryFunds"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_QueueOverThreshold_EmitsWarn()
+        {
+            // Safety-net trip when lifecycle boundaries miss: queue past the threshold
+            // should emit a WARN identifying the latest deferred request.
+            for (int i = 0; i < LedgerOrchestrator.PendingRecoveryFundsStaleThreshold; i++)
+            {
+                LedgerOrchestrator.OnVesselRecoveryFunds(
+                    2000.0 + i * 0.001, "DebrisBatch" + i, fromTrackingStation: true);
+            }
+
+            // At threshold, no warn yet.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("pending queue exceeded threshold"));
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                2000.5, "LatestDebris", fromTrackingStation: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("pending queue exceeded threshold") &&
+                l.Contains("LatestDebris"));
+        }
+
+        // --- Review follow-up: tighter recovery-fund pairing. When two pending
+        // requests sit at the same UT with different vessel names, a FundsChanged
+        // event carrying a vessel name (via evt.detail) must prefer the name match
+        // instead of just picking nearest-UT.
+        [Fact]
+        public void OnRecoveryFundsEventRecorded_VesselNameMatch_PreferredOverNearestUT()
+        {
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket A", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket B", fromTrackingStation: false);
+            Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            // Event tagged with "Rocket A" in detail should pair the A pending
+            // request even though both sit at identical UT.
+            var evt = new GameStateEvent
+            {
+                ut = 3000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = "Rocket A",
+                valueBefore = 100.0,
+                valueAfter = 1100.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            // One request remains (Rocket B).
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            // The pairing log identifies the vessel name used for the successful
+            // pairing — proof that "Rocket A" (not "Rocket B") won this tier-1 pass.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("vessel='Rocket A'"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("vessel='Rocket B'"));
+        }
+
+        [Fact]
+        public void OnRecoveryFundsEventRecorded_VesselNameMatchTie_LogsWarn()
+        {
+            // Two same-named same-UT pending requests: after name-match filtering they
+            // still tie on distance=0. Pairing still succeeds (first in list order) but
+            // the tie must be logged so the ambiguity is visible.
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", fromTrackingStation: false);
+
+            var evt = new GameStateEvent
+            {
+                ut = 4000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = "Twin Probe",
+                valueBefore = 200.0,
+                valueAfter = 700.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("multiple pending requests tied") &&
+                l.Contains("name-match") &&
+                l.Contains("Twin Probe"));
+        }
+
+        [Fact]
+        public void OnRecoveryFundsEventRecorded_NoNameMatchFallsBackToNearestUT()
+        {
+            // Event tagged with a name that doesn't match any pending request: the
+            // legacy nearest-UT fallback still pairs the closest one, preserving the
+            // #444 contract for events without a usable name hint.
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Alpha", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.1, "Beta", fromTrackingStation: false);
+
+            var evt = new GameStateEvent
+            {
+                ut = 5000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = "Gamma", // unmatched
+                valueBefore = 500.0,
+                valueAfter = 1500.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            // Alpha (ut=5000.0) is nearest to evt.ut=5000.0 so it wins the fallback.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("vessel='Alpha'"));
+        }
     }
 }

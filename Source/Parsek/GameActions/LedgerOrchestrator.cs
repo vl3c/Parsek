@@ -1614,7 +1614,10 @@ namespace Parsek
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             migrateOldSaveEventsRanThisLoad = false;
             consumedRecoveryEventKeys.Clear();
-            pendingRecoveryFunds.Clear();
+            // Log-before-clear so any stale entries from the previous session show up
+            // in KSP.log before we drop them. Matches the FlushStalePendingRecoveryFunds
+            // contract used at scene-switch / rewind-end boundaries.
+            FlushStalePendingRecoveryFunds("KSP load");
 
             // Reconcile first — prunes orphaned actions from the existing ledger.
             // On empty ledger (old save), this is a no-op.
@@ -3238,6 +3241,7 @@ namespace Parsek
         /// instead of mutable store indices so later list pruning/reindexing cannot
         /// retarget a consumed marker onto a different event.
         /// Cleared by <see cref="OnKspLoad"/> and <see cref="ResetForTesting"/>.
+        /// Written exclusively from <see cref="TryAddVesselRecoveryFundsAction"/>.
         /// </summary>
         private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
 
@@ -3250,6 +3254,16 @@ namespace Parsek
 
         private static readonly List<PendingRecoveryFundsRequest> pendingRecoveryFunds =
             new List<PendingRecoveryFundsRequest>();
+
+        /// <summary>
+        /// Hard cap on how many unmatched recovery requests can accumulate before the
+        /// list itself becomes a leak signal. Staleness eviction also runs on lifecycle
+        /// boundaries (<see cref="OnKspLoad"/>, rewind end, scene switch), but this
+        /// threshold is the safety net when a boundary is missed. Chosen to absorb the
+        /// largest realistic bulk-recover-debris burst while still flagging runaway
+        /// growth — stock debris recovery batches rarely exceed a handful per UT epsilon.
+        /// </summary>
+        internal const int PendingRecoveryFundsStaleThreshold = 5;
 
         /// <summary>
         /// Stable fingerprint for a FundsChanged(VesselRecovery) event. Internal for
@@ -3339,6 +3353,20 @@ namespace Parsek
                 VesselName = vesselName,
                 FromTrackingStation = fromTrackingStation
             });
+
+            // Safety net: if the list grows past the staleness threshold without a
+            // matching FundsChanged(VesselRecovery) event draining it, something
+            // upstream stopped firing paired events. Lifecycle flushes
+            // (OnKspLoad / rewind end / scene switch) normally catch this, but this
+            // log keeps a footprint in KSP.log when a leak happens mid-session.
+            if (pendingRecoveryFunds.Count > PendingRecoveryFundsStaleThreshold)
+            {
+                ParsekLog.Warn(Tag,
+                    $"OnVesselRecoveryFunds: pending queue exceeded threshold " +
+                    $"(count={pendingRecoveryFunds.Count} > {PendingRecoveryFundsStaleThreshold}) " +
+                    $"— paired FundsChanged(VesselRecovery) events may be missing. " +
+                    $"Latest deferred request vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
         }
 
         internal static int PendingRecoveryFundsCountForTesting => pendingRecoveryFunds.Count;
@@ -3350,22 +3378,32 @@ namespace Parsek
             if (evt.key != VesselRecoveryReasonKey)
                 return;
 
+            // Initialize() is idempotent: it short-circuits on the `initialized` flag so
+            // repeated calls cost one branch. See LedgerOrchestrator.Initialize().
             Initialize();
             if (pendingRecoveryFunds.Count == 0)
                 return;
 
-            int bestIndex = -1;
-            double bestDistance = double.MaxValue;
-            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
-            {
-                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - evt.ut);
-                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
-                if (distance >= bestDistance) continue;
+            // Two-tier pairing:
+            //
+            //   Tier 1 — Vessel-name preferred. If the event carries a vessel name
+            //            (propagated through GameStateEvent.detail on future recovery
+            //            paths; currently set only by synthetic test events), prefer
+            //            pending requests whose VesselName matches. This protects
+            //            against mis-pairing when two same-UT recoveries of different
+            //            vessels arrive and the funds events interleave out of order.
+            //
+            //   Tier 2 — Nearest UT. Legacy behavior: pick the pending request whose
+            //            UT is closest to the event UT inside the epsilon window.
+            //
+            // When multiple candidates tie after the name-match filter and share the
+            // same UT distance within the epsilon, we still pick the first match but
+            // log a WARN listing every tied candidate so the ambiguity is visible in
+            // KSP.log. This preserves the #444 callback-before-event contract without
+            // introducing silent mis-pairing.
+            string eventVesselName = evt.detail ?? "";
 
-                bestIndex = i;
-                bestDistance = distance;
-            }
-
+            int bestIndex = FindBestPairingIndex(evt.ut, eventVesselName);
             if (bestIndex < 0)
                 return;
 
@@ -3377,6 +3415,150 @@ namespace Parsek
             {
                 pendingRecoveryFunds.RemoveAt(bestIndex);
             }
+        }
+
+        /// <summary>
+        /// Picks the best pending recovery-funds request for a FundsChanged(VesselRecovery)
+        /// event using the two-tier policy documented on <see cref="OnRecoveryFundsEventRecorded"/>.
+        /// Internal static for direct testability.
+        /// </summary>
+        /// <remarks>
+        /// <para>Ties after vessel-name matching at identical UT distance fall back to the
+        /// first match (list order) but emit a WARN so the ambiguity is visible.</para>
+        /// </remarks>
+        internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
+        {
+            if (pendingRecoveryFunds.Count == 0)
+                return -1;
+
+            bool haveName = !string.IsNullOrEmpty(eventVesselName);
+
+            // Tier 1: vessel-name preferred pass.
+            int nameMatchBestIndex = -1;
+            double nameMatchBestDistance = double.MaxValue;
+            int nameMatchTies = 0;
+            if (haveName)
+            {
+                for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+                {
+                    if (!string.Equals(pendingRecoveryFunds[i].VesselName,
+                            eventVesselName, StringComparison.Ordinal))
+                        continue;
+
+                    double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                    if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                    if (distance < nameMatchBestDistance)
+                    {
+                        nameMatchBestIndex = i;
+                        nameMatchBestDistance = distance;
+                        nameMatchTies = 1;
+                    }
+                    else if (distance == nameMatchBestDistance)
+                    {
+                        nameMatchTies++;
+                    }
+                }
+            }
+
+            if (nameMatchBestIndex >= 0)
+            {
+                if (nameMatchTies > 1)
+                {
+                    WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: true,
+                        bestDistance: nameMatchBestDistance);
+                }
+                return nameMatchBestIndex;
+            }
+
+            // Tier 2: nearest UT fallback.
+            int fallbackBestIndex = -1;
+            double fallbackBestDistance = double.MaxValue;
+            int fallbackTies = 0;
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                if (distance < fallbackBestDistance)
+                {
+                    fallbackBestIndex = i;
+                    fallbackBestDistance = distance;
+                    fallbackTies = 1;
+                }
+                else if (distance == fallbackBestDistance)
+                {
+                    fallbackTies++;
+                }
+            }
+
+            if (fallbackBestIndex >= 0 && fallbackTies > 1)
+            {
+                WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: false,
+                    bestDistance: fallbackBestDistance);
+            }
+
+            return fallbackBestIndex;
+        }
+
+        private static void WarnPairingCandidateTie(
+            double eventUt, string eventVesselName, bool byNameMatch, double bestDistance)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+                if (byNameMatch &&
+                    !string.Equals(pendingRecoveryFunds[i].VesselName,
+                        eventVesselName, StringComparison.Ordinal))
+                    continue;
+                if (distance != bestDistance) continue;
+
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
+                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+            }
+
+            string tier = byNameMatch ? "name-match" : "nearest-UT";
+            ParsekLog.Warn(Tag,
+                $"OnRecoveryFundsEventRecorded: multiple pending requests tied at " +
+                $"{tier} distance={bestDistance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"for event ut={eventUt.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"vesselName='{eventVesselName ?? ""}'. Candidates: [{sb}]. " +
+                $"Picking first match in list order.");
+        }
+
+        /// <summary>
+        /// Drains unclaimed <see cref="pendingRecoveryFunds"/> entries at a lifecycle
+        /// boundary (scene switch, rewind end, load). Any entry still waiting for a
+        /// paired FundsChanged(VesselRecovery) event past the boundary cannot pair
+        /// afterward — the funds event would have arrived by now if stock was going to
+        /// fire it. The WARN lists every unclaimed entry so a missing-payout bug stays
+        /// visible instead of silently leaking into the next session's pending list.
+        /// </summary>
+        /// <param name="reason">Human-readable reason for the flush (e.g., "scene switch",
+        /// "rewind end", "KSP load"). Appears in the WARN log line for diagnostics.</param>
+        internal static void FlushStalePendingRecoveryFunds(string reason)
+        {
+            if (pendingRecoveryFunds.Count == 0)
+                return;
+
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
+                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+            }
+
+            ParsekLog.Warn(Tag,
+                $"FlushStalePendingRecoveryFunds ({reason ?? ""}): " +
+                $"evicting {pendingRecoveryFunds.Count} unclaimed recovery request(s) " +
+                $"that never received a paired FundsChanged(VesselRecovery) event. " +
+                $"Entries: [{sb}]");
+
+            pendingRecoveryFunds.Clear();
         }
 
         /// <summary>
