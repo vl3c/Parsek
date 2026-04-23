@@ -111,6 +111,14 @@ namespace Parsek
             testRunnerWindowHasInputLock = false;
         }
 
+        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        {
+            return ParsekUI.IsPointerOverOpenWindow(
+                showTestRunnerWindow,
+                testRunnerWindowRect,
+                mousePosition);
+        }
+
         private void RebuildTestGroupCache()
         {
             var groups = new Dictionary<string, List<InGameTestInfo>>();

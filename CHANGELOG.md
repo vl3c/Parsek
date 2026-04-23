@@ -101,6 +101,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- `#563` Tracking Station now has a Parsek toolbar button and compact in-scene control surface. The panel exposes the Tracking Station ghost-visibility toggle, shared Recordings and Settings windows, and a small status readout for committed recordings, map ghosts, suppressed entries, and materialized vessels.
 - Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
 - Timeline recording rows now expose the same `W` / `W*` watch control as the Recordings Manager, including disabled states when a ghost is unavailable and a clickable `W*` to stop watching.
 
@@ -139,6 +140,7 @@ All notable changes to Parsek are documented here.
 - `#560` The default solution build now compiles the deployable `Parsek` plugin project only, avoiding SDK 6.0's parallel solution-build false exit `1`; full test validation remains `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj`.
 - `#556` Added headless coverage for known ghost NRE suppression plus earlier/later non-ghost missing-renderer mixes, different-stock-offset, unrelated-exception, and prior-stock-null `buildVesselsList` exception handling.
 - `#562` Added a headless regression that pins `GhostTrackingStationSelection.TryClearSelectedVessel` to the deselection-only orbit-renderer/patched-conics path and asserts it does not invoke stock `SetVessel` on the cleared selection.
+- `#563` Added headless Tracking Station control-surface UI coverage for status counts, compact labels, ghost-visibility setting application, and reuse of the shared Recordings/Settings window wiring.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.

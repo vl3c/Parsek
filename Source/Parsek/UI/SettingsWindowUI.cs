@@ -102,6 +102,14 @@ namespace Parsek
             settingsWindowHasInputLock = false;
         }
 
+        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        {
+            return ParsekUI.IsPointerOverOpenWindow(
+                showSettingsWindow,
+                settingsWindowRect,
+                mousePosition);
+        }
+
         private void CommitAutoLoopEdit(ParsekSettings s)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;

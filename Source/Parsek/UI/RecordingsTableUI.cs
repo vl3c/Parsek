@@ -247,6 +247,14 @@ namespace Parsek
             this.groupPicker = new GroupPickerUI(parentUI);
         }
 
+        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        {
+            return ParsekUI.IsPointerOverOpenWindow(
+                showRecordingsWindow,
+                recordingsWindowRect,
+                mousePosition);
+        }
+
         /// <summary>
         /// Called by the Timeline GoTo button. Ensures the target recording is visible
         /// (unhides if hidden, disables hide filter if needed, expands parent groups),
@@ -1396,7 +1404,7 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
 
             // Group assignment button (split with X delete for ghost-only recordings)
-            if (rec.IsGhostOnly)
+            if (rec.IsGhostOnly && CanOfferGhostOnlyDelete(parentUI.Mode))
             {
                 bool ghostGClicked, ghostXClicked;
                 DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out ghostGClicked, out ghostXClicked);
@@ -3058,6 +3066,12 @@ namespace Parsek
         {
             // [ERS-exempt] reason: delete operates by index into the raw
             // committed list. See TODO(phase 6+) on DrawRecordingsWindow.
+            if (!CanOfferGhostOnlyDelete(parentUI.Mode))
+            {
+                ParsekLog.Warn("UI",
+                    $"DeleteGhostOnlyRecording ignored in {parentUI.Mode} mode: index={index}");
+                return;
+            }
             var committed = RecordingStore.CommittedRecordings;
             if (index < 0 || index >= committed.Count)
             {
@@ -3087,6 +3101,11 @@ namespace Parsek
             InvalidateSort();
             ParsekLog.Info("UI",
                 $"Deleted ghost-only recording \"{rec.VesselName}\" (id={rec.RecordingId})");
+        }
+
+        internal static bool CanOfferGhostOnlyDelete(UIMode mode)
+        {
+            return mode != UIMode.TrackingStation;
         }
 
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)

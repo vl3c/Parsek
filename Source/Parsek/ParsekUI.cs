@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Parsek
 {
-    public enum UIMode { Flight, KSC }
+    public enum UIMode { Flight, KSC, TrackingStation }
 
     /// <summary>
     /// UI rendering for the Parsek window and map view markers.
@@ -78,8 +78,10 @@ namespace Parsek
         internal readonly TimeRangeFilterState TimeRangeFilter = new TimeRangeFilterState();
 
         internal ParsekFlight Flight => flight;
+        internal UIMode Mode => mode;
         internal bool InFlightMode => InFlight;
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
+        internal SettingsWindowUI GetSettingsWindowUI() => settingsUI;
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
         internal CareerStateWindowUI GetCareerStateUI() { return careerStateUI; }
 
@@ -198,10 +200,7 @@ namespace Parsek
             // session-suppressed).
             int committedCount = EffectiveState.ComputeERS().Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
-            {
-                recordingsTableUI.IsOpen = !recordingsTableUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
-            }
+                ToggleRecordingsWindow();
 
             GUILayout.Space(SpacingLarge);
 
@@ -233,10 +232,7 @@ namespace Parsek
 
             // --- Settings ---
             if (GUILayout.Button("Settings"))
-            {
-                settingsUI.IsOpen = !settingsUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Settings window toggled: {(settingsUI.IsOpen ? "open" : "closed")}");
-            }
+                ToggleSettingsWindow();
 
             // --- Version footer (version on the left, Close button fills the rest) ---
             GUILayout.Space(SpacingLarge);
@@ -348,6 +344,18 @@ namespace Parsek
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
         {
             recordingsTableUI.DrawIfOpen(mainWindowRect);
+        }
+
+        internal void ToggleRecordingsWindow()
+        {
+            recordingsTableUI.IsOpen = !recordingsTableUI.IsOpen;
+            ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
+        }
+
+        internal void ToggleSettingsWindow()
+        {
+            settingsUI.IsOpen = !settingsUI.IsOpen;
+            ParsekLog.Verbose("UI", $"Settings window toggled: {(settingsUI.IsOpen ? "open" : "closed")}");
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -943,6 +951,21 @@ namespace Parsek
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)
         {
             testRunnerUI.DrawIfOpen(mainWindowRect, host);
+        }
+
+        internal bool IsMouseOverOpenAuxiliaryWindows(Vector2 mousePosition)
+        {
+            return recordingsTableUI.IsMouseOverOpenWindow(mousePosition)
+                || settingsUI.IsMouseOverOpenWindow(mousePosition)
+                || testRunnerUI.IsMouseOverOpenWindow(mousePosition);
+        }
+
+        internal static bool IsPointerOverOpenWindow(bool isOpen, Rect windowRect, Vector2 mousePosition)
+        {
+            return isOpen
+                && windowRect.width > 0f
+                && windowRect.height > 0f
+                && windowRect.Contains(mousePosition);
         }
 
         internal void ToggleTestRunner()

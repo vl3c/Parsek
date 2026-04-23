@@ -732,6 +732,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~563. Tracking Station needs an in-scene Parsek control surface comparable to Map View~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** Map View and Flight/KSC scenes expose the Parsek button/window surface, while Tracking Station mostly exposes only stock map objects plus defensive ghost blocking. A player can inspect ghosts there but cannot conveniently toggle Parsek ghost visibility, open Recordings/Settings, see Parsek status, or understand why a TS object is ghost-only, materialized, suppressed, or blocked.
+
+**Fix:** Tracking Station now installs a Parsek toolbar button and draws a compact IMGUI control surface using the same opaque window styling as the existing scene UI. The panel exposes the sticky `Show ghosts in Tracking Station` toggle, shared Recordings and Settings windows, and status rows for committed recordings, current map ghosts, suppressed entries, and materialized vessels. The ghost toggle updates live settings when available, persists through `ParsekSettingsPersistence`, removes ghost ProtoVessels immediately when disabled, and forces the next lifecycle tick when changed.
+
+**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek.Tests/TrackingStationControlSurfaceUITests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 by `#563`. Runtime collection of Tracking Station scene smoke evidence remains tracked separately by `#554`.
+
+---
+
 ## ~~553. Untagged pre-recording FLIGHT contract events can miss the ledger because the direct path was KSC-only~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. The launch-site contract path emitted untagged `ContractAccepted` / `ContractCompleted` events with `tag=''` and no recording owner, while the ledger needed the accepted contract to preserve the active contract and advance.
