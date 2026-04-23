@@ -1072,6 +1072,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LooksLikeSaveLoadTeleportBoundary_RunwaySurfaceToAtmoBoundary_ReturnsFalse()
+        {
+            var runwaySurface = MakeSection(
+                100.0, 107.0, TrackSectionSource.Active,
+                alt: 70.0, endAlt: 70.0);
+            runwaySurface.environment = SegmentEnvironment.SurfaceStationary;
+
+            var takeoffAtmo = MakeSection(
+                107.0, 130.0, TrackSectionSource.Active,
+                alt: 70.0, endAlt: 1200.0);
+            takeoffAtmo.environment = SegmentEnvironment.Atmospheric;
+
+            Assert.False(SessionMerger.LooksLikeSaveLoadTeleportBoundary(
+                new List<TrackSection> { runwaySurface, takeoffAtmo },
+                runwaySurface,
+                takeoffAtmo));
+        }
+
+        [Fact]
         public void MergeTree_DiscontinuityWarning_OverlapSeam_TaggedSaveLoadTeleport()
         {
             var futureTail = MakeSection(

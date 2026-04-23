@@ -102,6 +102,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReentryFireDensityTunables_PinExpectedEmissionRangeAndCap()
+        {
+            Assert.Equal(2f, GhostVisualBuilder.ReentryFireDensityMultiplier);
+            Assert.Equal(600f, GhostVisualBuilder.ReentryFireEmissionMin);
+            Assert.Equal(4000f, GhostVisualBuilder.ReentryFireEmissionMax);
+            Assert.Equal(2000, GhostVisualBuilder.ReentryFireMaxParticles);
+        }
+
+        [Fact]
         public void TryGetSnapshotRootPartInfo_UsesSnapshotRootIndex()
         {
             var snapshot = new ConfigNode("VESSEL");

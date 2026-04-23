@@ -312,6 +312,66 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
 
+        [Fact]
+        public void RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch()
+        {
+            LedgerOrchestrator.Initialize();
+            RecordingStore.StashPendingTree(new RecordingTree
+            {
+                Id = "tree-scene-load",
+                TreeName = "SceneLoadTree",
+                RootRecordingId = "rec-scene-load",
+                ActiveRecordingId = "rec-scene-load"
+            });
+
+            LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(100.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("SceneLoadTree"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void HasActionsAfterUT_WhenLaterActionExists_ReturnsTrue()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 250.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f
+            });
+
+            Assert.True(LedgerOrchestrator.HasActionsAfterUT(200.0));
+        }
+
+        [Fact]
+        public void HasActionsAfterUT_WhenAllActionsAreAtOrBeforeThreshold_ReturnsFalse()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f
+            });
+
+            Assert.False(LedgerOrchestrator.HasActionsAfterUT(200.0));
+        }
+
         // ================================================================
         // Multiple recalculations (idempotency)
         // ================================================================
@@ -928,6 +988,87 @@ namespace Parsek.Tests
             // Default: 2 contract slots, 1 strategy slot
             Assert.Equal(2, LedgerOrchestrator.Contracts.GetAvailableSlots());
             Assert.Equal(1, LedgerOrchestrator.Strategies.GetAvailableSlots());
+        }
+
+        // ================================================================
+        // Recent KSC tech-unlock debit holdback
+        // ================================================================
+
+        [Fact]
+        public void ComputePendingRecentKscTechResearchScienceDebit_UnmatchedBurstReturnsGap()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 42.1,
+                    valueAfter = 17.1
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 20f
+                },
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceSpending,
+                    RecordingId = "rec-flight",
+                    Cost = 99f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscTechResearchScienceDebit(
+                events,
+                actions,
+                nowUt: 1000.05);
+
+            Assert.Equal(5.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscTechResearchScienceDebit_WhenLedgerCaughtUpReturnsZero()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1200.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 31.0,
+                    valueAfter = 6.0
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1200.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 15f
+                },
+                new GameAction
+                {
+                    UT = 1200.04,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 10f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscTechResearchScienceDebit(
+                events,
+                actions,
+                nowUt: 1200.02);
+
+            Assert.Equal(0.0, pending, 3);
         }
 
         // ================================================================

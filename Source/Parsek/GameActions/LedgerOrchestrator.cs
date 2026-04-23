@@ -1146,6 +1146,32 @@ namespace Parsek
         /// </param>
         internal static void RecalculateAndPatch(double? utCutoff = null)
         {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: utCutoff.HasValue,
+                authoritativeRepeatableRecordState: utCutoff.HasValue);
+        }
+
+        /// <summary>
+        /// Post-rewind FLIGHT-load follow-up recalculation that filters the walk to
+        /// the currently loaded UT without opting into rewind-only patch side
+        /// effects. Unlike the normal explicit-cutoff path, this preserves
+        /// pending/live-tree patch deferral and same-branch repeatable-record
+        /// preservation.
+        /// </summary>
+        internal static void RecalculateAndPatchForPostRewindFlightLoad(double utCutoff)
+        {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: false,
+                authoritativeRepeatableRecordState: false);
+        }
+
+        private static void RecalculateAndPatchCore(
+            double? utCutoff,
+            bool bypassPatchDeferral,
+            bool authoritativeRepeatableRecordState)
+        {
             Initialize();
 
             // Seed initial balances for career mode (per-resource, idempotent).
@@ -1224,14 +1250,17 @@ namespace Parsek
             // #440 Phase E2: post-walk reconciliation for strategy-transformed
             // and curve-applied reward types. Runs once per walk, log-only,
             // after derived fields (Transformed*Reward/EffectiveRep/
-            // EffectiveScience) are populated and before KSP state is patched.
+            // EffectiveScience) are populated and before the later KSP patch/defer
+            // branch decides whether this walk mutates live game state.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
             // #466: a live or pending tree means KSP's mutable state may already include
             // uncommitted in-flight effects that the committed-only ledger cannot see yet.
             // Walking the committed ledger is still useful, but writing that partial state
             // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            string patchDeferralReason = bypassPatchDeferral
+                ? null
+                : GetKspPatchDeferralReason();
             if (!string.IsNullOrEmpty(patchDeferralReason))
             {
                 ParsekLog.Verbose(Tag,
@@ -1247,7 +1276,7 @@ namespace Parsek
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
-                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1263,11 +1292,20 @@ namespace Parsek
             OnTimelineDataChanged?.Invoke();
         }
 
-        private static string GetKspPatchDeferralReason(double? utCutoff)
+        internal static bool HasActionsAfterUT(double ut)
         {
-            if (utCutoff.HasValue)
-                return null;
+            for (int i = 0; i < Ledger.Actions.Count; i++)
+            {
+                var action = Ledger.Actions[i];
+                if (action != null && action.UT > ut)
+                    return true;
+            }
 
+            return false;
+        }
+
+        private static string GetKspPatchDeferralReason()
+        {
             bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
             bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
             bool hasPendingTree = RecordingStore.HasPendingTree;
@@ -2948,6 +2986,7 @@ namespace Parsek
         /// <c>TransactionReasons.VesselRecovery.ToString()</c> — drift logs WARN.
         /// </summary>
         internal const string VesselRecoveryReasonKey = "VesselRecovery";
+        internal const string TechResearchScienceReasonKey = "RnDTechResearch";
 
         /// <summary>
         /// Dedup fingerprints of FundsChanged(VesselRecovery) events already consumed by
@@ -3747,7 +3786,7 @@ namespace Parsek
                         Class = KscReconcileClass.Untransformed,
                         ScienceLeg = CreateExpectationLeg(
                             GameStateEventType.ScienceChanged,
-                            "RnDTechResearch",
+                            TechResearchScienceReasonKey,
                             -action.Cost)
                     };
 
@@ -5656,6 +5695,76 @@ namespace Parsek
             if (provider != null)
                 return provider();
             return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>
+        /// Pure helper for the live KSC tech-unlock race: when KSP has already applied a
+        /// recent <c>ScienceChanged(RnDTechResearch)</c> debit but the matching
+        /// <c>TechResearched -> ScienceSpending</c> action has not landed in the ledger yet,
+        /// this returns the unmatched science amount that would otherwise be refunded by
+        /// <see cref="KspStatePatcher.PatchScience"/>.
+        /// </summary>
+        internal static double ComputePendingRecentKscTechResearchScienceDebit(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            double nowUt)
+        {
+            double observedDebit = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var evt = events[i];
+                    if (evt.eventType != GameStateEventType.ScienceChanged)
+                        continue;
+                    if (!string.Equals(evt.key, TechResearchScienceReasonKey, StringComparison.Ordinal))
+                        continue;
+                    if (evt.valueAfter >= evt.valueBefore)
+                        continue;
+                    if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    observedDebit += evt.valueBefore - evt.valueAfter;
+                }
+            }
+
+            if (observedDebit <= 0.1)
+                return 0.0;
+
+            double committedDebit = 0.0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action == null)
+                        continue;
+                    if (action.Type != GameActionType.ScienceSpending)
+                        continue;
+                    if (!string.IsNullOrEmpty(action.RecordingId))
+                        continue;
+                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    committedDebit += action.Cost;
+                }
+            }
+
+            double pendingDebit = observedDebit - committedDebit;
+            return pendingDebit > 0.1 ? pendingDebit : 0.0;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingRecentKscTechResearchScienceDebit"/>.
+        /// Uses the current GameStateStore / ledger state and the affordability "now UT"
+        /// seam so both production and tests evaluate the same recent-action window.
+        /// </summary>
+        internal static double GetPendingRecentKscTechResearchScienceDebit()
+        {
+            return ComputePendingRecentKscTechResearchScienceDebit(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GetNowUT());
         }
 
         /// <summary>
