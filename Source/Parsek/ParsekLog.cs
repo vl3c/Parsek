@@ -57,6 +57,12 @@ namespace Parsek
         [ThreadStatic]
         internal static bool? VerboseOverrideForTesting;
 
+        // Test seam: when set, ScreenMessage routes through this callback
+        // instead of Unity's ScreenMessages.PostScreenMessage so unit tests
+        // can assert on user-facing toasts without a live Unity canvas.
+        [ThreadStatic]
+        internal static Action<string, float> ScreenMessageSinkForTesting;
+
         public static bool IsVerboseEnabled =>
             VerboseOverrideForTesting ?? (ParsekSettings.Current?.verboseLogging ?? true);
 
@@ -72,6 +78,7 @@ namespace Parsek
             TestSinkForTesting = null;
             TestObserverForTesting = null;
             VerboseOverrideForTesting = null;
+            ScreenMessageSinkForTesting = null;
             ResetRateLimitsForTesting();
             ResetRecStateForTesting();
         }
@@ -265,6 +272,12 @@ namespace Parsek
 
         public static void ScreenMessage(string message, float duration)
         {
+            var sink = ScreenMessageSinkForTesting;
+            if (sink != null)
+            {
+                sink(message ?? string.Empty, duration);
+                return;
+            }
             ScreenMessages.PostScreenMessage(
                 $"[Parsek] {message}",
                 duration,

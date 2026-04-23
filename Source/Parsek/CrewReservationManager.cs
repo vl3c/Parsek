@@ -192,7 +192,10 @@ namespace Parsek
             // RemoveSpecificCrewFromSnapshot for EVA'd crew, UnreserveCrewInSnapshot).
             // Swapping or orphan-placing into a spawned vessel is always wrong — it
             // fills empty seats that are intentionally empty (crew who EVA'd or died).
-            var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+            // [Phase 3] ERS-routed: spawned-PID set is derived from the Effective
+            // Recording Set so NotCommitted / superseded / session-suppressed
+            // recordings no longer claim active-vessel spawn attribution.
+            var spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
             uint activePid = FlightGlobals.ActiveVessel.persistentId;
             if (spawnedPids.Contains(activePid))
             {
@@ -320,7 +323,10 @@ namespace Parsek
             // state) — VesselSnapshot is end-of-recording and would not contain a
             // crew member who EVA'd mid-recording.
             var snapshots = new List<ConfigNode>();
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: orphan crew placement walks visible recordings
+            // (design §3.4 crew reservations reader). NotCommitted / superseded
+            // recordings no longer contribute ghost snapshots.
+            var committed = EffectiveState.ComputeERS();
             if (committed != null)
             {
                 for (int i = 0; i < committed.Count; i++)
@@ -647,7 +653,9 @@ namespace Parsek
             // don't delete EVA vessels that Parsek intentionally created.
             // Accept pre-built set to avoid redundant iteration when caller already has one.
             if (spawnedPids == null)
-                spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+                // [Phase 3] ERS-routed: see Phase 3 comment on BuildSpawnedVesselPidSet
+                // usage above; same reasoning applies here.
+                spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
 
             int evaRemoved = 0;
             int loadedKept = 0;
@@ -1189,6 +1197,169 @@ namespace Parsek
 
         #endregion
 
+        #region Phase 9 reservation recompute after tombstones (design §6.6 step 6 / §7.16)
+
+        /// <summary>
+        /// Phase 9 of Rewind-to-Staging (design §6.6 step 6 / §7.16 / §10.4):
+        /// re-derives the crew reservation dictionary after
+        /// <see cref="SupersedeCommit.CommitTombstones"/> has appended new
+        /// <see cref="LedgerTombstone"/>s.
+        ///
+        /// <para>
+        /// Walks the Effective Ledger Set (tombstoned actions filtered out per
+        /// §3.2) and replays every surviving <see cref="GameActionType.KerbalAssignment"/>
+        /// action through <see cref="KerbalsModule.ProcessAction"/>, then calls
+        /// <see cref="KerbalsModule.PostWalk"/> and
+        /// <see cref="KerbalsModule.ApplyToRoster"/> so the
+        /// <see cref="CrewReservationManager"/> replacement dictionary is
+        /// refreshed. Kerbals whose <see cref="KerbalEndState.Dead"/> action
+        /// was just tombstoned fall out of the reservation set and their
+        /// stand-ins get cleaned up through the usual <see cref="ApplyToRoster"/>
+        /// step.
+        /// </para>
+        ///
+        /// <para>
+        /// Safe to call with no module wired (e.g. early boot, unit tests): the
+        /// method short-circuits with a Verbose log.
+        /// </para>
+        /// </summary>
+        public static void RecomputeAfterTombstones()
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals == null)
+            {
+                ParsekLog.Verbose("CrewReservations",
+                    "RecomputeAfterTombstones: no KerbalsModule — skipping");
+                return;
+            }
+
+            // ELS = ledger minus tombstones (design §3.2). This is the only
+            // source of truth for "which kerbal assignments are still effective."
+            var els = EffectiveState.ComputeELS();
+            var kerbalAssignments = new List<GameAction>();
+            if (els != null)
+            {
+                for (int i = 0; i < els.Count; i++)
+                {
+                    var a = els[i];
+                    if (a == null) continue;
+                    if (a.Type != GameActionType.KerbalAssignment) continue;
+                    kerbalAssignments.Add(a);
+                }
+            }
+
+            kerbals.Reset();
+            kerbals.PrePass(kerbalAssignments);
+            for (int i = 0; i < kerbalAssignments.Count; i++)
+                kerbals.ProcessAction(kerbalAssignments[i]);
+            kerbals.PostWalk();
+
+            // ApplyToRoster refreshes the replacement dictionary via
+            // ClearReplacementsInternal + SetReplacement. Roster may be absent
+            // in headless / test contexts; ApplyToRoster logs and no-ops.
+            kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+
+            int remaining = 0;
+            foreach (var _ in kerbals.Reservations)
+                remaining++;
+
+            ParsekLog.Info("CrewReservations",
+                $"Recomputed after tombstones: {remaining} reservations remain.");
+        }
+
+        #endregion
+
+        #region Phase 7 dual-residence carve-out (design §3.3.1)
+
+        /// <summary>
+        /// Phase 7 of Rewind-to-Staging (design §3.3.1 kerbal dual-residence
+        /// carve-out): returns true iff a re-fly session is live AND the given
+        /// kerbal is currently embodied on <see cref="FlightGlobals.ActiveVessel"/>'s
+        /// crew list AND the active vessel is the provisional re-fly vessel
+        /// (identified by <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        /// resolving to a committed recording whose
+        /// <see cref="Recording.VesselPersistentId"/> matches the active vessel's
+        /// persistentId).
+        ///
+        /// <para>Without this carve-out, a kerbal whose ledger
+        /// <see cref="KerbalDeath"/> event is still in ELS (tombstone lands at
+        /// merge) would be reservation-locked as dead, silently blocking EVA or
+        /// crew transfer during the re-fly.</para>
+        ///
+        /// <para>The overload taking a marker is the underlying decision — used
+        /// by the no-marker overload and by tests that want to inject a synthetic
+        /// marker without touching <see cref="ParsekScenario"/>.</para>
+        /// </summary>
+        internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal, ReFlySessionMarker marker)
+        {
+            if (kerbal == null) return false;
+            if (marker == null) return false;
+
+            var active = FlightGlobals.ActiveVessel;
+            if (active == null) return false;
+            if (!ActiveVesselMatchesReFlyRecording(active, marker))
+                return false;
+
+            var crew = active.GetVesselCrew();
+            if (crew == null) return false;
+            for (int i = 0; i < crew.Count; i++)
+            {
+                var pcm = crew[i];
+                if (pcm == null) continue;
+                if (string.Equals(pcm.name, kerbal.name, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Reads the live scenario's marker. Kept as a thin wrapper so callers
+        /// don't have to reach into <see cref="ParsekScenario"/> themselves.
+        /// </summary>
+        internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal)
+        {
+            return IsLiveReFlyCrew(kerbal, ParsekScenario.Instance?.ActiveReFlySessionMarker);
+        }
+
+        /// <summary>
+        /// Pure decision: does <paramref name="activeVessel"/>'s persistentId
+        /// match the provisional re-fly recording referenced by the marker? The
+        /// recording is resolved via <see cref="RecordingStore"/> (raw read —
+        /// session-provisional records sit in the same list as committed ones).
+        /// Exposed internally for test injection without a live FlightGlobals.
+        /// </summary>
+        internal static bool ActiveVesselMatchesReFlyRecording(Vessel activeVessel, ReFlySessionMarker marker)
+        {
+            if (activeVessel == null || marker == null) return false;
+            string reflyId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(reflyId)) return false;
+
+            // Raw read: the provisional re-fly recording is intentionally
+            // NotCommitted and therefore NOT in ERS. We specifically want to
+            // find it so we can correlate its VesselPersistentId against the
+            // active vessel. Allowlisted under the existing CrewReservationManager
+            // entry in the grep-audit allowlist.
+            // [ERS-exempt — Phase 7] The provisional re-fly recording sits in
+            // CommittedRecordings with MergeState=NotCommitted; ERS filters it
+            // out by definition (design §3.1), so routing this lookup through
+            // EffectiveState.ComputeERS() would return null and break the
+            // dual-residence carve-out.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            uint activePid = activeVessel.persistentId;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (!string.Equals(rec.RecordingId, reflyId, System.StringComparison.Ordinal))
+                    continue;
+                return rec.VesselPersistentId == activePid;
+            }
+            return false;
+        }
+
+        #endregion
+
         #region Testing & Serialization
 
         /// <summary>
@@ -1197,6 +1368,35 @@ namespace Parsek
         internal static void ResetReplacementsForTesting()
         {
             crewReplacements.Clear();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// returns a shallow copy of the replacement dictionary so the bundle
+        /// can preserve it across a quicksave load. Keys are the reserved
+        /// kerbal names; values are their stand-in replacements.
+        /// </summary>
+        internal static Dictionary<string, string> SnapshotReplacements()
+        {
+            return new Dictionary<string, string>(crewReplacements);
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// re-applies a previously captured replacement dictionary after the
+        /// quicksave load has replaced the live in-memory state. The method
+        /// replaces — not merges — the current map so restoring after an
+        /// in-memory swap does not duplicate entries.
+        /// </summary>
+        internal static void RestoreReplacements(IReadOnlyDictionary<string, string> replacements)
+        {
+            crewReplacements.Clear();
+            if (replacements == null) return;
+            foreach (var kv in replacements)
+            {
+                if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+                    crewReplacements[kv.Key] = kv.Value;
+            }
         }
 
         /// <summary>

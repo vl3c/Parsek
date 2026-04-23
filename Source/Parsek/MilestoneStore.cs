@@ -427,6 +427,18 @@ namespace Parsek
             milestones.Add(m);
         }
 
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// appends a milestone during bundle restore. Identical to
+        /// <see cref="AddMilestoneForTesting"/> but named for production use so
+        /// the call site does not read as a test hook.
+        /// </summary>
+        internal static void RestoreMilestone(Milestone m)
+        {
+            if (m == null) return;
+            milestones.Add(m);
+        }
+
         #endregion
 
         /// <summary>

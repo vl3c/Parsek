@@ -14,6 +14,14 @@ namespace Parsek
     /// it is the bridge between the engine's visual mechanics and Parsek's
     /// recording tree / timeline / spawn system.
     /// </summary>
+    // [ERS-exempt — Phase 3] ParsekPlaybackPolicy dispatches on PlaybackCompleted
+    // events whose .Index is the committed-recording index used by
+    // GhostPlaybackEngine.ghostStates. Every RecordingStore.CommittedRecordings
+    // read in this file pairs with an index comparison against evt.Index;
+    // converting to EffectiveState.ComputeERS() would de-align the two spaces
+    // and silently misroute spawn / watch / hold decisions.
+    // TODO(phase 6+): once ghostStates migrates to recording-id keys, route all
+    // reads here through ComputeERS().
     internal class ParsekPlaybackPolicy
     {
         private readonly GhostPlaybackEngine engine;

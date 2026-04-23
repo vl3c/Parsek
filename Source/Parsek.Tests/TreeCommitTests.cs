@@ -16,6 +16,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -23,6 +24,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         // --- Helper methods ---
@@ -53,6 +55,28 @@ namespace Parsek.Tests
             node.AddValue("name", "Test Vessel");
             node.AddValue("pid", "12345");
             return node;
+        }
+
+        private static ChildSlot Slot(int index, string recId)
+        {
+            return new ChildSlot
+            {
+                SlotIndex = index,
+                OriginChildRecordingId = recId,
+                Controllable = true,
+            };
+        }
+
+        private static ParsekScenario InstallScenarioWithRps(params RewindPoint[] rps)
+        {
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>(rps ?? Array.Empty<RewindPoint>()),
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            return scenario;
         }
 
         private RecordingTree MakeSimpleTree(string treeId = "tree001")
@@ -337,6 +361,81 @@ namespace Parsek.Tests
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Equal("tree002", RecordingStore.CommittedTrees[0].Id);
+        }
+
+        [Fact]
+        public void CommitTree_DestroyedChildUnderRewindPoint_PromotesToCommittedProvisional()
+        {
+            var tree = MakeTreeWithBranch("rewind_tree");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].VesselName = "Kerbal X Probe";
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Destroyed;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "child2"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.CommittedProvisional,
+                tree.Recordings["child2"].MergeState);
+            Assert.False(rp.SessionProvisional);
+            Assert.Null(rp.CreatingSessionId);
+            Assert.Contains(tree.Recordings["child2"],
+                RecordingStore.CommittedRecordings);
+        }
+
+        [Fact]
+        public void CommitTree_NormalStagingRewindPointPromoted_AllImmutableSlotsCanReap()
+        {
+            var tree = MakeTreeWithBranch("clean_rewind_tree");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "child2"),
+                }
+            };
+            var scenario = InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.False(rp.SessionProvisional);
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(tree.BranchPoints[0].RewindPointId);
+        }
+
+        [Fact]
+        public void CommitTree_DestroyedChildWithoutRewindPoint_RemainsImmutable()
+        {
+            var tree = MakeTreeWithBranch("plain_tree");
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Destroyed;
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable,
+                tree.Recordings["child2"].MergeState);
         }
 
         [Fact]

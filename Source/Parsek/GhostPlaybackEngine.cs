@@ -395,6 +395,11 @@ namespace Parsek
             frameHeaviestSpawnReentryTicks = 0;
             frameHeaviestSpawnOtherTicks = 0;
             frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
+            // Phase 7 of Rewind-to-Staging (design §3.3): per-frame count of
+            // trajectories skipped because their recording is in the active
+            // session's SuppressedSubtree. Included in the frame-summary log
+            // below so session-scoped suppression is visible in KSP.log.
+            int frameSessionSuppressed = 0;
 
             // Diagnostics: start total frame timing
             updateStopwatch.Restart();
@@ -456,6 +461,23 @@ namespace Parsek
                 bool hasOrbitData = traj.HasOrbitSegments;
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
                 if (!HasRenderableGhostData(traj)) continue;
+
+                // Phase 7 of Rewind-to-Staging (design §3.3): during an active
+                // re-fly session, skip ghosts whose source recording is in the
+                // SessionSuppressedSubtree. Destroy any leftover ghost visuals
+                // first so the player doesn't see stale meshes from a recording
+                // that just got superseded mid-flight.
+                if (SessionSuppressionState.IsActive
+                    && SessionSuppressionState.IsSuppressedRecordingIndex(i))
+                {
+                    if (ghostStates.ContainsKey(i))
+                    {
+                        DestroyAllOverlapGhosts(i);
+                        DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
+                    }
+                    frameSessionSuppressed++;
+                    continue;
+                }
 
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
@@ -610,10 +632,11 @@ namespace Parsek
             }
 
             // Post-loop: batch summary
-            if (frameSpawnCount > 0 || frameDestroyCount > 0 || frameSpawnDeferred > 0)
+            if (frameSpawnCount > 0 || frameDestroyCount > 0 || frameSpawnDeferred > 0 || frameSessionSuppressed > 0)
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
                     $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} " +
-                    $"deferred={frameSpawnDeferred} active={ghostStates.Count}");
+                    $"deferred={frameSpawnDeferred} sessionSuppressed={frameSessionSuppressed} " +
+                    $"active={ghostStates.Count}");
 
             // Bug #414: capture elapsed time at loop end so the "main loop" phase (pure
             // dispatch cost, excluding spawn/destroy which already accumulate into their

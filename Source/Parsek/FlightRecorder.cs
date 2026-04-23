@@ -6259,6 +6259,10 @@ namespace Parsek
         {
             try
             {
+                // [ERS-exempt] reason: samples on-disk .prec file sizes for a
+                // bytes-per-point heuristic; includes NotCommitted / superseded
+                // recordings so the average reflects real storage, not visible
+                // storage (admin/debug surface per design §3.4).
                 var committed = RecordingStore.CommittedRecordings;
                 if (committed == null || committed.Count == 0)
                 {

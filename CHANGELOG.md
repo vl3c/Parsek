@@ -6,6 +6,30 @@ All notable changes to Parsek are documented here.
 
 ## 0.9.0
 
+### Features
+
+- **Rewind to Staging** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Discard Re-fly / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
+- Revert to VAB/SPH during an active re-fly session now triggers the same 3-option dialog as Revert to Launch (was previously unhandled, bypassing the dialog entirely); Discard Re-fly returns the player to the editor as originally clicked.
+- Discard Re-fly (was `Full Revert`) during an active re-fly session now preserves the tree's supersede relations, tombstones, and other Rewind Points; only the current re-fly session's artifacts and provisional recording are cleared, and the origin RP's quicksave is reloaded so the timeline winds back to the split UT. Launch click returns to the Space Center; VAB/SPH click returns to the clicked editor.
+- New Settings > Diagnostics line shows live rewind-point disk usage (directory size + file count, refreshed every 10 seconds).
+
+### Internals — Rewind to Staging rollout (reference)
+
+- Phase 1 — data model (MergeState tri-state, RewindPoint + ChildSlot + RecordingSupersedeRelation + LedgerTombstone + ReFlySessionMarker + MergeJournal; scenario persistence + one-shot legacy migration).
+- Phase 2 — EffectiveState helper (ERS / ELS with tombstone-only filter, SessionSuppressedSubtree forward-only closure, IsVisible / IsUnfinishedFlight / EffectiveRecordingId; StateVersion counters drive cache invalidation).
+- Phase 3 — route existing raw-recording/ledger readers through ERS/ELS; `scripts/grep-audit-ers-els.ps1` CI gate with per-file allowlist.
+- Phase 4 — rewind points captured at multi-controllable splits (`RewindPointAuthor.Begin`) with scene guard, warp-to-zero, deferred quicksave + safe-move.
+- Phase 5 — Unfinished Flights virtual UI group (membership derived from ERS filtered by IsUnfinishedFlight; cannot hide / cannot be drop target).
+- Phase 6 — rewind button end-to-end (`RewindInvoker`: 5-precondition gate, reconciliation bundle, quicksave copy to save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional + marker write).
+- Phase 7 — session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
+- Phase 8 — merge-time supersede relations + Immutable vs CommittedProvisional commit decision (`SupersedeCommit.CommitSupersede` + `TerminalKindClassifier`).
+- Phase 9 — narrow v1 tombstone scope: only kerbal-death actions (plus bundled rep penalties within a 1s window) are retired on merge; career state stays sticky.
+- Phase 10 — journaled staged commit (`MergeJournalOrchestrator` with 5 crash-recovery checkpoints; OnLoad finisher rolls back or drives-to-completion).
+- Phase 11 — rewind-point reap after merge (`RewindPointReaper`); tree discard purges related RPs, supersede relations, and tombstones (`TreeDiscardPurge`).
+- Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Discard Re-fly / Continue Flying) intercepts both `FlightDriver.RevertToLaunch` and `FlightDriver.RevertToPrelaunch` while a session is active. Discard Re-fly is session-scoped: it removes only the current attempt's provisional recording, promotes the origin RP to persistent, reloads the RP quicksave, and transitions to the Space Center (Launch) or VAB/SPH (Prelaunch) — other RPs, supersede relations, and tombstones in the tree are preserved.
+- Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
+- Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
+
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
@@ -33,6 +57,8 @@ All notable changes to Parsek are documented here.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
+- Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
+- Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 
 ### Tests
 
@@ -61,11 +87,13 @@ All notable changes to Parsek are documented here.
 - `#542` Added regression coverage pinning the fixed 300 km watch cutoff helper, the removal of the mutable `ParsekSettings` cutoff field, and the persistence-store cleanup that now only tracks the remaining sticky user-intent toggles.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
+- Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
 
 ### Documentation
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
+- Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
 
 ## 0.8.3
 
@@ -81,6 +109,7 @@ All notable changes to Parsek are documented here.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
+- Kerbals window Mission Outcomes fold headers now bold only the main kerbal name next to the fold arrow, leaving the arrow and folded mission summary in normal weight.
 
 ### Bug Fixes
 
@@ -156,6 +185,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Simple ghost map/tracking-station marker labels now appear on icon hover again, while left-click still pins or unpins the label and non-left clicks continue to pass through to stock handlers.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.

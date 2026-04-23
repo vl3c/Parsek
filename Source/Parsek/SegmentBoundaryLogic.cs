@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -206,6 +208,162 @@ namespace Parsek
                 $"moduleCount={moduleNames.Count} hasModuleCommand={hasCommand}");
 
             return hasCommand;
+        }
+
+        /// <summary>
+        /// Rewind-to-Staging (Phase 4, design §5.1 + §7.19): filters
+        /// <paramref name="postBreakVesselPids"/> to the subset whose live
+        /// <c>Vessel</c> passes the <c>IsTrackableVessel</c> predicate
+        /// (SpaceObject OR has <c>ModuleCommand</c>). The result is the list of
+        /// controllable children of a split event; a list of length >= 2 means
+        /// the split is multi-controllable (see <see cref="IsMultiControllableSplit"/>)
+        /// and requires a <see cref="RewindPoint"/>.
+        ///
+        /// <para>
+        /// The <paramref name="isTrackable"/> delegate defaults to
+        /// <see cref="ParsekFlight.IsTrackableVessel"/> but is injected so
+        /// unit tests can exercise the classifier without a live
+        /// <c>FlightGlobals</c>. Vessels that cannot be resolved from
+        /// <c>FlightGlobals.Vessels</c> are logged and skipped (they are treated
+        /// as non-controllable).
+        /// </para>
+        /// </summary>
+        /// <param name="originalVesselPid">The parent vessel's PID (for logging).</param>
+        /// <param name="postBreakVesselPids">PIDs of vessels produced by the split (children only; do NOT include the parent).</param>
+        /// <param name="isControllable">Predicate mapping vessel PID -> controllable. Null uses the default that reads <c>FlightGlobals.Vessels</c> + <see cref="ParsekFlight.IsTrackableVessel"/>.</param>
+        /// <returns>List of controllable child PIDs (subset of <paramref name="postBreakVesselPids"/>).</returns>
+        internal static List<uint> IdentifyControllableChildren(
+            uint originalVesselPid,
+            List<uint> postBreakVesselPids,
+            Func<uint, bool?> isControllable = null)
+        {
+            var result = new List<uint>();
+            if (postBreakVesselPids == null || postBreakVesselPids.Count == 0)
+            {
+                ParsekLog.Info("Rewind",
+                    $"Controllable split children: (none) (orig={originalVesselPid})");
+                return result;
+            }
+
+            var predicate = isControllable ?? DefaultIsControllable;
+
+            int unresolved = 0;
+            for (int i = 0; i < postBreakVesselPids.Count; i++)
+            {
+                uint pid = postBreakVesselPids[i];
+                bool? controllable = predicate(pid);
+                if (controllable == null)
+                {
+                    unresolved++;
+                    continue;
+                }
+                if (controllable.Value)
+                    result.Add(pid);
+            }
+
+            string joined = string.Join(",", ListToStrings(result));
+            ParsekLog.Info("Rewind",
+                $"Controllable split children: [{joined}] (orig={originalVesselPid}, " +
+                $"checked={postBreakVesselPids.Count}, unresolved={unresolved})");
+
+            return result;
+        }
+
+        private static readonly Func<uint, bool?> DefaultIsControllable = pid =>
+        {
+            Vessel v = FlightRecorder.FindVesselByPid(pid);
+            if (v == null) return null;
+            return ParsekFlight.IsTrackableVessel(v);
+        };
+
+        private static string[] ListToStrings(List<uint> pids)
+        {
+            if (pids == null) return Array.Empty<string>();
+            var arr = new string[pids.Count];
+            for (int i = 0; i < pids.Count; i++)
+                arr[i] = pids[i].ToString(CultureInfo.InvariantCulture);
+            return arr;
+        }
+
+        /// <summary>
+        /// Rewind-to-Staging (Phase 4, design §5.1 / §7.2 / §7.19): true iff the
+        /// split has at least 2 controllable outputs. A multi-controllable split
+        /// is the trigger for writing a <see cref="RewindPoint"/>.
+        /// </summary>
+        internal static bool IsMultiControllableSplit(int controllableCount) => controllableCount >= 2;
+    }
+
+    /// <summary>
+    /// Capture-time snapshot of a live vessel's identity fields. Test seam for
+    /// <see cref="RewindPointAuthor"/>: the deferred body only needs the vessel's
+    /// <c>persistentId</c> and its root part's <c>persistentId</c> to build
+    /// <see cref="RewindPoint.PidSlotMap"/> / <see cref="RewindPoint.RootPartPidMap"/>,
+    /// so the provider returns this struct instead of a live <c>Vessel</c>.
+    /// Production reads both fields from <c>FlightGlobals.Vessels</c>.
+    /// </summary>
+    internal readonly struct VesselSnapshot
+    {
+        public readonly uint VesselPersistentId;
+        public readonly uint RootPartPersistentId;
+        public readonly bool HasRootPart;
+
+        public VesselSnapshot(uint vesselPid, uint rootPartPid, bool hasRootPart)
+        {
+            VesselPersistentId = vesselPid;
+            RootPartPersistentId = rootPartPid;
+            HasRootPart = hasRootPart;
+        }
+    }
+
+    /// <summary>
+    /// Test seam for <see cref="SegmentBoundaryLogic.IdentifyControllableChildren"/>
+    /// and <see cref="RewindPointAuthor"/>. The default implementation reads
+    /// <c>FlightGlobals.Vessels</c>; unit tests install a mock so they can exercise
+    /// live-vessel lookup paths without KSP's scene state.
+    /// </summary>
+    internal interface IFlightGlobalsProvider
+    {
+        /// <summary>Returns the vessel whose <c>persistentId</c> equals <paramref name="pid"/>, or null.</summary>
+        Vessel FindVesselByPid(uint pid);
+
+        /// <summary>
+        /// Returns an identity <see cref="VesselSnapshot"/> for the vessel whose
+        /// <c>persistentId</c> equals <paramref name="pid"/>. False when no such
+        /// vessel is known. Prefer this over <see cref="FindVesselByPid"/> for the
+        /// RewindPointAuthor capture path: it lets tests drive the body without
+        /// constructing a live <c>Vessel</c>.
+        /// </summary>
+        bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot);
+    }
+
+    /// <summary>
+    /// Default <see cref="IFlightGlobalsProvider"/>. Reads <c>FlightGlobals.Vessels</c>
+    /// via <see cref="FlightRecorder.FindVesselByPid"/>, which is the shared vessel
+    /// lookup used across the rest of the mod.
+    /// </summary>
+    internal sealed class FlightGlobalsProvider : IFlightGlobalsProvider
+    {
+        public static readonly IFlightGlobalsProvider Default = new FlightGlobalsProvider();
+
+        private FlightGlobalsProvider() { }
+
+        public Vessel FindVesselByPid(uint pid)
+            => FlightRecorder.FindVesselByPid(pid);
+
+        public bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot)
+        {
+            Vessel v = FlightRecorder.FindVesselByPid(pid);
+            if (v == null)
+            {
+                snapshot = default;
+                return false;
+            }
+            Part root = v.rootPart;
+            snapshot = new VesselSnapshot(
+                vesselPid: v.persistentId,
+                rootPartPid: root != null ? root.persistentId : 0u,
+                hasRootPart: root != null);
+            return true;
         }
     }
 }
