@@ -310,15 +310,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 528. Launchpad science gathered before recording start is still being committed onto the later flight recording
+## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
 
 **Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.
 
-**Concern:** this reopens the closed `#483` family in a narrower but still real shape: pre-recording launchpad science is getting swept into the later flight recording, so commit-time and post-walk science reconciliation no longer operate on a clean same-scope event set. The package shows both ends of the problem on current `main`: the early subject capture and the later mismatch.
+**Root cause:** commit-time science ownership still treated the entire `PendingScienceSubjects` batch as belonging to the recording being committed. For launchpad science captured before the true recording window opened, `ConvertScienceSubjects` still accepted subjects carrying that later recording id instead of rejecting the stale subject, and the tree-commit path later routed the whole pending-science snapshot to one arbitrary owner recording, which could drop valid tagged science from earlier recordings in the same tree once cross-recording rejection was tightened. `RecordingStore` had also been mirroring the raw stale batch into `GameStateStore.committedScienceSubjects` before the ledger conversion even ran.
 
-**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/PostWalkReconciliationIntegrationTests.cs`.
+**Fix:** `ConvertScienceSubjects` now rejects tagged subjects whose `captureUT` is invalid, predates the owning recording window, or belongs to another recording, while untagged captures must already fall inside that same window. Tree, chain, and fallback standalone commits now all route per-recording subsets using the same gap-adjusted start window, remove only the subset that actually committed, leave untouched pending science visible after pre-ledger failures instead of clearing it prematurely, and mirror `committedScienceSubjects` only after the matching `ScienceEarning` actions are safely in the ledger.
 
-**Status:** OPEN. Strong regression/new-shape signal from the package.
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateStore.cs`, `Source/Parsek/ChainSegmentManager.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, `Source/Parsek.Tests/PendingScienceSubjectsClearTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
 
 ---
 

@@ -554,38 +554,47 @@ namespace Parsek
 
         #region Committed Science Subjects
 
-        /// <summary>
-        /// Merges pending science subjects into the committed store.
-        /// For each subject, keeps the maximum science value (handles partial experiments).
-        /// </summary>
-        internal static void CommitScienceSubjects(List<PendingScienceSubject> pending)
+        internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {
-            if (pending == null || pending.Count == 0) return;
+            if (actions == null || actions.Count == 0) return;
 
-            int added = 0, updated = 0;
-            for (int i = 0; i < pending.Count; i++)
+            int added = 0, updated = 0, skipped = 0;
+            for (int i = 0; i < actions.Count; i++)
             {
-                string id = pending[i].subjectId;
-                float science = pending[i].science;
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    skipped++;
+                    continue;
+                }
 
-                float existing;
-                if (committedScienceSubjects.TryGetValue(id, out existing))
-                {
-                    if (science > existing)
-                    {
-                        committedScienceSubjects[id] = science;
-                        updated++;
-                    }
-                }
-                else
-                {
-                    committedScienceSubjects[id] = science;
-                    added++;
-                }
+                CommitScienceSubject(action.SubjectId, action.ScienceAwarded, ref added, ref updated);
             }
 
             ParsekLog.Info("GameStateStore",
-                $"CommitScienceSubjects: {added} added, {updated} updated (total={committedScienceSubjects.Count})");
+                $"CommitScienceActions: {added} added, {updated} updated, skipped={skipped} " +
+                $"(total={committedScienceSubjects.Count})");
+        }
+
+        private static void CommitScienceSubject(string id, float science, ref int added, ref int updated)
+        {
+            float existing;
+            if (committedScienceSubjects.TryGetValue(id, out existing))
+            {
+                if (science > existing)
+                {
+                    committedScienceSubjects[id] = science;
+                    updated++;
+                }
+            }
+            else
+            {
+                committedScienceSubjects[id] = science;
+                added++;
+            }
         }
 
         /// <summary>

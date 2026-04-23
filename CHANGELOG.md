@@ -30,6 +30,7 @@ All notable changes to Parsek are documented here.
 - `#538` Atmospheric reentry fire now uses the emission-rate lerp as the primary density dial, doubling the fire particle range from `300-2000` to `600-4000` particles/sec while only lifting the particle cap from `1500` to `2000` so the denser stream has headroom without opening a full 2x peak-particle budget.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
+- `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
 
 ### Tests
 

@@ -36,7 +36,8 @@ namespace Parsek
 
         /// <summary>
         /// Science subjects captured during the current recording session.
-        /// Transferred to GameStateStore.committedScienceSubjects on commit.
+        /// Converted into ScienceEarning actions and then mirrored into
+        /// GameStateStore.committedScienceSubjects on commit.
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
@@ -1099,8 +1100,9 @@ namespace Parsek
             // Record the cumulative science earned for this subject.
             // Note: subject.science may include Harmony-injected committed science
             // (from ScienceSubjectPatch) if this experiment was previously committed.
-            // This is correct — max-wins in CommitScienceSubjects ensures the value
-            // only increases, reflecting the true highest science earned.
+            // This is correct — the committed-science cache merges by max value when the
+            // eventual ScienceEarning actions are persisted, so repeated captures only
+            // ever preserve the highest science earned.
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,

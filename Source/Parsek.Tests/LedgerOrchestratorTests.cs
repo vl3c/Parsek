@@ -1760,5 +1760,98 @@ namespace Parsek.Tests
             var recB1 = new Recording { RecordingId = "recB-1", ChainId = "chain-B", ChainIndex = 1 };
             Assert.Equal(500.0, LedgerOrchestrator.AdjustStartUtForChainGap(recB1, 505.0, map));
         }
+
+        [Fact]
+        public void ResolveStandaloneCommitWindowStartUt_ChainContinuationClosesGapForSubsetRouting()
+        {
+            var parent = new Recording
+            {
+                RecordingId = "rec-0",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 142.2
+            };
+            RecordingStore.AddCommittedInternal(parent);
+
+            var child = new Recording
+            {
+                RecordingId = "rec-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ParentRecordingId = "rec-0",
+                ExplicitStartUT = 142.9,
+                ExplicitEndUT = 200.0
+            };
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "gap@subject",
+                    science = 2.5f,
+                    captureUT = 142.4
+                },
+                new PendingScienceSubject
+                {
+                    subjectId = "inside@subject",
+                    science = 1.0f,
+                    captureUT = 150.0
+                }
+            };
+
+            double startUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(child, child.StartUT);
+            var subset = LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                pending,
+                child.RecordingId,
+                startUT,
+                child.EndUT);
+
+            Assert.Equal(142.2, startUT);
+            Assert.Equal(2, subset.Count);
+            Assert.Contains(subset, s => s.subjectId == "gap@subject");
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("Chain gap closure") &&
+                l.Contains("142.9") && l.Contains("142.2"));
+        }
+
+        [Fact]
+        public void ResolveStandaloneCommitWindowStartUt_MissingParentLeavesSubsetAtOwnStart()
+        {
+            var child = new Recording
+            {
+                RecordingId = "rec-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ParentRecordingId = "missing-parent",
+                ExplicitStartUT = 142.9,
+                ExplicitEndUT = 200.0
+            };
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "gap@subject",
+                    science = 2.5f,
+                    captureUT = 142.4
+                },
+                new PendingScienceSubject
+                {
+                    subjectId = "inside@subject",
+                    science = 1.0f,
+                    captureUT = 150.0
+                }
+            };
+
+            double startUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(child, child.StartUT);
+            var subset = LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                pending,
+                child.RecordingId,
+                startUT,
+                child.EndUT);
+
+            Assert.Equal(142.9, startUT);
+            Assert.Single(subset);
+            Assert.Equal("inside@subject", subset[0].subjectId);
+        }
     }
 }

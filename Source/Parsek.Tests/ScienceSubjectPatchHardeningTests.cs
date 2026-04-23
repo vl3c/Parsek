@@ -55,7 +55,7 @@ namespace Parsek.Tests
                     subjectMaxValue = 10f
                 }
             };
-            GameStateStore.CommitScienceSubjects(pending);
+            ScienceTestHelpers.CommitScienceSubjects(pending);
 
             bool found = ScienceSubjectPatch.TryResolveCommittedScience(
                 "crewReport@KerbinSrfLanded", out float value);
@@ -83,7 +83,7 @@ namespace Parsek.Tests
                     subjectMaxValue = 100f
                 }
             };
-            GameStateStore.CommitScienceSubjects(pending);
+            ScienceTestHelpers.CommitScienceSubjects(pending);
 
             // Seed the module with 16.44 credited.
             var scienceModule = LedgerOrchestrator.Science;
@@ -120,7 +120,7 @@ namespace Parsek.Tests
                     subjectMaxValue = 100f
                 }
             };
-            GameStateStore.CommitScienceSubjects(pending);
+            ScienceTestHelpers.CommitScienceSubjects(pending);
 
             // Module has NOT processed any earning for this subject, so it has zero
             // credited.
