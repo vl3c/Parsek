@@ -115,11 +115,15 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#552` Vessel recovery funds now tolerate stock firing `onVesselRecovered` before the paired `FundsChanged(VesselRecovery)` event. Parsek defers the recovery request and pairs it when the funds event arrives, eliminating false missing-payout warnings without fabricating zero recoveries.
+- `#553` Untagged contract lifecycle events now forward directly to the ledger even in FLIGHT, so launch-site contract accept/complete events that occur before any Parsek recording owner exists do not get stranded only in `GameStateStore`. Tagged FLIGHT teardown events remain protected by the non-empty recording tag gate.
 - `#557` Initial science and reputation seeds now prefer captured game-state baselines (including legitimate zero values) over live KSP singleton balances. A zero seed is now authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
 - `#558` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of the gross current balance or a blunt full-future spend subtraction. Future spendings only reserve current headroom when the projected balance would dip below the current value, future earnings before those spendings can cover them without inflating current spendability, and reputation stays a current-UT running value with no reservation.
 
 ### Tests
 
+- `#552` Added recovery-pairing regressions for callback-before-funds-event ordering and the no-paired-event deferral path.
+- `#553` Added direct-ledger forwarding predicate coverage for tagged teardown suppression, untagged KSC events, and untagged pre-recording FLIGHT events.
 - `#557` Added a rewind cutoff regression based on the April 23 log package shape: funds stay on the seed-minus-rollout path, while zero baseline science/reputation remain zero even when future science earnings, tech spending, and reputation milestones exist later in the ledger.
 - `#558` Added rewind affordability regressions for science and funds covering future spending reservation and the matching future-earning-before-future-spending case that preserves current headroom.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.

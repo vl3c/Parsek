@@ -677,6 +677,34 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~552. Vessel recovery funds can log a false missing-pair warning when stock delivers the funds event after recovery~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows `OnVesselRecoveryFunds` warning at `18:23:16.943` because no paired `FundsChanged(VesselRecovery)` was found yet, then the actual `FundsChanged` recovery event arrived at `18:23:16.961`, within the intended pairing window.
+
+**Concern:** the old path assumed KSP delivered `FundsChanged(VesselRecovery)` before `onVesselRecovered`. The observed ordering was reversed by about 18 ms, so Parsek skipped adding the recovery earning and logged a false warning even though the data arrived moments later.
+
+**Fix:** `OnVesselRecoveryFunds(...)` now defers unmatched recovery requests and `GameStateRecorder.OnFundsChanged(...)` calls `OnRecoveryFundsEventRecorded(...)` for recovery reasons so the delayed event can complete the pairing. Pending callbacks are preserved until they pair with distinct `FundsChanged(VesselRecovery)` event fingerprints, including same-named recoveries inside the UT epsilon, and are cleared on load/test resets. Pairing prefers requests whose vessel name matches the funds event and warns when multiple candidates share the same UT after name matching, then falls back to nearest UT. Pending requests that never receive a paired funds event are evicted on scene switches, save loads, and rewind boundaries with a WARN listing the unclaimed entries.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused callback-before-event coverage, staleness eviction on lifecycle boundaries, and vessel-name-preferred pairing with WARN on ambiguous ties.
+
+---
+
+## ~~553. Untagged pre-recording FLIGHT contract events can miss the ledger because the direct path was KSC-only~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. The launch-site contract path emitted untagged `ContractAccepted` / `ContractCompleted` events with `tag=''` and no recording owner, while the ledger needed the accepted contract to preserve the active contract and advance.
+
+**Concern:** direct ledger forwarding only allowed non-FLIGHT scenes. That is correct for tagged FLIGHT teardown events, but untagged pre-recording FLIGHT contract events have no later commit-time `ConvertEvents` owner. If they are not written directly, the ledger can miss contract state or rewards. The same ownership reasoning applies to tech, part-purchase, crew-hire, strategy, facility, and science-subject events that arrive untagged before any recording exists.
+
+**Fix:** contract lifecycle forwarding now keys on the `recordingId` stamped by `Emit(ref evt)` and whether a live recorder can still own an empty-tag event. Non-empty tags suppress direct ledger writes so teardown/discard fate remains intact; empty tags forward directly only when no live recorder exists, covering true pre-recording FLIGHT events without turning tag-resolution drift into null-owner ledger actions. The same `ShouldForwardDirectLedgerEvent` predicate is threaded through `TechResearched`, `PartPurchased`, `CrewHired`, strategy activate/deactivate/complete, facility upgrade, and science-subject handlers so every direct-ledger path shares one gate.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/DiscardFateTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with predicate coverage for tagged teardown suppression, untagged KSC forwarding, untagged pre-recording FLIGHT forwarding, and empty-tag live-recorder drift suppression across all direct-ledger handlers.
+
+---
+
 ## ~~557. Delayed science/reputation seeding can turn future balances into UT0 after rewind~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows initial deferred seeding stopped as soon as Funding reported 25000 while Science and Reputation still read zero. Later, after the first committed flight and before the rewind, `ledger.pgld` gained `ScienceInitial = 11.04` and `ReputationInitial = 0.999999464` at UT0 even though the earliest baseline had both resources at zero. The rewind recalculation at adjusted UT 49.4 then included those UT0 seeds and patched science/reputation from future state.

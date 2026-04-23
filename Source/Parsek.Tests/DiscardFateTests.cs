@@ -335,8 +335,7 @@ namespace Parsek.Tests
         //   (a) !inFlight && !midSwitch && !flightAlive && tag != "" — stale tag with no live flight
         //       (flightAlive gates out legitimate FLIGHT->KSC recovery windows where Instance lingers).
         //   (b) inFlight && tag == "" && HasLiveRecorder()
-        //       — in-flight empty tag with live recorder (needs ParsekFlight.Instance, not testable
-        //         from xUnit; covered by branch (a) plus the no-warn negative case below).
+        //       — in-flight empty tag with live recorder (covered via the HasLiveRecorder seam).
 
         [Fact]
         public void DriftWarn_OutsideFlight_ResolverReturnsTag_LogsWarn()
@@ -625,11 +624,9 @@ namespace Parsek.Tests
         }
 
         // --- #16: FLIGHT -> SPACECENTER teardown window does NOT leak the tagged
-        // event to the ledger via OnKscSpending. The test forces the scene to
-        // SPACECENTER after tagging the event in FLIGHT, then drives a contract
-        // completion handler that would hit OnKscSpending. With the #431 gate
-        // (ResolveCurrentRecordingTag non-empty → skip), the ledger write is
-        // suppressed and the tagged event rides the recording's commit/discard fate.
+        // event to the ledger via OnKscSpending, while untagged pre-recording FLIGHT
+        // events do get a direct ledger path when no live recorder exists because no
+        // later recording commit can own them.
         //
         // Full coverage of the live teardown also needs an in-game test — see the
         // "GameState" category under InGameTests/RuntimeTests.cs, as ParsekFlight.Instance
@@ -646,23 +643,37 @@ namespace Parsek.Tests
             var evt = MakeEvent(GameStateEventType.ContractCompleted, "guid-teardown", 100.0);
             GameStateRecorder.Emit(ref evt, "teardown-test");
 
-            // The #431 gate guards every `OnKscSpending(evt)` call:
-            //    if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
-            //        LedgerOrchestrator.OnKscSpending(evt);
-            // We assert the guard condition here rather than driving a GameEvents
+            // We assert the forwarding predicate here rather than driving a GameEvents
             // subscription (which would need a full Contract object). The resolver
             // returns non-empty, so the gate skips the ledger forward.
-            bool wouldForward = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
-                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            bool wouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evt.recordingId,
+                GameStateRecorder.HasLiveRecorder());
             Assert.False(wouldForward,
                 "Gate must suppress ledger forward when the event was tagged during teardown.");
 
             // And conversely: a true KSC event with an empty resolver passes the gate.
             GameStateRecorder.TagResolverForTesting = () => "";
-            bool wouldForwardKsc = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
-                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            bool wouldForwardKsc = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
             Assert.True(wouldForwardKsc,
                 "Genuine KSC events (no live recorder, empty tag) must still reach the ledger.");
+
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            bool wouldForwardPreRecordingFlight = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
+            Assert.True(wouldForwardPreRecordingFlight,
+                "Untagged pre-recording FLIGHT events have no commit path and must reach the ledger directly.");
+
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            bool wouldForwardTagDrift = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
+            Assert.False(wouldForwardTagDrift,
+                "An empty tag while a live recorder exists is tag drift, not an ownerless event.");
         }
     }
 }

@@ -406,19 +406,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnVesselRecoveryFunds_NoPairedFundsEvent_LogsWarnAndDoesNotAdd()
+        public void OnVesselRecoveryFunds_NoPairedFundsEvent_DefersAndDoesNotAdd()
         {
-            // Defensive guard: if onVesselRecovered fires but no FundsChanged(VesselRecovery)
-            // event sits within the epsilon window (e.g. corrupt event flow, mod conflict),
-            // the routing path WARNs and skips rather than fabricating a zero earning.
+            // KSP can fire onVesselRecovered before FundsChanged(VesselRecovery) in the
+            // post-flight KSC recovery path. The routing path must wait for the paired
+            // resource event rather than fabricating a zero earning or logging a false WARN.
             int before = Ledger.Actions.Count;
             LedgerOrchestrator.OnVesselRecoveryFunds(7000.0, "Mystery Probe", fromTrackingStation: true);
 
             Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
-                l.Contains("no paired FundsChanged(VesselRecovery) event") &&
+                l.Contains("deferred pairing") &&
                 l.Contains("Mystery Probe"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("no paired FundsChanged(VesselRecovery) event"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_CallbackBeforeFundsEvent_PairsWhenEventIsRecorded()
+        {
+            LedgerOrchestrator.OnVesselRecoveryFunds(149.53, "r0", fromTrackingStation: false);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            var evt = new GameStateEvent
+            {
+                ut = 149.53,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 38990.0,
+                valueAfter = 42795.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 149.53) < 0.01);
+            Assert.NotNull(match);
+            Assert.Equal(3805f, match.FundsAwarded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("amount=3805"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("no paired FundsChanged(VesselRecovery) event"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_DeferredSameNameWithinEpsilon_PairToDistinctEvents()
+        {
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "Debris", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "Debris", fromTrackingStation: true);
+            Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            var evtA = new GameStateEvent
+            {
+                ut = 3000.00,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 1000.0,
+                valueAfter = 1100.0
+            };
+            GameStateStore.AddEvent(ref evtA);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evtA);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            var evtB = new GameStateEvent
+            {
+                ut = 3000.04,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 1100.0,
+                valueAfter = 1800.0
+            };
+            GameStateStore.AddEvent(ref evtB);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evtB);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            var recoveries = Ledger.Actions
+                .Where(a => a.Type == GameActionType.FundsEarning && a.FundsSource == FundsEarningSource.Recovery)
+                .OrderBy(a => a.UT)
+                .ToList();
+
+            Assert.Equal(2, recoveries.Count);
+            Assert.Equal(100f, recoveries[0].FundsAwarded);
+            Assert.Equal(700f, recoveries[1].FundsAwarded);
+            Assert.Equal(800f, recoveries.Sum(r => r.FundsAwarded));
         }
 
         [Fact]
