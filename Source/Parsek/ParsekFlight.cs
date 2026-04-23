@@ -2182,6 +2182,12 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '{activeTree.TreeName}' " +
                 $"for vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}");
+            // Surface a screen message mirroring the launch and post-switch auto-record
+            // paths so the player can see that recording resumed. The inner
+            // FlightRecorder.StartRecording call suppresses its own message when
+            // isPromotion=true, which is the path both ResumeCommittedActiveRecording
+            // and PromoteRecordingFromBackground use.
+            ScreenMessage("Recording STARTED (resume)", 2f);
             ParsekLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
         }
