@@ -261,20 +261,26 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
 
+Follow-up source: `logs/2026-04-23_1829_logs-package/parsek-test-results.txt` again recorded two SPACECENTER failures, but with a narrower shape. `ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` expected `Strategy.IsActive` to remain true after `Strategy.Activate()` returned true; actual was false after the test yielded one frame, even though `KSP.log` shows Parsek emitted `StrategyActivated key='BailoutGrant'` and wrote the `StrategyActivate` ledger action first. `FailedActivation_DoesNotEmitEvent` then expected a hydrated Administration singleton; actual was `Administration.Instance` null after the previous test destroyed its hidden canvas and Unity completed that destruction during the next warmup window.
+
 **Root cause (2026-04-22, refined 2026-04-23):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, and `Strategies.Strategy.CanBeActivated()` / `Strategy.Activate()` both dereference it. In plain SPACECENTER that singleton does not exist until the Administration canvas is instantiated. Follow-up decompile of `KSP.UI.Screens.AdministrationSceneSpawner` also showed that the stock `onGUIAdministrationFacilityDespawn` path is not test-neutral: it overwrites `persistent.sfs` via `GamePersistence.SaveGame("persistent", ..., OVERWRITE)` and calls `MusicLogic.fetch.UnpauseWithCrossfade()`.
+
+The 2026-04-23 18:29 package showed the remaining failures were harness races rather than a missing `StrategyLifecyclePatch` emission. The first canary yielded after the synchronous stock `Activate()` call, giving the hidden Administration UI / stock strategy row update a frame to reconcile and clear `IsActive` before the assertion. The second canary could enter with `Administration.Instance` apparently present, skip hidden-canvas creation, then see the singleton become null during warmup because Unity completes `Object.Destroy()` at frame end.
 
 **Fix:**
 
 - `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now creates a hidden stock Administration canvas when the SPACECENTER career tests need strategy readiness and `Administration.Instance` is still null.
 - The helper uses its own bounded hydration-frame wait, keeps the existing readiness probe on top of that stock singleton, and destroys the hidden canvas directly in teardown instead of firing the stock despawn event.
 - `StrategyLifecycleProbeSupport` now uses dedicated hydration diagnostics/logs (including a precise timeout reason), and the xUnit coverage splits the request predicate cases instead of packing three false cases into one `[Fact]`.
+- Follow-up: `WaitForStableActivatableStockStrategy(...)` now re-runs the hidden Administration hydration check after the warmup frames, so a singleton destroyed at the end of the previous canary gets recreated before the readiness poll starts.
+- Follow-up: `ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` now verifies `StrategyActivated` / `StrategyDeactivated` emission and `IsActive` state in the same frame as the stock `Activate()` / `Deactivate()` calls, matching the synchronous Harmony postfix contract instead of treating next-frame stock UI reconciliation as part of the patch behavior.
 
 **Validation (2026-04-23):**
 
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`21` tests).
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`44` tests).
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`7846` passed, `2` skipped, `7848` total).
-- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — passed cleanly (`0` warnings, `0` errors).
+- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — compile passed (`0` errors); the post-build KSP deploy copy emitted locked-DLL warnings because the running game had `GameData\Parsek\Plugins\Parsek.dll` mapped.
 - Live SPACECENTER rerun was not executed from this worktree because the repo only exposes the in-game runner via manual KSP GUI interaction (`Ctrl+Shift+T` in SPACECENTER); there is no non-interactive launcher/test harness path to drive that run from this terminal session.
 
 **Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`, `Source/Parsek/Parsek.csproj`.
