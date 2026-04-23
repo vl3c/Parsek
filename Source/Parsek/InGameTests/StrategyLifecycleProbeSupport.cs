@@ -50,6 +50,28 @@ namespace Parsek.InGameTests
                 && isCareerMode;
         }
 
+        /// <summary>
+        /// Post-warmup rehydrate gate. Unity completes <c>Object.Destroy</c> at frame
+        /// end, so the prior StrategyLifecycle canary's Dispose tear-down can leave
+        /// <c>Administration.Instance</c> looking alive at entry and then flip it to
+        /// null during the warmup frames. This predicate reports whether the second
+        /// hydration pass must run: rehydrate when Administration became unavailable
+        /// during warmup, skip when it is still available. The <paramref name="canvasExists"/>
+        /// input is retained for full truth-table coverage - the rehydrate helper
+        /// destroys any stale canvas before rebuilding, so both canvas states are
+        /// valid inputs for the "unavailable" branch.
+        /// </summary>
+        internal static bool ShouldRehydrateAdministrationAfterWarmup(
+            bool canvasExists,
+            bool administrationAvailable)
+        {
+            // canvasExists participates in the contract even though the decision
+            // collapses to !administrationAvailable: it documents that the rehydrate
+            // helper handles both fresh-canvas and stale-canvas cases.
+            _ = canvasExists;
+            return !administrationAvailable;
+        }
+
         internal static string FormatExceptionSummary(Exception ex)
         {
             if (ex == null)

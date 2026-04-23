@@ -274,12 +274,14 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 - `StrategyLifecycleProbeSupport` now uses dedicated hydration diagnostics/logs (including a precise timeout reason), and the xUnit coverage splits the request predicate cases instead of packing three false cases into one `[Fact]`.
 - Follow-up: `WaitForStableActivatableStockStrategy(...)` now re-runs the hidden Administration hydration check after the warmup frames, so a singleton destroyed at the end of the previous canary gets recreated before the readiness poll starts.
 - Follow-up: `ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` now verifies `StrategyActivated` / `StrategyDeactivated` emission and `IsActive` state in the same frame as the stock `Activate()` / `Deactivate()` calls, matching the synchronous Harmony postfix contract instead of treating next-frame stock UI reconciliation as part of the patch behavior.
+- Review follow-up: `EnsureAdministrationSingletonForStrategyProbe(...)` now takes an `attemptTag` parameter so the "creating hidden Administration canvas for readiness probe" info log and its associated warnings/destruction logs differentiate the `pre-warmup` and `post-warmup` attempts in the same canary, plus an xmldoc documenting the re-entrant destruction-then-rebuild contract.
+- Review follow-up: the post-warmup rehydrate decision is now gated by a pure `StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(canvasExists, administrationAvailable)` predicate with full 4-case xUnit truth-table coverage in `StrategyLifecycleProbeSupportTests`, and the paired `WaitForStableActivatableStockStrategy` comment now names the "prior StrategyLifecycle canary's Dispose tear-down" explicitly.
 
 **Validation (2026-04-23):**
 
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`21` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`25` tests after the predicate-extraction review follow-up; `21` before).
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`44` tests).
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`7846` passed, `2` skipped, `7848` total).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`8306` tests, `0` failed, `0` skipped after the rebase onto origin/main).
 - `dotnet build Source/Parsek/Parsek.csproj --no-restore` — compile passed (`0` errors); the post-build KSP deploy copy emitted locked-DLL warnings because the running game had `GameData\Parsek\Plugins\Parsek.dll` mapped.
 - Live SPACECENTER rerun was not executed from this worktree because the repo only exposes the in-game runner via manual KSP GUI interaction (`Ctrl+Shift+T` in SPACECENTER); there is no non-interactive launcher/test harness path to drive that run from this terminal session.
 

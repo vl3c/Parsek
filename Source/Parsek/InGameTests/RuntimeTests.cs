@@ -8786,11 +8786,26 @@ namespace Parsek.InGameTests
                     && HighLogic.CurrentGame.Mode == Game.Modes.CAREER);
         }
 
+        /// <summary>
+        /// Re-entrant Administration singleton hydrator for strategy-readiness canaries.
+        /// On the first (pre-warmup) call this either hydrates a hidden stock Administration
+        /// canvas so <c>Administration.Instance</c> becomes non-null, or short-circuits when
+        /// hydration is not needed (non-SPACECENTER / non-career / already hydrated). On a
+        /// post-warmup call the helper may rebuild the hidden canvas when
+        /// <c>Administration.Instance</c> was torn down during warmup (e.g. by the prior
+        /// StrategyLifecycle canary's Dispose tear-down), destroying any stale canvas from
+        /// the pre-warmup call first. The <paramref name="attemptTag"/> ("pre-warmup" or
+        /// "post-warmup") appears in the creation / destruction logs so two-attempt failures
+        /// can be diagnosed without log-line ambiguity.
+        /// </summary>
         private static IEnumerator EnsureAdministrationSingletonForStrategyProbe(
-            StrategySelectionResult result)
+            StrategySelectionResult result,
+            string attemptTag)
         {
             if (result == null)
                 throw new System.ArgumentNullException(nameof(result));
+            if (string.IsNullOrEmpty(attemptTag))
+                throw new System.ArgumentException("attemptTag must be non-empty", nameof(attemptTag));
 
             if (!ShouldHydrateAdministrationForStrategyProbe())
                 yield break;
@@ -8799,7 +8814,7 @@ namespace Parsek.InGameTests
             {
                 DestroyHiddenAdministrationCanvasForTest(
                     result,
-                    "before-readiness-rehydrate");
+                    $"before-readiness-rehydrate ({attemptTag})");
                 yield return null;
             }
 
@@ -8810,7 +8825,7 @@ namespace Parsek.InGameTests
                     "UIMasterController.Instance is null (cannot create hidden Administration canvas)";
                 result.FinalProbeHadException = false;
                 result.FinalProbeHadRetryableReadinessBlock = true;
-                ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                ParsekLog.Warn("TestRunner", $"StrategyLifecycle ({attemptTag}): {result.Diagnostic}");
                 yield break;
             }
             if (uiMaster.mainCanvas == null)
@@ -8819,7 +8834,7 @@ namespace Parsek.InGameTests
                     "UIMasterController.Instance.mainCanvas is null (cannot parent hidden Administration canvas)";
                 result.FinalProbeHadException = false;
                 result.FinalProbeHadRetryableReadinessBlock = true;
-                ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                ParsekLog.Warn("TestRunner", $"StrategyLifecycle ({attemptTag}): {result.Diagnostic}");
                 yield break;
             }
 
@@ -8831,7 +8846,7 @@ namespace Parsek.InGameTests
                     "AdministrationSceneSpawner is null (cannot create hidden Administration canvas)";
                 result.FinalProbeHadException = false;
                 result.FinalProbeHadRetryableReadinessBlock = true;
-                ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                ParsekLog.Warn("TestRunner", $"StrategyLifecycle ({attemptTag}): {result.Diagnostic}");
                 yield break;
             }
 
@@ -8842,7 +8857,7 @@ namespace Parsek.InGameTests
                     "AdministrationSceneSpawner.AdministrationScreenPrefab is null";
                 result.FinalProbeHadException = false;
                 result.FinalProbeHadRetryableReadinessBlock = true;
-                ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                ParsekLog.Warn("TestRunner", $"StrategyLifecycle ({attemptTag}): {result.Diagnostic}");
                 yield break;
             }
 
@@ -8853,12 +8868,12 @@ namespace Parsek.InGameTests
                     "AdministrationSceneSpawner.AdministrationScreenPrefab.canvas is null";
                 result.FinalProbeHadException = false;
                 result.FinalProbeHadRetryableReadinessBlock = true;
-                ParsekLog.Warn("TestRunner", $"StrategyLifecycle: {result.Diagnostic}");
+                ParsekLog.Warn("TestRunner", $"StrategyLifecycle ({attemptTag}): {result.Diagnostic}");
                 yield break;
             }
 
             ParsekLog.Info("TestRunner",
-                "StrategyLifecycle: creating hidden Administration canvas for readiness probe");
+                $"StrategyLifecycle ({attemptTag}): creating hidden Administration canvas for readiness probe");
 
             var hiddenAdministrationCanvas = UnityEngine.Object.Instantiate(administrationCanvasPrefab);
             hiddenAdministrationCanvas.enabled = false;
@@ -8900,7 +8915,7 @@ namespace Parsek.InGameTests
                 StrategyLifecycleAdministrationHydrationFrames);
             DestroyHiddenAdministrationCanvasForTest(
                 result,
-                "readiness-timeout");
+                $"readiness-timeout ({attemptTag})");
         }
 
         private static StrategyProbeResult ProbeActivatableStockStrategy()
@@ -9034,7 +9049,7 @@ namespace Parsek.InGameTests
             result.FinalProbeHadRetryableReadinessBlock = false;
             result.HiddenAdministrationCanvasForTest = null;
 
-            yield return EnsureAdministrationSingletonForStrategyProbe(result);
+            yield return EnsureAdministrationSingletonForStrategyProbe(result, "pre-warmup");
             if (result.FinalProbeHadRetryableReadinessBlock
                 && KSP.UI.Screens.Administration.Instance == null)
             {
@@ -9044,16 +9059,25 @@ namespace Parsek.InGameTests
             for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
                 yield return null;
 
-            // Unity completes Object.Destroy at frame end. If the previous
-            // StrategyLifecycle test destroyed its hidden canvas immediately before
-            // this one started, Administration.Instance can look alive at entry and
-            // then become null during the warmup above. Re-run hydration once after
-            // warmup so batch KSC runs do not time out on that transition.
-            yield return EnsureAdministrationSingletonForStrategyProbe(result);
-            if (result.FinalProbeHadRetryableReadinessBlock
-                && KSP.UI.Screens.Administration.Instance == null)
+            // Unity completes Object.Destroy at frame end. If the prior
+            // StrategyLifecycle canary's Dispose tear-down destroyed its hidden
+            // canvas immediately before this test started, Administration.Instance
+            // can look alive at entry and then become null during the warmup above.
+            // Re-run hydration once after warmup so batch KSC runs do not time out
+            // on that transition. The pure ShouldRehydrateAdministrationAfterWarmup
+            // predicate gates the second pass so the decision is headless-testable.
+            bool canvasExists = result.HiddenAdministrationCanvasForTest != null;
+            bool administrationAvailable = KSP.UI.Screens.Administration.Instance != null;
+            if (StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(
+                    canvasExists: canvasExists,
+                    administrationAvailable: administrationAvailable))
             {
-                yield break;
+                yield return EnsureAdministrationSingletonForStrategyProbe(result, "post-warmup");
+                if (result.FinalProbeHadRetryableReadinessBlock
+                    && KSP.UI.Screens.Administration.Instance == null)
+                {
+                    yield break;
+                }
             }
 
             string stableConfigName = null;
