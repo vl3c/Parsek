@@ -167,6 +167,37 @@ namespace Parsek
             LedgerOrchestrator.RecalculateAndPatch();
         }
 
+        internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+            bool isRevert,
+            bool loadedSceneIsFlight,
+            bool planetariumReady,
+            bool hasPendingTree,
+            ActiveTreeRestoreMode restoreMode,
+            bool hasLiveRecorder,
+            bool hasActiveUncommittedTree,
+            bool hasFutureLedgerActions)
+        {
+            return !isRevert
+                && loadedSceneIsFlight
+                && planetariumReady
+                && !hasPendingTree
+                && restoreMode == ActiveTreeRestoreMode.None
+                && !hasLiveRecorder
+                && !hasActiveUncommittedTree
+                && hasFutureLedgerActions;
+        }
+
+        /// <summary>
+        /// Scene-load follow-up recalculation for the specific post-rewind FLIGHT
+        /// case where the loaded UT is still behind future committed actions.
+        /// Filters the walk to the already-captured loaded UT while preserving the
+        /// normal patch-deferral and same-branch repeatable-record behavior.
+        /// </summary>
+        internal static void RecalculateAndPatchForPostRewindFlightLoad(double loadedUT)
+        {
+            LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+        }
+
         /// <summary>
         /// #434 follow-up: dispatch-level guard that decides whether the OnLoad
         /// quickload-discard branch should fire. Pure function of the three
@@ -1257,7 +1288,41 @@ namespace Parsek
                         }
                     }
 
-                    LedgerOrchestrator.RecalculateAndPatch();
+                    bool loadedSceneIsFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+                    bool hasPendingTree = RecordingStore.HasPendingTree;
+                    ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
+                    bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+                    bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+                    bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
+                    bool useCurrentUtCutoffForPostRewindFlightLoad =
+                        ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                            isRevert,
+                            loadedSceneIsFlight,
+                            planetariumReady,
+                            hasPendingTree,
+                            restoreMode,
+                            hasLiveRecorder,
+                            hasActiveUncommittedTree,
+                            hasFutureLedgerActions);
+                    ParsekLog.Info("Scenario",
+                        $"OnLoad: post-rewind FLIGHT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
+                        $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"isRevert={isRevert} loadedSceneIsFlight={loadedSceneIsFlight} " +
+                        $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
+                        $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
+                        $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
+                        $"hasFutureLedgerActions={hasFutureLedgerActions}");
+                    if (useCurrentUtCutoffForPostRewindFlightLoad)
+                    {
+                        ParsekLog.Info("Scenario",
+                            $"OnLoad: post-rewind FLIGHT recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            "to keep future funds/contracts filtered until replay catches up");
+                        RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+                    }
+                    else
+                    {
+                        LedgerOrchestrator.RecalculateAndPatch();
+                    }
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
@@ -2071,7 +2136,14 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                RemoveCommittedTreeById(tree.Id);
+                if (!RecordingStore.RemoveCommittedTreeById(
+                        tree.Id,
+                        logContext: "TryRestoreActiveTreeNode"))
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) needed detaching");
+                }
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
@@ -2468,34 +2540,6 @@ namespace Parsek
             }
 
             return items.Count != originalCount;
-        }
-
-        /// <summary>
-        /// Removes a committed tree from <see cref="RecordingStore.CommittedTrees"/>
-        /// (and its recordings from the flat committed list) if a tree with the given id
-        /// exists. Used by the active-tree restore path to prevent duplicate-id collisions
-        /// when a prior TS/SPC commit left the tree in committedTrees at the same time
-        /// the disk save had it flagged active.
-        /// </summary>
-        private static void RemoveCommittedTreeById(string treeId)
-        {
-            if (string.IsNullOrEmpty(treeId)) return;
-
-            var committed = RecordingStore.CommittedTrees;
-            for (int i = committed.Count - 1; i >= 0; i--)
-            {
-                if (committed[i].Id != treeId) continue;
-
-                var stale = committed[i];
-                // Remove the tree's recordings from the flat CommittedRecordings list
-                foreach (var rec in stale.Recordings.Values)
-                    RecordingStore.RemoveCommittedInternal(rec);
-
-                committed.RemoveAt(i);
-                ParsekLog.Info("Scenario",
-                    $"RemoveCommittedTreeById: removed stale committed copy of tree '{stale.TreeName}' " +
-                    $"(id={treeId}, {stale.Recordings.Count} recording(s)) — active-tree restore takes precedence");
-            }
         }
 
         internal static bool ShouldKeepPendingTreeAfterHydrationFailure(
@@ -2901,6 +2945,8 @@ namespace Parsek
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
                 $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
 
+            // Audited for #527: this initial-load-only reseed runs before any rewind
+            // context exists, so it intentionally stays full-ledger.
             LedgerOrchestrator.RecalculateAndPatch();
         }
 
@@ -2937,6 +2983,9 @@ namespace Parsek
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
+            // Audited for #527: this coroutine only runs on true revert follow-up
+            // budget restoration. The rewind path pre-sets budgetDeductionEpoch and
+            // uses ApplyRewindResourceAdjustment(adjustedUT) instead.
             LedgerOrchestrator.RecalculateAndPatch();
 
         }

@@ -595,6 +595,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_RunwaySurfaceTail_KeepsRealTakeoffBoundary()
+        {
+            var tree = MakeTree("runway_resume_tree", "Runway Resume Tree", 1);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 100.0;
+            activeRec.ExplicitEndUT = 110.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 107.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 110.0 });
+            activeRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, altitude = 0.0 },
+                    new TrajectoryPoint { ut = 107.0, altitude = 0.0 },
+                    new TrajectoryPoint { ut = 110.0, altitude = 1.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var recorder = new FlightRecorder
+            {
+                ActiveTree = tree,
+            };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 107.0;
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            recorder.StartNewTrackSection(SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute, 107.0);
+            bool relabeled = recorder.TryApplyRestoreEnvironmentResync(
+                SegmentEnvironment.Atmospheric,
+                109.0);
+            recorder.CloseCurrentTrackSection(110.0);
+
+            Assert.False(relabeled);
+            Assert.Equal(107.0, activeRec.ExplicitEndUT);
+            Assert.Equal(2, activeRec.Points.Count);
+            Assert.Single(activeRec.TrackSections);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, activeRec.TrackSections[0].environment);
+            Assert.Equal(107.0, activeRec.TrackSections[0].endUT);
+            Assert.Equal(2, activeRec.TrackSections[0].frames.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:") &&
+                l.Contains($"activeRec='{activeRec.RecordingId}'") &&
+                l.Contains("envResyncTarget=SurfaceStationary"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Restore environment resync disarmed:") &&
+                l.Contains("transition=Atmospheric") &&
+                l.Contains("target=SurfaceStationary"));
+            Assert.Single(recorder.TrackSections);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, recorder.TrackSections[0].environment);
+        }
+
+        [Fact]
         public void TrimRecordingPastUT_RemovesFuturePayloadAcrossBuffers()
         {
             var rec = new Recording
