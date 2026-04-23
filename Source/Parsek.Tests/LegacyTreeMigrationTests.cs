@@ -713,7 +713,6 @@ namespace Parsek.Tests
             // Now simulate a KSC contract-accept event at a UT that falls inside the
             // tree's UT window but is semantically unrelated (KSC activity during the
             // flight's real-time duration).
-            MilestoneStore.CurrentEpoch = 0;
             var contractEvt = new GameStateEvent
             {
                 ut = 150.0,

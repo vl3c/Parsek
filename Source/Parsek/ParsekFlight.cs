@@ -164,6 +164,17 @@ namespace Parsek
                 && Instance.activeTree != null
                 && !RecordingStore.CommittedTrees.Contains(Instance.activeTree);
 
+        /// <summary>
+        /// Returns true when <paramref name="recordingId"/> belongs to the currently-live
+        /// active tree. Used by the post-epoch timeline visibility helpers so events from
+        /// a reverted-away flight stay hidden until the matching quickload-resume tree is
+        /// restored.
+        /// </summary>
+        internal static bool IsActiveTreeRecordingId(string recordingId)
+            => !string.IsNullOrEmpty(recordingId)
+                && Instance?.activeTree?.Recordings != null
+                && Instance.activeTree.Recordings.ContainsKey(recordingId);
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 

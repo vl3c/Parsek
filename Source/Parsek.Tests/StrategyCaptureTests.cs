@@ -284,7 +284,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void SerializeDeserialize_StrategyActivated_RoundTripsByteExact()
+        public void SerializeDeserialize_StrategyActivated_OmitsLegacyEpochOnWrite()
         {
             var original = new GameStateEvent
             {
@@ -302,11 +302,12 @@ namespace Parsek.Tests
             original.SerializeInto(node);
             var reloaded = GameStateEvent.DeserializeFrom(node);
 
+            Assert.Null(node.GetValue("epoch"));
             Assert.Equal(original.eventType, reloaded.eventType);
             Assert.Equal(original.ut, reloaded.ut);
             Assert.Equal(original.key, reloaded.key);
             Assert.Equal(original.detail, reloaded.detail);
-            Assert.Equal(original.epoch, reloaded.epoch);
+            Assert.Equal(0u, reloaded.epoch);
             Assert.Equal(original.recordingId, reloaded.recordingId);
         }
 

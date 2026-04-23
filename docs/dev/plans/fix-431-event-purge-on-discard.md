@@ -4,6 +4,8 @@
 **Worktree:** `C:/Users/vlad3/Documents/Code/Parsek/Parsek-431-event-purge-on-discard`
 **Ships before:** #434 (revert auto-discard rebases on top of this).
 
+> Follow-up shipped 2026-04-23: the later cleanup pass retired `MilestoneStore.CurrentEpoch` from production. Branch exclusion is now owned by recording-tag visibility plus deterministic discard/unstash behavior; legacy `epoch` fields remain deserialize-only compatibility for older saves. The plan below is preserved as historical context for the original #431 purge work.
+
 ## Problem
 
 `GameStateEvent`s captured during a flight are tagged with the current `MilestoneStore.CurrentEpoch` and stored globally in `GameStateStore.Events`. Revert advances the epoch and an epoch filter hides the abandoned branch from milestone / ledger walks.

@@ -11,9 +11,9 @@ namespace Parsek.Tests
     /// synthesized as a GameAction and added to the ledger. This repairs the c1
     /// (bricked funds) and sci1 (bricked science) saves on first load.
     ///
-    /// Epoch isolation (review §5.6): only events whose epoch matches
-    /// MilestoneStore.CurrentEpoch are considered — old-branch events must not
-    /// leak into the new epoch's ledger.
+        /// Current-timeline visibility: only events whose recordingId still belongs to the
+        /// committed/pending/active timeline are considered — hidden old-branch events
+        /// must not leak into the current ledger.
     ///
     /// Idempotency: the LedgerHasMatchingAction guard makes repeat calls no-ops.
     /// </summary>
@@ -30,8 +30,10 @@ namespace Parsek.Tests
 
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            MilestoneStore.CurrentEpoch = 0;
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
@@ -39,10 +41,36 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
+            RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
-            MilestoneStore.CurrentEpoch = 0;
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0
+            };
+        }
+
+        private static void InstallScenario(List<RecordingSupersedeRelation> supersedes = null)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
         }
 
         [Fact]
@@ -144,38 +172,78 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recovery_EpochIsolation_SkipsOldEpochEvents()
+        public void Recovery_CurrentTimelineVisibility_SkipsHiddenOldBranchEvents()
         {
-            MilestoneStore.CurrentEpoch = 5;
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = "live-rec",
+                VesselName = "Visible"
+            });
 
-            // Event from an old epoch — must NOT be recovered.
             var oldEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "old-guid",
-                detail = "title=old"
+                detail = "title=old",
+                recordingId = "old-rec"
             };
-            // GameStateStore.AddEvent stamps with CurrentEpoch, so we seed it manually via
-            // a lower-level add to simulate leftover events. RemoveEvent/AddEvent won't
-            // preserve the epoch we want, so we set CurrentEpoch before adding.
-            MilestoneStore.CurrentEpoch = 3;
             GameStateStore.AddEvent(ref oldEvt);
 
-            // Now switch to the current epoch and add a fresh event.
-            MilestoneStore.CurrentEpoch = 5;
             var newEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "new-guid",
-                detail = "title=new"
+                detail = "title=new",
+                recordingId = "live-rec"
             };
             GameStateStore.AddEvent(ref newEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
-            // Only the new-epoch event synthesized.
+            Assert.Equal(1, recovered);
+            Assert.Contains(Ledger.Actions, a => a.ContractId == "new-guid");
+            Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "old-guid");
+        }
+
+        [Fact]
+        public void Recovery_CurrentTimelineVisibility_SkipsSupersededCommittedRecordingEvents()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = "old-rec",
+                VesselName = "Old"
+            });
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = "live-rec",
+                VesselName = "Live"
+            });
+            InstallScenario(new List<RecordingSupersedeRelation> { Rel("old-rec", "live-rec") });
+
+            var oldEvt = new GameStateEvent
+            {
+                ut = 100,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "old-guid",
+                detail = "title=old",
+                recordingId = "old-rec"
+            };
+            GameStateStore.AddEvent(ref oldEvt);
+
+            var newEvt = new GameStateEvent
+            {
+                ut = 200,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "new-guid",
+                detail = "title=new",
+                recordingId = "live-rec"
+            };
+            GameStateStore.AddEvent(ref newEvt);
+
+            int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
+
             Assert.Equal(1, recovered);
             Assert.Contains(Ledger.Actions, a => a.ContractId == "new-guid");
             Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "old-guid");
