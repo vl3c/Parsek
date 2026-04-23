@@ -43,6 +43,17 @@ PROFILE_TESTS = {
         "RuntimeTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree",
         "RuntimeTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree",
     ),
+    "release-tracking-station": (
+        "TrackingStationRuntimeTests.TrackingStationSceneEntry_HostIsActive",
+        "TrackingStationRuntimeTests.TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates",
+        "TrackingStationRuntimeTests.TrackingStationGhostObjects_SyntheticOrbit_ResolvableAndQuiet",
+    ),
+}
+
+OPTIONAL_PROFILE_TESTS = {
+    "release-tracking-station": (
+        "TrackingStationRuntimeTests.TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection",
+    ),
 }
 
 
@@ -137,6 +148,28 @@ def validate_results(bundle_dir: Path, profile: str, messages: list[str]) -> boo
         if non_passed:
             detail = ", ".join(f"{scene}={status}" for scene, status in non_passed)
             messages.append(f"Required runtime row is not fully PASSED: {test_name} ({detail})")
+            ok = False
+
+    for test_name in OPTIONAL_PROFILE_TESTS.get(profile, ()):
+        captured_rows = rows.get(test_name, [])
+        if not captured_rows:
+            messages.append(f"Optional runtime row not captured: {test_name}")
+            continue
+
+        failing_rows = [
+            (scene, status)
+            for scene, status in captured_rows
+            if status not in ("PASSED", "SKIPPED")
+        ]
+        skipped_rows = [(scene, status) for scene, status in captured_rows if status == "SKIPPED"]
+        if skipped_rows:
+            detail = ", ".join(f"{scene}={status}" for scene, status in skipped_rows)
+            messages.append(f"Optional runtime row was captured but skipped: {test_name} ({detail})")
+
+        non_passed = failing_rows
+        if non_passed:
+            detail = ", ".join(f"{scene}={status}" for scene, status in non_passed)
+            messages.append(f"Optional runtime row was captured but not fully PASSED: {test_name} ({detail})")
             ok = False
 
     return ok
