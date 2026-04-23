@@ -163,8 +163,8 @@ namespace Parsek.Tests
         {
             // Positive control: a regular (non-unfinished) recording's hide
             // toggle must pass through unchanged even when the caller uses
-            // the same helper logic. The gate is narrow to the virtual
-            // group intersected with IsUnfinishedFlight.
+            // the same helper logic. The gate is IsUnfinishedFlight alone,
+            // so a non-unfinished recording always allows the toggle.
             var rec = new Recording
             {
                 RecordingId = "rec_regular",
@@ -181,12 +181,79 @@ namespace Parsek.Tests
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
 
-            bool insideVirtualGroup = false; // regular rows are not inside UF group
-            bool policyAllowsHide =
-                !(insideVirtualGroup && EffectiveState.IsUnfinishedFlight(rec));
+            bool policyAllowsHide = !EffectiveState.IsUnfinishedFlight(rec);
             if (policyAllowsHide) rec.Hidden = true;
 
             Assert.True(rec.Hidden, "regular recording hide must flip");
+        }
+
+        [Fact]
+        public void Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup()
+        {
+            // Follow-up to the PR #504 review: with the depth gate removed,
+            // an Unfinished Flight recording that appears in the normal
+            // Recordings list (not under the virtual "Unfinished Flights"
+            // group) must also refuse the hide toggle. Before the follow-up,
+            // the gate was `unfinishedFlightRowDepth > 0 &&
+            // IsUnfinishedFlight(rec)` which let normal-list rows bypass the
+            // refuse path. This test pins the classifier-only gate.
+            var rec = MakeCrashedUnfinished("rec_uf_normal", "bp_uf_normal", "Booster");
+            RecordingStore.AddCommittedInternal(rec);
+            InstallScenarioWithRp("bp_uf_normal", "rp_uf_normal");
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(rec),
+                "precondition: recording must classify as unfinished");
+            Assert.False(rec.Hidden, "precondition");
+
+            // Simulate the DrawRecordingRow hide branch for a row rendered
+            // outside the virtual group: the classifier alone must block.
+            bool policyAllowsHide = !EffectiveState.IsUnfinishedFlight(rec);
+            if (policyAllowsHide)
+            {
+                rec.Hidden = true;
+            }
+            else
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"Hide refused for Unfinished Flight rec={rec.RecordingId} " +
+                    $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
+                ParsekLog.ScreenMessage(
+                    $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
+                    "Re-fly the rewind point or merge as Immutable to clear it from the list.",
+                    4f);
+            }
+
+            Assert.False(rec.Hidden, "normal-list Unfinished Flight hide must not flip the field");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("Hide refused"));
+            Assert.Contains(screenMessages, m =>
+                m.Contains("Cannot hide") && m.Contains("Unfinished Flight"));
+        }
+
+        [Fact]
+        public void Hide_PolicyGate_IsClassifierOnly_NoDepthCheck()
+        {
+            // Source-inspection regression pinning the follow-up: the hide
+            // branch in DrawRecordingRow must gate on IsUnfinishedFlight(rec)
+            // alone, with no `unfinishedFlightRowDepth > 0` prefix, otherwise
+            // normal-list RP-backed rows silently bypass the refuse path.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            int hideAnchor = uiSrc.IndexOf("// Hide checkbox", StringComparison.Ordinal);
+            Assert.True(hideAnchor >= 0, "Hide checkbox anchor should exist in RecordingsTableUI.cs");
+            int endAnchor = uiSrc.IndexOf("GUILayout.EndHorizontal();", hideAnchor + 1, StringComparison.Ordinal);
+            Assert.True(endAnchor > hideAnchor, "Expected closing EndHorizontal after Hide checkbox block");
+            // Capture enough of the branch to include both if-branches.
+            int branchEnd = uiSrc.IndexOf("rec.Hidden = hidden;", endAnchor, StringComparison.Ordinal);
+            Assert.True(branchEnd > hideAnchor, "Expected hide flip branch in source");
+            string hideBlock = uiSrc.Substring(hideAnchor, branchEnd - hideAnchor);
+
+            Assert.DoesNotContain("unfinishedFlightRowDepth > 0", hideBlock);
+            Assert.Contains("EffectiveState.IsUnfinishedFlight(rec)", hideBlock);
         }
     }
 }

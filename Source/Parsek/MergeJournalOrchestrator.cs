@@ -494,7 +494,8 @@ namespace Parsek
                 return;
             }
 
-            int tagged = 0;
+            int promotedFromSession = 0;
+            int promotedFromNormalOrigin = 0;
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var rp = scenario.RewindPoints[i];
@@ -508,10 +509,14 @@ namespace Parsek
                     continue;
                 rp.SessionProvisional = false;
                 rp.CreatingSessionId = null;
-                tagged++;
+                if (sameSession) promotedFromSession++;
+                else promotedFromNormalOrigin++;
             }
+            int taggedTotal = promotedFromSession + promotedFromNormalOrigin;
             ParsekLog.Info(Tag,
-                $"TagRpsForReap: promoted {tagged.ToString(CultureInfo.InvariantCulture)} session-provisional RP(s) for sess={sessionId}");
+                $"TagRpsForReap: promoted {taggedTotal.ToString(CultureInfo.InvariantCulture)} session-provisional RP(s) for sess={sessionId} " +
+                $"(fromSession={promotedFromSession.ToString(CultureInfo.InvariantCulture)}, " +
+                $"fromNormalOrigin={promotedFromNormalOrigin.ToString(CultureInfo.InvariantCulture)})");
         }
 
         private static int RemoveCommittedRecordingById(string recordingId)

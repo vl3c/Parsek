@@ -1951,6 +1951,10 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind complete at UT {RewindContext.RewindUT}. " +
                 $"Timeline: {recordings.Count} recordings");
+            // Any pending recovery-funds callbacks deferred before the rewind cannot
+            // pair after the boundary — stock already fired (or will never fire) the
+            // paired FundsChanged(VesselRecovery) event relative to the old timeline.
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
             RewindContext.EndRewind();
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
         }
@@ -4078,6 +4082,17 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
+
+            // Flush any unclaimed recovery-funds callbacks at every scene switch.
+            // Recovery callbacks deferred in the old scene (FLIGHT teardown, tracking
+            // station recovery) cannot pair with a FundsChanged(VesselRecovery) event
+            // captured after the scene transition — stock recovery bookkeeping is
+            // scoped to the scene that fired onVesselRecovered. Calling this
+            // unconditionally (cheap no-op when the queue is empty) keeps the
+            // staleness eviction running on the broadest lifecycle boundary
+            // LedgerOrchestrator can observe.
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds(
+                $"scene switch to {newScene}");
         }
 
         private void OnVesselSwitching(Vessel from, Vessel to)

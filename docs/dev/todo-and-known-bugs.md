@@ -261,20 +261,28 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 **Source:** `logs/2026-04-21_2335_live-collect-script/parsek-test-results.txt` records two SPACECENTER failures: `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `FlightIntegrationTests.FailedActivation_DoesNotEmitEvent`, both with `StrategyLifecycle readiness never stabilized: Administration.Instance is null (stock Strategy.CanBeActivated dereferences it before Administration finishes hydrating)`. The same package's `KSP.log` also shows an early `[StrategySystem]: Found 0 strategy types` during KSC setup.
 
+Follow-up source: `logs/2026-04-23_1829_logs-package/parsek-test-results.txt` again recorded two SPACECENTER failures, but with a narrower shape. `ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` expected `Strategy.IsActive` to remain true after `Strategy.Activate()` returned true; actual was false after the test yielded one frame, even though `KSP.log` shows Parsek emitted `StrategyActivated key='BailoutGrant'` and wrote the `StrategyActivate` ledger action first. `FailedActivation_DoesNotEmitEvent` then expected a hydrated Administration singleton; actual was `Administration.Instance` null after the previous test destroyed its hidden canvas and Unity completed that destruction during the next warmup window.
+
 **Root cause (2026-04-22, refined 2026-04-23):** local stock decompile showed that this was not "late KSC hydration" in the generic sense. `KSP.UI.Screens.Administration.Instance` is the Administration window singleton, and `Strategies.Strategy.CanBeActivated()` / `Strategy.Activate()` both dereference it. In plain SPACECENTER that singleton does not exist until the Administration canvas is instantiated. Follow-up decompile of `KSP.UI.Screens.AdministrationSceneSpawner` also showed that the stock `onGUIAdministrationFacilityDespawn` path is not test-neutral: it overwrites `persistent.sfs` via `GamePersistence.SaveGame("persistent", ..., OVERWRITE)` and calls `MusicLogic.fetch.UnpauseWithCrossfade()`.
+
+The 2026-04-23 18:29 package showed the remaining failures were harness races rather than a missing `StrategyLifecyclePatch` emission. The first canary yielded after the synchronous stock `Activate()` call, giving the hidden Administration UI / stock strategy row update a frame to reconcile and clear `IsActive` before the assertion. The second canary could enter with `Administration.Instance` apparently present, skip hidden-canvas creation, then see the singleton become null during warmup because Unity completes `Object.Destroy()` at frame end.
 
 **Fix:**
 
 - `RuntimeTests.WaitForStableActivatableStockStrategy(...)` now creates a hidden stock Administration canvas when the SPACECENTER career tests need strategy readiness and `Administration.Instance` is still null.
 - The helper uses its own bounded hydration-frame wait, keeps the existing readiness probe on top of that stock singleton, and destroys the hidden canvas directly in teardown instead of firing the stock despawn event.
 - `StrategyLifecycleProbeSupport` now uses dedicated hydration diagnostics/logs (including a precise timeout reason), and the xUnit coverage splits the request predicate cases instead of packing three false cases into one `[Fact]`.
+- Follow-up: `WaitForStableActivatableStockStrategy(...)` now re-runs the hidden Administration hydration check after the warmup frames, so a singleton destroyed at the end of the previous canary gets recreated before the readiness poll starts.
+- Follow-up: `ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` now verifies `StrategyActivated` / `StrategyDeactivated` emission and `IsActive` state in the same frame as the stock `Activate()` / `Deactivate()` calls, matching the synchronous Harmony postfix contract instead of treating next-frame stock UI reconciliation as part of the patch behavior.
+- Review follow-up: `EnsureAdministrationSingletonForStrategyProbe(...)` now takes an `attemptTag` parameter so the "creating hidden Administration canvas for readiness probe" info log and its associated warnings/destruction logs differentiate the `pre-warmup` and `post-warmup` attempts in the same canary, plus an xmldoc documenting the re-entrant destruction-then-rebuild contract.
+- Review follow-up: the post-warmup rehydrate decision is now gated by a pure `StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(canvasExists, administrationAvailable)` predicate with full 4-case xUnit truth-table coverage in `StrategyLifecycleProbeSupportTests`, and the paired `WaitForStableActivatableStockStrategy` comment now names the "prior StrategyLifecycle canary's Dispose tear-down" explicitly.
 
 **Validation (2026-04-23):**
 
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`21` tests).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter StrategyLifecycleProbeSupportTests` — passed (`25` tests after the predicate-extraction review follow-up; `21` before).
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~StrategyLifecycleProbeSupportTests|FullyQualifiedName~StrategyCaptureTests"` — passed (`44` tests).
-- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`7846` passed, `2` skipped, `7848` total).
-- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — passed cleanly (`0` warnings, `0` errors).
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` — passed (`8306` tests, `0` failed, `0` skipped after the rebase onto origin/main).
+- `dotnet build Source/Parsek/Parsek.csproj --no-restore` — compile passed (`0` errors); the post-build KSP deploy copy emitted locked-DLL warnings because the running game had `GameData\Parsek\Plugins\Parsek.dll` mapped.
 - Live SPACECENTER rerun was not executed from this worktree because the repo only exposes the in-game runner via manual KSP GUI interaction (`Ctrl+Shift+T` in SPACECENTER); there is no non-interactive launcher/test harness path to drive that run from this terminal session.
 
 **Files:** `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`, `Source/Parsek/Parsek.csproj`.
@@ -340,6 +348,20 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 **Fix:** the generic scene-load follow-up path now applies the current-UT cutoff only in the specific post-rewind FLIGHT case with no pending/live restore state, via `ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(...)` and `LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(loadedUT)`. That keeps the later FLIGHT `OnLoad` pass aligned with the rewound clock without bypassing normal pending-tree patch deferral or same-branch repeatable-record preservation. The dispatch `Info` log now records every decision input, the other deferred `ParsekScenario.RecalculateAndPatch()` sites were audited as true revert / initial-load full-ledger paths, and `Source/Parsek/InGameTests/RuntimeTests.cs` now contains a manual-only live rewind canary for this exact regression.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
+
+---
+
+## ~~558. Rewind top-bar funds/science could show gross or future-inflated values instead of the spendable balance~~
+
+**Source:** follow-up investigation of `logs/2026-04-23` rewind/cutoff behavior and the April 23 design pass. The visible ledger walk was correctly scoped to the rewound UT, but the top-bar values still needed to represent what the player could actually spend at that moment.
+
+**Concern:** after a rewind, the top bar should show the spendable funds/science at the current UT, not a future value and not a blunt subtraction of all future spending. Future spendings should reserve current headroom only when the projected balance would dip below the current running balance; future earnings that arrive before those spendings should be allowed to cover them. Reputation stays current-UT only because it is not a spend-blocking resource.
+
+**Fix:** cutoff recalculation now keeps all visible/current aggregates filtered to the current UT, then runs an isolated full-ledger cashflow projection to install the spendable top-bar funds/science value. The projection follows the committed future cashflow in chronological order and exposes the minimum balance reachable from the current UT forward, clamped to the current running balance. The isolated projection uses cloned modules and suppressed logging so future actions do not leak through the live rewind walk.
+
+**Files:** `Source/Parsek/GameActions/RecalculationEngine.cs`, `Source/Parsek/GameActions/IResourceModule.cs`, `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek/GameActions/ScienceModule.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/StrategiesModule.cs`, `Source/Parsek/ParsekLog.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 
@@ -617,7 +639,7 @@ Observation-only / cosmetic-only changes stay ignored. Checks are suppressed whi
 
 **Fix:** real-vessel materialization now goes through a shared `VesselSpawner` source-vessel adoption guard. Before KSC spawn, Flight tree-leaf spawn, Flight/Tracking Station spawn handoffs, or chain-tip spawns create a vessel from a recording snapshot, Parsek checks loaded vessels and `HighLogic.CurrentGame.flightState.protoVessels` for the recording's original `VesselPersistentId`. If the source vessel still exists, Parsek adopts that PID by setting `VesselSpawned` and `SpawnedVesselPersistentId` instead of spawning a copy. The committed-tree restore path already keys off `SpawnedVesselPersistentId`, so returning to that craft can resume the committed tree from the recorded endpoint. The older #226 replay/revert path remains an explicit duplicate-spawn opt-in instead of an accidental bypass.
 
-**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/TimeJumpManager.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/VesselGhosterTests.cs`, `Source/Parsek.Tests/TimeJumpManagerTests.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`.
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek.Tests/KscSpawnTests.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/VesselGhosterTests.cs`, `Source/Parsek.Tests/TimeJumpManagerTests.cs`, `Source/Parsek.Tests/VesselSwitchTreeTests.cs`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.9.0 with source-vessel adoption and focused headless restore coverage.
 
@@ -660,6 +682,179 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Files:** `Source/Parsek.Tests/RecordingOptimizer*`, `Source/Parsek.Tests/RecordingStore*`, any integration-style optimizer/tree fixture that exercises `RunOptimizationPass` on a multi-stage tree with branch points.
 
 **Status:** TODO. Medium-priority coverage gap.
+
+---
+
+## ~~561. Tracking Station ghost selection can leave a stale stock vessel as the private fly target~~
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and `persistent.sfs`. The session created `Learstar A1` correctly as a real `Plane` in Kerbol orbit (`SpawnAtPosition ... pid=3517645340, body=Sun`), but the later Tracking Station fly path loaded stock asteroid `Ast. QME-914` (`persistentId=2902671035`, `type=SpaceObject`, `PotatoRoid`) instead.
+
+**Concern:** `SpaceTracking.BtnOnClick_FlySelectedVessel()` flies KSP's private `selectedVessel`. Parsek blocked ghost `SetVessel` calls and disabled the visible buttons, but did not clear that private field, so a previous stock asteroid/comet selection could survive behind the ghost focus flow and become the eventual fly target. The same log package also showed repeated terminal-orbit ghost creation failures for unseedable records and misleading segment-ghost creation lines that printed the recording terminal SMA rather than the actual segment orbit SMA.
+
+**Fix:** ghost Fly/Delete/Recover/SetVessel blocks now clear the Tracking Station `selectedVessel` field before returning, and the blocked `SetVessel` log records whether a previous selection was cleared. Tracking Station terminal-orbit ghosts now pass through the same endpoint-aligned orbit-seed gate before creation, while terminal-orbit-only recordings can seed from their own terminal orbit when there is no conflicting endpoint evidence. Segment ghost creation logs now print the actual ProtoVessel orbit SMA.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation, plus `logs/2026-04-23_1815_logs-package`.
+
+**Concern:** Flight Map View has the richer ghost lifecycle path: pending-vessel policy, state-vector and orbit-segment source selection, chain-tip dedupe/update behavior, and handoff checks flow through `ParsekPlaybackPolicy` / `GhostMapPresence`. Tracking Station still has its own periodic rebuild loop in `ParsekTrackingStation`, which re-evaluates committed recordings every couple of seconds and has historically lagged Map View on source selection, handoff suppression, and duplicate cleanup.
+
+**Action plan:**
+
+1. Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".
+2. Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.
+3. Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.
+4. Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+
+**Status:** TODO. High priority TS parity follow-up.
+
+---
+
+## ~~552. Vessel recovery funds can log a false missing-pair warning when stock delivers the funds event after recovery~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows `OnVesselRecoveryFunds` warning at `18:23:16.943` because no paired `FundsChanged(VesselRecovery)` was found yet, then the actual `FundsChanged` recovery event arrived at `18:23:16.961`, within the intended pairing window.
+
+**Concern:** the old path assumed KSP delivered `FundsChanged(VesselRecovery)` before `onVesselRecovered`. The observed ordering was reversed by about 18 ms, so Parsek skipped adding the recovery earning and logged a false warning even though the data arrived moments later.
+
+**Fix:** `OnVesselRecoveryFunds(...)` now defers unmatched recovery requests and `GameStateRecorder.OnFundsChanged(...)` calls `OnRecoveryFundsEventRecorded(...)` for recovery reasons so the delayed event can complete the pairing. Pending callbacks are preserved until they pair with distinct `FundsChanged(VesselRecovery)` event fingerprints, including same-named recoveries inside the UT epsilon, and are cleared on load/test resets. Pairing prefers requests whose vessel name matches the funds event and warns when multiple candidates share the same UT after name matching, then falls back to nearest UT. Pending requests that never receive a paired funds event are evicted on scene switches, save loads, and rewind boundaries with a WARN listing the unclaimed entries.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/ParsekScenario.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused callback-before-event coverage, staleness eviction on lifecycle boundaries, and vessel-name-preferred pairing with WARN on ambiguous ties.
+
+---
+
+## ~~553. Untagged pre-recording FLIGHT contract events can miss the ledger because the direct path was KSC-only~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. The launch-site contract path emitted untagged `ContractAccepted` / `ContractCompleted` events with `tag=''` and no recording owner, while the ledger needed the accepted contract to preserve the active contract and advance.
+
+**Concern:** direct ledger forwarding only allowed non-FLIGHT scenes. That is correct for tagged FLIGHT teardown events, but untagged pre-recording FLIGHT contract events have no later commit-time `ConvertEvents` owner. If they are not written directly, the ledger can miss contract state or rewards. The same ownership reasoning applies to tech, part-purchase, crew-hire, strategy, facility, and science-subject events that arrive untagged before any recording exists.
+
+**Fix:** contract lifecycle forwarding now keys on the `recordingId` stamped by `Emit(ref evt)` and whether a live recorder can still own an empty-tag event. Non-empty tags suppress direct ledger writes so teardown/discard fate remains intact; empty tags forward directly only when no live recorder exists, covering true pre-recording FLIGHT events without turning tag-resolution drift into null-owner ledger actions. The same `ShouldForwardDirectLedgerEvent` predicate is threaded through `TechResearched`, `PartPurchased`, `CrewHired`, `MilestoneAchieved` (in-flight and standalone paths), `StrategyActivated`, `StrategyDeactivated`, and `FacilityUpgraded` handlers so every direct-ledger path shares one gate.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/DiscardFateTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with predicate coverage for tagged teardown suppression, untagged KSC forwarding, untagged pre-recording FLIGHT forwarding, and empty-tag live-recorder drift suppression across all direct-ledger handlers.
+
+---
+
+## ~~557. Delayed science/reputation seeding can turn future balances into UT0 after rewind~~
+
+**Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows initial deferred seeding stopped as soon as Funding reported 25000 while Science and Reputation still read zero. Later, after the first committed flight and before the rewind, `ledger.pgld` gained `ScienceInitial = 11.04` and `ReputationInitial = 0.999999464` at UT0 even though the earliest baseline had both resources at zero. The rewind recalculation at adjusted UT 49.4 then included those UT0 seeds and patched science/reputation from future state.
+
+**Concern:** a zero science or reputation balance can be legitimate at career start. Because `LedgerOrchestrator` skipped zero seeds and `Ledger.SeedInitialScience/Reputation` could later upgrade an existing zero-like seed, a future live balance could be mistaken for initial state. That breaks rewind/cutoff budget reconstruction and can make future science or reputation available in the past.
+
+**Fix:** `LedgerOrchestrator` now seeds per-resource initial balances through a baseline-aware path. Existing seed actions mark that resource seeded, captured baselines can create authoritative zero seeds, and the fallback path refuses to treat non-zero live science/reputation as initial when timeline actions for that same resource already exist without a baseline.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused headless rewind-cutoff coverage.
+
+---
+
+## ~~559. Research Building stays unlocked to future tech after rewind~~
+
+**Source:** user report from the 2026-04-23 log review, confirmed against `logs/2026-04-23_1829_logs-package/parsek/GameState/ledger.pgld` and saved baselines. The player rewound to adjusted UT 49.4, before the UT 124.43 `ScienceSpending` unlocks for `basicRocketry` and `engineering101`, but the Research Building still showed the future button state.
+
+**Concern:** `KspStatePatcher.PatchAll(...)` restored resources, facilities, milestones, contracts, and crew-derived state but did not restore KSP's R&D tech availability. Once KSP had loaded a future save with later researched nodes, rewinding the ledger cutoff could fix science balance without locking the future tech nodes again.
+
+**Fix:** patching now builds an authoritative target tech set from the latest baseline at or before the cutoff plus affordable `ScienceSpending` actions up to that same cutoff, and `PatchTechTree(...)` (gated to the rewind path where `utCutoff.HasValue`) updates `ResearchAndDevelopment` proto-tech state, mirrors availability onto the static tech-tree proto nodes, removes future nodes from the proto dictionary, unconditionally rehydrates bypass-entry-purchase parts from loaded part metadata with dedup so stale or partial `partsPurchased` lists self-heal, and refreshes the tech-tree UI. Non-rewind `RecalculateAndPatch` calls no longer touch the live tech tree, so post-baseline unlocks are preserved. Reflection lookups now emit a one-shot `ParsekLog.Warn` identifying the failed field, the "missing targets" skip log lists the first ~10 missing tech ids, and the `PatchTechTree: available=...` info log now includes the cutoff UT and selected baseline UT.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless target-tech selection coverage plus `PatchTechTree` log-assertion coverage (no-target skip, missing R&D singleton, one-shot reflection-failure warn); live Research Building UI evidence still requires a manual KSP rewind run.
+
+---
+
+## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
+
+**Concern:** Several TS regressions are scene-integration problems that headless xUnit can only approximate. The latest package proved the Learstar real-vessel spawn and the stale asteroid switch, but it did not prove the TS UI lifecycle, TS ghost toggle recreation, or post-materialization Fly path on a patched build.
+
+**Action plan:**
+
+1. Restore or add isolated in-game TS canaries for scene entry, show/hide/recreate, ghost object count, and no exception spam.
+2. Add a materialization canary for an orbital terminal recording: enter TS, let the real vessel spawn, verify the ghost is removed/suppressed, select/fly the real vessel, and assert the loaded vessel PID/type/name match the materialized vessel, not a stale asteroid/comet.
+3. Ensure `collect-logs.py` preserves these TS rows in `parsek-test-results.txt` and the release bundle validation can flag their absence when TS work is under test.
+4. Keep manual-only variants for any stock scene transitions that remain too destructive for the regular isolated batch.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
+
+**Status:** TODO. High priority validation gap before claiming full TS parity.
+
+---
+
+## ~~555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #561 fix~~
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** `#561` fixed the worst repeated terminal-orbit ghost attempts and corrected the segment-ghost SMA log, but the TS logs still need a cleaner source story. When a ghost is skipped, rebuilt, seeded from a visible segment, seeded from terminal orbit, or suppressed because a real vessel already exists, the log should make the source and reason clear without generating hundreds of repeated fallback lines.
+
+**Action plan:**
+
+1. Carry orbit-source metadata through the TS map object build path.
+2. Rate-limit or aggregate recurring skip reasons by recording/source/reason, especially around terminal-orbit and "map-visible orbit window unavailable" fallbacks.
+3. Log terminal vs segment vs state-vector source decisions consistently with Map View.
+4. Add log-assertion tests covering one successful segment ghost, one terminal-orbit ghost, one endpoint-conflict skip, and one already-materialized suppression.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Resolution:** Added first-occurrence plus aggregate Tracking Station orbit-source diagnostics for visible segment, terminal orbit, endpoint conflict, already-materialized suppression, and repeated no-orbit skip buckets. Endpoint-aligned seed resolution now carries diagnostic metadata, ProtoVessel creation logs include orbit-source detail, and visible-window fallback logs share rate-limited keys.
+
+**Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter GhostMapPresenceTests`.
+
+**Status:** CLOSED in `#555`.
+
+---
+
+## ~~556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protected Tracking Station from ghost-caused stock NREs, but the broad finalizer shape also hid unrelated `SpaceTracking.buildVesselsList` failures. That made TS debugging harder and could mask regressions outside Parsek ghost handling.
+
+**Fix:** the finalizer now suppresses only a `NullReferenceException` when the live `FlightGlobals.Vessels` scan shows the first missing `orbitRenderer` belongs to a Parsek ghost ProtoVessel, no earlier stock-null candidate (null vessel or null `DiscoveryInfo`) would have failed first, and any available stock stack-frame IL offset still points at the `orbitRenderer` load (`0x00b4`) or the `onVesselIconClicked` access (`0x00b9`) in `SpaceTracking.buildVesselsList`. Unrelated exception types, NREs without ghost missing-renderer evidence, different stock offsets, ambiguous stock missing-renderer contexts, scan failures, and prior stock-null candidates emit a `[GhostMap]` WARN with vessel-context counts and return the original exception to Harmony so stock failures remain visible.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~560. Default solution build returned exit code 1 even after a clean MSBuild success summary~~
+
+**Source:** `dotnet build Source\Parsek.sln` on SDK `6.0.428` in the `bug/547-latest-log-orbit-anomalies` worktree.
+
+**Concern:** the solution built both `Parsek` and `Parsek.Tests` as default top-level solution projects. On this SDK, the parallel solution-level project dispatch could report `Build succeeded` with `0 Warning(s)` / `0 Error(s)` while still returning process exit code `1`. Direct project builds and `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` were clean, so this was solution orchestration noise rather than a compiler failure.
+
+**Fix:** the default solution build now builds the deployable `Parsek` plugin project only. `Parsek.Tests` remains listed in the solution and keeps its active Debug/Release configuration, but its `Build.0` entries are removed so tests are built through the explicit test command instead of the default solution build. This keeps `dotnet build Source\Parsek.sln` deterministic while preserving `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` as the full validation path.
+
+**Files:** `Source/Parsek.sln`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~562. Tracking Station ghost-selection clearing leaves the previous vessel's orbit focus and patched conics latched~~
+
+**Source:** Follow-up to the `#561` Tracking Station ghost-selection investigation. `#561` nulled `SpaceTracking.selectedVessel` before blocking Fly/Delete/Recover/SetVessel, but it did not clear the previously selected vessel's `orbitRenderer.isFocused`, `orbitRenderer.drawIcons`, or patched-conics state, so the earlier real-vessel focus ring and conics lines stayed visible after the user clicked a Parsek ghost.
+
+**Concern:** stock `SpaceTracking.SetVessel(...)` deselects the previous vessel by writing `orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, and calling `Vessel.DetachPatchedConicsSolver()`. Because the ghost block runs instead of stock `SetVessel`, those deselection side-effects never fired. Calling stock `SetVessel(null, keepFocus:false)` from the block would have re-entered the patched method and could re-trigger Tracking Station tab switches in Mission / Mission Builder modes.
+
+**Fix:** `GhostTrackingStationSelection.TryClearSelectedVessel(...)` now mirrors stock's previous-vessel deselection block (`orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, `DetachPatchedConicsSolver()`) directly on the previous selection before nulling the private field, so Fly/Delete/Recover/SetVessel blocks clear the latched focus without re-entering `SetVessel`. Cleanup exceptions are routed back through the existing `error` out-parameter so the caller still logs a targeted `[GhostMap]` WARN instead of corrupting the Tracking Station state.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 

@@ -15,15 +15,16 @@ namespace Parsek
     ///   - Spendings: vessel build, facility upgrade/repair, kerbal hire, contract penalties
     ///
     /// Reservation system (design doc section 5.6):
-    ///   availableFunds = initialFunds + totalEarnings - totalCommittedSpendings
-    ///   The pre-pass <see cref="ComputeTotalSpendings"/> sums all spending costs before the walk.
+    ///   availableFunds(ut) is the minimum projected fund balance from ut through
+    ///   the future committed ledger, clamped to zero.
     ///   During the walk, <see cref="totalEarnings"/> accumulates effective earnings.
-    ///   <see cref="GetAvailableFunds"/> returns the clamped-to-zero amount the player can spend.
+    ///   <see cref="GetAvailableFunds"/> returns the amount the player can spend
+    ///   without making a future committed funds spending unaffordable.
     ///
     /// Second-tier: reads Effective flags set by first-tier modules (Milestones, Contracts).
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class FundsModule : IResourceModule
+    internal class FundsModule : IResourceModule, ICashflowProjectionModule
     {
         private const string Tag = "Funds";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -35,18 +36,25 @@ namespace Parsek
         private double runningBalance;
 
         /// <summary>
-        /// Sum of ALL committed fund spendings on the entire timeline.
-        /// Computed by <see cref="ComputeTotalSpendings"/> before the walk starts.
-        /// Used by <see cref="GetAvailableFunds"/> for the reservation check.
+        /// Sum of committed fund spendings in the current pre-pass action scope.
+        /// Full-timeline cutoff availability is installed separately by the projection pass.
         /// </summary>
         private double totalCommittedSpendings;
 
         /// <summary>
         /// Running sum of fund earnings accumulated during the walk.
         /// Updated by earning processing methods.
-        /// Used by <see cref="GetAvailableFunds"/> for the reservation check.
+        /// Used by <see cref="GetAvailableFunds"/> for the full-ledger reservation check.
         /// </summary>
         private double totalEarnings;
+
+        /// <summary>
+        /// Optional cashflow-aware availability computed by the recalculation engine after a
+        /// cutoff walk. It projects future ledger deltas from the current running balance and
+        /// returns the minimum future balance as the amount spendable right now.
+        /// </summary>
+        private bool hasProjectedAvailableFunds;
+        private double projectedAvailableFunds;
 
         /// <summary>
         /// True when a FundsInitial action was processed during the current walk.
@@ -74,6 +82,8 @@ namespace Parsek
             runningBalance = 0.0;
             totalCommittedSpendings = 0.0;
             totalEarnings = 0.0;
+            hasProjectedAvailableFunds = false;
+            projectedAvailableFunds = 0.0;
             hasInitialSeed = false;
 
             ParsekLog.Verbose(Tag,
@@ -84,13 +94,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pre-pass: sums all fund spending costs from the sorted action list before the walk starts.
-        /// Required for the reservation system: availableFunds = initialFunds + totalEarnings - totalCommittedSpendings.
+        /// Pre-pass: sums fund spending costs from the sorted action list before the walk starts.
+        /// For cutoff walks, the engine supplies only visible/current actions here and later
+        /// installs a full-timeline projected availability value.
         /// </summary>
         /// <remarks>
         /// <paramref name="walkNowUT"/> is unused — the engine has already applied any UT
         /// cutoff to <paramref name="actions"/> before calling PrePass, so every action we
-        /// see is in scope for the reservation aggregate.
+        /// see is in scope for the visible/current aggregate.
         /// </remarks>
         public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
@@ -481,15 +492,91 @@ namespace Parsek
         /// This is the amount the player can actually spend at the current point in the walk.
         ///
         /// Formula (design doc 5.6):
-        ///   availableFunds = initialFunds + totalEarnings - totalCommittedSpendings
+        ///   availableFunds = min(projected fund balance from current UT through future ledger)
         ///
-        /// Requires <see cref="ComputeTotalSpendings"/> to have been called before the walk.
+        /// For non-cutoff/full-ledger walks, this collapses to the legacy
+        /// <c>initialFunds + totalEarnings - totalCommittedSpendings</c> calculation.
         /// Returns 0 if the result would be negative (player cannot spend negative funds).
         /// </summary>
         internal double GetAvailableFunds()
         {
+            if (hasProjectedAvailableFunds)
+                return projectedAvailableFunds;
+
             double available = initialFunds + totalEarnings - totalCommittedSpendings;
             return available > 0.0 ? available : 0.0;
+        }
+
+        /// <summary>
+        /// Installs a cashflow-aware availability value after a cutoff recalculation.
+        /// </summary>
+        public double GetProjectionCurrentBalance()
+        {
+            return runningBalance;
+        }
+
+        public bool TryGetProjectionDelta(GameAction action, out double delta)
+        {
+            delta = 0.0;
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.FundsEarning:
+                    if (!action.Effective) return false;
+                    delta = (double)action.FundsAwarded;
+                    return true;
+                case GameActionType.MilestoneAchievement:
+                    if (!action.Effective) return false;
+                    delta = (double)action.MilestoneFundsAwarded;
+                    return true;
+                case GameActionType.ContractAccept:
+                    delta = (double)action.AdvanceFunds;
+                    return true;
+                case GameActionType.ContractComplete:
+                    if (!action.Effective) return false;
+                    delta = (double)action.TransformedFundsReward;
+                    return true;
+                case GameActionType.FundsSpending:
+                    delta = -(double)action.FundsSpent;
+                    return true;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    delta = -(double)action.FundsPenalty;
+                    return true;
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                    delta = -(double)action.FacilityCost;
+                    return true;
+                case GameActionType.KerbalHire:
+                    delta = -(double)action.HireCost;
+                    return true;
+                case GameActionType.StrategyActivate:
+                    delta = -(double)action.SetupCost;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public void SetProjectedAvailable(
+            double available,
+            double currentBalance,
+            double minProjectedBalance,
+            double finalProjectedBalance,
+            int futureActions,
+            int deltaActions)
+        {
+            projectedAvailableFunds = available > 0.0 ? available : 0.0;
+            hasProjectedAvailableFunds = true;
+
+            ParsekLog.Verbose(Tag,
+                $"Projected availability: current={currentBalance.ToString("R", IC)}, " +
+                $"minProjected={minProjectedBalance.ToString("R", IC)}, " +
+                $"finalProjected={finalProjectedBalance.ToString("R", IC)}, " +
+                $"available={projectedAvailableFunds.ToString("R", IC)}, " +
+                $"futureActions={futureActions}, deltaActions={deltaActions}");
         }
 
         /// <summary>

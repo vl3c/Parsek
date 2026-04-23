@@ -107,6 +107,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRehydrateAdministrationAfterWarmup_NoCanvas_AdminGone_ReturnsTrue()
+        {
+            // Fresh enter, Administration torn down during warmup -> rebuild.
+            Assert.True(StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(
+                canvasExists: false,
+                administrationAvailable: false));
+        }
+
+        [Fact]
+        public void ShouldRehydrateAdministrationAfterWarmup_NoCanvas_AdminAlive_ReturnsFalse()
+        {
+            // Fresh enter, Administration still alive post-warmup -> nothing to do.
+            Assert.False(StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(
+                canvasExists: false,
+                administrationAvailable: true));
+        }
+
+        [Fact]
+        public void ShouldRehydrateAdministrationAfterWarmup_CanvasExists_AdminGone_ReturnsTrue()
+        {
+            // Pre-warmup canvas exists but Administration went null during warmup
+            // (Unity end-of-frame destroy from prior canary). Rehydrate helper will
+            // tear down the stale canvas and rebuild.
+            Assert.True(StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(
+                canvasExists: true,
+                administrationAvailable: false));
+        }
+
+        [Fact]
+        public void ShouldRehydrateAdministrationAfterWarmup_CanvasExists_AdminAlive_ReturnsFalse()
+        {
+            // Pre-warmup canvas plus live Administration - no second pass needed.
+            Assert.False(StrategyLifecycleProbeSupport.ShouldRehydrateAdministrationAfterWarmup(
+                canvasExists: true,
+                administrationAvailable: true));
+        }
+
+        [Fact]
         public void BuildProbeDiagnostic_IncludesCountsAndStack()
         {
             string diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(

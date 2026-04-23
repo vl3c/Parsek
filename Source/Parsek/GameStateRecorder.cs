@@ -434,20 +434,24 @@ namespace Parsek
                     $"(snapshot FAILED: {(snapshotFailure != null ? snapshotFailure.Message : "unknown error")})");
             }
 
-            // Write directly to ledger when at KSC (not during a flight recording).
-            // Flight-scene contracts flow through the normal commit-time ConvertEvents path.
+            // Write directly to ledger when this event has no recording owner and no
+            // live recorder can still claim it. Tagged contract events flow through
+            // the normal commit-time ConvertEvents path. Untagged pre-recording
+            // FLIGHT events must be direct-ledger too: stock can complete launch-site
+            // contracts just before Parsek auto-record starts, before a live recorder
+            // exists.
             // #405: without this, accepted contracts at KSC never reached the ledger and
             // PatchContracts had no active contracts to preserve on next recalc.
             // #431 gate: during FLIGHT -> SPACECENTER teardown the scene already reads
             // SPACECENTER but ParsekFlight.Instance is still alive and Emit legitimately
-            // tagged this event with the outgoing recordingId. Re-resolve the tag here
-            // and skip the ledger write when non-empty: the tagged event is already in
+            // tagged this event with the outgoing recordingId. Skip the ledger write
+            // when non-empty: the tagged event is already in
             // GameStateStore and will flow through the commit-time path (or be purged
             // with the recording on discard). Without this gate the ledger would end up
             // with an untagged KSC action that survives DiscardPendingTree forever.
-            // Note: `evt` is a struct local, so Emit's `.recordingId` mutation doesn't
-            // reach us — we must call ResolveCurrentRecordingTag() directly.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // If the tag is empty while a live recorder exists, treat it as tag drift
+            // and avoid creating a null-owner ledger action that survives discard.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -476,11 +480,10 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
-            // #405: route to ledger immediately when at KSC (contract completions in flight
-            // go through the normal commit-time ConvertEvents path).
+            // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted — skip the ledger write when the event
             // was tagged during FLIGHT -> SPACECENTER teardown.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -504,9 +507,9 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
-            // #405: route to ledger immediately when at KSC.
+            // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -530,9 +533,9 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
-            // #405: route to ledger immediately when at KSC.
+            // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -594,9 +597,12 @@ namespace Parsek
             Emit(ref evt, "TechResearched");
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
-            // Write directly to ledger when at KSC (not during flight recording)
-            // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // Write directly to ledger when there is no recording owner.
+            // #553 follow-up: gate on the same ShouldForwardDirectLedgerEvent predicate
+            // used by the contract handlers. Untagged pre-recording FLIGHT tech-research
+            // events have no later commit-time owner; suppressing them here would
+            // strand the TechResearched action in GameStateStore.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -637,10 +643,11 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
 
-            // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
-            // to disambiguate part-name collisions.
-            // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // #405: route to ledger immediately when there is no recording owner.
+            // Relies on the DedupKey (§F) to disambiguate part-name collisions.
+            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
+            // pre-recording FLIGHT part-purchases reach the ledger too.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -700,8 +707,9 @@ namespace Parsek
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
 
-            // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
+            // pre-recording FLIGHT crew hires reach the ledger too.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -746,6 +754,17 @@ namespace Parsek
         private static bool IsFlightScene()
         {
             return HighLogic.LoadedScene == GameScenes.FLIGHT;
+        }
+
+        /// <summary>
+        /// Returns true when a captured lifecycle event has no recording owner and
+        /// should be written straight to the ledger. A live recorder with an empty
+        /// tag is tag drift, not proof that the event is ownerless; true
+        /// pre-recording FLIGHT events have no tag and no live recorder yet.
+        /// </summary>
+        internal static bool ShouldForwardDirectLedgerEvent(string recordingTag, bool hasLiveRecorder)
+        {
+            return string.IsNullOrEmpty(recordingTag) && !hasLiveRecorder;
         }
 
         /// <summary>
@@ -916,6 +935,9 @@ namespace Parsek
             // against the just-emitted event in GameStateStore.
             if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
                 LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
+
+            if (reason == TransactionReasons.VesselRecovery && !IsReplayingActions)
+                LedgerOrchestrator.OnRecoveryFundsEventRecorded(fundsEvt);
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)
@@ -1193,9 +1215,10 @@ namespace Parsek
                 $"Game state: MilestoneAchieved '{milestoneId}' (awaiting reward enrichment)");
 
             // Milestones can fire at KSC (e.g., facility-related) or in flight.
-            // Write directly to ledger when outside flight to avoid waiting for commit.
-            // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // Write directly to ledger when no recording owner exists.
+            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
+            // pre-recording FLIGHT milestones reach the ledger too.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1405,8 +1428,9 @@ namespace Parsek
             // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
             // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
             // orbital craft already reverted) still reach the ledger immediately.
-            // #431 gate: see OnContractAccepted.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
+            // pre-recording FLIGHT standalone milestone awards reach the ledger too.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1552,9 +1576,11 @@ namespace Parsek
             // KSC-side forwarding mirror: StrategyActivate actions with a non-zero setup
             // cost need to land on the ledger immediately when the player activates from
             // the Administration building (i.e. outside flight). The commit-time
-            // ConvertEvents path will also pick up flight-scope strategies. The #431 gate
-            // skips the ledger write when the event was tagged during a teardown window.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // ConvertEvents path will also pick up flight-scope strategies. The
+            // ShouldForwardDirectLedgerEvent gate suppresses tagged teardown events
+            // while still letting untagged pre-recording FLIGHT events (no live
+            // recorder) reach the ledger.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1611,7 +1637,9 @@ namespace Parsek
             // Mirror the KSC-forwarding path even though StrategyDeactivate is a
             // NoResourceImpact action — the ledger still needs the StrategyDeactivate row
             // so StrategiesModule can pair activate/deactivate during the walk.
-            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
+            // pre-recording FLIGHT strategy deactivations reach the ledger too.
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1848,10 +1876,12 @@ namespace Parsek
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
-                            // #431 gate: see OnContractAccepted — skip ledger write
-                            // when the event was tagged during FLIGHT -> SPACECENTER teardown.
-                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded
-                                && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                            // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so
+                            // untagged pre-recording FLIGHT facility upgrades reach the
+                            // ledger too. Only FacilityUpgraded forwards (downgrades are
+                            // informational).
+                            if (eventType == GameStateEventType.FacilityUpgraded
+                                && ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                                 LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }

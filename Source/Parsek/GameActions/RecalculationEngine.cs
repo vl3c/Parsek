@@ -173,99 +173,38 @@ namespace Parsek
                 effective = actions;
             }
 
-            // 1. Sort — stable sort preserving insertion order for equal keys
-            var sorted = SortActions(effective);
-
-            // 2. Reset all modules
-            ResetAllModules();
-
-            // 2b. Reset derived fields to defaults before walk.
-            // These fields are written by modules during the walk and read by downstream
-            // modules within the same walk (e.g., FundsModule reads Effective set by
-            // MilestonesModule, ReputationModule reads TransformedRepReward set by
-            // StrategiesModule). They are NOT read outside the recalculation walk —
-            // no UI code or other consumers access them. This reset ensures idempotency:
-            // calling Recalculate twice on the same action list produces identical results,
-            // because stale derived values from a previous walk are cleared before the
-            // new walk begins. Transformed reward fields are seeded from their immutable
-            // source fields so the strategy transform can subtract from the correct base.
-            for (int i = 0; i < sorted.Count; i++)
+            List<GameAction> projectedTimeline = null;
+            if (utCutoff.HasValue)
             {
-                sorted[i].Effective = true;
-                sorted[i].EffectiveScience = 0f;
-                sorted[i].Affordable = false;
-                sorted[i].EffectiveRep = 0f;
-                sorted[i].TransformedFundsReward = sorted[i].FundsReward;
-                sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
-                sorted[i].TransformedRepReward = sorted[i].RepReward;
+                // A cutoff walk must leave visible game state at the current UT, but funds
+                // and science availability also need full-timeline cashflow to reserve
+                // already-committed future spendings. This isolated shadow walk uses cloned
+                // modules and suppressed logging to derive future Effective/Transformed/
+                // EffectiveScience fields without dispatching future actions through the
+                // registered live modules. Projection uses the latest explicit action UT or
+                // contract deadline so deadline-only future penalties are synthesized too.
+                projectedTimeline = RunProjectionWalk(
+                    CopyNonNullActions(actions),
+                    ComputeProjectionHorizon(actions)).Sorted;
             }
 
-            // 2c. Pre-pass: let modules compute aggregate data before the walk.
-            // Modules may inject synthetic actions (e.g., ContractsModule injects
-            // ContractFail for expired deadlines), so we re-sort afterward.
-            //
-            // Pass the cutoff as the walk's effective "now" so ContractsModule can
-            // detect deadlines that expired between the last pre-cutoff action and
-            // the cutoff itself. Without this, a filtered action list could have its
-            // "last UT" land before a deadline, letting deadline-expired contracts
-            // slip through the rewind without the synthetic ContractFail.
-            PrePassAllModules(sorted, utCutoff);
-            sorted = SortActions(sorted);
+            WalkResult walk = RunWalk(effective, utCutoff);
 
-            // 3. Walk sorted actions
-            int firstTierDispatches = 0;
-            int strategyDispatches = 0;
-            int secondTierDispatches = 0;
-            int facilitiesDispatches = 0;
+            if (utCutoff.HasValue)
+                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value);
 
-            for (int i = 0; i < sorted.Count; i++)
-            {
-                var action = sorted[i];
-
-                // Dispatch to first-tier modules
-                for (int m = 0; m < firstTierModules.Count; m++)
-                {
-                    firstTierModules[m].ProcessAction(action);
-                    firstTierDispatches++;
-                }
-
-                // Strategy transform (between tiers — future)
-                if (strategyTransform != null)
-                {
-                    strategyTransform.ProcessAction(action);
-                    strategyDispatches++;
-                }
-
-                // Dispatch to second-tier modules
-                for (int m = 0; m < secondTierModules.Count; m++)
-                {
-                    secondTierModules[m].ProcessAction(action);
-                    secondTierDispatches++;
-                }
-
-                // Dispatch to facilities module
-                if (facilitiesModule != null)
-                {
-                    facilitiesModule.ProcessAction(action);
-                    facilitiesDispatches++;
-                }
-            }
-
-            // 4. Post-walk: let modules finalize derived state
-            PostWalkAllModules();
-
-            // 5. Log summary
+            // 4. Log summary
             string cutoffLabel = utCutoff.HasValue
                 ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "null";
             ParsekLog.Info("RecalcEngine",
                 $"Recalculate complete: actionsTotal={actions.Count}, " +
                 $"actionsAfterCutoff={effective.Count}, cutoffUT={cutoffLabel}, " +
-                $"filteredOut={filteredOut}, walkedSorted={sorted.Count}, " +
-                $"firstTier={firstTierModules.Count} modules ({firstTierDispatches} dispatches), " +
-                $"strategy={strategyDispatches} dispatches, " +
-                $"secondTier={secondTierModules.Count} modules ({secondTierDispatches} dispatches), " +
-                $"facilities={facilitiesDispatches} dispatches");
+                $"filteredOut={filteredOut}, walkedSorted={walk.Sorted.Count}, " +
+                $"firstTier={firstTierModules.Count} modules ({walk.FirstTierDispatches} dispatches), " +
+                $"strategy={walk.StrategyDispatches} dispatches, " +
+                $"secondTier={secondTierModules.Count} modules ({walk.SecondTierDispatches} dispatches), " +
+                $"facilities={walk.FacilitiesDispatches} dispatches");
         }
 
         /// <summary>
@@ -358,49 +297,376 @@ namespace Parsek
         // Internal helpers
         // ================================================================
 
-        private static void PrePassAllModules(List<GameAction> sorted, double? walkNowUT)
+        private sealed class WalkResult
         {
-            for (int i = 0; i < firstTierModules.Count; i++)
-                firstTierModules[i].PrePass(sorted, walkNowUT);
-
-            if (strategyTransform != null)
-                strategyTransform.PrePass(sorted, walkNowUT);
-
-            for (int i = 0; i < secondTierModules.Count; i++)
-                secondTierModules[i].PrePass(sorted, walkNowUT);
-
-            if (facilitiesModule != null)
-                facilitiesModule.PrePass(sorted, walkNowUT);
+            internal List<GameAction> Sorted;
+            internal int FirstTierDispatches;
+            internal int StrategyDispatches;
+            internal int SecondTierDispatches;
+            internal int FacilitiesDispatches;
         }
 
-        private static void PostWalkAllModules()
+        private struct ProjectionResult
         {
-            for (int i = 0; i < firstTierModules.Count; i++)
-                firstTierModules[i].PostWalk();
-
-            if (strategyTransform != null)
-                strategyTransform.PostWalk();
-
-            for (int i = 0; i < secondTierModules.Count; i++)
-                secondTierModules[i].PostWalk();
-
-            if (facilitiesModule != null)
-                facilitiesModule.PostWalk();
+            internal double Available;
+            internal double MinBalance;
+            internal double FinalBalance;
+            internal int FutureActions;
+            internal int DeltaActions;
         }
 
-        private static void ResetAllModules()
+        private static WalkResult RunWalk(List<GameAction> actions, double? walkNowUT)
         {
-            for (int i = 0; i < firstTierModules.Count; i++)
-                firstTierModules[i].Reset();
+            return RunWalk(
+                actions,
+                walkNowUT,
+                firstTierModules,
+                strategyTransform,
+                secondTierModules,
+                facilitiesModule);
+        }
+
+        private static WalkResult RunProjectionWalk(List<GameAction> actions, double projectionNowUT)
+        {
+            var projectionFirstTier = CreateProjectionModules(firstTierModules);
+            var projectionStrategy = CreateProjectionModule(strategyTransform);
+            var projectionSecondTier = CreateProjectionModules(secondTierModules);
+            var projectionFacilities = CreateProjectionModule(facilitiesModule);
+
+            using (ParsekLog.SuppressScope())
+            {
+                return RunWalk(
+                    actions,
+                    projectionNowUT,
+                    projectionFirstTier,
+                    projectionStrategy,
+                    projectionSecondTier,
+                    projectionFacilities);
+            }
+        }
+
+        private static WalkResult RunWalk(
+            List<GameAction> actions,
+            double? walkNowUT,
+            List<IResourceModule> firstTier,
+            IResourceModule strategy,
+            List<IResourceModule> secondTier,
+            IResourceModule facilities)
+        {
+            // 1. Sort — stable sort preserving insertion order for equal keys
+            var sorted = SortActions(actions);
+
+            // 2. Reset all modules and action-derived fields.
+            ResetAllModules(firstTier, strategy, secondTier, facilities);
+            ResetDerivedFields(sorted);
+
+            // 2b. Pre-pass: let modules compute aggregate data before the walk.
+            // Modules may inject synthetic actions (e.g., ContractsModule injects
+            // ContractFail for expired deadlines), so we re-sort afterward.
+            //
+            // Pass the cutoff as the walk's effective "now" so ContractsModule can
+            // detect deadlines that expired between the last pre-cutoff action and
+            // the cutoff itself. Without this, a filtered action list could have its
+            // "last UT" land before a deadline, letting deadline-expired contracts
+            // slip through the rewind without the synthetic ContractFail.
+            PrePassAllModules(sorted, walkNowUT, firstTier, strategy, secondTier, facilities);
+            sorted = SortActions(sorted);
+
+            // 3. Walk sorted actions.
+            int firstTierDispatches = 0;
+            int strategyDispatches = 0;
+            int secondTierDispatches = 0;
+            int facilitiesDispatches = 0;
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var action = sorted[i];
+
+                // Dispatch to first-tier modules.
+                for (int m = 0; m < firstTier.Count; m++)
+                {
+                    firstTier[m].ProcessAction(action);
+                    firstTierDispatches++;
+                }
+
+                // Strategy transform tier.
+                if (strategy != null)
+                {
+                    strategy.ProcessAction(action);
+                    strategyDispatches++;
+                }
+
+                // Dispatch to second-tier modules.
+                for (int m = 0; m < secondTier.Count; m++)
+                {
+                    secondTier[m].ProcessAction(action);
+                    secondTierDispatches++;
+                }
+
+                // Dispatch to facilities module.
+                if (facilities != null)
+                {
+                    facilities.ProcessAction(action);
+                    facilitiesDispatches++;
+                }
+            }
+
+            // 4. Post-walk: let modules finalize derived state.
+            PostWalkAllModules(firstTier, strategy, secondTier, facilities);
+
+            return new WalkResult
+            {
+                Sorted = sorted,
+                FirstTierDispatches = firstTierDispatches,
+                StrategyDispatches = strategyDispatches,
+                SecondTierDispatches = secondTierDispatches,
+                FacilitiesDispatches = facilitiesDispatches
+            };
+        }
+
+        private static void ResetDerivedFields(List<GameAction> sorted)
+        {
+            // These fields are written by modules during the walk and read by downstream
+            // modules within the same walk (e.g., FundsModule reads Effective set by
+            // MilestonesModule, ReputationModule reads TransformedRepReward set by
+            // StrategiesModule). This reset ensures idempotency: calling Recalculate
+            // twice on the same action list produces identical results, with no stale
+            // Effective=false / EffectiveScience values surviving after a new walk
+            // begins. Transformed reward fields are seeded from their immutable source
+            // fields so the strategy transform can subtract from the correct base.
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                sorted[i].Effective = true;
+                sorted[i].EffectiveScience = 0f;
+                sorted[i].Affordable = false;
+                sorted[i].EffectiveRep = 0f;
+                sorted[i].TransformedFundsReward = sorted[i].FundsReward;
+                sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
+                sorted[i].TransformedRepReward = sorted[i].RepReward;
+            }
+        }
+
+        private static List<GameAction> CopyNonNullActions(List<GameAction> actions)
+        {
+            var copy = new List<GameAction>(actions.Count);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null)
+                    copy.Add(actions[i]);
+            }
+            return copy;
+        }
+
+        private static double ComputeProjectionHorizon(List<GameAction> actions)
+        {
+            double horizon = 0.0;
+            bool hasValue = false;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null)
+                    continue;
+
+                if (!hasValue || action.UT > horizon)
+                {
+                    horizon = action.UT;
+                    hasValue = true;
+                }
+
+                if (action.Type != GameActionType.ContractAccept || float.IsNaN(action.DeadlineUT))
+                    continue;
+
+                if (action.DeadlineUT > horizon)
+                    horizon = action.DeadlineUT;
+            }
+
+            return horizon;
+        }
+
+        private static List<IResourceModule> CreateProjectionModules(List<IResourceModule> modules)
+        {
+            var clones = new List<IResourceModule>(modules.Count);
+            for (int i = 0; i < modules.Count; i++)
+            {
+                var clone = CreateProjectionModule(modules[i]);
+                if (clone != null)
+                    clones.Add(clone);
+            }
+            return clones;
+        }
+
+        private static IResourceModule CreateProjectionModule(IResourceModule module)
+        {
+            if (module == null)
+                return null;
+
+            try
+            {
+                var cloneable = module as IProjectionCloneableModule;
+                if (cloneable != null)
+                {
+                    var clone = cloneable.CreateProjectionClone();
+                    if (clone != null)
+                        return clone;
+                }
+
+                return Activator.CreateInstance(module.GetType(), true) as IResourceModule;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecalcEngine",
+                    $"Projection clone failed for module {module.GetType().Name}: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void ApplyProjectedAvailability(List<GameAction> projectedTimeline, double cutoff)
+        {
+            if (projectedTimeline == null)
+                return;
+
+            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff);
 
             if (strategyTransform != null)
-                strategyTransform.Reset();
+                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff);
 
-            for (int i = 0; i < secondTierModules.Count; i++)
-                secondTierModules[i].Reset();
+            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff);
 
             if (facilitiesModule != null)
-                facilitiesModule.Reset();
+                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff);
+        }
+
+        private static void ApplyProjectedAvailability(
+            List<IResourceModule> modules,
+            List<GameAction> projectedTimeline,
+            double cutoff)
+        {
+            for (int i = 0; i < modules.Count; i++)
+                ApplyProjectedAvailability(modules[i], projectedTimeline, cutoff);
+        }
+
+        private static void ApplyProjectedAvailability(
+            IResourceModule module,
+            List<GameAction> projectedTimeline,
+            double cutoff)
+        {
+            var projectionModule = module as ICashflowProjectionModule;
+            if (projectionModule == null)
+                return;
+
+            double currentBalance = projectionModule.GetProjectionCurrentBalance();
+            var projection = ProjectAvailability(
+                projectedTimeline,
+                cutoff,
+                currentBalance,
+                projectionModule);
+            projectionModule.SetProjectedAvailable(
+                projection.Available,
+                currentBalance,
+                projection.MinBalance,
+                projection.FinalBalance,
+                projection.FutureActions,
+                projection.DeltaActions);
+        }
+
+        private static ProjectionResult ProjectAvailability(
+            List<GameAction> projectedTimeline,
+            double cutoff,
+            double currentBalance,
+            ICashflowProjectionModule projectionModule)
+        {
+            double projected = currentBalance;
+            double minProjected = currentBalance;
+            int futureActions = 0;
+            int deltaActions = 0;
+
+            for (int i = 0; i < projectedTimeline.Count; i++)
+            {
+                var action = projectedTimeline[i];
+                if (action == null || IsSeedType(action.Type) || action.UT <= cutoff)
+                    continue;
+
+                futureActions++;
+
+                double delta;
+                if (!projectionModule.TryGetProjectionDelta(action, out delta))
+                    continue;
+
+                projected += delta;
+                deltaActions++;
+
+                if (projected < minProjected)
+                    minProjected = projected;
+            }
+
+            return new ProjectionResult
+            {
+                Available = minProjected > 0.0 ? minProjected : 0.0,
+                MinBalance = minProjected,
+                FinalBalance = projected,
+                FutureActions = futureActions,
+                DeltaActions = deltaActions
+            };
+        }
+
+        private static void PrePassAllModules(
+            List<GameAction> sorted,
+            double? walkNowUT,
+            List<IResourceModule> firstTier,
+            IResourceModule strategy,
+            List<IResourceModule> secondTier,
+            IResourceModule facilities)
+        {
+            for (int i = 0; i < firstTier.Count; i++)
+                firstTier[i].PrePass(sorted, walkNowUT);
+
+            if (strategy != null)
+                strategy.PrePass(sorted, walkNowUT);
+
+            for (int i = 0; i < secondTier.Count; i++)
+                secondTier[i].PrePass(sorted, walkNowUT);
+
+            if (facilities != null)
+                facilities.PrePass(sorted, walkNowUT);
+        }
+
+        private static void PostWalkAllModules(
+            List<IResourceModule> firstTier,
+            IResourceModule strategy,
+            List<IResourceModule> secondTier,
+            IResourceModule facilities)
+        {
+            for (int i = 0; i < firstTier.Count; i++)
+                firstTier[i].PostWalk();
+
+            if (strategy != null)
+                strategy.PostWalk();
+
+            for (int i = 0; i < secondTier.Count; i++)
+                secondTier[i].PostWalk();
+
+            if (facilities != null)
+                facilities.PostWalk();
+        }
+
+        private static void ResetAllModules(
+            List<IResourceModule> firstTier,
+            IResourceModule strategy,
+            List<IResourceModule> secondTier,
+            IResourceModule facilities)
+        {
+            for (int i = 0; i < firstTier.Count; i++)
+                firstTier[i].Reset();
+
+            if (strategy != null)
+                strategy.Reset();
+
+            for (int i = 0; i < secondTier.Count; i++)
+                secondTier[i].Reset();
+
+            if (facilities != null)
+                facilities.Reset();
         }
     }
 }

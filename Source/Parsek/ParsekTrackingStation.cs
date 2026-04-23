@@ -46,6 +46,7 @@ namespace Parsek
             lastKnownShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
+            int suppressedForGhosts = GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0;
 
             // Run the first lifecycle tick on the first Update after all scene Start
             // methods have completed, so real-vessel handoff sees the loaded vessel list
@@ -57,7 +58,9 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
                 $"fixed {renderersFixed} orbit renderer(s), " +
-                $"showGhostsInTrackingStation={lastKnownShowGhosts}");
+                $"showGhostsInTrackingStation={lastKnownShowGhosts}, " +
+                $"trackingStationSuppressed={suppressedForGhosts}, " +
+                "orbitSourceDiagnostics=aggregated");
         }
 
         void Update()

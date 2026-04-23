@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using HarmonyLib;
 
 namespace Parsek
@@ -35,12 +36,124 @@ namespace Parsek
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
+        internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
+        internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
+
+        internal struct GhostProtoOrbitSeedDiagnostics
+        {
+            public string Source;
+            public string EndpointBodyName;
+            public string FailureReason;
+            public string FallbackReason;
+        }
+
+        private sealed class TrackingStationGhostSourceBatch
+        {
+            private readonly string context;
+            private readonly Dictionary<string, int> countByKey = new Dictionary<string, int>();
+            private readonly Dictionary<string, string> firstDetailByKey = new Dictionary<string, string>();
+            private int segmentCount;
+            private int terminalCount;
+            private int skippedCount;
+
+            internal TrackingStationGhostSourceBatch(string context)
+            {
+                this.context = string.IsNullOrEmpty(context) ? "unspecified" : context;
+            }
+
+            internal void Observe(
+                int recordingIndex,
+                Recording rec,
+                double currentUT,
+                TrackingStationGhostSource source,
+                string reason,
+                string detail)
+            {
+                if (source == TrackingStationGhostSource.Segment)
+                    segmentCount++;
+                else if (source == TrackingStationGhostSource.TerminalOrbit)
+                    terminalCount++;
+                else
+                    skippedCount++;
+
+                string key = BuildTrackingStationGhostSourceSummaryKey(source, reason);
+                if (!countByKey.TryGetValue(key, out int count))
+                    count = 0;
+                countByKey[key] = count + 1;
+
+                if (!firstDetailByKey.ContainsKey(key))
+                {
+                    firstDetailByKey[key] = BuildTrackingStationGhostSourceLogLine(
+                        context,
+                        recordingIndex,
+                        rec,
+                        currentUT,
+                        source,
+                        reason,
+                        detail);
+                }
+            }
+
+            internal void Log(string action, int recordingCount, int created, int alreadyTracked)
+            {
+                if (countByKey.Count == 0 && alreadyTracked == 0)
+                    return;
+
+                foreach (var kvp in firstDetailByKey)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        Tag,
+                        string.Format(ic, "ts-orbit-source-first-{0}-{1}", context, kvp.Key),
+                        kvp.Value,
+                        10.0);
+                }
+
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    "ts-orbit-source-summary-" + context,
+                    string.Format(ic,
+                        "Tracking-station orbit-source summary: context={0} action={1} recordings={2} " +
+                        "created={3} alreadyTracked={4} sources(visibleSegment={5} terminalOrbit={6}) " +
+                        "skipped={7} skipCounts={8}",
+                        context,
+                        action ?? "(null)",
+                        recordingCount,
+                        created,
+                        alreadyTracked,
+                        segmentCount,
+                        terminalCount,
+                        skippedCount,
+                        FormatTrackingStationGhostSourceCounts()),
+                    10.0);
+            }
+
+            private string FormatTrackingStationGhostSourceCounts()
+            {
+                if (countByKey.Count == 0)
+                    return "{}";
+
+                var sb = new StringBuilder();
+                sb.Append('{');
+                bool first = true;
+                foreach (var kvp in countByKey)
+                {
+                    if (!first)
+                        sb.Append(',');
+                    first = false;
+                    sb.Append(kvp.Key);
+                    sb.Append('=');
+                    sb.Append(kvp.Value.ToString(ic));
+                }
+                sb.Append('}');
+                return sb.ToString();
+            }
+        }
 
         /// <summary>
         /// PID tracking set — the canonical ghost vessel identification.
@@ -114,6 +227,107 @@ namespace Parsek
             return Planetarium.GetUniversalTime();
         }
 
+        private static string BuildTrackingStationGhostSourceSummaryKey(
+            TrackingStationGhostSource source,
+            string reason)
+        {
+            if (source == TrackingStationGhostSource.None)
+                return "skip-" + (string.IsNullOrEmpty(reason) ? "unspecified" : reason);
+
+            return "source-" + FormatTrackingStationGhostSource(source);
+        }
+
+        private static string FormatTrackingStationGhostSource(TrackingStationGhostSource source)
+        {
+            switch (source)
+            {
+                case TrackingStationGhostSource.Segment:
+                    return "visible-segment";
+                case TrackingStationGhostSource.TerminalOrbit:
+                    return "terminal-orbit";
+                default:
+                    return "none";
+            }
+        }
+
+        private static string BuildTrackingStationGhostSourceLogLine(
+            string context,
+            int recordingIndex,
+            Recording rec,
+            double currentUT,
+            TrackingStationGhostSource source,
+            string reason,
+            string detail)
+        {
+            string recId = rec?.RecordingId ?? "(null)";
+            string vesselName = rec?.VesselName ?? "(null)";
+            string terminal = rec?.TerminalStateValue?.ToString() ?? "(null)";
+            string endpointPhase = rec != null ? rec.EndpointPhase.ToString() : "(null)";
+            string endpointBody = string.IsNullOrEmpty(rec?.EndpointBodyName)
+                ? "(none)"
+                : rec.EndpointBodyName;
+            string terminalBody = string.IsNullOrEmpty(rec?.TerminalOrbitBody)
+                ? "(none)"
+                : rec.TerminalOrbitBody;
+
+            return string.Format(ic,
+                "ResolveTrackingStationGhostSource: Tracking-station orbit source: context={0} recIndex={1} rec={2} vessel=\"{3}\" " +
+                "currentUT={4:F1} source={5} orbitSource={6} reason={7} terminal={8} terminalBody={9} terminalSma={10:F0} " +
+                "endpoint=({11},{12}) hasSegments={13} vesselSpawned={14} spawnedPid={15}{16}",
+                string.IsNullOrEmpty(context) ? "unspecified" : context,
+                recordingIndex,
+                recId,
+                vesselName,
+                currentUT,
+                source,
+                FormatTrackingStationGhostSource(source),
+                string.IsNullOrEmpty(reason) ? "(none)" : reason,
+                terminal,
+                terminalBody,
+                rec?.TerminalOrbitSemiMajorAxis ?? 0.0,
+                endpointPhase,
+                endpointBody,
+                rec?.HasOrbitSegments ?? false,
+                rec?.VesselSpawned ?? false,
+                rec?.SpawnedVesselPersistentId ?? 0u,
+                string.IsNullOrEmpty(detail) ? string.Empty : " " + detail);
+        }
+
+        private static void LogTrackingStationGhostSourceDecision(
+            string context,
+            int recordingIndex,
+            Recording rec,
+            double currentUT,
+            TrackingStationGhostSource source,
+            string reason,
+            string detail,
+            TrackingStationGhostSourceBatch batch)
+        {
+            if (batch != null)
+            {
+                batch.Observe(recordingIndex, rec, currentUT, source, reason, detail);
+                return;
+            }
+
+            ParsekLog.Verbose(
+                Tag,
+                BuildTrackingStationGhostSourceLogLine(
+                    context,
+                    recordingIndex,
+                    rec,
+                    currentUT,
+                    source,
+                    reason,
+                    detail));
+        }
+
+        private static bool HasTerminalOrbitData(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && !string.IsNullOrEmpty(traj.TerminalOrbitBody)
+                && traj.TerminalOrbitSemiMajorAxis > 0;
+        }
+
         // ------------------------------------------------------------------
         // Pure data layer (unchanged from original)
         // ------------------------------------------------------------------
@@ -130,8 +344,7 @@ namespace Parsek
                 return false;
             }
 
-            bool hasOrbit = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && rec.TerminalOrbitSemiMajorAxis > 0;
+            bool hasOrbit = HasTerminalOrbitData(rec);
 
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
@@ -156,8 +369,7 @@ namespace Parsek
                 return false;
             }
 
-            bool hasOrbit = !string.IsNullOrEmpty(traj.TerminalOrbitBody)
-                && traj.TerminalOrbitSemiMajorAxis > 0;
+            bool hasOrbit = HasTerminalOrbitData(traj);
 
             if (hasOrbit)
                 ParsekLog.Verbose(Tag,
@@ -552,19 +764,29 @@ namespace Parsek
             }
 
             // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
+            var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-lifecycle");
+            int lifecycleCreated = 0;
+            int alreadyTracked = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 // Skip recordings that already have a ghost
-                if (vesselsByRecordingIndex.ContainsKey(i)) continue;
+                if (vesselsByRecordingIndex.ContainsKey(i))
+                {
+                    alreadyTracked++;
+                    continue;
+                }
 
                 var rec = committed[i];
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
-                TrackingStationGhostSource source = ResolveTrackingStationGhostSource(
+                TrackingStationGhostSource source = ResolveTrackingStationGhostSourceCore(
                     rec,
                     isSuppressed,
                     currentUT,
                     out OrbitSegment segment,
-                    out _);
+                    out _,
+                    sourceBatch,
+                    i,
+                    "tracking-station-lifecycle");
                 if (source == TrackingStationGhostSource.None) continue;
 
                 Vessel v = null;
@@ -575,14 +797,21 @@ namespace Parsek
 
                 if (v != null)
                 {
+                    lifecycleCreated++;
                     // Ensure orbit renderer exists (MapView.fetch should be available by now)
                     EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
                         string.Format(ic,
-                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range",
-                            i, rec.VesselName ?? "(null)", currentUT));
+                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range source={3}",
+                            i, rec.VesselName ?? "(null)", currentUT, FormatTrackingStationGhostSource(source)));
                 }
             }
+
+            sourceBatch.Log(
+                "UpdateTrackingStationGhostLifecycle",
+                committed.Count,
+                lifecycleCreated,
+                alreadyTracked);
         }
 
         private static void RefreshTrackingStationGhosts(
@@ -788,7 +1017,18 @@ namespace Parsek
             string logContext = string.Format(ic,
                 "recording #{0} (state vectors alt={1:F0} spd={2:F1})",
                 recordingIndex, point.altitude, point.velocity.magnitude);
-            Vessel vessel = BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+            Vessel vessel = BuildAndLoadGhostProtoVesselCore(
+                traj,
+                orbit,
+                body,
+                logContext,
+                "state-vector-fallback",
+                string.Format(ic,
+                    "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1}",
+                    point.bodyName ?? "(null)",
+                    ut,
+                    point.altitude,
+                    point.velocity.magnitude));
             if (vessel != null)
             {
                 vesselsByRecordingIndex[recordingIndex] = vessel;
@@ -1109,29 +1349,44 @@ namespace Parsek
             out OrbitSegment segment,
             out string skipReason)
         {
+            return ResolveTrackingStationGhostSourceCore(
+                rec,
+                isSuppressed,
+                currentUT,
+                out segment,
+                out skipReason,
+                batch: null,
+                recordingIndex: -1,
+                context: "direct");
+        }
+
+        private static TrackingStationGhostSource ResolveTrackingStationGhostSourceCore(
+            Recording rec,
+            bool isSuppressed,
+            double currentUT,
+            out OrbitSegment segment,
+            out string skipReason,
+            TrackingStationGhostSourceBatch batch,
+            int recordingIndex,
+            string context)
+        {
             segment = default(OrbitSegment);
             skipReason = null;
-            string recId = rec?.RecordingId ?? "(null)";
 
             TrackingStationGhostSource ReturnDecision(
                 TrackingStationGhostSource source,
                 string reason,
                 string detail = null)
             {
-                ParsekLog.VerboseRateLimited(
-                    Tag,
-                    string.Format(ic,
-                        "ts-ghost-source-{0}-{1}-{2}",
-                        recId,
-                        source,
-                        reason ?? "none"),
-                    string.Format(ic,
-                        "ResolveTrackingStationGhostSource: rec={0} currentUT={1:F1} source={2} reason={3}{4}",
-                        recId,
-                        currentUT,
-                        source,
-                        reason ?? "(none)",
-                        string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+                LogTrackingStationGhostSourceDecision(
+                    context,
+                    recordingIndex,
+                    rec,
+                    currentUT,
+                    source,
+                    reason,
+                    detail,
+                    batch);
                 return source;
             }
 
@@ -1192,7 +1447,7 @@ namespace Parsek
                 }
             }
 
-            if (!HasOrbitData(rec))
+            if (!HasTerminalOrbitData(rec))
             {
                 skipReason = rec.HasOrbitSegments ? "no-current-segment" : "no-orbit-data";
                 return ReturnDecision(
@@ -1220,13 +1475,43 @@ namespace Parsek
                     string.Format(ic, "endUT={0:F1}", rec.EndUT));
             }
 
+            if (!TryResolveGhostProtoOrbitSeed(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out string seedBodyName,
+                out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
+            {
+                skipReason = seedDiagnostics.FailureReason == TrackingStationGhostSkipEndpointConflict
+                    ? TrackingStationGhostSkipEndpointConflict
+                    : TrackingStationGhostSkipUnseedableTerminalOrbit;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic,
+                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
+                        rec.TerminalOrbitBody ?? "(null)",
+                        rec.EndUT,
+                        seedDiagnostics.FailureReason ?? "(none)",
+                        seedDiagnostics.EndpointBodyName ?? "(none)"));
+            }
+
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
                 skipReason,
                 string.Format(ic,
-                    "terminalBody={0} endUT={1:F1}",
+                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
                     rec.TerminalOrbitBody ?? "(null)",
-                    rec.EndUT));
+                    rec.EndUT,
+                    seedBodyName ?? "(null)",
+                    seedDiagnostics.Source ?? "(none)",
+                    seedDiagnostics.EndpointBodyName ?? "(none)",
+                    seedDiagnostics.FallbackReason ?? "(none)"));
         }
 
         /// <summary>
@@ -1288,23 +1573,31 @@ namespace Parsek
             int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;
             int skippedTerminal = 0, skippedBeforeActivation = 0;
             int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
+            int skippedEndpointConflict = 0, skippedUnseedableTerminalOrbit = 0;
+            int sourceVisibleSegment = 0, sourceTerminalOrbit = 0;
+            var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-startup");
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
 
-                TrackingStationGhostSource source = ResolveTrackingStationGhostSource(
+                TrackingStationGhostSource source = ResolveTrackingStationGhostSourceCore(
                     rec,
                     isSuppressed,
                     currentUT,
                     out OrbitSegment segment,
-                    out string skipReason);
+                    out string skipReason,
+                    sourceBatch,
+                    i,
+                    "tracking-station-startup");
                 if (source == TrackingStationGhostSource.None)
                 {
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
                     else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
+                    else if (skipReason == TrackingStationGhostSkipEndpointConflict) skippedEndpointConflict++;
+                    else if (skipReason == TrackingStationGhostSkipUnseedableTerminalOrbit) skippedUnseedableTerminalOrbit++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
                     else if (skipReason == "before-activation") skippedBeforeActivation++;
                     else if (skipReason == "before-terminal-orbit") skippedBeforeTerminalOrbit++;
@@ -1315,9 +1608,15 @@ namespace Parsek
                 // Use terminal orbit data if available; otherwise use the current orbit segment.
                 Vessel v = null;
                 if (source == TrackingStationGhostSource.TerminalOrbit)
+                {
+                    sourceTerminalOrbit++;
                     v = CreateGhostVesselForRecording(i, rec);
+                }
                 else if (source == TrackingStationGhostSource.Segment)
+                {
+                    sourceVisibleSegment++;
                     v = CreateGhostVesselFromSegment(i, rec, segment);
+                }
 
                 if (v != null) created++;
             }
@@ -1325,11 +1624,20 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "(skipped: debris={2} suppressed={3} spawned={4} terminal={5} beforeActivation={6} " +
-                    "beforeTerminalOrbit={7} noOrbit={8})",
+                    "sources(visibleSegment={2} terminalOrbit={3}) " +
+                    "(skipped: debris={4} suppressed={5} spawned={6} terminal={7} beforeActivation={8} " +
+                    "beforeTerminalOrbit={9} noOrbit={10} endpointConflict={11} terminalUnseedable={12})",
                     created, committed.Count,
+                    sourceVisibleSegment, sourceTerminalOrbit,
                     skippedDebris, skippedSuppressed, skippedSpawned, skippedTerminal,
-                    skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit));
+                    skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit,
+                    skippedEndpointConflict, skippedUnseedableTerminalOrbit));
+
+            sourceBatch.Log(
+                "CreateGhostVesselsFromCommittedRecordings",
+                committed.Count,
+                created,
+                alreadyTracked: 0);
 
             return created;
         }
@@ -1549,9 +1857,10 @@ namespace Parsek
                 && committed[recordingIndex].HasOrbitSegments)
             {
                 ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-none-" + vesselPid,
+                    "visible-window-none",
                     string.Format(ic,
-                        "Map-visible orbit window unavailable pid={0} recIndex={1} ut={2:F2} — " +
+                        "Map-visible orbit window unavailable source=none reason=no-active-equivalent-segment " +
+                        "pid={0} recIndex={1} ut={2:F2} — " +
                         "no active or equivalent same-orbit segment chain",
                         vesselPid, recordingIndex, currentUT),
                     1.0);
@@ -1562,9 +1871,9 @@ namespace Parsek
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
                 ParsekLog.VerboseRateLimited(Tag,
-                    string.Format(ic, "visible-window-fallback-{0}-{1:F3}-{2:F3}", vesselPid, startUT, endUT),
+                    "visible-window-stored-bounds-fallback",
                     string.Format(ic,
-                        "Map-visible orbit window pid={0} source=stored-bounds ut={1:F2} windowUT={2:F2}-{3:F2}",
+                        "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",
                         vesselPid, currentUT, startUT, endUT),
                     1.0);
                 return true;
@@ -1688,7 +1997,17 @@ namespace Parsek
                 segment.epoch,
                 body);
 
-            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+            return BuildAndLoadGhostProtoVesselCore(
+                traj,
+                orbit,
+                body,
+                logContext,
+                "visible-segment",
+                string.Format(ic,
+                    "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                    segment.bodyName ?? "(null)",
+                    segment.startUT,
+                    segment.endUT));
         }
 
         private static Vessel BuildAndLoadGhostProtoVessel(IPlaybackTrajectory traj, string logContext)
@@ -1702,12 +2021,17 @@ namespace Parsek
                 out double argumentOfPeriapsis,
                 out double meanAnomalyAtEpoch,
                 out double epoch,
-                out string orbitBodyName))
+                out string orbitBodyName,
+                out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "BuildAndLoadGhostProtoVessel: no endpoint-aligned orbit seed for {0}",
-                        logContext));
+                        "BuildAndLoadGhostProtoVessel: no endpoint-aligned orbit seed for {0} " +
+                        "seedFailure={1} endpointBody={2} seedFallback={3}",
+                        logContext,
+                        seedDiagnostics.FailureReason ?? "(none)",
+                        seedDiagnostics.EndpointBodyName ?? "(none)",
+                        seedDiagnostics.FallbackReason ?? "(none)"));
                 return null;
             }
 
@@ -1731,7 +2055,17 @@ namespace Parsek
                 epoch,
                 body);
 
-            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+            return BuildAndLoadGhostProtoVesselCore(
+                traj,
+                orbit,
+                body,
+                logContext,
+                string.IsNullOrEmpty(seedDiagnostics.Source) ? "terminal-orbit" : seedDiagnostics.Source,
+                string.Format(ic,
+                    "seedBody={0} endpointBody={1} seedFallback={2}",
+                    orbitBodyName ?? "(null)",
+                    seedDiagnostics.EndpointBodyName ?? "(none)",
+                    seedDiagnostics.FallbackReason ?? "(none)"));
         }
 
         internal static bool TryResolveGhostProtoOrbitSeed(
@@ -1745,7 +2079,54 @@ namespace Parsek
             out double epoch,
             out string bodyName)
         {
-            return RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+            return TryResolveGhostProtoOrbitSeed(
+                traj,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName,
+                out _);
+        }
+
+        internal static bool TryResolveGhostProtoOrbitSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName,
+            out GhostProtoOrbitSeedDiagnostics diagnostics)
+        {
+            if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName,
+                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics endpointDiagnostics))
+            {
+                diagnostics = new GhostProtoOrbitSeedDiagnostics
+                {
+                    Source = endpointDiagnostics.Source,
+                    EndpointBodyName = endpointDiagnostics.EndpointBodyName,
+                    FailureReason = null,
+                    FallbackReason = null
+                };
+                return true;
+            }
+
+            bool fallbackResolved = TryResolveTerminalOrbitGhostSeed(
                 traj,
                 out inclination,
                 out eccentricity,
@@ -1755,10 +2136,96 @@ namespace Parsek
                 out meanAnomalyAtEpoch,
                 out epoch,
                 out bodyName);
+
+            diagnostics = new GhostProtoOrbitSeedDiagnostics
+            {
+                Source = fallbackResolved ? "terminal-orbit" : "none",
+                EndpointBodyName = endpointDiagnostics.EndpointBodyName,
+                FailureReason = fallbackResolved
+                    ? null
+                    : (endpointDiagnostics.FailureReason ?? TrackingStationGhostSkipUnseedableTerminalOrbit),
+                FallbackReason = endpointDiagnostics.FailureReason
+            };
+
+            if (fallbackResolved && string.IsNullOrEmpty(diagnostics.EndpointBodyName)
+                && RecordingEndpointResolver.TryGetPreferredEndpointBodyName(traj, out string preferredEndpointBody))
+            {
+                diagnostics.EndpointBodyName = preferredEndpointBody;
+            }
+
+            return fallbackResolved;
+        }
+
+        private static bool TryResolveTerminalOrbitGhostSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+
+            if (traj == null
+                || string.IsNullOrEmpty(traj.TerminalOrbitBody)
+                || traj.TerminalOrbitSemiMajorAxis <= 0.0)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(traj.EndpointBodyName)
+                && traj.EndpointPhase != RecordingEndpointPhase.Unknown
+                && !string.Equals(traj.EndpointBodyName, traj.TerminalOrbitBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (RecordingEndpointResolver.TryGetPreferredEndpointBodyName(traj, out string endpointBodyName)
+                && !string.IsNullOrEmpty(endpointBodyName)
+                && !string.Equals(endpointBodyName, traj.TerminalOrbitBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (traj.TerminalStateValue.HasValue)
+            {
+                TerminalState terminalState = traj.TerminalStateValue.Value;
+                if (terminalState != TerminalState.Orbiting
+                    && terminalState != TerminalState.SubOrbital
+                    && terminalState != TerminalState.Docked)
+                {
+                    return false;
+                }
+            }
+
+            inclination = traj.TerminalOrbitInclination;
+            eccentricity = traj.TerminalOrbitEccentricity;
+            semiMajorAxis = traj.TerminalOrbitSemiMajorAxis;
+            lan = traj.TerminalOrbitLAN;
+            argumentOfPeriapsis = traj.TerminalOrbitArgumentOfPeriapsis;
+            meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch;
+            epoch = traj.TerminalOrbitEpoch;
+            bodyName = traj.TerminalOrbitBody;
+            return true;
         }
 
         private static Vessel BuildAndLoadGhostProtoVesselCore(
-            IPlaybackTrajectory traj, Orbit orbit, CelestialBody body, string logContext)
+            IPlaybackTrajectory traj,
+            Orbit orbit,
+            CelestialBody body,
+            string logContext,
+            string orbitSource = null,
+            string orbitSourceDetail = null)
         {
             ProtoVessel pv = null;
             try
@@ -1858,10 +2325,13 @@ namespace Parsek
 
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6} " +
-                        "mapObj={7} orbitRenderer={8} scene={9}",
+                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} " +
+                        "orbitSource={6}{7} | {8} mapObj={9} orbitRenderer={10} scene={11}",
                         vesselName, v.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState,
+                        vtype, body.name, orbit.semiMajorAxis, logContext,
+                        string.IsNullOrEmpty(orbitSource) ? "(unspecified)" : orbitSource,
+                        string.IsNullOrEmpty(orbitSourceDetail) ? string.Empty : " " + orbitSourceDetail,
+                        driverState,
                         v.mapObject != null, v.orbitRenderer != null,
                         HighLogic.LoadedScene));
 

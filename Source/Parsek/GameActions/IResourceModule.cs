@@ -11,7 +11,9 @@ namespace Parsek
     {
         /// <summary>
         /// Resets all derived state to zero/default before a recalculation walk.
-        /// Called once at the start of each <see cref="RecalculationEngine.Recalculate"/> invocation.
+        /// Called once on registered live modules during each visible
+        /// <see cref="RecalculationEngine.Recalculate"/> walk. Isolated projection clones
+        /// may also be reset while computing future cashflow reservations.
         /// </summary>
         void Reset();
 
@@ -63,5 +65,39 @@ namespace Parsek
         /// Most modules leave this as a no-op.
         /// </summary>
         void PostWalk();
+    }
+
+    /// <summary>
+    /// Optional extension for modules that need to carry static configuration into
+    /// the isolated projection walk.
+    /// </summary>
+    internal interface IProjectionCloneableModule
+    {
+        IResourceModule CreateProjectionClone();
+    }
+
+    /// <summary>
+    /// Optional extension for modules whose top-bar availability must reserve future
+    /// committed cashflow after a UT-cutoff walk.
+    /// </summary>
+    internal interface ICashflowProjectionModule
+    {
+        /// <summary>Returns the current running balance after the visible cutoff walk.</summary>
+        double GetProjectionCurrentBalance();
+
+        /// <summary>
+        /// Returns the resource delta for a future action after a full shadow walk has
+        /// populated derived action fields.
+        /// </summary>
+        bool TryGetProjectionDelta(GameAction action, out double delta);
+
+        /// <summary>Installs the projected spendable amount for subsequent query/patch calls.</summary>
+        void SetProjectedAvailable(
+            double available,
+            double currentBalance,
+            double minProjectedBalance,
+            double finalProjectedBalance,
+            int futureActions,
+            int deltaActions);
     }
 }

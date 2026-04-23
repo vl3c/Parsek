@@ -1184,6 +1184,240 @@ namespace Parsek
                 authoritativeRepeatableRecordState: false);
         }
 
+        private const double InitialResourceBaselineMaxUtSeconds = 1.0;
+
+        private static void SeedInitialResourceBalances()
+        {
+            GameStateBaseline initialBaseline;
+            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
+
+            if (!fundsSeedDone)
+                fundsSeedDone = EnsureInitialFundsSeed(hasInitialBaseline, initialBaseline);
+            if (!scienceSeedDone)
+                scienceSeedDone = EnsureInitialScienceSeed(hasInitialBaseline, initialBaseline);
+            if (!repSeedDone)
+                repSeedDone = EnsureInitialReputationSeed(hasInitialBaseline, initialBaseline);
+        }
+
+        private static bool EnsureInitialFundsSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            GameAction existingSeed;
+            if (TryGetFundsSeed(out existingSeed) && existingSeed.InitialFunds != 0f)
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                if (initialBaseline.funds != 0.0)
+                {
+                    Ledger.SeedInitialFunds(initialBaseline.funds);
+                    return true;
+                }
+
+                ParsekLog.Verbose(Tag,
+                    "SeedInitialFunds: initial baseline has zero funds; waiting for a non-zero Funding seed");
+            }
+
+            if (Funding.Instance != null && Funding.Instance.Funds != 0.0)
+            {
+                Ledger.SeedInitialFunds(Funding.Instance.Funds);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetFundsSeed(out GameAction seed)
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action != null && action.Type == GameActionType.FundsInitial)
+                {
+                    seed = action;
+                    return true;
+                }
+            }
+
+            seed = null;
+            return false;
+        }
+
+        private static bool EnsureInitialScienceSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            if (LedgerHasSeed(GameActionType.ScienceInitial))
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                Ledger.SeedInitialScience((float)initialBaseline.science);
+                return true;
+            }
+
+            if (LedgerHasScienceTimelineActions())
+            {
+                Ledger.SeedInitialScience(0f);
+                ParsekLog.Warn(Tag,
+                    "SeedInitialScience: refusing to treat current science as initial " +
+                    "because science timeline actions already exist and no baseline was available");
+                return true;
+            }
+
+            if (ResearchAndDevelopment.Instance == null
+                || ResearchAndDevelopment.Instance.Science == 0f)
+                return false;
+
+            Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+            return true;
+        }
+
+        private static bool EnsureInitialReputationSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        {
+            if (LedgerHasSeed(GameActionType.ReputationInitial))
+                return true;
+
+            if (hasInitialBaseline)
+            {
+                Ledger.SeedInitialReputation(initialBaseline.reputation);
+                return true;
+            }
+
+            if (LedgerHasReputationTimelineActions())
+            {
+                Ledger.SeedInitialReputation(0f);
+                ParsekLog.Warn(Tag,
+                    "SeedInitialReputation: refusing to treat current reputation as initial " +
+                    "because reputation timeline actions already exist and no baseline was available");
+                return true;
+            }
+
+            if (global::Reputation.Instance == null
+                || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
+                return false;
+
+            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            return true;
+        }
+
+        private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
+        {
+            initialBaseline = null;
+
+            var baselines = GameStateStore.Baselines;
+            if (baselines == null || baselines.Count == 0)
+                return false;
+
+            for (int i = 0; i < baselines.Count; i++)
+            {
+                var candidate = baselines[i];
+                if (candidate == null)
+                    continue;
+
+                if (!IsInitialResourceBaseline(candidate))
+                    continue;
+
+                if (initialBaseline == null || candidate.ut < initialBaseline.ut)
+                    initialBaseline = candidate;
+            }
+
+            return initialBaseline != null;
+        }
+
+        private static bool IsInitialResourceBaseline(GameStateBaseline candidate)
+        {
+            if (candidate == null)
+                return false;
+
+            return candidate.ut >= -InitialResourceBaselineMaxUtSeconds
+                && candidate.ut <= InitialResourceBaselineMaxUtSeconds;
+        }
+
+        private static bool LedgerHasSeed(GameActionType seedType)
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action != null && action.Type == seedType)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool LedgerHasScienceTimelineActions()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (ActionTouchesScienceBudget(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool LedgerHasReputationTimelineActions()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (ActionTouchesReputationBudget(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ActionTouchesScienceBudget(GameAction action)
+        {
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceSpending:
+                    return true;
+                case GameActionType.ContractComplete:
+                    return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;
+                case GameActionType.MilestoneAchievement:
+                    return action.MilestoneScienceAwarded != 0f;
+                case GameActionType.StrategyActivate:
+                    return action.SetupScienceCost != 0f;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ActionTouchesReputationBudget(GameAction action)
+        {
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return true;
+                case GameActionType.ContractAccept:
+                    return action.RepPenalty != 0f;
+                case GameActionType.ContractComplete:
+                    return action.RepReward != 0f || action.TransformedRepReward != 0f;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return action.RepPenalty != 0f;
+                case GameActionType.MilestoneAchievement:
+                    return action.MilestoneRepAwarded != 0f;
+                case GameActionType.StrategyActivate:
+                    return action.SetupReputationCost != 0f;
+                default:
+                    return false;
+            }
+        }
+
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
@@ -1192,29 +1426,9 @@ namespace Parsek
             Initialize();
 
             // Seed initial balances for career mode (per-resource, idempotent).
-            // Each resource is tracked independently — a partial seed (e.g., only
-            // reputation ready) must not lock out future funds/science seeding.
-            // Skip zero values: KSP singletons exist but report 0 before their
-            // OnLoad populates save data. If value is legitimately 0, HasSeed stays
-            // false and patching is skipped, preserving KSP's own 0.
-            if (!fundsSeedDone && Funding.Instance != null
-                && Funding.Instance.Funds != 0.0)
-            {
-                Ledger.SeedInitialFunds(Funding.Instance.Funds);
-                fundsSeedDone = true;
-            }
-            if (!scienceSeedDone && ResearchAndDevelopment.Instance != null
-                && ResearchAndDevelopment.Instance.Science != 0f)
-            {
-                Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
-                scienceSeedDone = true;
-            }
-            if (!repSeedDone && global::Reputation.Instance != null
-                && Math.Abs(global::Reputation.Instance.reputation) > 0.01f)
-            {
-                Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
-                repSeedDone = true;
-            }
+            // Baselines can represent legitimate zero science/rep values; once such
+            // a seed exists it must not be upgraded later from future live state.
+            SeedInitialResourceBalances();
 
             // Update contract and strategy slot limits based on facility levels
             // from the previous recalculation walk. On the very first call, defaults
@@ -1303,9 +1517,39 @@ namespace Parsek
                 // live in-tier best value because that finer-grained partial progress is not
                 // persisted in the ledger.
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+                // #559: tech-tree patching is rewind-only. Live unlocks that happened after
+                // the latest captured baseline are not replayed by any ledger action, so a
+                // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
+                // the target tech set when a cutoff is supplied; the null branch no-ops
+                // through PatchTechTree's existing null-target guard.
+                HashSet<string> targetTechIds = null;
+                double? techBaselineUt = null;
+                if (utCutoff.HasValue)
+                {
+                    targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
+                        GameStateStore.Baselines,
+                        actions,
+                        utCutoff);
+                    techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
+                        GameStateStore.Baselines,
+                        utCutoff);
+                    ParsekLog.Verbose(Tag,
+                        "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
+                        $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                        $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                        $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
+                }
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
-                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
+                    targetTechIds,
+                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
+                    techUtCutoff: utCutoff,
+                    techBaselineUt: techBaselineUt);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1400,6 +1644,10 @@ namespace Parsek
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             migrateOldSaveEventsRanThisLoad = false;
             consumedRecoveryEventKeys.Clear();
+            // Log-before-clear so any stale entries from the previous session show up
+            // in KSP.log before we drop them. Matches the FlushStalePendingRecoveryFunds
+            // contract used at scene-switch / rewind-end boundaries.
+            FlushStalePendingRecoveryFunds("KSP load");
 
             // Reconcile first — prunes orphaned actions from the existing ledger.
             // On empty ledger (old save), this is a no-op.
@@ -3035,8 +3283,29 @@ namespace Parsek
         /// instead of mutable store indices so later list pruning/reindexing cannot
         /// retarget a consumed marker onto a different event.
         /// Cleared by <see cref="OnKspLoad"/> and <see cref="ResetForTesting"/>.
+        /// Written exclusively from <see cref="TryAddVesselRecoveryFundsAction"/>.
         /// </summary>
         private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
+
+        private struct PendingRecoveryFundsRequest
+        {
+            public double Ut;
+            public string VesselName;
+            public bool FromTrackingStation;
+        }
+
+        private static readonly List<PendingRecoveryFundsRequest> pendingRecoveryFunds =
+            new List<PendingRecoveryFundsRequest>();
+
+        /// <summary>
+        /// Hard cap on how many unmatched recovery requests can accumulate before the
+        /// list itself becomes a leak signal. Staleness eviction also runs on lifecycle
+        /// boundaries (<see cref="OnKspLoad"/>, rewind end, scene switch), but this
+        /// threshold is the safety net when a boundary is missed. Chosen to absorb the
+        /// largest realistic bulk-recover-debris burst while still flagging runaway
+        /// growth — stock debris recovery batches rarely exceed a handful per UT epsilon.
+        /// </summary>
+        internal const int PendingRecoveryFundsStaleThreshold = 5;
 
         /// <summary>
         /// Stable fingerprint for a FundsChanged(VesselRecovery) event. Internal for
@@ -3111,6 +3380,227 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static void AddPendingRecoveryFundsRequest(
+            double ut, string vesselName, bool fromTrackingStation)
+        {
+            // Do not fuzzy-dedup pending callbacks. Bulk debris recovery can deliver
+            // multiple same-named callbacks in the same UT epsilon before any paired
+            // FundsChanged(VesselRecovery) event has reached the recorder; the event
+            // dedup fingerprint is applied when each request is actually paired.
+            pendingRecoveryFunds.Add(new PendingRecoveryFundsRequest
+            {
+                Ut = ut,
+                VesselName = vesselName,
+                FromTrackingStation = fromTrackingStation
+            });
+
+            // Safety net: if the list grows past the staleness threshold without a
+            // matching FundsChanged(VesselRecovery) event draining it, something
+            // upstream stopped firing paired events. Lifecycle flushes
+            // (OnKspLoad / rewind end / scene switch) normally catch this, but this
+            // log keeps a footprint in KSP.log when a leak happens mid-session.
+            if (pendingRecoveryFunds.Count > PendingRecoveryFundsStaleThreshold)
+            {
+                ParsekLog.Warn(Tag,
+                    $"OnVesselRecoveryFunds: pending queue exceeded threshold " +
+                    $"(count={pendingRecoveryFunds.Count} > {PendingRecoveryFundsStaleThreshold}) " +
+                    $"— paired FundsChanged(VesselRecovery) events may be missing. " +
+                    $"Latest deferred request vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+        }
+
+        internal static int PendingRecoveryFundsCountForTesting => pendingRecoveryFunds.Count;
+
+        internal static void OnRecoveryFundsEventRecorded(GameStateEvent evt)
+        {
+            if (evt.eventType != GameStateEventType.FundsChanged)
+                return;
+            if (evt.key != VesselRecoveryReasonKey)
+                return;
+
+            // Initialize() is idempotent: it short-circuits on the `initialized` flag so
+            // repeated calls cost one branch. See LedgerOrchestrator.Initialize().
+            Initialize();
+            if (pendingRecoveryFunds.Count == 0)
+                return;
+
+            // Two-tier pairing:
+            //
+            //   Tier 1 — Vessel-name preferred. If the event carries a vessel name
+            //            (propagated through GameStateEvent.detail on future recovery
+            //            paths; currently set only by synthetic test events), prefer
+            //            pending requests whose VesselName matches. This protects
+            //            against mis-pairing when two same-UT recoveries of different
+            //            vessels arrive and the funds events interleave out of order.
+            //
+            //   Tier 2 — Nearest UT. Legacy behavior: pick the pending request whose
+            //            UT is closest to the event UT inside the epsilon window.
+            //
+            // When multiple candidates tie after the name-match filter and share the
+            // same UT distance within the epsilon, we still pick the first match but
+            // log a WARN listing every tied candidate so the ambiguity is visible in
+            // KSP.log. This preserves the #444 callback-before-event contract without
+            // introducing silent mis-pairing.
+            string eventVesselName = evt.detail ?? "";
+
+            int bestIndex = FindBestPairingIndex(evt.ut, eventVesselName);
+            if (bestIndex < 0)
+                return;
+
+            var request = pendingRecoveryFunds[bestIndex];
+            if (TryAddVesselRecoveryFundsAction(
+                    request.Ut,
+                    request.VesselName,
+                    request.FromTrackingStation))
+            {
+                pendingRecoveryFunds.RemoveAt(bestIndex);
+            }
+        }
+
+        /// <summary>
+        /// Picks the best pending recovery-funds request for a FundsChanged(VesselRecovery)
+        /// event using the two-tier policy documented on <see cref="OnRecoveryFundsEventRecorded"/>.
+        /// Internal static for direct testability.
+        /// </summary>
+        /// <remarks>
+        /// <para>Ties after vessel-name matching at identical UT distance fall back to the
+        /// first match (list order) but emit a WARN so the ambiguity is visible.</para>
+        /// </remarks>
+        internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
+        {
+            if (pendingRecoveryFunds.Count == 0)
+                return -1;
+
+            bool haveName = !string.IsNullOrEmpty(eventVesselName);
+
+            // Tier 1: vessel-name preferred pass.
+            int nameMatchBestIndex = -1;
+            double nameMatchBestDistance = double.MaxValue;
+            int nameMatchTies = 0;
+            if (haveName)
+            {
+                for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+                {
+                    if (!string.Equals(pendingRecoveryFunds[i].VesselName,
+                            eventVesselName, StringComparison.Ordinal))
+                        continue;
+
+                    double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                    if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                    if (distance < nameMatchBestDistance)
+                    {
+                        nameMatchBestIndex = i;
+                        nameMatchBestDistance = distance;
+                        nameMatchTies = 1;
+                    }
+                    else if (distance == nameMatchBestDistance)
+                    {
+                        nameMatchTies++;
+                    }
+                }
+            }
+
+            if (nameMatchBestIndex >= 0)
+            {
+                if (nameMatchTies > 1)
+                {
+                    WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: true,
+                        bestDistance: nameMatchBestDistance);
+                }
+                return nameMatchBestIndex;
+            }
+
+            // Tier 2: nearest UT fallback.
+            int fallbackBestIndex = -1;
+            double fallbackBestDistance = double.MaxValue;
+            int fallbackTies = 0;
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                if (distance < fallbackBestDistance)
+                {
+                    fallbackBestIndex = i;
+                    fallbackBestDistance = distance;
+                    fallbackTies = 1;
+                }
+                else if (distance == fallbackBestDistance)
+                {
+                    fallbackTies++;
+                }
+            }
+
+            if (fallbackBestIndex >= 0 && fallbackTies > 1)
+            {
+                WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: false,
+                    bestDistance: fallbackBestDistance);
+            }
+
+            return fallbackBestIndex;
+        }
+
+        private static void WarnPairingCandidateTie(
+            double eventUt, string eventVesselName, bool byNameMatch, double bestDistance)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
+                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
+                if (byNameMatch &&
+                    !string.Equals(pendingRecoveryFunds[i].VesselName,
+                        eventVesselName, StringComparison.Ordinal))
+                    continue;
+                if (distance != bestDistance) continue;
+
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
+                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+            }
+
+            string tier = byNameMatch ? "name-match" : "nearest-UT";
+            ParsekLog.Warn(Tag,
+                $"OnRecoveryFundsEventRecorded: multiple pending requests tied at " +
+                $"{tier} distance={bestDistance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"for event ut={eventUt.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"vesselName='{eventVesselName ?? ""}'. Candidates: [{sb}]. " +
+                $"Picking first match in list order.");
+        }
+
+        /// <summary>
+        /// Drains unclaimed <see cref="pendingRecoveryFunds"/> entries at a lifecycle
+        /// boundary (scene switch, rewind end, load). Any entry still waiting for a
+        /// paired FundsChanged(VesselRecovery) event past the boundary cannot pair
+        /// afterward — the funds event would have arrived by now if stock was going to
+        /// fire it. The WARN lists every unclaimed entry so a missing-payout bug stays
+        /// visible instead of silently leaking into the next session's pending list.
+        /// </summary>
+        /// <param name="reason">Human-readable reason for the flush (e.g., "scene switch",
+        /// "rewind end", "KSP load"). Appears in the WARN log line for diagnostics.</param>
+        internal static void FlushStalePendingRecoveryFunds(string reason)
+        {
+            if (pendingRecoveryFunds.Count == 0)
+                return;
+
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
+            {
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
+                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+            }
+
+            ParsekLog.Warn(Tag,
+                $"FlushStalePendingRecoveryFunds ({reason ?? ""}): " +
+                $"evicting {pendingRecoveryFunds.Count} unclaimed recovery request(s) " +
+                $"that never received a paired FundsChanged(VesselRecovery) event. " +
+                $"Entries: [{sb}]");
+
+            pendingRecoveryFunds.Clear();
         }
 
         /// <summary>
@@ -3226,7 +3716,9 @@ namespace Parsek
         /// <para>This routes the recovery payout into the ledger as a real-time
         /// <see cref="GameActionType.FundsEarning"/> action with <see cref="FundsEarningSource.Recovery"/>.
         /// The amount comes from the matching <see cref="GameStateEventType.FundsChanged"/> event
-        /// in <see cref="GameStateStore"/>; the recording tag is the committed recording whose
+        /// in <see cref="GameStateStore"/>. If stock fires <c>onVesselRecovered</c> before
+        /// the funds event, the request is deferred and paired when
+        /// <see cref="OnRecoveryFundsEventRecorded"/> sees the event. The recording tag is the committed recording whose
         /// <c>[StartUT, EndUT]</c> brackets <paramref name="ut"/> (preferred), then the most
         /// recent same-named flight that ended at or before <paramref name="ut"/>, then the
         /// global latest by EndUT. Falls back to <c>null</c> when no real recording matches.</para>
@@ -3268,9 +3760,20 @@ namespace Parsek
                 return;
             }
 
+            if (TryAddVesselRecoveryFundsAction(ut, vesselName, fromTrackingStation))
+                return;
+
+            AddPendingRecoveryFundsRequest(ut, vesselName, fromTrackingStation);
+            ParsekLog.Verbose(Tag,
+                $"OnVesselRecoveryFunds: deferred pairing for vessel '{vesselName}' " +
+                $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} until FundsChanged(VesselRecovery) is recorded");
+        }
+
+        private static bool TryAddVesselRecoveryFundsAction(double ut, string vesselName, bool fromTrackingStation)
+        {
             // Locate the paired FundsChanged(VesselRecovery) event. KSP fires the funds change
-            // immediately before onVesselRecovered, so it should already be in the store. We
-            // search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
+            // before or shortly after onVesselRecovered depending on the stock recovery path.
+            // Search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
             // — see GameStateRecorder.OnFundsChanged where the key is written) within a small
             // UT window, and skip dedup fingerprints already consumed by an earlier recovery
             // call to protect against bulk-recover-debris double-latching.
@@ -3281,12 +3784,7 @@ namespace Parsek
                     out GameStateEvent matched,
                     out string dedupKey))
             {
-                ParsekLog.Warn(Tag,
-                    $"OnVesselRecoveryFunds: no paired FundsChanged(VesselRecovery) event " +
-                    $"within {VesselRecoveryEventEpsilonSeconds.ToString("F1", CultureInfo.InvariantCulture)}s " +
-                    $"of ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"for vessel '{vesselName}' — funds gap will not be patched");
-                return;
+                return false;
             }
 
             double delta = matched.valueAfter - matched.valueBefore;
@@ -3296,7 +3794,7 @@ namespace Parsek
                     $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"has delta={delta.ToString("F1", CultureInfo.InvariantCulture)} — skipping (zero or negative recovery value)");
                 consumedRecoveryEventKeys.Add(dedupKey);
-                return;
+                return true;
             }
 
             if (HasRecoveryActionForDedupKey(dedupKey))
@@ -3305,7 +3803,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"already exists in ledger (dedupKey='{dedupKey}') — skipping duplicate add");
-                return;
+                return true;
             }
 
             // Pick the recording whose [StartUT, EndUT] brackets the recovery UT (the best
@@ -3345,6 +3843,7 @@ namespace Parsek
                 $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
 
             RecalculateAndPatch();
+            return true;
         }
 
         /// <summary>
@@ -5885,6 +6384,7 @@ namespace Parsek
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();
             consumedRecoveryEventKeys.Clear();
+            pendingRecoveryFunds.Clear();
             scienceModule = null;
             milestonesModule = null;
             contractsModule = null;

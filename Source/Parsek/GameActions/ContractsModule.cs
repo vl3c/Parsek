@@ -11,7 +11,7 @@ namespace Parsek
     ///
     /// Design doc: section 8 (Contracts Module).
     /// </summary>
-    internal class ContractsModule : IResourceModule
+    internal class ContractsModule : IResourceModule, IProjectionCloneableModule
     {
         private const string Tag = "Contracts";
 
@@ -337,6 +337,13 @@ namespace Parsek
         {
             maxSlots = max;
             ParsekLog.Verbose(Tag, $"SetMaxSlots: maxSlots={maxSlots}");
+        }
+
+        public IResourceModule CreateProjectionClone()
+        {
+            var clone = new ContractsModule();
+            clone.maxSlots = maxSlots;
+            return clone;
         }
 
         public void PostWalk() { }
