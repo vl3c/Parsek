@@ -816,21 +816,17 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions
+## ~~556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
 
-**Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protects Tracking Station from ghost-caused stock NREs, but the broad finalizer shape can also hide unrelated `SpaceTracking.buildVesselsList` failures. That makes TS debugging harder and can mask regressions outside Parsek ghost handling.
+**Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protected Tracking Station from ghost-caused stock NREs, but the broad finalizer shape also hid unrelated `SpaceTracking.buildVesselsList` failures. That made TS debugging harder and could mask regressions outside Parsek ghost handling.
 
-**Action plan:**
-
-1. Narrow the finalizer to the known ghost/ProtoVessel failure shape when possible.
-2. For exceptions outside the known ghost path, log enough context and allow the failure to remain visible unless suppressing it is proven necessary for save safety.
-3. Add focused tests for the known ghost NRE suppression and an unrelated exception that should be reported rather than silently eaten.
+**Fix:** the finalizer now suppresses only a `NullReferenceException` when the live `FlightGlobals.Vessels` scan shows the first missing `orbitRenderer` belongs to a Parsek ghost ProtoVessel, no earlier stock-null candidate (null vessel or null `DiscoveryInfo`) would have failed first, and any available stock stack-frame IL offset still points at the `orbitRenderer` load (`0x00b4`) or the `onVesselIconClicked` access (`0x00b9`) in `SpaceTracking.buildVesselsList`. Unrelated exception types, NREs without ghost missing-renderer evidence, different stock offsets, ambiguous stock missing-renderer contexts, scan failures, and prior stock-null candidates emit a `[GhostMap]` WARN with vessel-context counts and return the original exception to Harmony so stock failures remain visible.
 
 **Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
 
-**Status:** TODO. Medium priority debugging correctness follow-up.
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 
@@ -843,6 +839,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Fix:** the default solution build now builds the deployable `Parsek` plugin project only. `Parsek.Tests` remains listed in the solution and keeps its active Debug/Release configuration, but its `Build.0` entries are removed so tests are built through the explicit test command instead of the default solution build. This keeps `dotnet build Source\Parsek.sln` deterministic while preserving `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` as the full validation path.
 
 **Files:** `Source/Parsek.sln`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~562. Tracking Station ghost-selection clearing leaves the previous vessel's orbit focus and patched conics latched~~
+
+**Source:** Follow-up to the `#561` Tracking Station ghost-selection investigation. `#561` nulled `SpaceTracking.selectedVessel` before blocking Fly/Delete/Recover/SetVessel, but it did not clear the previously selected vessel's `orbitRenderer.isFocused`, `orbitRenderer.drawIcons`, or patched-conics state, so the earlier real-vessel focus ring and conics lines stayed visible after the user clicked a Parsek ghost.
+
+**Concern:** stock `SpaceTracking.SetVessel(...)` deselects the previous vessel by writing `orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, and calling `Vessel.DetachPatchedConicsSolver()`. Because the ghost block runs instead of stock `SetVessel`, those deselection side-effects never fired. Calling stock `SetVessel(null, keepFocus:false)` from the block would have re-entered the patched method and could re-trigger Tracking Station tab switches in Mission / Mission Builder modes.
+
+**Fix:** `GhostTrackingStationSelection.TryClearSelectedVessel(...)` now mirrors stock's previous-vessel deselection block (`orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, `DetachPatchedConicsSolver()`) directly on the previous selection before nulling the private field, so Fly/Delete/Recover/SetVessel blocks clear the latched focus without re-entering `SetVessel`. Cleanup exceptions are routed back through the existing `error` out-parameter so the caller still logs a targeted `[GhostMap]` WARN instead of corrupting the Tracking Station state.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 

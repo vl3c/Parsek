@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Reflection;
 using HarmonyLib;
 using KSP.UI.Screens;
@@ -31,11 +32,17 @@ namespace Parsek.Patches
     /// buildVesselsList runs (from Start or event handlers), all Awakes have completed
     /// and MapView.fetch is guaranteed available.
     ///
-    /// The Finalizer remains as a safety net for unforeseen NREs from ghost ProtoVessels.
+    /// The Finalizer remains as a safety net for the known ghost ProtoVessel
+    /// missing-orbitRenderer NRE only. Other stock failures are logged and left
+    /// visible so they are not hidden behind Parsek's ghost guard.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
+        // KSP 1.12.5 Assembly-CSharp.dll: vessel.orbitRenderer.onVesselIconClicked.
+        private const int BuildVesselsListOrbitRendererLoadOffset = 0x00b4;
+        private const int BuildVesselsListIconEventLoadOffset = 0x00b9;
+
         static void Prefix()
         {
             GhostMapPresence.EnsureGhostOrbitRenderers();
@@ -43,12 +50,200 @@ namespace Parsek.Patches
 
         static Exception Finalizer(Exception __exception)
         {
-            if (__exception != null)
+            if (__exception == null)
+                return null;
+
+            return FinalizeBuildVesselsListException(
+                __exception,
+                CreateBuildVesselsListExceptionContext(),
+                __exception.StackTrace);
+        }
+
+        internal static Exception FinalizeBuildVesselsListExceptionForTesting(
+            Exception exception,
+            int totalVessels,
+            int ghostVesselCount,
+            int ghostMissingOrbitRendererCount,
+            int nonGhostMissingOrbitRendererCount,
+            bool firstMissingOrbitRendererIsGhost,
+            int potentialEarlierStockNullCandidateCount = 0,
+            string scanError = null,
+            string exceptionStackTrace = null)
+        {
+            return FinalizeBuildVesselsListException(
+                exception,
+                new BuildVesselsListExceptionContext
+                {
+                    TotalVessels = totalVessels,
+                    GhostVesselCount = ghostVesselCount,
+                    GhostMissingOrbitRendererCount = ghostMissingOrbitRendererCount,
+                    NonGhostMissingOrbitRendererCount = nonGhostMissingOrbitRendererCount,
+                    FirstMissingOrbitRendererIsGhost = firstMissingOrbitRendererIsGhost,
+                    PotentialEarlierStockNullCandidateCount = potentialEarlierStockNullCandidateCount,
+                    ScanError = scanError
+                },
+                exceptionStackTrace);
+        }
+
+        private static Exception FinalizeBuildVesselsListException(
+            Exception exception,
+            BuildVesselsListExceptionContext context,
+            string exceptionStackTrace)
+        {
+            if (exception == null)
+                return null;
+
+            if (IsKnownGhostProtoVesselNre(exception, context, exceptionStackTrace))
             {
-                ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListNRE",
-                    $"Suppressed SpaceTracking.buildVesselsList exception: {__exception.GetType().Name}");
+                ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListGhostNRE",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Suppressed known ghost ProtoVessel SpaceTracking.buildVesselsList NRE: " +
+                        "type={0} totalVessels={1} ghostVessels={2} ghostMissingOrbitRenderers={3} " +
+                        "firstMissingOrbitRenderer=ghost",
+                        exception.GetType().Name,
+                        context.TotalVessels,
+                        context.GhostVesselCount,
+                        context.GhostMissingOrbitRendererCount));
+                return null; // swallow — return null tells Harmony to suppress the exception
             }
-            return null; // swallow — return null tells Harmony to suppress the exception
+
+            ParsekLog.Warn("GhostMap",
+                string.Format(CultureInfo.InvariantCulture,
+                    "SpaceTracking.buildVesselsList exception left visible: type={0} " +
+                    "totalVessels={1} ghostVessels={2} ghostMissingOrbitRenderers={3} " +
+                    "nonGhostMissingOrbitRenderers={4} firstMissingOrbitRenderer={5} " +
+                    "priorStockNullCandidates={6}{7} message=\"{8}\"",
+                    exception.GetType().Name,
+                    context.TotalVessels,
+                    context.GhostVesselCount,
+                    context.GhostMissingOrbitRendererCount,
+                    context.NonGhostMissingOrbitRendererCount,
+                    context.FirstMissingOrbitRendererIsGhost ? "ghost" : "non-ghost-or-none",
+                    context.PotentialEarlierStockNullCandidateCount,
+                    FormatScanError(context.ScanError),
+                    exception.Message ?? string.Empty));
+            return exception;
+        }
+
+        private static bool IsKnownGhostProtoVesselNre(
+            Exception exception,
+            BuildVesselsListExceptionContext context,
+            string exceptionStackTrace)
+        {
+            return exception is NullReferenceException
+                && context.GhostMissingOrbitRendererCount > 0
+                && context.FirstMissingOrbitRendererIsGhost
+                && context.PotentialEarlierStockNullCandidateCount == 0
+                && !StackTraceRulesOutKnownGhostRendererNre(exceptionStackTrace)
+                && string.IsNullOrEmpty(context.ScanError);
+        }
+
+        private static BuildVesselsListExceptionContext CreateBuildVesselsListExceptionContext()
+        {
+            var context = new BuildVesselsListExceptionContext();
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels == null)
+                    return context;
+
+                context.TotalVessels = vessels.Count;
+                for (int i = 0; i < vessels.Count; i++)
+                {
+                    Vessel vessel = vessels[i];
+                    if (vessel == null)
+                    {
+                        if (!context.FoundFirstMissingOrbitRenderer)
+                            context.PotentialEarlierStockNullCandidateCount++;
+                        continue;
+                    }
+
+                    bool ghost = GhostMapPresence.IsGhostMapVessel(vessel.persistentId);
+                    if (vessel.DiscoveryInfo == null && !context.FoundFirstMissingOrbitRenderer)
+                        context.PotentialEarlierStockNullCandidateCount++;
+
+                    bool missingOrbitRenderer = vessel.orbitRenderer == null;
+                    if (missingOrbitRenderer && !context.FoundFirstMissingOrbitRenderer)
+                    {
+                        context.FoundFirstMissingOrbitRenderer = true;
+                        context.FirstMissingOrbitRendererIsGhost = ghost;
+                    }
+
+                    if (ghost)
+                    {
+                        context.GhostVesselCount++;
+                        if (missingOrbitRenderer)
+                            context.GhostMissingOrbitRendererCount++;
+                    }
+                    else if (missingOrbitRenderer)
+                    {
+                        context.NonGhostMissingOrbitRendererCount++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                context.ScanError = $"{ex.GetType().Name}: {ex.Message}";
+            }
+
+            return context;
+        }
+
+        private static bool StackTraceRulesOutKnownGhostRendererNre(string stackTrace)
+        {
+            if (string.IsNullOrEmpty(stackTrace))
+                return false;
+
+            if (!TryFindBuildVesselsListIlOffset(stackTrace, out int offset))
+                return false;
+
+            return offset != BuildVesselsListOrbitRendererLoadOffset
+                && offset != BuildVesselsListIconEventLoadOffset;
+        }
+
+        private static bool TryFindBuildVesselsListIlOffset(string stackTrace, out int offset)
+        {
+            offset = 0;
+            string[] lines = stackTrace.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                if (!line.Contains("SpaceTracking.buildVesselsList"))
+                    continue;
+
+                int marker = line.IndexOf("[0x", StringComparison.OrdinalIgnoreCase);
+                if (marker < 0)
+                    return false;
+
+                int start = marker + 3;
+                int end = line.IndexOf(']', start);
+                if (end <= start)
+                    return false;
+
+                string hex = line.Substring(start, end - start);
+                return int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out offset);
+            }
+
+            return false;
+        }
+
+        private static string FormatScanError(string scanError)
+        {
+            return string.IsNullOrEmpty(scanError)
+                ? string.Empty
+                : $" scanError=\"{scanError}\"";
+        }
+
+        private struct BuildVesselsListExceptionContext
+        {
+            public int TotalVessels;
+            public int GhostVesselCount;
+            public int GhostMissingOrbitRendererCount;
+            public int NonGhostMissingOrbitRendererCount;
+            public bool FoundFirstMissingOrbitRenderer;
+            public bool FirstMissingOrbitRendererIsGhost;
+            public int PotentialEarlierStockNullCandidateCount;
+            public string ScanError;
         }
     }
 
@@ -225,13 +420,43 @@ namespace Parsek.Patches
                 }
 
                 previousSelection = selectedField.GetValue(trackingInstance);
+                if (previousSelection == null)
+                    return false;
+
+                error = TryClearPreviousSelectionArtifacts(previousSelection);
                 selectedField.SetValue(trackingInstance, null);
-                return previousSelection != null;
+
+                return true;
             }
             catch (Exception ex)
             {
                 error = $"{ex.GetType().Name}: {ex.Message}";
                 return false;
+            }
+        }
+
+        // Mirror the deselection-only part of SpaceTracking.SetVessel without
+        // its Tracking Station tab-switch side effects in mission modes.
+        private static string TryClearPreviousSelectionArtifacts(object previousSelection)
+        {
+            Vessel previousVessel = previousSelection as Vessel;
+            if (previousVessel == null)
+                return null;
+
+            try
+            {
+                if (previousVessel.orbitRenderer != null)
+                {
+                    previousVessel.orbitRenderer.isFocused = false;
+                    previousVessel.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                }
+
+                previousVessel.DetachPatchedConicsSolver();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"selectedVessel cleanup failed: {ex.GetType().Name}: {ex.Message}";
             }
         }
     }
