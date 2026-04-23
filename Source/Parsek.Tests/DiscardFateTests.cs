@@ -335,8 +335,7 @@ namespace Parsek.Tests
         //   (a) !inFlight && !midSwitch && !flightAlive && tag != "" — stale tag with no live flight
         //       (flightAlive gates out legitimate FLIGHT->KSC recovery windows where Instance lingers).
         //   (b) inFlight && tag == "" && HasLiveRecorder()
-        //       — in-flight empty tag with live recorder (needs ParsekFlight.Instance, not testable
-        //         from xUnit; covered by branch (a) plus the no-warn negative case below).
+        //       — in-flight empty tag with live recorder (covered via the HasLiveRecorder seam).
 
         [Fact]
         public void DriftWarn_OutsideFlight_ResolverReturnsTag_LogsWarn()
@@ -625,11 +624,9 @@ namespace Parsek.Tests
         }
 
         // --- #16: FLIGHT -> SPACECENTER teardown window does NOT leak the tagged
-        // event to the ledger via OnKscSpending. The test forces the scene to
-        // SPACECENTER after tagging the event in FLIGHT, then drives a contract
-        // completion handler that would hit OnKscSpending. With the #431 gate
-        // (ResolveCurrentRecordingTag non-empty → skip), the ledger write is
-        // suppressed and the tagged event rides the recording's commit/discard fate.
+        // event to the ledger via OnKscSpending, while untagged pre-recording FLIGHT
+        // events do get a direct ledger path when no live recorder exists because no
+        // later recording commit can own them.
         //
         // Full coverage of the live teardown also needs an in-game test — see the
         // "GameState" category under InGameTests/RuntimeTests.cs, as ParsekFlight.Instance
@@ -646,23 +643,206 @@ namespace Parsek.Tests
             var evt = MakeEvent(GameStateEventType.ContractCompleted, "guid-teardown", 100.0);
             GameStateRecorder.Emit(ref evt, "teardown-test");
 
-            // The #431 gate guards every `OnKscSpending(evt)` call:
-            //    if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
-            //        LedgerOrchestrator.OnKscSpending(evt);
-            // We assert the guard condition here rather than driving a GameEvents
+            // We assert the forwarding predicate here rather than driving a GameEvents
             // subscription (which would need a full Contract object). The resolver
             // returns non-empty, so the gate skips the ledger forward.
-            bool wouldForward = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
-                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            bool wouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evt.recordingId,
+                GameStateRecorder.HasLiveRecorder());
             Assert.False(wouldForward,
                 "Gate must suppress ledger forward when the event was tagged during teardown.");
 
             // And conversely: a true KSC event with an empty resolver passes the gate.
             GameStateRecorder.TagResolverForTesting = () => "";
-            bool wouldForwardKsc = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
-                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            bool wouldForwardKsc = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
             Assert.True(wouldForwardKsc,
                 "Genuine KSC events (no live recorder, empty tag) must still reach the ledger.");
+
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            bool wouldForwardPreRecordingFlight = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
+            Assert.True(wouldForwardPreRecordingFlight,
+                "Untagged pre-recording FLIGHT events have no commit path and must reach the ledger directly.");
+
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            bool wouldForwardTagDrift = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
+            Assert.False(wouldForwardTagDrift,
+                "An empty tag while a live recorder exists is tag drift, not an ownerless event.");
+        }
+
+        // --- Review follow-up: #553 scope expansion. The ShouldForwardDirectLedgerEvent
+        // predicate was originally threaded only into the four contract handlers. Tech,
+        // part-purchase, crew-hire, milestone, strategy (activate/deactivate), and
+        // facility-upgrade handlers now use the same gate — same reasoning applies:
+        // untagged pre-recording FLIGHT events have no later commit-time owner and must
+        // reach the ledger directly. Each newly-gated handler emits an event through
+        // Emit() which stamps evt.recordingId from the tag resolver, then checks the
+        // predicate against that recordingId + HasLiveRecorder(). These tests pin the
+        // predicate decisions each handler would make in the three canonical scenarios:
+        // (a) tagged teardown — must NOT forward; (b) untagged KSC — must forward;
+        // (c) untagged pre-recording FLIGHT — must forward.
+
+        private static void AssertPredicatePinsAllThreeScenarios(GameStateEventType type, string key)
+        {
+            // (a) tagged teardown in SPACECENTER: tag resolver returns non-empty id
+            // because ParsekFlight.Instance is still alive during FLIGHT -> KSC
+            // teardown. The emitted event carries recordingId = the teardown tag.
+            GameStateRecorder.TagResolverForTesting = () => "rec-teardown";
+            HighLogic.LoadedScene = GameScenes.SPACECENTER;
+            var evtTeardown = MakeEvent(type, key, 100.0);
+            GameStateRecorder.Emit(ref evtTeardown, "predicate-pin-teardown");
+            bool teardownWouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evtTeardown.recordingId,
+                GameStateRecorder.HasLiveRecorder());
+            Assert.False(teardownWouldForward,
+                $"{type}: tagged teardown event must NOT reach the ledger via direct forward.");
+
+            // (b) untagged KSC event: no live recorder, empty tag — classic
+            // #405 KSC-only flow, must forward.
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            HighLogic.LoadedScene = GameScenes.SPACECENTER;
+            var evtKsc = MakeEvent(type, key, 200.0);
+            GameStateRecorder.Emit(ref evtKsc, "predicate-pin-ksc");
+            bool kscWouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evtKsc.recordingId,
+                GameStateRecorder.HasLiveRecorder());
+            Assert.True(kscWouldForward,
+                $"{type}: untagged KSC event must reach the ledger via direct forward.");
+
+            // (c) untagged pre-recording FLIGHT: empty tag, no live recorder —
+            // the #553 expansion case. Must forward because no later commit path
+            // can own this event.
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            var evtFlight = MakeEvent(type, key, 300.0);
+            GameStateRecorder.Emit(ref evtFlight, "predicate-pin-flight");
+            bool flightWouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evtFlight.recordingId,
+                GameStateRecorder.HasLiveRecorder());
+            Assert.True(flightWouldForward,
+                $"{type}: untagged pre-recording FLIGHT event must reach the ledger via direct forward.");
+
+            // (d) empty tag but a live recorder exists — tag drift, not ownerless.
+            // Must NOT forward so the ledger doesn't gain a null-owner action.
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            var evtDrift = MakeEvent(type, key, 400.0);
+            GameStateRecorder.Emit(ref evtDrift, "predicate-pin-drift");
+            bool driftWouldForward = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evtDrift.recordingId,
+                GameStateRecorder.HasLiveRecorder());
+            Assert.False(driftWouldForward,
+                $"{type}: empty tag with live recorder is tag drift, direct forward must be suppressed.");
+        }
+
+        [Fact]
+        public void TechResearched_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.TechResearched, "node-part-upgrade");
+        }
+
+        [Fact]
+        public void PartPurchased_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.PartPurchased, "liquidEngineMini");
+        }
+
+        [Fact]
+        public void CrewHired_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.CrewHired, "Jebediah Kerman");
+        }
+
+        [Fact]
+        public void MilestoneAchieved_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.MilestoneAchieved, "Kerbin/FirstLaunch");
+        }
+
+        [Fact]
+        public void StrategyActivated_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.StrategyActivated, "AggressiveNegotiations");
+        }
+
+        [Fact]
+        public void StrategyDeactivated_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.StrategyDeactivated, "AggressiveNegotiations");
+        }
+
+        [Fact]
+        public void FacilityUpgraded_PredicateGateMatchesContractHandlers()
+        {
+            AssertPredicatePinsAllThreeScenarios(GameStateEventType.FacilityUpgraded, "SPH");
+        }
+
+        // --- Review follow-up (Task 5): pin that the live handlers key off
+        // evt.recordingId (the value stamped by Emit at capture time) rather than
+        // ResolveCurrentRecordingTag() (which is a re-read at the forwarding-decision
+        // moment and can drift if ParsekFlight.Instance teardown races the event).
+        // The difference matters during FLIGHT -> KSC teardown: Emit captures the
+        // outgoing recording's id on the event, but a later ResolveCurrentRecordingTag()
+        // call can return the fresh SPACECENTER empty tag and flip the predicate to
+        // "forward" — which is exactly what #431 was intended to prevent.
+        [Fact]
+        public void DirectForwardingPredicate_UsesEventRecordingId_NotLiveTagResolver()
+        {
+            // Arrange: event was captured while the recorder was live on "rec-teardown"
+            // (tag stamped by Emit). Then the teardown proceeds and by the time the
+            // forwarding decision runs, the tag resolver already reads empty — but
+            // HasLiveRecorderProviderForTesting still returns true (ParsekFlight
+            // lingers a frame).
+            GameStateRecorder.TagResolverForTesting = () => "rec-teardown";
+            HighLogic.LoadedScene = GameScenes.SPACECENTER;
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, "guid-late", 100.0);
+            GameStateRecorder.Emit(ref evt, "late-teardown");
+            Assert.Equal("rec-teardown", evt.recordingId);
+
+            // Now flip the resolver to empty, as if teardown advanced one frame.
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+
+            // If the handlers keyed off ResolveCurrentRecordingTag(), the second
+            // argument would be "" + HasLiveRecorder()=true => tag drift => !forward.
+            // If they key off evt.recordingId (what production code does), the
+            // argument is "rec-teardown" which short-circuits to false anyway. Both
+            // paths agree on "do not forward" in this scenario, but the LIVE handler
+            // must pass evt.recordingId — verify by constructing an asymmetric case:
+            //
+            // Make the resolver return a DIFFERENT non-empty tag. If a handler wrongly
+            // used ResolveCurrentRecordingTag(), it would still see non-empty and
+            // suppress (same outcome here). The asymmetric failure mode is in the
+            // OTHER direction: resolver empty, evt.recordingId non-empty. A buggy
+            // handler reading the resolver would forward (empty + no live recorder
+            // reflects the new scene). Simulate that:
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+
+            // The event still carries its captured id.
+            bool predicateWithCapturedId = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                evt.recordingId,
+                GameStateRecorder.HasLiveRecorder());
+            Assert.False(predicateWithCapturedId,
+                "Handler passing evt.recordingId='rec-teardown' must see !forward.");
+
+            // If a handler wrongly re-resolved the tag at the decision moment, it
+            // would pass "" and get a true.
+            bool predicateWithResolvedTag = GameStateRecorder.ShouldForwardDirectLedgerEvent(
+                GameStateRecorder.ResolveCurrentRecordingTag(),
+                GameStateRecorder.HasLiveRecorder());
+            Assert.True(predicateWithResolvedTag,
+                "Sanity check: re-resolving at decision time would wrongly allow forward, " +
+                "proving the two inputs disagree. Production handlers MUST pass evt.recordingId.");
         }
     }
 }
