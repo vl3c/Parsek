@@ -2493,7 +2493,9 @@ namespace Parsek
         internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
         {
             if (rec == null) return false;
-            if (rec.MergeState != MergeState.Immutable) return false;
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
+                return false;
             if (!EffectiveState.IsTerminalCrashed(rec)) return false;
             return !string.IsNullOrEmpty(rec.ParentBranchPointId);
         }

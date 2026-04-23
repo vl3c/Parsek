@@ -143,6 +143,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_CommittedProvisionalRowFindsRpSlot()
+        {
+            var probe = new Recording
+            {
+                RecordingId = "rec_probe",
+                VesselName = "Kerbal X Probe",
+                MergeState = MergeState.CommittedProvisional,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(0, "rec_probe")
+                }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                probe, out RewindPoint resolvedRp, out int slotListIndex);
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                probe, out RewindPoint routeRp, out int routeSlotListIndex, out string reason);
+
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved, route);
+            Assert.Same(rp, routeRp);
+            Assert.Equal(0, routeSlotListIndex);
+            Assert.Null(reason);
+        }
+
+        [Fact]
         public void TryResolveUnfinishedFlightRewindPoint_NonCrashedChildDoesNotPreemptLegacyButtons()
         {
             var landed = new Recording

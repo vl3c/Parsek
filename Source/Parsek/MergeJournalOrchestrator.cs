@@ -479,12 +479,15 @@ namespace Parsek
         /// §6.6 step 9). Phase 11 performs the file deletion; Phase 10 only
         /// clears the <see cref="RewindPoint.SessionProvisional"/> flag that
         /// keeps them restricted to the current session so the load-time sweep
-        /// sees them as persistent-but-reap-eligible.
+        /// sees them as persistent-but-reap-eligible. Also promotes the marker's
+        /// origin RP when it came from a normal staging split with no creating
+        /// session id (old saves or pre-merge-dialog promotion windows).
         /// </summary>
         internal static void TagRpsForReap(ReFlySessionMarker marker, ParsekScenario scenario)
         {
             if (ReferenceEquals(null, scenario) || scenario.RewindPoints == null) return;
             string sessionId = marker?.SessionId;
+            string markerRpId = marker?.RewindPointId;
             if (string.IsNullOrEmpty(sessionId))
             {
                 ParsekLog.Verbose(Tag, "TagRpsForReap: no session id — skipping RP tag pass");
@@ -497,7 +500,11 @@ namespace Parsek
                 var rp = scenario.RewindPoints[i];
                 if (rp == null) continue;
                 if (!rp.SessionProvisional) continue;
-                if (!string.Equals(rp.CreatingSessionId, sessionId, StringComparison.Ordinal))
+                bool sameSession = string.Equals(rp.CreatingSessionId, sessionId, StringComparison.Ordinal);
+                bool normalOrigin = string.IsNullOrEmpty(rp.CreatingSessionId)
+                    && !string.IsNullOrEmpty(markerRpId)
+                    && string.Equals(rp.RewindPointId, markerRpId, StringComparison.Ordinal);
+                if (!sameSession && !normalOrigin)
                     continue;
                 rp.SessionProvisional = false;
                 rp.CreatingSessionId = null;

@@ -629,6 +629,8 @@ namespace Parsek
             }
 
             ApplySessionMergeToRecordings(tree);
+            ApplyRewindProvisionalMergeStates(tree);
+            PromoteNormalStagingRewindPoints(tree);
             AutoGroupTreeRecordings(tree);
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
             FinalizeTreeCommit(tree);
@@ -660,6 +662,112 @@ namespace Parsek
                         $"(sections={original.TrackSections?.Count ?? 0} events={original.PartEvents?.Count ?? 0})");
                 }
             }
+        }
+
+        /// <summary>
+        /// A crash-terminal child under a Rewind Point is an unfinished flight:
+        /// the recording is committed, but its rewind slot stays open until a
+        /// later successful re-fly supersedes it. Legacy/default recordings are
+        /// born Immutable, so stamp that precise shape during the normal tree
+        /// commit path.
+        /// </summary>
+        private static void ApplyRewindProvisionalMergeStates(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return;
+            if (tree.BranchPoints == null || tree.BranchPoints.Count == 0)
+                return;
+
+            int promoted = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                if (rec.MergeState != MergeState.Immutable) continue;
+                if (TerminalKindClassifier.Classify(rec) != TerminalKind.Crashed) continue;
+                if (string.IsNullOrEmpty(rec.ParentBranchPointId)) continue;
+
+                var parentBp = FindBranchPointById(tree, rec.ParentBranchPointId);
+                if (parentBp == null || string.IsNullOrEmpty(parentBp.RewindPointId))
+                    continue;
+
+                rec.MergeState = MergeState.CommittedProvisional;
+                rec.FilesDirty = true;
+                promoted++;
+                ParsekLog.Info("UnfinishedFlights",
+                    $"CommitTree: promoted crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"vessel='{rec.VesselName ?? "<unnamed>"}' bp={parentBp.Id ?? "<no-bp>"} " +
+                    $"rp={parentBp.RewindPointId} to CommittedProvisional");
+            }
+
+            if (promoted > 0)
+                BumpStateVersion();
+        }
+
+        private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)
+        {
+            if (tree == null || string.IsNullOrEmpty(branchPointId) || tree.BranchPoints == null)
+                return null;
+
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                    return bp;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Rewind Points captured during ordinary staging are born
+        /// SessionProvisional with no CreatingSessionId. They must survive the
+        /// scene load that presents the merge dialog, but once the owning tree
+        /// is accepted they are persistent timeline artifacts and the reaper
+        /// may delete them when every slot resolves Immutable.
+        /// </summary>
+        private static void PromoteNormalStagingRewindPoints(RecordingTree tree)
+        {
+            if (tree == null || tree.BranchPoints == null || tree.BranchPoints.Count == 0)
+                return;
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return;
+
+            HashSet<string> treeRpIds = null;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                var bp = tree.BranchPoints[b];
+                if (bp == null || string.IsNullOrEmpty(bp.RewindPointId)) continue;
+                if (treeRpIds == null)
+                    treeRpIds = new HashSet<string>(StringComparer.Ordinal);
+                treeRpIds.Add(bp.RewindPointId);
+            }
+            if (treeRpIds == null || treeRpIds.Count == 0)
+                return;
+
+            int promoted = 0;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null) continue;
+                if (!rp.SessionProvisional) continue;
+                if (!string.IsNullOrEmpty(rp.CreatingSessionId)) continue;
+                if (string.IsNullOrEmpty(rp.RewindPointId)) continue;
+                if (!treeRpIds.Contains(rp.RewindPointId)) continue;
+
+                rp.SessionProvisional = false;
+                rp.CreatingSessionId = null;
+                promoted++;
+                ParsekLog.Info("Rewind",
+                    $"CommitTree: promoted normal staging rp={rp.RewindPointId} " +
+                    $"tree={tree.Id ?? "<no-tree>"} to persistent");
+            }
+
+            if (promoted > 0)
+                ParsekLog.Info("Rewind",
+                    $"CommitTree: promoted {promoted.ToString(CultureInfo.InvariantCulture)} normal staging RP(s)");
         }
 
         /// <summary>

@@ -58,6 +58,7 @@ All notable changes to Parsek are documented here.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
 - Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
+- Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 
 ### Tests
 
