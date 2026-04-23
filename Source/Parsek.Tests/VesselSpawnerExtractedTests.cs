@@ -141,6 +141,87 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        // Follow-up to PR #505 review: the two bypass helpers used to return
+        // true silently, so #226 replay diagnostics were opaque in KSP.log.
+        // Each true branch now emits a Verbose Spawner line identifying
+        // which PID match triggered the bypass. The tests below pin that
+        // contract for both branches of the replay helper and the
+        // CurrentFlight wrapper.
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_SceneEntryPidMatch_LogsVerboseBypass()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 777u,
+                activeVesselPid: 0u);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("ShouldAllowExistingSourceDuplicate=true")
+                && l.Contains("sourcePid=777")
+                && l.Contains("matched sceneEntryActiveVesselPid=777")
+                && l.Contains("#226 replay/revert bypass"));
+        }
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_ActiveVesselPidMatch_LogsVerboseBypass()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 888u,
+                sceneEntryActiveVesselPid: 0u,
+                activeVesselPid: 888u);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("ShouldAllowExistingSourceDuplicate=true")
+                && l.Contains("sourcePid=888")
+                && l.Contains("matched activeVesselPid=888")
+                && l.Contains("#226 replay/revert bypass"));
+        }
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_NoMatch_DoesNotLogBypass()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 1u,
+                activeVesselPid: 2u);
+
+            Assert.False(result);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("ShouldAllowExistingSourceDuplicate=true"));
+        }
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForCurrentFlight_Match_LogsVerboseBypass()
+        {
+            // Drive the scene-entry path without touching FlightGlobals
+            // (headless xUnit); the wrapper delegates to the replay helper
+            // and only logs its own Verbose line when that returns true.
+            uint priorPid = RecordingStore.SceneEntryActiveVesselPid;
+            try
+            {
+                RecordingStore.SceneEntryActiveVesselPid = 4242u;
+
+                bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(4242u);
+
+                Assert.True(result);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Spawner]")
+                    && l.Contains("ShouldAllowExistingSourceDuplicateForCurrentFlight=true")
+                    && l.Contains("sourcePid=4242")
+                    && l.Contains("sceneEntryActiveVesselPid=4242"));
+            }
+            finally
+            {
+                RecordingStore.SceneEntryActiveVesselPid = priorPid;
+            }
+        }
+
         #endregion
 
         #region DetermineSituation
