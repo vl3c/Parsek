@@ -56,10 +56,10 @@ All notable changes to Parsek are documented here.
 - `#538` Atmospheric reentry fire now uses the emission-rate lerp as the primary density dial, doubling the fire particle range from `300-2000` to `600-4000` particles/sec while only lifting the particle cap from `1500` to `2000` so the denser stream has headroom without opening a full 2x peak-particle budget.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
-- `#550` Real-vessel materialization now uses a shared source-vessel adoption guard before spawning from a recording snapshot. KSC end-of-recording spawn, Flight tree-leaf spawn, Flight/Tracking Station spawn handoffs, and chain-tip spawns now adopt a surviving source PID instead of creating a duplicate real vessel at the same endpoint, while the existing #226 replay/revert duplicate-spawn exception remains an explicit opt-in at its call site.
+- `#550` Real-vessel materialization now uses a shared source-vessel adoption guard before spawning from a recording snapshot. KSC end-of-recording spawn, Flight tree-leaf spawn, Flight end-of-recording spawn handoffs, and chain-tip spawns now adopt a surviving source PID instead of creating a duplicate real vessel at the same endpoint; the new VesselSpawner guard also layers defense-in-depth on Tracking Station's existing `ShouldSkipTrackingStationDuplicateSpawn` path, and the #226 replay/revert duplicate-spawn exception remains an explicit opt-in at its call site.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
-- Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
-- Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
+- `#504` Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
+- `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 
 ### Tests
 
@@ -89,13 +89,13 @@ All notable changes to Parsek are documented here.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
 - `#550` Added headless source-vessel materialization guard coverage for adoption, no-mutation and replay-bypass cases, validated-spawn short-circuiting before snapshot validation, chain-tip adoption before collision/snapshot work, KSC spawn adoption, time-jump chain-tip bypass preservation, and committed-tree restore matching of adopted source vessels.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
-- Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
+- `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
 
 ### Documentation
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
-- Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
+- `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
 
 ## 0.8.3
 
@@ -115,8 +115,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#557` Initial science and reputation seeds now prefer captured game-state baselines, including legitimate zero values, before falling back to live KSP singleton balances. A zero seed is now treated as authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
-- `#558` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of either the gross current balance or a blunt full-future spend subtraction. Future spendings reserve current headroom only when the projected balance would dip below the current value, while future earnings before those spendings can cover them without inflating current spendability. Reputation remains a current-UT running value with no reservation.
+- `#557` Initial science and reputation seeds now prefer captured game-state baselines (including legitimate zero values) over live KSP singleton balances. A zero seed is now authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
+- `#558` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of the gross current balance or a blunt full-future spend subtraction. Future spendings only reserve current headroom when the projected balance would dip below the current value, future earnings before those spendings can cover them without inflating current spendability, and reputation stays a current-UT running value with no reservation.
 
 ### Tests
 

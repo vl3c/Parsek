@@ -1005,22 +1005,42 @@ namespace Parsek.Tests
             Assert.Equal(25000f, Ledger.Actions[0].InitialFunds); // unchanged
         }
 
+        // Follow-up to #557 / PR #499: the stale-0 upgrade branch was removed
+        // from SeedInitialScience / SeedInitialReputation so that a future
+        // caller cannot reintroduce the regression where a legitimate zero
+        // career baseline gets overwritten by a later live balance (which
+        // would inject future science/reputation into UT0 during rewind).
+        // A second call is now a no-op that WARNs. The SeedInitialFunds
+        // stale-0 path still exists because #499's orchestrator guard is
+        // funds-specific (the problem reproducer only affected science /
+        // reputation baselines).
+
         [Fact]
-        public void SeedInitialScience_UpdatesStaleZeroSeed()
+        public void SeedInitialScience_SecondCallIsNoOpWithWarn()
         {
             Ledger.SeedInitialScience(0f);
             Ledger.SeedInitialScience(99994f);
             Assert.Single(Ledger.Actions);
-            Assert.Equal(99994f, Ledger.Actions[0].InitialScience);
+            Assert.Equal(0f, Ledger.Actions[0].InitialScience); // unchanged
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("SeedInitialScience: ScienceInitial already exists")
+                && l.Contains("refusing to upgrade")
+                && l.Contains("99994"));
         }
 
         [Fact]
-        public void SeedInitialReputation_UpdatesStaleNearZeroSeed()
+        public void SeedInitialReputation_SecondCallIsNoOpWithWarn()
         {
             Ledger.SeedInitialReputation(-1.25e-5f); // floating-point noise
             Ledger.SeedInitialReputation(14.2f);
             Assert.Single(Ledger.Actions);
-            Assert.Equal(14.2f, Ledger.Actions[0].InitialReputation);
+            Assert.Equal(-1.25e-5f, Ledger.Actions[0].InitialReputation); // unchanged
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("SeedInitialReputation: ReputationInitial already exists")
+                && l.Contains("refusing to upgrade")
+                && l.Contains("14.2"));
         }
 
         [Fact]
@@ -1055,23 +1075,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StaleSeeds_UpdateIndependently()
+        public void StaleSeeds_FundsCorrectsIndependently_ScienceAndRepRemainSticky()
         {
-            // All three seeded with 0 (KSP singletons not loaded yet)
+            // All three seeded with 0 (KSP singletons not loaded yet).
+            // Funds keeps its stale-0 self-correction (#499's orchestrator
+            // guard is funds-specific), but science and reputation no
+            // longer self-correct: after PR #499 the zero career baseline
+            // is authoritative once seeded, so only the Ledger.Orchestrator
+            // baseline-aware path determines the initial value (see
+            // EnsureInitialScienceSeed / EnsureInitialReputationSeed).
             Ledger.SeedInitialFunds(0.0);
             Ledger.SeedInitialScience(0f);
             Ledger.SeedInitialReputation(0f);
             Assert.Equal(3, Ledger.Actions.Count);
 
-            // Only funds gets corrected — science/rep remain stale
+            // Funds stale-0 upgrade still works.
             Ledger.SeedInitialFunds(224608.0);
             Assert.Equal(224608f, Ledger.Actions[0].InitialFunds);
-            Assert.Equal(0f, Ledger.Actions[1].InitialScience); // still stale
-            Assert.Equal(0f, Ledger.Actions[2].InitialReputation); // still stale
+            Assert.Equal(0f, Ledger.Actions[1].InitialScience);
+            Assert.Equal(0f, Ledger.Actions[2].InitialReputation);
 
-            // Science corrected separately
+            // Science no longer self-corrects; the second call WARNs.
             Ledger.SeedInitialScience(99994f);
-            Assert.Equal(99994f, Ledger.Actions[1].InitialScience);
+            Assert.Equal(0f, Ledger.Actions[1].InitialScience);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("SeedInitialScience: ScienceInitial already exists")
+                && l.Contains("refusing to upgrade"));
         }
     }
 }

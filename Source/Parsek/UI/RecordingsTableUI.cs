@@ -1574,8 +1574,11 @@ namespace Parsek
                 // sibling. Hiding would sweep the re-fly opportunity out of
                 // the player's view, so we refuse the toggle + toast a clear
                 // warning. The recording's Hidden flag stays unchanged.
-                if (unfinishedFlightRowDepth > 0
-                    && EffectiveState.IsUnfinishedFlight(rec))
+                // The gate is the classifier alone (no depth check) so normal-
+                // list RP-backed rows refuse hide just like the virtual group
+                // rows. IsUnfinishedFlight is cheap (single RewindPoints scan)
+                // so the accept-side branch tolerates this per-row call.
+                if (EffectiveState.IsUnfinishedFlight(rec))
                 {
                     ParsekLog.Warn("UnfinishedFlights",
                         $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +

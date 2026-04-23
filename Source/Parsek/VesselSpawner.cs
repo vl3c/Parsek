@@ -92,8 +92,31 @@ namespace Parsek
             if (sourcePid == 0)
                 return false;
 
-            return sourcePid == sceneEntryActiveVesselPid
-                || sourcePid == activeVesselPid;
+            // #226 replay/revert duplicate-spawn exception: when the recorded
+            // source vessel matches the scene-entry active vessel or the
+            // current active vessel, the source is the vehicle the player is
+            // actively flying and the spawn is the replay ghost. Log which
+            // PID match triggered the bypass so #226 replay diagnostics are
+            // legible in KSP.log (follow-up to PR #505 review).
+            if (sourcePid == sceneEntryActiveVesselPid)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldAllowExistingSourceDuplicate=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"matched sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}) " +
+                    "- #226 replay/revert bypass");
+                return true;
+            }
+            if (sourcePid == activeVesselPid)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldAllowExistingSourceDuplicate=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"matched activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)}) " +
+                    "- #226 replay/revert bypass");
+                return true;
+            }
+            return false;
         }
 
         internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(uint sourcePid)
@@ -111,10 +134,18 @@ namespace Parsek
                     throw;
             }
 
-            return ShouldAllowExistingSourceDuplicateForReplay(
+            bool allow = ShouldAllowExistingSourceDuplicateForReplay(
                 sourcePid,
                 RecordingStore.SceneEntryActiveVesselPid,
                 activeVesselPid);
+            if (allow)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldAllowExistingSourceDuplicateForCurrentFlight=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"sceneEntryActiveVesselPid={RecordingStore.SceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}");
+            }
+            return allow;
         }
 
         internal static bool MaterializedSourceVesselExists(uint sourcePid)
