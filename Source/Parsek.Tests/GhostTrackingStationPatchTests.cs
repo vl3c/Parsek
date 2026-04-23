@@ -12,6 +12,12 @@ namespace Parsek.Tests
 
         public GhostTrackingStationPatchTests()
         {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            GhostMapPresence.ResetForTesting();
+            GhostPlaybackLogic.ResetVesselExistsOverride();
+            GhostPlaybackLogic.ResetVesselCacheForTesting();
+            GhostTrackingStationSelection.ClearSelectedGhostForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -19,6 +25,12 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            GhostMapPresence.ResetForTesting();
+            GhostPlaybackLogic.ResetVesselExistsOverride();
+            GhostPlaybackLogic.ResetVesselCacheForTesting();
+            GhostTrackingStationSelection.ClearSelectedGhostForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -237,6 +249,323 @@ namespace Parsek.Tests
             Assert.Equal("selectedVessel field not found", error);
         }
 
+        [Fact]
+        public void TrySelectTrackingStationVessel_WithSetVesselMethod_SelectsSpawnedVessel()
+        {
+            var spawned = new object();
+            var tracking = new FakeTrackingStation(null);
+
+            bool selected = GhostMapPresence.TrySelectTrackingStationVessel(
+                tracking,
+                spawned,
+                out string error);
+
+            Assert.True(selected);
+            Assert.Same(spawned, tracking.SelectedForTesting);
+            Assert.Equal(1, tracking.SetVesselCalls);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TryClearSelectedVessel_WhenAlternatingStockSelections_ClearsEachPreviousStockTarget()
+        {
+            var asteroid = new object();
+            var comet = new object();
+            var tracking = new FakeTrackingStation(asteroid);
+
+            bool clearedAsteroid = GhostTrackingStationSelection.TryClearSelectedVessel(
+                tracking,
+                out object previousAsteroid,
+                out string asteroidError);
+
+            tracking.SetSelectedForTesting(comet);
+
+            bool clearedComet = GhostTrackingStationSelection.TryClearSelectedVessel(
+                tracking,
+                out object previousComet,
+                out string cometError);
+
+            Assert.True(clearedAsteroid);
+            Assert.Same(asteroid, previousAsteroid);
+            Assert.Null(asteroidError);
+            Assert.True(clearedComet);
+            Assert.Same(comet, previousComet);
+            Assert.Null(cometError);
+            Assert.Null(tracking.SelectedForTesting);
+        }
+
+        [Fact]
+        public void ClearSelectedGhost_WhenStockSelectionArrives_RemovesParsekGhostSelection()
+        {
+            GhostTrackingStationSelection.SetSelectedGhostForTesting(
+                new TrackingStationGhostSelectionInfo(
+                    553u,
+                    "Ghost: Probe",
+                    3,
+                    "rec-553",
+                    100.0,
+                    200.0,
+                    TerminalState.Orbiting,
+                    false,
+                    0u,
+                    hasRecording: true));
+
+            GhostTrackingStationSelection.ClearSelectedGhost("stock asteroid selected");
+
+            Assert.False(GhostTrackingStationSelection.HasSelectedGhost);
+        }
+
+        [Fact]
+        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndBlocksStockActions()
+        {
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: true,
+                canFocus: true,
+                canSetTarget: true,
+                recordingIndex: 2,
+                hasRecording: true,
+                materializeEligible: true,
+                materializeReason: null,
+                alreadyMaterialized: false);
+
+            TrackingStationGhostActionState[] states =
+                TrackingStationGhostActionPresentation.BuildActionStates(context);
+
+            TrackingStationGhostActionState focus = FindState(states, TrackingStationGhostActionKind.Focus);
+            TrackingStationGhostActionState target = FindState(states, TrackingStationGhostActionKind.SetTarget);
+            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
+            TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
+            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
+            TrackingStationGhostActionState delete = FindState(states, TrackingStationGhostActionKind.Delete);
+            TrackingStationGhostActionState recover = FindState(states, TrackingStationGhostActionKind.Recover);
+
+            Assert.True(focus.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
+            Assert.True(target.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, target.Safety);
+            Assert.True(recording.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, recording.Safety);
+            Assert.True(materialize.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
+
+            Assert.False(fly.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.SafeOnlyAfterMaterialization, fly.Safety);
+            Assert.False(delete.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, delete.Safety);
+            Assert.False(recover.Enabled);
+            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, recover.Safety);
+        }
+
+        [Fact]
+        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsFlyBlock()
+        {
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: true,
+                canFocus: true,
+                canSetTarget: true,
+                recordingIndex: 1,
+                hasRecording: true,
+                materializeEligible: false,
+                materializeReason: GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                alreadyMaterialized: false);
+
+            TrackingStationGhostActionState[] states =
+                TrackingStationGhostActionPresentation.BuildActionStates(context);
+
+            TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
+            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
+
+            Assert.False(materialize.Enabled);
+            Assert.Contains("endpoint", materialize.Reason);
+            Assert.False(fly.Enabled);
+            Assert.Contains("materialize", fly.Reason);
+        }
+
+        [Fact]
+        public void BuildActionStates_ChainGhostWithoutRecording_DisablesRecordingAndMaterialize()
+        {
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: true,
+                canFocus: true,
+                canSetTarget: true,
+                recordingIndex: -1,
+                hasRecording: false,
+                materializeEligible: false,
+                materializeReason: "no-recording",
+                alreadyMaterialized: false);
+
+            TrackingStationGhostActionState[] states =
+                TrackingStationGhostActionPresentation.BuildActionStates(context);
+
+            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
+            TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(recording.Enabled);
+            Assert.Contains("no direct committed recording", recording.Reason);
+            Assert.False(materialize.Enabled);
+            Assert.Contains("No committed recording", materialize.Reason);
+        }
+
+        [Fact]
+        public void BuildActionContext_WithChainSuppressedRecording_DisablesMaterialize()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-claimed", pid: 555);
+            RecordingStore.AddCommittedInternal(rec);
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                [555] = new GhostChain
+                {
+                    OriginalVesselPid = 555,
+                    SpawnUT = rec.EndUT + 10,
+                    TipRecordingId = "other-tip",
+                    IsTerminated = false
+                }
+            };
+
+            var selection = new TrackingStationGhostSelectionInfo(
+                9001u,
+                "Ghost: Claimed",
+                0,
+                rec.RecordingId,
+                rec.StartUT,
+                rec.EndUT,
+                rec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: rec.EndUT + 1,
+                    chains: chains);
+
+            Assert.False(context.MaterializeEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
+                context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_WithExistingRealVessel_MarksRecordingAlreadyMaterialized()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-live", pid: 777);
+            RecordingStore.AddCommittedInternal(rec);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            var selection = new TrackingStationGhostSelectionInfo(
+                7001u,
+                "Ghost: Live",
+                0,
+                rec.RecordingId,
+                rec.StartUT,
+                rec.EndUT,
+                rec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: rec.EndUT + 1,
+                    chains: new Dictionary<uint, GhostChain>());
+            TrackingStationGhostActionState materialize = FindState(
+                TrackingStationGhostActionPresentation.BuildActionStates(context),
+                TrackingStationGhostActionKind.Materialize);
+
+            Assert.True(context.AlreadyMaterialized);
+            Assert.False(materialize.Enabled);
+            Assert.Contains("already materialized", materialize.Reason);
+        }
+
+        [Fact]
+        public void BuildActionContext_WhenRawIndexIsStale_ResolvesRecordingById()
+        {
+            var staleIndex = MakeEligibleTrackingStationRecording(id: "stale-index", pid: 111);
+            staleIndex.ExplicitEndUT = 5000;
+            var selected = MakeEligibleTrackingStationRecording(id: "selected-id", pid: 222);
+            RecordingStore.AddCommittedInternal(staleIndex);
+            RecordingStore.AddCommittedInternal(selected);
+            var selection = new TrackingStationGhostSelectionInfo(
+                7002u,
+                "Ghost: Selected",
+                0,
+                selected.RecordingId,
+                selected.StartUT,
+                selected.EndUT,
+                selected.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: selected.EndUT + 1,
+                    chains: new Dictionary<uint, GhostChain>());
+
+            Assert.Equal(1, context.RecordingIndex);
+            Assert.True(context.HasRecording);
+            Assert.True(context.MaterializeEligible);
+        }
+
+        private static TrackingStationGhostActionState FindState(
+            TrackingStationGhostActionState[] states,
+            TrackingStationGhostActionKind kind)
+        {
+            for (int i = 0; i < states.Length; i++)
+                if (states[i].Kind == kind)
+                    return states[i];
+
+            throw new InvalidOperationException("Action state not found: " + kind);
+        }
+
+        private static Recording MakeEligibleTrackingStationRecording(
+            string id = "rec-1",
+            uint pid = 12345,
+            string vesselName = "TestVessel")
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("type", "Ship");
+            snapshot.AddValue("name", vesselName);
+
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = vesselName,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 1000,
+                ExplicitEndUT = 2000,
+                VesselSnapshot = snapshot,
+                VesselSpawned = false,
+                VesselDestroyed = false,
+                PlaybackEnabled = true,
+                LoopPlayback = false,
+                ChainBranch = 0,
+                ChildBranchPointId = null,
+                IsDebris = false,
+                SpawnedVesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1000, bodyName = "Mun", latitude = 1.0, longitude = 2.0, altitude = 15000 },
+                    new TrajectoryPoint { ut = 2000, bodyName = "Mun", latitude = 1.0, longitude = 2.0, altitude = 15000 }
+                }
+            };
+        }
+
         private sealed class FakeTrackingStation
         {
             private object selectedVessel;
@@ -247,6 +576,19 @@ namespace Parsek.Tests
             }
 
             public object SelectedForTesting => selectedVessel;
+
+            public int SetVesselCalls { get; private set; }
+
+            public void SetSelectedForTesting(object selected)
+            {
+                selectedVessel = selected;
+            }
+
+            public void SetVessel(object selected)
+            {
+                SetVesselCalls++;
+                selectedVessel = selected;
+            }
         }
 
         private sealed class FakeTrackingStationWithSetVessel
