@@ -14,7 +14,9 @@
 
 A Parsek career is a committed timeline of missions. The player flies, commits, the ghost plays back, and the next mission begins on top. Before v0.9 the timeline had a sharp edge: once a multi-controllable split happened — a stage decoupled with a probe core on each side, a lander undocked from a station, a kerbal popped out on EVA — whichever half the player did not personally fly was recorded in the background and, if things went badly, committed as a crashed or destroyed sibling. There was no in-game path back to re-fly that half. The successful side was locked in with the failed side, and the only "fix" was to discard the entire tree and re-fly the whole mission.
 
-Rewind to Staging is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends badly (destroyed, BG-crashed, or even just stranded in a state the player wants to redo), the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
+Rewind to Staging is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends in **destruction or loss** — a crashed booster, a destroyed lander, a kerbal who fell without a parachute — the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
+
+**Stable-end splits are explicitly not in scope.** An orbital EVA where the kerbal boards back safely, a station docking, a stage separation where both halves continue to orbit intact — none of these need a Rewind button. The sibling reached a stable terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Boarded`); there is nothing to "re-fly" because nothing went wrong. `EffectiveState.IsUnfinishedFlight` gates strictly on `TerminalKind.Crashed` for exactly this reason (see §5 and §7.31).
 
 ### 1.1 Scope
 
@@ -43,10 +45,11 @@ v1 deliberately does NOT attempt:
 
 ### 1.3 Who benefits
 
-- Players who launch rockets with recoverable boosters or stages and want to actually land them after watching the upper stage reach orbit.
-- Players who fly multi-vessel docking missions and want to re-do the sibling they did not focus on.
-- Players whose kerbal died during an EVA that turned out to be avoidable, and who want to replay the EVA instead of eating the morale/reputation cost.
-- Anyone who has ever said "I should have stayed on the other vessel."
+- Players who launch rockets with recoverable boosters or stages and whose booster crashed instead of landing — they want to re-fly the booster back to the pad while the upper stage's ascent to orbit continues to play back as a ghost.
+- Players whose kerbal died during an EVA that turned out to be avoidable (e.g. a fall without a parachute) — they want to replay the EVA so the kerbal survives, while the vessel the kerbal came from retains whatever stable state it actually reached (orbit, dock).
+- Players who lost a lander on descent while the orbiting mothership survived — they want to re-fly the lander.
+
+What this feature is **not** for: stable orbital splits, safe returns, or routine dockings. If the sibling reached a stable terminal state (orbiting, landed without breaking, docked, boarded), the recording spawns its end state on playback and the mission is done; no Rewind button appears.
 
 ### 1.4 Relationship to prior features
 
@@ -995,7 +998,9 @@ Deep-parse precondition (`RewindInvoker.CanInvoke` step 6) walks the quicksave's
 `GroupHierarchyStore.CanHide` denies. UI hide checkbox is not drawn for the virtual group. **Shipped (test)**: `UnfinishedFlightsGroupCannotHideTests`.
 
 ### 7.31 Non-crashed BG sibling (e.g. booster coasts to landing on its own)
-Terminal kind classifies as `Landed` (via `TerminalKindClassifier`). `IsUnfinishedFlight` returns false. Recording sits `CommittedProvisional` indefinitely (parent BP has an RP, but the predicate additionally requires crashed terminal). **Accepted v1 limitation** — the slot is rewindable in principle but the predicate keeps it out of Unfinished Flights because the player has no regret to fix.
+Terminal kind classifies as `Landed` / `Orbiting` / `SubOrbital` / `InFlight` via `TerminalKindClassifier`. `IsUnfinishedFlight` returns **false**, so the recording does NOT enter the Unfinished Flights group and NO Rewind button is drawn on its row. **This is the intended behaviour, not a limitation.** The Rewind feature exists to let the player re-fly a sibling that ended in **destruction or loss**; a sibling that reached a stable terminal state (orbiting booster, landed parachuted kerbal, docked lander) has nothing to re-fly. The recording plays back from its committed trajectory and the end-of-recording spawn puts the real vessel where it actually ended up — exactly what the player intended when they last controlled it. Broadening the predicate to `CommittedProvisional + has-RP regardless of terminal` would pollute the list with every routine orbital separation (station EVAs, lander-from-orbit dockings, fuel-tanker rendezvous), which is the opposite of what the feature is for.
+
+Corollary: if a sibling that **should** have been destroyed shows up with a non-crashed terminal (e.g. a booster left behind on reentry but misclassified `Orbiting`), the bug is in the terminal-state classifier, not the Rewind predicate. The scene-exit finalizer (`IncompleteBallisticSceneExitFinalizer` / `BallisticExtrapolator`) is the usual suspect; its `[Extrapolator]` log tag traces the decisions. A `Start: body=… alt=-<large>` preceded by `PatchedConicSnapshot: solver unavailable` (NullSolver) means KSP has already invalidated the vessel, and the extrapolator now short-circuits to `TerminalState.Destroyed` via `ExtrapolationFailureReason.SubSurfaceStart` rather than silently horizon-capping to Orbiting. Fixing the classifier upstream restores the Unfinished Flights entry automatically — do not work around it by broadening the UI predicate.
 
 ### 7.32 Classifier drift across Parsek versions
 Old RPs retained; no reclassify. `[Rewind] Verbose` notes the mismatch.
