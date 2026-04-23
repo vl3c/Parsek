@@ -685,6 +685,39 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~561. Tracking Station ghost selection can leave a stale stock vessel as the private fly target~~
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and `persistent.sfs`. The session created `Learstar A1` correctly as a real `Plane` in Kerbol orbit (`SpawnAtPosition ... pid=3517645340, body=Sun`), but the later Tracking Station fly path loaded stock asteroid `Ast. QME-914` (`persistentId=2902671035`, `type=SpaceObject`, `PotatoRoid`) instead.
+
+**Concern:** `SpaceTracking.BtnOnClick_FlySelectedVessel()` flies KSP's private `selectedVessel`. Parsek blocked ghost `SetVessel` calls and disabled the visible buttons, but did not clear that private field, so a previous stock asteroid/comet selection could survive behind the ghost focus flow and become the eventual fly target. The same log package also showed repeated terminal-orbit ghost creation failures for unseedable records and misleading segment-ghost creation lines that printed the recording terminal SMA rather than the actual segment orbit SMA.
+
+**Fix:** ghost Fly/Delete/Recover/SetVessel blocks now clear the Tracking Station `selectedVessel` field before returning, and the blocked `SetVessel` log records whether a previous selection was cleared. Tracking Station terminal-orbit ghosts now pass through the same endpoint-aligned orbit-seed gate before creation, while terminal-orbit-only recordings can seed from their own terminal orbit when there is no conflicting endpoint evidence. Segment ghost creation logs now print the actual ProtoVessel orbit SMA.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation, plus `logs/2026-04-23_1815_logs-package`.
+
+**Concern:** Flight Map View has the richer ghost lifecycle path: pending-vessel policy, state-vector and orbit-segment source selection, chain-tip dedupe/update behavior, and handoff checks flow through `ParsekPlaybackPolicy` / `GhostMapPresence`. Tracking Station still has its own periodic rebuild loop in `ParsekTrackingStation`, which re-evaluates committed recordings every couple of seconds and has historically lagged Map View on source selection, handoff suppression, and duplicate cleanup.
+
+**Action plan:**
+
+1. Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".
+2. Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.
+3. Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.
+4. Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+
+**Status:** TODO. High priority TS parity follow-up.
+
+---
+
 ## ~~552. Vessel recovery funds can log a false missing-pair warning when stock delivers the funds event after recovery~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows `OnVesselRecoveryFunds` warning at `18:23:16.943` because no paired `FundsChanged(VesselRecovery)` was found yet, then the actual `FundsChanged` recovery event arrived at `18:23:16.961`, within the intended pairing window.
@@ -738,6 +771,80 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless target-tech selection coverage plus `PatchTechTree` log-assertion coverage (no-target skip, missing R&D singleton, one-shot reflection-failure warn); live Research Building UI evidence still requires a manual KSP rewind run.
+
+---
+
+## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
+
+**Concern:** Several TS regressions are scene-integration problems that headless xUnit can only approximate. The latest package proved the Learstar real-vessel spawn and the stale asteroid switch, but it did not prove the TS UI lifecycle, TS ghost toggle recreation, or post-materialization Fly path on a patched build.
+
+**Action plan:**
+
+1. Restore or add isolated in-game TS canaries for scene entry, show/hide/recreate, ghost object count, and no exception spam.
+2. Add a materialization canary for an orbital terminal recording: enter TS, let the real vessel spawn, verify the ghost is removed/suppressed, select/fly the real vessel, and assert the loaded vessel PID/type/name match the materialized vessel, not a stale asteroid/comet.
+3. Ensure `collect-logs.py` preserves these TS rows in `parsek-test-results.txt` and the release bundle validation can flag their absence when TS work is under test.
+4. Keep manual-only variants for any stock scene transitions that remain too destructive for the regular isolated batch.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
+
+**Status:** TODO. High priority validation gap before claiming full TS parity.
+
+---
+
+## ~~555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #561 fix~~
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** `#561` fixed the worst repeated terminal-orbit ghost attempts and corrected the segment-ghost SMA log, but the TS logs still need a cleaner source story. When a ghost is skipped, rebuilt, seeded from a visible segment, seeded from terminal orbit, or suppressed because a real vessel already exists, the log should make the source and reason clear without generating hundreds of repeated fallback lines.
+
+**Action plan:**
+
+1. Carry orbit-source metadata through the TS map object build path.
+2. Rate-limit or aggregate recurring skip reasons by recording/source/reason, especially around terminal-orbit and "map-visible orbit window unavailable" fallbacks.
+3. Log terminal vs segment vs state-vector source decisions consistently with Map View.
+4. Add log-assertion tests covering one successful segment ghost, one terminal-orbit ghost, one endpoint-conflict skip, and one already-materialized suppression.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Resolution:** Added first-occurrence plus aggregate Tracking Station orbit-source diagnostics for visible segment, terminal orbit, endpoint conflict, already-materialized suppression, and repeated no-orbit skip buckets. Endpoint-aligned seed resolution now carries diagnostic metadata, ProtoVessel creation logs include orbit-source detail, and visible-window fallback logs share rate-limited keys.
+
+**Validation:** `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter GhostMapPresenceTests`.
+
+**Status:** CLOSED in `#555`.
+
+---
+
+## 556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protects Tracking Station from ghost-caused stock NREs, but the broad finalizer shape can also hide unrelated `SpaceTracking.buildVesselsList` failures. That makes TS debugging harder and can mask regressions outside Parsek ghost handling.
+
+**Action plan:**
+
+1. Narrow the finalizer to the known ghost/ProtoVessel failure shape when possible.
+2. For exceptions outside the known ghost path, log enough context and allow the failure to remain visible unless suppressing it is proven necessary for save safety.
+3. Add focused tests for the known ghost NRE suppression and an unrelated exception that should be reported rather than silently eaten.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** TODO. Medium priority debugging correctness follow-up.
+
+---
+
+## ~~560. Default solution build returned exit code 1 even after a clean MSBuild success summary~~
+
+**Source:** `dotnet build Source\Parsek.sln` on SDK `6.0.428` in the `bug/547-latest-log-orbit-anomalies` worktree.
+
+**Concern:** the solution built both `Parsek` and `Parsek.Tests` as default top-level solution projects. On this SDK, the parallel solution-level project dispatch could report `Build succeeded` with `0 Warning(s)` / `0 Error(s)` while still returning process exit code `1`. Direct project builds and `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` were clean, so this was solution orchestration noise rather than a compiler failure.
+
+**Fix:** the default solution build now builds the deployable `Parsek` plugin project only. `Parsek.Tests` remains listed in the solution and keeps its active Debug/Release configuration, but its `Build.0` entries are removed so tests are built through the explicit test command instead of the default solution build. This keeps `dotnet build Source\Parsek.sln` deterministic while preserving `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` as the full validation path.
+
+**Files:** `Source/Parsek.sln`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 

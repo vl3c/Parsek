@@ -6,6 +6,13 @@ namespace Parsek
     {
         private const double EndpointEpsilon = 1e-6;
 
+        internal struct EndpointOrbitSeedDiagnostics
+        {
+            public string Source;
+            public string EndpointBodyName;
+            public string FailureReason;
+        }
+
         internal static bool TryGetPreferredEndpointBodyName(Recording rec, out string bodyName)
         {
             bodyName = null;
@@ -228,6 +235,31 @@ namespace Parsek
             out double epoch,
             out string bodyName)
         {
+            return TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName,
+                out _);
+        }
+
+        internal static bool TryGetEndpointAlignedOrbitSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName,
+            out EndpointOrbitSeedDiagnostics diagnostics)
+        {
             inclination = 0.0;
             eccentricity = 0.0;
             semiMajorAxis = 0.0;
@@ -236,14 +268,31 @@ namespace Parsek
             meanAnomalyAtEpoch = 0.0;
             epoch = 0.0;
             bodyName = null;
+            diagnostics = new EndpointOrbitSeedDiagnostics
+            {
+                Source = "none",
+                EndpointBodyName = null,
+                FailureReason = null
+            };
 
             if (traj == null)
+            {
+                diagnostics.FailureReason = "null-trajectory";
                 return false;
+            }
 
             if (!TryGetPreferredEndpointBodyName(traj, out string endpointBody))
+            {
+                diagnostics.FailureReason = "no-endpoint-body";
                 return false;
+            }
+
+            diagnostics.EndpointBodyName = endpointBody;
 
             bool endpointUsesOrbitSegment = ShouldUseOrbitEndpoint(traj);
+            bool terminalBodyConflicts = HasRecordedTerminalOrbit(traj)
+                && !string.IsNullOrEmpty(endpointBody)
+                && !string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
 
             bool TryGetLastMatchingSegment(out double segInclination,
                 out double segEccentricity,
@@ -303,11 +352,17 @@ namespace Parsek
                     out epoch,
                     out bodyName))
                 {
+                    diagnostics.Source = "endpoint-segment";
                     return true;
                 }
 
                 if (!hasMatchingTerminalOrbit)
+                {
+                    diagnostics.FailureReason = terminalBodyConflicts
+                        ? "endpoint-conflict"
+                        : "endpoint-orbit-segment-missing";
                     return false;
+                }
             }
 
             if (hasMatchingTerminalOrbit)
@@ -320,10 +375,11 @@ namespace Parsek
                 meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch;
                 epoch = traj.TerminalOrbitEpoch;
                 bodyName = traj.TerminalOrbitBody;
+                diagnostics.Source = "endpoint-terminal-orbit";
                 return true;
             }
 
-            return TryGetLastMatchingSegment(
+            if (TryGetLastMatchingSegment(
                 out inclination,
                 out eccentricity,
                 out semiMajorAxis,
@@ -331,7 +387,16 @@ namespace Parsek
                 out argumentOfPeriapsis,
                 out meanAnomalyAtEpoch,
                 out epoch,
-                out bodyName);
+                out bodyName))
+            {
+                diagnostics.Source = "endpoint-segment";
+                return true;
+            }
+
+            diagnostics.FailureReason = terminalBodyConflicts
+                ? "endpoint-conflict"
+                : "no-matching-orbit-seed";
+            return false;
         }
 
         private static bool CanUseTerminalOrbitSeedForEndpoint(
