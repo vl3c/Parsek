@@ -17,10 +17,9 @@ namespace Parsek
     /// taken from the decompiled stock KSP.UI.Screens.Mapview.MapNode logic,
     /// so ghost icons match stock ProtoVessel icons for every VesselType (#387).
     ///
-    /// Label is hidden by default and toggled sticky by left-clicking the
-    /// icon. Hover does not affect visibility (changed from the original #386
-    /// hover-reveal behavior). Non-left clicks pass through so KSP's stock
-    /// map/tracking handlers still see them. The sticky set is keyed by
+    /// Label is hidden by default, revealed while hovering the icon, and
+    /// toggled sticky by left-clicking the icon. Non-left clicks pass through
+    /// so KSP's stock map/tracking handlers still see them. The sticky set is keyed by
     /// recording ID and cleared on scene change. The custom marker is only
     /// drawn when the stock MapNode for the same recording is absent or
     /// suppressed, so there is no double-labeling when a ghost ProtoVessel
@@ -184,17 +183,17 @@ namespace Parsek
             }
             GUI.color = prevColor;
 
-            // Label sticky + click toggle (#386; hover reveal removed per
-            // ghost-label-click-toggle follow-up — left click only so non-left
-            // clicks still reach KSP's stock handlers).
+            // Label hover + sticky click toggle. Left click only so non-left
+            // clicks still reach KSP's stock handlers.
             bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
+            bool mouseOver = false;
 
             if (Event.current != null && AllowClickInteraction())
             {
                 Rect hitRect = new Rect(
                     iconRect.x - ClickPadding, iconRect.y - ClickPadding,
                     iconRect.width + ClickPadding * 2, iconRect.height + ClickPadding * 2);
-                bool mouseOver = hitRect.Contains(Event.current.mousePosition);
+                mouseOver = hitRect.Contains(Event.current.mousePosition);
 
                 if (mouseOver
                     && !string.IsNullOrEmpty(markerKey)
@@ -208,7 +207,7 @@ namespace Parsek
                 }
             }
 
-            if (ShouldDrawLabel(sticky))
+            if (ShouldDrawLabel(sticky, mouseOver))
             {
                 labelStyle.normal.textColor = GetLabelColor();
                 GUI.Label(
@@ -219,14 +218,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: should the label be drawn given <paramref name="sticky"/>?
-        /// Visibility is driven exclusively by sticky state — hover does NOT
-        /// reveal the label (per ghost-label-click-toggle follow-up). Kept as
+        /// Pure: should the label be drawn given sticky and hover state?
+        /// Sticky pins the label, while hover reveals it transiently. Kept as
         /// an internal helper so the decision table is readable at call sites
-        /// even though its body is trivial, and so the tests can pin the
-        /// "hover is irrelevant" contract.
+        /// and so tests can pin the hover/pin contract.
         /// </summary>
-        internal static bool ShouldDrawLabel(bool sticky) => sticky;
+        internal static bool ShouldDrawLabel(bool sticky, bool hover) => sticky || hover;
 
         /// <summary>
         /// Pure: is this event a label-toggle click (MouseDown + left button)?
