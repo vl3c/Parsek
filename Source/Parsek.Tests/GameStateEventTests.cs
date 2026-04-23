@@ -1634,7 +1634,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "temperatureScan@KerbinSrfLandedLaunchPad", science = 4.0f }
             };
 
-            GameStateStore.CommitScienceSubjects(pending);
+            ScienceTestHelpers.CommitScienceSubjects(pending);
 
             Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
 
@@ -1654,14 +1654,14 @@ namespace Parsek.Tests
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch1);
+            ScienceTestHelpers.CommitScienceSubjects(batch1);
 
             // Second commit with higher value — should update
             var batch2 = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch2);
+            ScienceTestHelpers.CommitScienceSubjects(batch2);
 
             float sci;
             Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
@@ -1677,14 +1677,14 @@ namespace Parsek.Tests
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch1);
+            ScienceTestHelpers.CommitScienceSubjects(batch1);
 
             // Second commit with lower value — should NOT downgrade
             var batch2 = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 2.0f }
             };
-            GameStateStore.CommitScienceSubjects(batch2);
+            ScienceTestHelpers.CommitScienceSubjects(batch2);
 
             float sci;
             Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
@@ -1696,10 +1696,10 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.CommitScienceSubjects(null);
+            ScienceTestHelpers.CommitScienceSubjects(null);
             Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>());
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>());
             Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
         }
 
@@ -1717,7 +1717,7 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "test1", science = 1.0f },
                 new PendingScienceSubject { subjectId = "test2", science = 2.0f }
@@ -1741,7 +1741,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
             };
 
-            GameStateStore.CommitScienceSubjects(pending);
+            ScienceTestHelpers.CommitScienceSubjects(pending);
 
             Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
             float sci;
@@ -1752,7 +1752,7 @@ namespace Parsek.Tests
         [Fact]
         public void ResetForTesting_ClearsScienceSubjects()
         {
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "test", science = 1.0f }
             });
@@ -1766,7 +1766,7 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.5f },
                 new PendingScienceSubject { subjectId = "temperatureScan@MunSrfLanded", science = 8.12345f }
@@ -1864,7 +1864,7 @@ namespace Parsek.Tests
             GameStateRecorder.PendingScienceSubjects.Add(
                 new PendingScienceSubject { subjectId = "test@Kerbin", science = 3.0f });
 
-            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            ScienceTestHelpers.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
             GameStateRecorder.PendingScienceSubjects.Clear();
 
             // The subject was committed (max-wins policy handles it safely)
@@ -1875,7 +1875,7 @@ namespace Parsek.Tests
             // A subsequent commit with a lower value should NOT downgrade
             GameStateRecorder.PendingScienceSubjects.Add(
                 new PendingScienceSubject { subjectId = "test@Kerbin", science = 1.0f });
-            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            ScienceTestHelpers.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
             GameStateRecorder.PendingScienceSubjects.Clear();
 
             Assert.True(GameStateStore.TryGetCommittedSubjectScience("test@Kerbin", out sci));
@@ -1916,7 +1916,7 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f }
             });
@@ -1946,7 +1946,7 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f },
                 new PendingScienceSubject { subjectId = "tempScan@Mun", science = 3.0f }

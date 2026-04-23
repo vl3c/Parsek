@@ -197,38 +197,43 @@ namespace Parsek
         /// Test-only fault injector. When non-null, <see cref="OnRecordingCommitted"/>
         /// invokes this action at its entry point with the current recording being
         /// committed, before any real logic runs. Used by PendingScienceSubjectsClearTests
-        /// to verify the try/finally clear invariant in NotifyLedgerTreeCommitted —
-        /// allowing the test to force a throw without corrupting real state.
+        /// to verify the failure-path pending-science retention invariant in
+        /// NotifyLedgerTreeCommitted — allowing the test to force a throw without
+        /// corrupting real state.
         /// Reset to null in test Dispose.
         /// </summary>
         internal static Action<string> OnRecordingCommittedFaultInjector;
 
         /// <summary>
+        /// Test-only fault injector fired after a recording's science actions have been
+        /// persisted to both the ledger and committed-science store, but before
+        /// <see cref="OnRecordingCommitted"/> returns to the caller. Used to verify that
+        /// post-persist failures do not leave pending science behind and cannot leave
+        /// ledger/store ownership split apart. Reset to null in test Dispose /
+        /// <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
+
+        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
-        /// Only one recording per tree owns the subject batch — the others get this empty
-        /// list. Distinct from <c>null</c>, which means "read from the static list as
-        /// usual" (the single-recording commit paths).
+        /// Distinct from <c>null</c>, which means "read from the static list as usual"
+        /// (the single-recording commit paths).
         /// </summary>
         private static readonly IReadOnlyList<PendingScienceSubject> EmptyPendingScience =
             new PendingScienceSubject[0];
 
-        internal static void OnRecordingCommitted(string recordingId, double startUT, double endUT)
+        private struct RecordingScienceWindow
         {
-            OnRecordingCommitted(recordingId, startUT, endUT, pendingScienceOverride: null);
+            public string RecordingId;
+            public double StartUT;
+            public double EndUT;
         }
 
-        /// <summary>
-        /// Processes a single recording commit. When <paramref name="pendingScienceOverride"/>
-        /// is non-null, it is used as the pending-science source instead of the static
-        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. This lets tree commits
-        /// split the single shared batch across recordings — exactly one recording absorbs
-        /// the full snapshot, the rest receive the empty sentinel so they do not re-emit
-        /// duplicate <see cref="GameActionType.ScienceEarning"/> actions.
-        /// </summary>
         internal static void OnRecordingCommitted(
             string recordingId, double startUT, double endUT,
-            IReadOnlyList<PendingScienceSubject> pendingScienceOverride)
+            IReadOnlyList<PendingScienceSubject> pendingScienceOverride,
+            ref bool scienceActionsAddedToLedger)
         {
             // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
             OnRecordingCommittedFaultInjector?.Invoke(recordingId);
@@ -241,8 +246,7 @@ namespace Parsek
 
             // 2. Convert pending science subjects.
             // When called from NotifyLedgerTreeCommitted, an override list is passed —
-            // non-null means "use this exact list", and the caller ensures only one
-            // recording per tree receives a populated list. When the override is null
+            // non-null means "use this exact routed subset". When the override is null
             // (the single-recording commit paths in ChainSegmentManager.CommitSegmentCore
             // and ParsekFlight.FallbackCommitSplitRecorder), fall back to the static list.
             IReadOnlyList<PendingScienceSubject> pendingSource =
@@ -273,6 +277,19 @@ namespace Parsek
 
             // 5. Add to ledger
             Ledger.AddActions(actions);
+            if (scienceActions.Count > 0)
+            {
+                // Mirror only after all pre-ledger work succeeded and the resulting
+                // ScienceEarning actions are safely in the ledger. This keeps the
+                // committed-subject cache aligned with the real persistence point.
+                GameStateStore.CommitScienceActions(scienceActions);
+                scienceActionsAddedToLedger = true;
+            }
+
+            // Test-only post-persist fault injection. Fires after both ledger add and
+            // committed-science mirroring succeeded, but before the caller can mark the
+            // overall commit as complete.
+            OnRecordingCommittedPostSciencePersistFaultInjector?.Invoke(recordingId);
 
             ParsekLog.Info(Tag,
                 $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
@@ -1146,6 +1163,32 @@ namespace Parsek
         /// </param>
         internal static void RecalculateAndPatch(double? utCutoff = null)
         {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: utCutoff.HasValue,
+                authoritativeRepeatableRecordState: utCutoff.HasValue);
+        }
+
+        /// <summary>
+        /// Post-rewind FLIGHT-load follow-up recalculation that filters the walk to
+        /// the currently loaded UT without opting into rewind-only patch side
+        /// effects. Unlike the normal explicit-cutoff path, this preserves
+        /// pending/live-tree patch deferral and same-branch repeatable-record
+        /// preservation.
+        /// </summary>
+        internal static void RecalculateAndPatchForPostRewindFlightLoad(double utCutoff)
+        {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: false,
+                authoritativeRepeatableRecordState: false);
+        }
+
+        private static void RecalculateAndPatchCore(
+            double? utCutoff,
+            bool bypassPatchDeferral,
+            bool authoritativeRepeatableRecordState)
+        {
             Initialize();
 
             // Seed initial balances for career mode (per-resource, idempotent).
@@ -1224,14 +1267,17 @@ namespace Parsek
             // #440 Phase E2: post-walk reconciliation for strategy-transformed
             // and curve-applied reward types. Runs once per walk, log-only,
             // after derived fields (Transformed*Reward/EffectiveRep/
-            // EffectiveScience) are populated and before KSP state is patched.
+            // EffectiveScience) are populated and before the later KSP patch/defer
+            // branch decides whether this walk mutates live game state.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
             // #466: a live or pending tree means KSP's mutable state may already include
             // uncommitted in-flight effects that the committed-only ledger cannot see yet.
             // Walking the committed ledger is still useful, but writing that partial state
             // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            string patchDeferralReason = bypassPatchDeferral
+                ? null
+                : GetKspPatchDeferralReason();
             if (!string.IsNullOrEmpty(patchDeferralReason))
             {
                 ParsekLog.Verbose(Tag,
@@ -1247,7 +1293,7 @@ namespace Parsek
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
-                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1263,11 +1309,20 @@ namespace Parsek
             OnTimelineDataChanged?.Invoke();
         }
 
-        private static string GetKspPatchDeferralReason(double? utCutoff)
+        internal static bool HasActionsAfterUT(double ut)
         {
-            if (utCutoff.HasValue)
-                return null;
+            for (int i = 0; i < Ledger.Actions.Count; i++)
+            {
+                var action = Ledger.Actions[i];
+                if (action != null && action.UT > ut)
+                    return true;
+            }
 
+            return false;
+        }
+
+        private static string GetKspPatchDeferralReason()
+        {
             bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
             bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
             bool hasPendingTree = RecordingStore.HasPendingTree;
@@ -2948,6 +3003,7 @@ namespace Parsek
         /// <c>TransactionReasons.VesselRecovery.ToString()</c> — drift logs WARN.
         /// </summary>
         internal const string VesselRecoveryReasonKey = "VesselRecovery";
+        internal const string TechResearchScienceReasonKey = "RnDTechResearch";
 
         /// <summary>
         /// Dedup fingerprints of FundsChanged(VesselRecovery) events already consumed by
@@ -3747,7 +3803,7 @@ namespace Parsek
                         Class = KscReconcileClass.Untransformed,
                         ScienceLeg = CreateExpectationLeg(
                             GameStateEventType.ScienceChanged,
-                            "RnDTechResearch",
+                            TechResearchScienceReasonKey,
                             -action.Cost)
                     };
 
@@ -5659,6 +5715,76 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure helper for the live KSC tech-unlock race: when KSP has already applied a
+        /// recent <c>ScienceChanged(RnDTechResearch)</c> debit but the matching
+        /// <c>TechResearched -> ScienceSpending</c> action has not landed in the ledger yet,
+        /// this returns the unmatched science amount that would otherwise be refunded by
+        /// <see cref="KspStatePatcher.PatchScience"/>.
+        /// </summary>
+        internal static double ComputePendingRecentKscTechResearchScienceDebit(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            double nowUt)
+        {
+            double observedDebit = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var evt = events[i];
+                    if (evt.eventType != GameStateEventType.ScienceChanged)
+                        continue;
+                    if (!string.Equals(evt.key, TechResearchScienceReasonKey, StringComparison.Ordinal))
+                        continue;
+                    if (evt.valueAfter >= evt.valueBefore)
+                        continue;
+                    if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    observedDebit += evt.valueBefore - evt.valueAfter;
+                }
+            }
+
+            if (observedDebit <= 0.1)
+                return 0.0;
+
+            double committedDebit = 0.0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action == null)
+                        continue;
+                    if (action.Type != GameActionType.ScienceSpending)
+                        continue;
+                    if (!string.IsNullOrEmpty(action.RecordingId))
+                        continue;
+                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    committedDebit += action.Cost;
+                }
+            }
+
+            double pendingDebit = observedDebit - committedDebit;
+            return pendingDebit > 0.1 ? pendingDebit : 0.0;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingRecentKscTechResearchScienceDebit"/>.
+        /// Uses the current GameStateStore / ledger state and the affordability "now UT"
+        /// seam so both production and tests evaluate the same recent-action window.
+        /// </summary>
+        internal static double GetPendingRecentKscTechResearchScienceDebit()
+        {
+            return ComputePendingRecentKscTechResearchScienceDebit(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GetNowUT());
+        }
+
+        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available science >= cost.
         /// Used by TechResearchPatch to block unfunded tech unlocks.
@@ -5748,6 +5874,8 @@ namespace Parsek
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
             OnTimelineDataChanged = null;
+            OnRecordingCommittedFaultInjector = null;
+            OnRecordingCommittedPostSciencePersistFaultInjector = null;
             NowUtProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
@@ -5837,22 +5965,24 @@ namespace Parsek
             // Key: "chainId:chainIndex", Value: EndUT of that segment.
             var chainEndUTs = BuildChainEndUtMap(tree);
 
-            // #397 / codex review [P1]: snapshot PendingScienceSubjects ONCE and attribute
-            // the full batch to exactly one recording in the tree. Previously every recording
-            // re-read the static list and produced its own ScienceEarning set, so an N-recording
-            // tree credited each subject N times — ScienceModule summed every copy and over-
-            // credited the R&D pool by a factor of N. The pending list has no per-subject UT
-            // field, so attribution must pick one recording arbitrarily; we use the one with
-            // the highest EndUT (most recent flight activity, which is usually where the
-            // science was earned just before commit).
+            // #397 / #528 follow-up: snapshot PendingScienceSubjects ONCE, then route each
+            // subject to the recording it actually belongs to. Tagged subjects keep their
+            // tagged recording, while untagged subjects are attributed by captureUT window.
+            // This preserves valid mixed-recording science without reopening the old
+            // duplication bug where every recording re-read and re-emitted the full batch.
             var pendingSnapshot = GameStateRecorder.PendingScienceSubjects.Count == 0
                 ? EmptyPendingScience
                 : (IReadOnlyList<PendingScienceSubject>)
                     new List<PendingScienceSubject>(GameStateRecorder.PendingScienceSubjects);
             int pendingBefore = pendingSnapshot.Count;
-            string scienceOwnerRecordingId = PickScienceOwnerRecordingId(tree);
+            var pendingByRecording = BuildTreePendingScienceRouting(tree, chainEndUTs, pendingSnapshot);
+            int routedPending = 0;
+            foreach (var routed in pendingByRecording.Values)
+                routedPending += routed.Count;
+            int removedPending = 0;
 
             int gapsClosed = 0;
+            bool commitSucceeded = false;
             try
             {
                 foreach (var rec in tree.Recordings.Values)
@@ -5865,33 +5995,80 @@ namespace Parsek
                     if (adjusted < startUT) gapsClosed++;
                     startUT = adjusted;
 
-                    // Exactly one recording absorbs the pending science batch; all others get
-                    // the empty sentinel list so ConvertScienceSubjects returns zero actions.
-                    IReadOnlyList<PendingScienceSubject> perRecordingPending =
-                        (rec.RecordingId == scienceOwnerRecordingId)
-                            ? pendingSnapshot
-                            : EmptyPendingScience;
+                    IReadOnlyList<PendingScienceSubject> perRecordingPending;
+                    if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
+                        perRecordingPending = EmptyPendingScience;
 
-                    OnRecordingCommitted(rec.RecordingId, startUT, endUT, perRecordingPending);
+                    bool scienceAddedToLedger = false;
+                    try
+                    {
+                        OnRecordingCommitted(
+                            rec.RecordingId,
+                            startUT,
+                            endUT,
+                            perRecordingPending,
+                            ref scienceAddedToLedger);
+                        removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+                    }
+                    catch
+                    {
+                        if (scienceAddedToLedger)
+                            removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+                        throw;
+                    }
                 }
+
+                commitSucceeded = true;
             }
             finally
             {
-                // #397: PendingScienceSubjects is cleared AFTER the orchestrator has read
-                // them for every recording in the tree (via the snapshot above). Clearing
-                // the static list here completes the handoff — the snapshot we captured
-                // remains live inside any ScienceEarning actions the owner produced.
-                // Previously, RecordingStore cleared the list BEFORE NotifyLedgerTreeCommitted
-                // ran, so ConvertScienceSubjects always saw an empty list and no ScienceEarning
-                // actions ever landed. The try/finally ensures the clear fires even if
-                // OnRecordingCommitted throws.
-                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
-                GameStateRecorder.PendingScienceSubjects.Clear();
-                if (pendingBefore > 0 || cleared > 0)
-                    ParsekLog.Verbose(Tag,
-                        $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
-                        $"(snapshot={pendingBefore}, owner='{scienceOwnerRecordingId ?? "(none)"}', " +
-                        $"staticAtClear={cleared})");
+                // #397 / #528 follow-up: successful routed subsets are removed from the
+                // global pending list as they become safe to discard. Unrelated retained
+                // science from earlier failures stays pending across later successful
+                // commits, and failing subsets stay visible so the caller can decide how
+                // to recover; current production callers surface the exception instead of
+                // retrying the whole commit batch.
+                int remainingPending = GameStateRecorder.PendingScienceSubjects.Count;
+                if (commitSucceeded)
+                {
+                    if (remainingPending == 0 && (pendingBefore > 0 || removedPending > 0))
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
+                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending})");
+                    }
+                    else if (removedPending > 0 || remainingPending > 0)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"NotifyLedgerTreeCommitted: preserved unrelated PendingScienceSubjects after success " +
+                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                            $"remaining={remainingPending})");
+                    }
+                }
+                else
+                {
+                    if (removedPending == 0)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"NotifyLedgerTreeCommitted: retained PendingScienceSubjects after failure " +
+                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                            $"remaining={remainingPending})");
+                    }
+                    else if (remainingPending == 0)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"NotifyLedgerTreeCommitted: already removed PendingScienceSubjects before failure " +
+                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                            $"remaining={remainingPending})");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"NotifyLedgerTreeCommitted: partially retained PendingScienceSubjects after failure " +
+                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                            $"remaining={remainingPending})");
+                    }
+                }
             }
 
             // #390: prune events consumed by milestone creation + ledger conversion
@@ -5903,47 +6080,304 @@ namespace Parsek
                 $"gapsClosed={gapsClosed}");
         }
 
-        /// <summary>
-        /// Picks exactly one recording in a tree to own any PendingScienceSubjects collected
-        /// while the tree was being recorded. Strategy: the recording with the highest EndUT
-        /// (most recent flight activity, where science was most likely earned just before
-        /// commit). If multiple recordings tie, the tree's ActiveRecordingId wins; if none
-        /// tie on that, the first iterated recording is a deterministic fallback.
-        /// Returns null if the tree has no recordings (empty tree). Internal static for
-        /// direct testability.
-        /// </summary>
-        internal static string PickScienceOwnerRecordingId(RecordingTree tree)
+        private static Dictionary<string, IReadOnlyList<PendingScienceSubject>> BuildTreePendingScienceRouting(
+            RecordingTree tree,
+            Dictionary<string, double> chainEndUTs,
+            IReadOnlyList<PendingScienceSubject> pendingSnapshot)
         {
-            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
-                return null;
+            var routed = new Dictionary<string, IReadOnlyList<PendingScienceSubject>>(StringComparer.Ordinal);
+            var mutableBuckets = new Dictionary<string, List<PendingScienceSubject>>(StringComparer.Ordinal);
+            var windows = BuildRecordingScienceWindows(tree, chainEndUTs);
 
-            string bestId = null;
-            double bestEndUT = double.NegativeInfinity;
+            for (int i = 0; i < windows.Count; i++)
+            {
+                string recordingId = windows[i].RecordingId;
+                if (string.IsNullOrEmpty(recordingId) || mutableBuckets.ContainsKey(recordingId))
+                    continue;
+
+                mutableBuckets[recordingId] = new List<PendingScienceSubject>();
+            }
+
+            if (pendingSnapshot != null && pendingSnapshot.Count > 0 && windows.Count > 0)
+            {
+                for (int i = 0; i < pendingSnapshot.Count; i++)
+                {
+                    string ownerRecordingId = ResolveTreePendingScienceOwnerRecordingId(
+                        pendingSnapshot[i],
+                        windows,
+                        tree != null ? tree.ActiveRecordingId : null);
+                    if (string.IsNullOrEmpty(ownerRecordingId))
+                        continue;
+
+                    List<PendingScienceSubject> bucket;
+                    if (mutableBuckets.TryGetValue(ownerRecordingId, out bucket))
+                        bucket.Add(pendingSnapshot[i]);
+                }
+            }
+
+            foreach (var kvp in mutableBuckets)
+            {
+                routed[kvp.Key] = kvp.Value.Count == 0
+                    ? EmptyPendingScience
+                    : (IReadOnlyList<PendingScienceSubject>)kvp.Value;
+            }
+
+            return routed;
+        }
+
+        private static List<RecordingScienceWindow> BuildRecordingScienceWindows(
+            RecordingTree tree,
+            Dictionary<string, double> chainEndUTs)
+        {
+            var windows = new List<RecordingScienceWindow>();
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return windows;
+
             foreach (var rec in tree.Recordings.Values)
             {
-                if (rec == null) continue;
-                double endUT = rec.EndUT;
-                if (endUT > bestEndUT)
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+
+                windows.Add(new RecordingScienceWindow
                 {
-                    bestEndUT = endUT;
-                    bestId = rec.RecordingId;
-                }
-                else if (endUT == bestEndUT && rec.RecordingId == tree.ActiveRecordingId)
-                {
-                    // Tie-break: prefer the active recording.
-                    bestId = rec.RecordingId;
-                }
+                    RecordingId = rec.RecordingId,
+                    StartUT = AdjustStartUtForChainGap(rec, rec.StartUT, chainEndUTs),
+                    EndUT = rec.EndUT
+                });
             }
 
-            // Defensive: if we somehow saw no non-null recordings, fall back to the first.
-            if (bestId == null)
+            return windows;
+        }
+
+        private static string ResolveTreePendingScienceOwnerRecordingId(
+            PendingScienceSubject subject,
+            IReadOnlyList<RecordingScienceWindow> windows,
+            string activeRecordingId)
+        {
+            string subjectRecordingId = subject.recordingId ?? "";
+            if (!string.IsNullOrEmpty(subjectRecordingId))
             {
-                foreach (var rec in tree.Recordings.Values)
+                for (int i = 0; i < windows.Count; i++)
                 {
-                    if (rec != null) { bestId = rec.RecordingId; break; }
+                    if (string.Equals(windows[i].RecordingId, subjectRecordingId, StringComparison.Ordinal))
+                        return windows[i].RecordingId;
+                }
+
+                return null;
+            }
+
+            return PickScienceWindowRecordingId(subject.captureUT, windows, activeRecordingId);
+        }
+
+        private static string PickScienceWindowRecordingId(
+            double captureUT,
+            IReadOnlyList<RecordingScienceWindow> windows,
+            string activeRecordingId)
+        {
+            if (double.IsNaN(captureUT) || double.IsInfinity(captureUT))
+                return null;
+            if (captureUT < 0.0)
+                return null;
+
+            bool found = false;
+            RecordingScienceWindow best = default(RecordingScienceWindow);
+            for (int i = 0; i < windows.Count; i++)
+            {
+                var window = windows[i];
+                if (captureUT < window.StartUT || captureUT > window.EndUT)
+                    continue;
+
+                if (!found)
+                {
+                    best = window;
+                    found = true;
+                    continue;
+                }
+
+                if (window.StartUT > best.StartUT)
+                {
+                    best = window;
+                    continue;
+                }
+
+                if (window.StartUT < best.StartUT)
+                    continue;
+
+                if (window.EndUT < best.EndUT)
+                {
+                    best = window;
+                    continue;
+                }
+
+                if (window.EndUT > best.EndUT)
+                    continue;
+
+                bool windowIsActive = string.Equals(window.RecordingId, activeRecordingId, StringComparison.Ordinal);
+                bool bestIsActive = string.Equals(best.RecordingId, activeRecordingId, StringComparison.Ordinal);
+                if (windowIsActive && !bestIsActive)
+                {
+                    best = window;
+                    continue;
+                }
+
+                if (!windowIsActive && bestIsActive)
+                    continue;
+
+                if (string.CompareOrdinal(window.RecordingId ?? "", best.RecordingId ?? "") < 0)
+                    best = window;
+            }
+
+            return found ? best.RecordingId : null;
+        }
+
+        private static int RemovePendingSubjects(
+            List<PendingScienceSubject> remainingPending,
+            IReadOnlyList<PendingScienceSubject> processedPending)
+        {
+            if (remainingPending == null || remainingPending.Count == 0)
+                return 0;
+            if (processedPending == null || processedPending.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = 0; i < processedPending.Count; i++)
+            {
+                if (remainingPending.Remove(processedPending[i]))
+                    removed++;
+            }
+
+            return removed;
+        }
+
+        internal static IReadOnlyList<PendingScienceSubject> BuildPendingScienceSubsetForRecording(
+            IReadOnlyList<PendingScienceSubject> pendingSnapshot,
+            string recordingId,
+            double startUT,
+            double endUT)
+        {
+            if (pendingSnapshot == null || pendingSnapshot.Count == 0)
+                return EmptyPendingScience;
+
+            var routed = new List<PendingScienceSubject>();
+            string ownerRecordingId = recordingId ?? "";
+            for (int i = 0; i < pendingSnapshot.Count; i++)
+            {
+                var subject = pendingSnapshot[i];
+                string subjectRecordingId = subject.recordingId ?? "";
+                if (!string.IsNullOrEmpty(subjectRecordingId))
+                {
+                    if (string.Equals(subjectRecordingId, ownerRecordingId, StringComparison.Ordinal))
+                        routed.Add(subject);
+                    continue;
+                }
+
+                if (DoesUntaggedScienceCaptureMatchWindow(subject.captureUT, startUT, endUT))
+                    routed.Add(subject);
+            }
+
+            return routed.Count == 0
+                ? EmptyPendingScience
+                : (IReadOnlyList<PendingScienceSubject>)routed;
+        }
+
+        /// <summary>
+        /// Returns the commit-window start UT for a direct single-recording commit.
+        /// Chain continuations can have optimizer-introduced gaps between segments; when
+        /// the immediate predecessor is already committed, extend the window backward to
+        /// that predecessor's EndUT so the standalone path matches tree-commit routing.
+        /// </summary>
+        internal static double ResolveStandaloneCommitWindowStartUt(Recording rec, double startUT)
+        {
+            if (rec == null ||
+                !rec.IsChainRecording ||
+                rec.ChainIndex <= 0 ||
+                string.IsNullOrEmpty(rec.ParentRecordingId))
+            {
+                return startUT;
+            }
+
+            var predecessor = FindRecordingById(rec.ParentRecordingId);
+            if (predecessor == null ||
+                !string.Equals(predecessor.ChainId ?? "", rec.ChainId ?? "", StringComparison.Ordinal) ||
+                predecessor.ChainIndex != rec.ChainIndex - 1)
+            {
+                return startUT;
+            }
+
+            var chainEndUTs = new Dictionary<string, double>
+            {
+                { $"{rec.ChainId}:{predecessor.ChainIndex}", predecessor.EndUT }
+            };
+            return AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+        }
+
+        internal static int RemovePendingSubjectsFromStatic(
+            IReadOnlyList<PendingScienceSubject> processedPending)
+        {
+            return RemovePendingSubjects(GameStateRecorder.PendingScienceSubjects, processedPending);
+        }
+
+        /// <summary>
+        /// Finalizes a standalone recording commit's scoped pending-science subset.
+        /// Successful commits (or failures after science already reached the ledger)
+        /// discard only the subset routed to that recording. Pre-ledger failures keep
+        /// the subset pending so the caller can decide how to recover without losing the
+        /// science data. Current production callers surface the exception instead of
+        /// retrying the whole commit batch.
+        /// </summary>
+        internal static void FinalizeScopedPendingScienceCommit(
+            string logTag,
+            string commitContext,
+            int pendingBefore,
+            IReadOnlyList<PendingScienceSubject> pendingForCommit,
+            bool commitSucceeded,
+            bool scienceAddedToLedger)
+        {
+            pendingForCommit = pendingForCommit ?? EmptyPendingScience;
+
+            int removed = 0;
+            if (commitSucceeded || scienceAddedToLedger)
+                removed = RemovePendingSubjectsFromStatic(pendingForCommit);
+
+            int currentPending = GameStateRecorder.PendingScienceSubjects.Count;
+            if (commitSucceeded || scienceAddedToLedger)
+            {
+                if (currentPending == 0 && (pendingBefore > 0 || removed > 0))
+                {
+                    ParsekLog.Verbose(logTag,
+                        $"{commitContext}: cleared PendingScienceSubjects " +
+                        $"(before={pendingBefore}, removed={removed})");
+                }
+                else if (removed > 0 || currentPending > 0)
+                {
+                    ParsekLog.Verbose(logTag,
+                        $"{commitContext}: preserved unrelated PendingScienceSubjects after success " +
+                        $"(before={pendingBefore}, removed={removed}, remaining={currentPending})");
                 }
             }
-            return bestId;
+            else if (pendingBefore > 0 || currentPending > 0)
+            {
+                ParsekLog.Verbose(logTag,
+                    $"{commitContext}: retained PendingScienceSubjects after failure " +
+                    $"(before={pendingBefore}, remaining={currentPending})");
+            }
+        }
+
+        private static bool DoesUntaggedScienceCaptureMatchWindow(
+            double captureUT,
+            double startUT,
+            double endUT)
+        {
+            if (double.IsNaN(captureUT) || double.IsInfinity(captureUT))
+                return false;
+            if (captureUT < 0.0)
+                return false;
+            if (captureUT < startUT)
+                return false;
+            if (captureUT > endUT)
+                return false;
+
+            return true;
         }
 
         /// <summary>

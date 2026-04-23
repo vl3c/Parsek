@@ -15,7 +15,42 @@ namespace Parsek
     internal static class TimeJumpManager
     {
         private const string Tag = "TimeJump";
+        // Keep the transient under a fraction of a second, but long enough to cover the
+        // SetUniversalTime callback burst and a few trailing scene/render frames.
+        private const int TimeJumpLaunchAutoRecordSuppressFrames = 8;
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        private static bool isTimeJumpLaunchAutoRecordInProgress;
+        // Frame-bounded rather than UT-bounded so rewinds/quickloads cannot revive stale suppression.
+        private static int timeJumpLaunchAutoRecordSuppressUntilFrame = -1;
+
+        internal static bool IsTimeJumpLaunchAutoRecordInProgress
+            => isTimeJumpLaunchAutoRecordInProgress;
+
+        internal static int TimeJumpLaunchAutoRecordSuppressUntilFrame
+            => timeJumpLaunchAutoRecordSuppressUntilFrame;
+
+        internal static bool IsTimeJumpLaunchAutoRecordSuppressed(
+            bool timeJumpLaunchAutoRecordInProgress,
+            int currentFrame,
+            int suppressUntilFrame)
+        {
+            return timeJumpLaunchAutoRecordInProgress
+                || (suppressUntilFrame >= 0 && currentFrame <= suppressUntilFrame);
+        }
+
+        private static void ArmTimeJumpLaunchAutoRecordSuppression(string jumpKind)
+        {
+            timeJumpLaunchAutoRecordSuppressUntilFrame =
+                Time.frameCount + TimeJumpLaunchAutoRecordSuppressFrames;
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Time-jump launch auto-record suppression armed: jump={0} currentFrame={1} untilFrame={2} durationFrames={3}",
+                    jumpKind,
+                    Time.frameCount,
+                    timeJumpLaunchAutoRecordSuppressUntilFrame,
+                    TimeJumpLaunchAutoRecordSuppressFrames));
+        }
 
         /// <summary>
         /// Pure: compute the epoch-shifted mean anomaly for an orbit.
@@ -192,43 +227,52 @@ namespace Parsek
                     "Time jump initiated: T0={0:F1} target={1:F1} delta={2:F1}s objects={3}",
                     t0, targetUT, jumpDelta, objectCount));
 
-            // Step 1: Capture state vectors for all loaded vessels BEFORE changing UT.
-            // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
-            // moving vessels before we can freeze them.
-            var capturedStates = CaptureOrbitalStates();
-
-            // Step 2: Set game clock to target UT
-            Planetarium.SetUniversalTime(targetUT);
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "UT set to {0:F1}", targetUT));
-
-            // Step 3: Epoch-shift all captured vessel orbits.
-            // Recompute orbital elements at the new epoch from the pre-jump state vectors.
-            ApplyEpochShifts(capturedStates, targetUT);
-
-            // Step 4: Process crossed chain tips — spawn real vessels
-            var spawnedPids = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
-
-            // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
-            // no longer mutates the dict directly)
-            if (chains != null)
+            isTimeJumpLaunchAutoRecordInProgress = true;
+            try
             {
-                for (int i = 0; i < spawnedPids.Count; i++)
-                    chains.Remove(spawnedPids[i]);
+                // Step 1: Capture state vectors for all loaded vessels BEFORE changing UT.
+                // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
+                // moving vessels before we can freeze them.
+                var capturedStates = CaptureOrbitalStates();
+
+                // Step 2: Set game clock to target UT
+                Planetarium.SetUniversalTime(targetUT);
+                ArmTimeJumpLaunchAutoRecordSuppression("epoch-shift");
+
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "UT set to {0:F1}", targetUT));
+
+                // Step 3: Epoch-shift all captured vessel orbits.
+                // Recompute orbital elements at the new epoch from the pre-jump state vectors.
+                ApplyEpochShifts(capturedStates, targetUT);
+
+                // Step 4: Process crossed chain tips — spawn real vessels
+                var spawnedPids = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+
+                // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
+                // no longer mutates the dict directly)
+                if (chains != null)
+                {
+                    for (int i = 0; i < spawnedPids.Count; i++)
+                        chains.Remove(spawnedPids[i]);
+                }
+
+                // Step 5: Game actions recalculation
+                // The game actions system is a future dependency. If not available, skip with warning.
+                ParsekLog.Warn(Tag,
+                    "Time jump: game actions system not available, skipping recalculation");
+
+                int remainingGhosts = chains != null ? chains.Count : 0;
+
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
+                        spawnedPids.Count, remainingGhosts));
             }
-
-            // Step 5: Game actions recalculation
-            // The game actions system is a future dependency. If not available, skip with warning.
-            ParsekLog.Warn(Tag,
-                "Time jump: game actions system not available, skipping recalculation");
-
-            int remainingGhosts = chains != null ? chains.Count : 0;
-
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
-                    spawnedPids.Count, remainingGhosts));
+            finally
+            {
+                isTimeJumpLaunchAutoRecordInProgress = false;
+            }
         }
 
         /// <summary>
@@ -327,28 +371,37 @@ namespace Parsek
                     "Forward jump initiated: T0={0:F1} target={1:F1} delta={2:F1}s objects={3}",
                     t0, targetUT, jumpDelta, objectCount));
 
-            // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
-            // cause physics interactions during the jump.
-            var onRailsVessels = PutLoadedVesselsOnRails();
+            isTimeJumpLaunchAutoRecordInProgress = true;
+            try
+            {
+                // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
+                // cause physics interactions during the jump.
+                var onRailsVessels = PutLoadedVesselsOnRails();
 
-            // Advance UT — orbits propagate naturally (no epoch shift)
-            Planetarium.SetUniversalTime(targetUT);
+                // Advance UT — orbits propagate naturally (no epoch shift)
+                Planetarium.SetUniversalTime(targetUT);
+                ArmTimeJumpLaunchAutoRecordSuppression("forward");
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "Forward jump: UT set to {0:F1}", targetUT));
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "Forward jump: UT set to {0:F1}", targetUT));
 
-            // Fix resource converter timestamps to prevent burst production/consumption.
-            // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
-            // UT jump, converters see a massive deltaTime and drain/produce in one burst.
-            FixResourceConverterTimestamps(targetUT);
+                // Fix resource converter timestamps to prevent burst production/consumption.
+                // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
+                // UT jump, converters see a massive deltaTime and drain/produce in one burst.
+                FixResourceConverterTimestamps(targetUT);
 
-            // Take vessels off rails
-            TakeVesselsOffRails(onRailsVessels);
+                // Take vessels off rails
+                TakeVesselsOffRails(onRailsVessels);
 
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
-                    jumpDelta, onRailsVessels.Count));
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
+                        jumpDelta, onRailsVessels.Count));
+            }
+            finally
+            {
+                isTimeJumpLaunchAutoRecordInProgress = false;
+            }
         }
 
         /// <summary>

@@ -104,7 +104,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_ScienceSubject_Synthesized()
         {
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject
                 {
@@ -225,7 +225,7 @@ namespace Parsek.Tests
                 SubjectMaxValue = 10f
             });
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject
                 {
@@ -256,7 +256,7 @@ namespace Parsek.Tests
                 SubjectMaxValue = 50f
             });
 
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject
                 {
@@ -303,7 +303,7 @@ namespace Parsek.Tests
                 detail = "cost=200"
             };
             GameStateStore.AddEvent(ref p2Evt);
-            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "s1", science = 2f, subjectMaxValue = 10f },
                 new PendingScienceSubject { subjectId = "s2", science = 1f, subjectMaxValue = 10f }

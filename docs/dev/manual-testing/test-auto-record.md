@@ -89,20 +89,28 @@
 4. Verify: recording does NOT auto-start
 5. Re-enable the toggle and repeat one of the post-switch cases above - verify auto-record works again
 
-## 15. Auto-warp-stop disabled via Settings
+## 15. Timeline FF on pad (negative auto-record case)
+1. Be idle on the launch pad or runway with `Auto-record on launch` enabled and no active Parsek recording
+2. Ensure there is at least one future recording with a visible `FF` button in Timeline / Recordings
+3. Click `FF` to jump to that future recording's start UT while staying focused on the real pad vessel
+4. Verify: no `Recording STARTED (auto)` screen message appears on the real pad vessel
+5. Verify: Parsek UI stays idle on the real vessel after the jump instead of opening any fresh recording
+6. Check `KSP.log` for the time-jump lines plus `OnVesselSituationChange: suppressing time-jump transient`, and confirm there is no `Auto-record started (` line for the real pad vessel
+
+## 16. Auto-warp-stop disabled via Settings
 1. Record a flight, revert, merge with Keep Vessel
 2. Open Settings → uncheck "Auto-stop time warp"
 3. Time warp past the recording's StartUT - verify warp is NOT stopped
 4. Re-enable → time warp past another recording → verify warp stops
 
-## 16. Settings persistence
+## 17. Settings persistence
 1. Change some settings (uncheck toggles, move sliders)
 2. Save game (F5 or Esc → Save)
 3. Reload (F9 or Load)
 4. Open Settings → verify values persisted
 5. Also verify via Esc → Settings → Parsek (KSP difficulty screen)
 
-## 17. Defaults button
+## 18. Defaults button
 1. Change all settings to non-default values
 2. Click "Defaults" in the Settings window
 3. Verify all values reset to defaults (`Auto-record on launch`, `Auto-record on EVA`, and `Auto-record on first modification after switch` all on; 3.0s interval, 2.0° direction, 5% speed)
@@ -114,4 +122,5 @@
   - `"Post-switch auto-record armed:"` after an idle switch to a real vessel
   - `"Post-switch baseline captured:"` on the first stable physics frame after the switch
   - `"Auto-record started (post-switch ...)"` exactly once for the landed-motion / orbital-burn / gear-toggle cases
+  - `OnVesselSituationChange: suppressing time-jump transient` should appear immediately after a Timeline / Recordings `FF` jump on an idle real pad vessel, and no `Auto-record started (` line should follow
   - No unexpected errors or duplicate triggers

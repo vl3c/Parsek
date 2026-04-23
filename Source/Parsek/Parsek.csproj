@@ -35,6 +35,10 @@
       <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>

@@ -408,6 +408,57 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Time-jump auto-record suppression
+
+        [Fact]
+        public void IsTimeJumpLaunchAutoRecordSuppressed_InProgress_ReturnsTrue()
+        {
+            bool suppressed = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                timeJumpLaunchAutoRecordInProgress: true,
+                currentFrame: 100,
+                suppressUntilFrame: -1);
+
+            Assert.True(suppressed);
+        }
+
+        [Fact]
+        public void IsTimeJumpLaunchAutoRecordSuppressed_PostJumpFrameWindow_ReturnsTrue()
+        {
+            bool suppressed = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                timeJumpLaunchAutoRecordInProgress: false,
+                currentFrame: 100,
+                suppressUntilFrame: 101);
+
+            Assert.True(suppressed);
+        }
+
+        [Fact]
+        public void IsTimeJumpLaunchAutoRecordSuppressed_AtFrameBoundary_ReturnsTrue()
+        {
+            bool suppressed = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                timeJumpLaunchAutoRecordInProgress: false,
+                currentFrame: 101,
+                suppressUntilFrame: 101);
+
+            Assert.True(suppressed);
+        }
+
+        [Fact]
+        public void IsTimeJumpLaunchAutoRecordSuppressed_FrameExpiry_DoesNotRearmOnEarlierUtRollback()
+        {
+            // The old UT-based suppression could become true again after a rollback to an
+            // earlier save. Frame-bounded suppression must stay expired once the transient
+            // frames have passed, regardless of any later UT value.
+            bool suppressedAfterTransient = TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                timeJumpLaunchAutoRecordInProgress: false,
+                currentFrame: 120,
+                suppressUntilFrame: 101);
+
+            Assert.False(suppressedAfterTransient);
+        }
+
+        #endregion
+
         #region CreateTimeJumpEvent
 
         /// <summary>

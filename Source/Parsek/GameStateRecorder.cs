@@ -36,7 +36,8 @@ namespace Parsek
 
         /// <summary>
         /// Science subjects captured during the current recording session.
-        /// Transferred to GameStateStore.committedScienceSubjects on commit.
+        /// Converted into ScienceEarning actions and then mirrored into
+        /// GameStateStore.committedScienceSubjects on commit.
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
@@ -373,17 +374,37 @@ namespace Parsek
             float advanceFunds = (float)contract.FundsAdvance;
             float failFunds = (float)contract.FundsFailure;
             float failRep = (float)contract.ReputationFailure;
+            string contractType = contract.GetType().Name ?? "";
+            ConfigNode contractNode = null;
+            Exception snapshotFailure = null;
 
-            // Structured detail: title + deadline + advance + failure penalties.
+            try
+            {
+                contractNode = new ConfigNode("CONTRACT");
+                contract.Save(contractNode);
+                string savedContractType = contractNode.GetValue("type");
+                if (!string.IsNullOrEmpty(savedContractType))
+                    contractType = savedContractType;
+            }
+            catch (Exception ex)
+            {
+                snapshotFailure = ex;
+                contractNode = null;
+            }
+
+            // Structured detail: title + deadline + type + advance + failure penalties.
             // advance must be captured at accept time — KSP applies it immediately via
             // FundsChanged(ContractAdvance), which the converter intentionally drops.
             // Without funds= here, AdvanceFunds stayed 0 and FundsModule never credited
-            // the advance (codex review [P1] on PR #307).
+            // the advance (codex review [P1] on PR #307). type= must also be captured
+            // here because ContractAccept ledger actions are consumed by UI/policy paths
+            // that do not re-open the stored snapshot.
             // deadline=0 means no deadline (KSP convention) — store as NaN.
             string deadlineStr = deadline > 0
                 ? deadline.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "NaN";
             var detail = $"title={title};deadline={deadlineStr}" +
+                (string.IsNullOrEmpty(contractType) ? "" : $";type={contractType}") +
                 $";funds={advanceFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
@@ -398,19 +419,18 @@ namespace Parsek
             Emit(ref evt, "ContractAccepted");
 
             // Store full contract snapshot for reversal
-            try
+            if (contractNode != null)
             {
-                var contractNode = new ConfigNode("CONTRACT");
-                contract.Save(contractNode);
                 GameStateStore.AddContractSnapshot(guid, contractNode);
                 ParsekLog.Info("GameStateRecorder",
-                    $"Game state: ContractAccepted '{title}' deadline={deadlineStr} " +
+                    $"Game state: ContractAccepted '{title}' type='{contractType}' deadline={deadlineStr} " +
                     $"advance={advanceFunds} failFunds={failFunds} failRep={failRep} (snapshot saved)");
             }
-            catch (Exception ex)
+            else
             {
                 ParsekLog.Warn("GameStateRecorder",
-                    $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
+                    $"Game state: ContractAccepted '{title}' type='{contractType}' " +
+                    $"(snapshot FAILED: {(snapshotFailure != null ? snapshotFailure.Message : "unknown error")})");
             }
 
             // Write directly to ledger when at KSC (not during a flight recording).
@@ -1080,8 +1100,9 @@ namespace Parsek
             // Record the cumulative science earned for this subject.
             // Note: subject.science may include Harmony-injected committed science
             // (from ScienceSubjectPatch) if this experiment was previously committed.
-            // This is correct — max-wins in CommitScienceSubjects ensures the value
-            // only increases, reflecting the true highest science earned.
+            // This is correct — the committed-science cache merges by max value when the
+            // eventual ScienceEarning actions are persisted, so repeated captures only
+            // ever preserve the highest science earned.
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,
