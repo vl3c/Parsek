@@ -22,6 +22,84 @@ namespace Parsek
 
         #endregion
 
+        #region Rewind-to-Staging persistence (design sections 5.1 - 5.9)
+
+        // These collections are persistence-only in Phase 1. Behavior wiring (RP
+        // creation, reap, session lifecycle, merge journal finisher) lands in
+        // later phases; Phase 1 only guarantees OnSave/OnLoad round-trip and
+        // the empty-default on pre-feature saves.
+        public List<RewindPoint> RewindPoints = new List<RewindPoint>();
+        public List<RecordingSupersedeRelation> RecordingSupersedes = new List<RecordingSupersedeRelation>();
+        public List<LedgerTombstone> LedgerTombstones = new List<LedgerTombstone>();
+
+        /// <summary>Singleton; non-null only during an active re-fly session.</summary>
+        public ReFlySessionMarker ActiveReFlySessionMarker;
+
+        /// <summary>Singleton; non-null only during a staged-commit merge.</summary>
+        public MergeJournal ActiveMergeJournal;
+
+        // Phase 2 (Rewind-to-Staging): state-version counters consumed by
+        // <see cref="EffectiveState"/> to invalidate ERS/ELS caches. Production
+        // code bumps these whenever <see cref="RecordingSupersedes"/> or
+        // <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
+        // (every load invalidates caches). Public field so test helpers can
+        // read the counter value for cache-invalidation assertions.
+        public int SupersedeStateVersion;
+        public int TombstoneStateVersion;
+
+        /// <summary>
+        /// Bumps <see cref="SupersedeStateVersion"/>. Called by any code path
+        /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
+        /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
+        /// </summary>
+        public void BumpSupersedeStateVersion()
+        {
+            unchecked { SupersedeStateVersion++; }
+        }
+
+        /// <summary>
+        /// Bumps <see cref="TombstoneStateVersion"/>. Called by any code path
+        /// that adds / removes / clears entries in <see cref="LedgerTombstones"/>
+        /// so <see cref="EffectiveState.ComputeELS"/> knows to rebuild.
+        /// </summary>
+        public void BumpTombstoneStateVersion()
+        {
+            unchecked { TombstoneStateVersion++; }
+        }
+
+        // Phase 2 (Rewind-to-Staging): static accessor for the live scenario
+        // module. EffectiveState reads <see cref="RecordingSupersedes"/>,
+        // <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
+        // through this field. Maintained by OnAwake / OnDestroy so the value
+        // tracks whichever ScenarioModule KSP currently owns.
+        private static ParsekScenario s_instance;
+
+        /// <summary>
+        /// Live scenario module instance (if any). Null outside FLIGHT / KSC /
+        /// tracking-station, or during early initialization before
+        /// <see cref="OnAwake"/> fires. Consumers must null-check.
+        /// </summary>
+        public static ParsekScenario Instance => s_instance;
+
+        /// <summary>Clears the <see cref="Instance"/> back-reference. Unit tests only.</summary>
+        internal static void ResetInstanceForTesting()
+        {
+            s_instance = null;
+        }
+
+        /// <summary>
+        /// Installs a test fixture as <see cref="Instance"/>. Unit tests that
+        /// exercise <see cref="EffectiveState"/> use this to inject a scenario
+        /// carrying the supersede / tombstone / marker state without needing
+        /// the full KSP ScenarioModule lifecycle.
+        /// </summary>
+        internal static void SetInstanceForTesting(ParsekScenario scenario)
+        {
+            s_instance = scenario;
+        }
+
+        #endregion
+
 
         // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
         // are NOT reverts and must not trigger orphan strip/cleanup.
@@ -337,6 +415,17 @@ namespace Parsek
                 loadedScene: HighLogic.LoadedScene);
         }
 
+        public override void OnAwake()
+        {
+            base.OnAwake();
+            // Phase 2 (Rewind-to-Staging): publish the live scenario module so
+            // EffectiveState can read RecordingSupersedes / LedgerTombstones /
+            // ActiveReFlySessionMarker through <see cref="Instance"/>. OnAwake
+            // fires before OnLoad, so the Instance is available throughout the
+            // load path.
+            s_instance = this;
+        }
+
         public override void OnSave(ConfigNode node)
         {
             var sw = Stopwatch.StartNew();
@@ -384,6 +473,9 @@ namespace Parsek
 
                 SaveTreeRecordings(node);
                 PersistGameStateAndMilestones(node);
+                // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
+                // only in Phase 1; no behavior wired to these collections yet.
+                SaveRewindStagingState(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
@@ -659,6 +751,160 @@ namespace Parsek
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
         }
 
+        /// <summary>
+        /// Persists the Rewind-to-Staging Phase 1 collections and singletons
+        /// (design sections 5.1 - 5.9). Idempotent: always re-creates the four
+        /// parent nodes from scratch so stale entries from a prior save do not
+        /// leak into the new one.
+        /// </summary>
+        private void SaveRewindStagingState(ConfigNode node)
+        {
+            node.RemoveNodes("REWIND_POINTS");
+            node.RemoveNodes("RECORDING_SUPERSEDES");
+            node.RemoveNodes("LEDGER_TOMBSTONES");
+            node.RemoveNodes(ReFlySessionMarker.NodeName);
+            node.RemoveNodes(MergeJournal.NodeName);
+
+            int rpCount = 0;
+            if (RewindPoints != null && RewindPoints.Count > 0)
+            {
+                var parent = node.AddNode("REWIND_POINTS");
+                for (int i = 0; i < RewindPoints.Count; i++)
+                {
+                    if (RewindPoints[i] == null) continue;
+                    RewindPoints[i].SaveInto(parent);
+                    rpCount++;
+                }
+            }
+
+            int supersedeCount = 0;
+            if (RecordingSupersedes != null && RecordingSupersedes.Count > 0)
+            {
+                var parent = node.AddNode("RECORDING_SUPERSEDES");
+                for (int i = 0; i < RecordingSupersedes.Count; i++)
+                {
+                    if (RecordingSupersedes[i] == null) continue;
+                    RecordingSupersedes[i].SaveInto(parent);
+                    supersedeCount++;
+                }
+            }
+
+            int tombCount = 0;
+            if (LedgerTombstones != null && LedgerTombstones.Count > 0)
+            {
+                var parent = node.AddNode("LEDGER_TOMBSTONES");
+                for (int i = 0; i < LedgerTombstones.Count; i++)
+                {
+                    if (LedgerTombstones[i] == null) continue;
+                    LedgerTombstones[i].SaveInto(parent);
+                    tombCount++;
+                }
+            }
+
+            bool markerWritten = false;
+            string markerSessionId = null;
+            if (ActiveReFlySessionMarker != null)
+            {
+                ActiveReFlySessionMarker.SaveInto(node);
+                markerWritten = true;
+                markerSessionId = ActiveReFlySessionMarker.SessionId;
+            }
+
+            bool journalWritten = false;
+            string journalId = null;
+            if (ActiveMergeJournal != null)
+            {
+                ActiveMergeJournal.SaveInto(node);
+                journalWritten = true;
+                journalId = ActiveMergeJournal.JournalId;
+            }
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints saved: {rpCount}");
+            ParsekLog.Info("Supersede", $"RecordingSupersedes saved: {supersedeCount}");
+            ParsekLog.Info("LedgerSwap", $"LedgerTombstones saved: {tombCount}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal saved: {(journalWritten ? (journalId ?? "<no-id>") : "none")}");
+
+            ParsekLog.Info("Scenario",
+                $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
+                $"tombstones={tombCount} marker={markerWritten} journal={journalWritten}");
+        }
+
+        /// <summary>
+        /// Restores the Rewind-to-Staging Phase 1 collections and singletons.
+        /// Missing parent nodes yield empty lists and null singletons so
+        /// pre-feature saves round-trip cleanly (design section 9).
+        /// </summary>
+        private void LoadRewindStagingState(ConfigNode node)
+        {
+            RewindPoints = new List<RewindPoint>();
+            RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            LedgerTombstones = new List<LedgerTombstone>();
+            ActiveReFlySessionMarker = null;
+            ActiveMergeJournal = null;
+
+            ConfigNode rpParent = node.GetNode("REWIND_POINTS");
+            if (rpParent != null)
+            {
+                var entries = rpParent.GetNodes("POINT");
+                for (int i = 0; i < entries.Length; i++)
+                    RewindPoints.Add(RewindPoint.LoadFrom(entries[i]));
+            }
+
+            ConfigNode sParent = node.GetNode("RECORDING_SUPERSEDES");
+            if (sParent != null)
+            {
+                var entries = sParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    RecordingSupersedes.Add(RecordingSupersedeRelation.LoadFrom(entries[i]));
+            }
+
+            ConfigNode tParent = node.GetNode("LEDGER_TOMBSTONES");
+            if (tParent != null)
+            {
+                var entries = tParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    LedgerTombstones.Add(LedgerTombstone.LoadFrom(entries[i]));
+            }
+
+            ConfigNode markerNode = node.GetNode(ReFlySessionMarker.NodeName);
+            if (markerNode != null)
+                ActiveReFlySessionMarker = ReFlySessionMarker.LoadFrom(markerNode);
+
+            ConfigNode journalNode = node.GetNode(MergeJournal.NodeName);
+            if (journalNode != null)
+                ActiveMergeJournal = MergeJournal.LoadFrom(journalNode);
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints loaded: {RewindPoints.Count}");
+            ParsekLog.Info("Supersede",
+                $"RecordingSupersedes loaded: {RecordingSupersedes.Count}");
+            ParsekLog.Info("LedgerSwap",
+                $"LedgerTombstones loaded: {LedgerTombstones.Count}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker loaded: {(ActiveReFlySessionMarker != null ? (ActiveReFlySessionMarker.SessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal loaded: {(ActiveMergeJournal != null ? (ActiveMergeJournal.JournalId ?? "<no-id>") : "none")}");
+
+            ParsekLog.Info("Scenario",
+                $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
+                $"supersedes={RecordingSupersedes.Count} tombstones={LedgerTombstones.Count} " +
+                $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
+
+            // Phase 2: a new load invalidates every derived cache. Bump both
+            // counters so <see cref="EffectiveState.ComputeERS"/> and
+            // <see cref="EffectiveState.ComputeELS"/> recompute on next access.
+            BumpSupersedeStateVersion();
+            BumpTombstoneStateVersion();
+        }
+
         // Static flag: only load from save once per KSP session.
         // On revert, the launch quicksave has stale data — the in-memory
         // static list is the real source of truth within a session.
@@ -746,6 +992,10 @@ namespace Parsek
                 if (!RewindContext.IsRewinding)
                     KerbalLoadRepairDiagnostics.Begin();
                 LoadCrewAndGroupState(node);
+                // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
+                // on every OnLoad so a revert or scene change rebuilds the lists
+                // from .sfs rather than reusing stale in-memory state.
+                LoadRewindStagingState(node);
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 stateRecorder?.Unsubscribe();
@@ -1329,6 +1579,37 @@ namespace Parsek
                     ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                     WriteLoadTiming(sw, recordings.Count);
                     DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+
+                    // Phase 6 of Rewind-to-Staging: re-fly invocation drains
+                    // the static context in the new scenario. Lives on the
+                    // FLIGHT→FLIGHT branch because the RP quicksave always
+                    // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
+                    // from FLIGHT/SPACECENTER/TRACKSTATION.
+                    DispatchRewindPostLoadIfPending();
+
+                    // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
+                    // resume any interrupted staged-commit merge on the
+                    // FLIGHT→FLIGHT branch too (quickload mid-merge, scene
+                    // preservation, etc.).
+                    if (ActiveMergeJournal != null)
+                    {
+                        MergeJournalOrchestrator.RunFinisher();
+                    }
+
+                    // Phase 13 load-time sweep (design §6.9): validate the
+                    // re-fly session marker, gather + delete zombie
+                    // provisionals, log orphan supersedes / tombstones,
+                    // clear stray transient fields. Runs AFTER the Phase 6
+                    // re-fly dispatch (which may have populated the marker)
+                    // and the Phase 10 finisher (which may have cleared it),
+                    // and BEFORE the Phase 11 reaper (whose input is the
+                    // sweep's post-zombie-removal state).
+                    LoadTimeSweep.Run();
+
+                    // Phase 11 housekeeping pass — same rationale as the
+                    // cold-start branch below; runs after the finisher so
+                    // live-session RPs stay put.
+                    RewindPointReaper.ReapOrphanedRPs();
                     return;
                 }
 
@@ -1498,6 +1779,44 @@ namespace Parsek
 
                 // Scene load memory snapshot (once per load, after all recordings are loaded)
                 DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+
+                // Phase 6 of Rewind-to-Staging (design §6.3 step 4 / §6.4):
+                // if a re-fly invocation is pending, the preceding LoadGame was
+                // triggered by RewindInvoker.StartInvoke. Drain the static
+                // RewindInvokeContext now — Restore → Strip → Activate →
+                // AtomicMarkerWrite — in the new scenario, synchronously, NO
+                // coroutine (the old scenario's coroutine was torn down with
+                // the scene).
+                DispatchRewindPostLoadIfPending();
+
+                // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
+                // staged-commit merge crashed mid-way, the scenario's
+                // MergeJournal persisted across the load. The finisher either
+                // rolls back (pre-Durable1 crash) or drives the remaining
+                // steps to completion (post-Durable1 crash). Runs AFTER Phase 6
+                // so any re-fly invocation that was interrupted can still
+                // rehydrate its context before the journal finisher decides
+                // what to do with the session marker.
+                if (ActiveMergeJournal != null)
+                {
+                    MergeJournalOrchestrator.RunFinisher();
+                }
+
+                // Phase 13 of Rewind-to-Staging (design §6.9 full load-time
+                // sweep): marker validation + zombie provisional cleanup +
+                // orphan supersede/tombstone log + stray-field clearing.
+                // Must run after the finisher (which may have cleared the
+                // marker) and before the Phase 11 reaper (whose input is the
+                // sweep's zombie-removed state).
+                LoadTimeSweep.Run();
+
+                // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
+                // housekeeping pass for RPs orphaned by merges that crashed
+                // between TagRpsForReap and the reaper, or whose slots went
+                // Immutable later via a non-rewind code path. Runs after the
+                // finisher so we never try to reap an RP whose session is
+                // still live.
+                RewindPointReaper.ReapOrphanedRPs();
             }
             finally
             {
@@ -1505,6 +1824,37 @@ namespace Parsek
                 // Always capture timing, even on exception (matches OnSave pattern)
                 WriteLoadTiming(sw, loadedRecordingCount);
             }
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging: drains <see cref="RewindInvokeContext"/>
+        /// if a re-fly invocation was initiated pre-load. Runs in the new
+        /// scenario after the normal OnLoad pipeline has settled — bundle
+        /// restore overrides the .sfs-loaded recordings / ledger / scenario
+        /// lists with the pre-load in-memory state, as per the §6.4 table.
+        /// <para>
+        /// Only fires when <c>LoadedScene == FLIGHT</c>; the RP quicksave is
+        /// always a flight-scene save. Any other scene means the load took an
+        /// unexpected branch — log Error and clear the context.
+        /// </para>
+        /// </summary>
+        private static void DispatchRewindPostLoadIfPending()
+        {
+            if (!RewindInvokeContext.Pending) return;
+
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                ParsekLog.Error("Rewind",
+                    $"DispatchRewindPostLoadIfPending: pending invocation " +
+                    $"but scene is {HighLogic.LoadedScene} (expected FLIGHT) — aborting");
+                RewindInvoker.ShowUserError(
+                    $"Rewind failed: scene loaded as {HighLogic.LoadedScene} " +
+                    "instead of flight");
+                RewindInvokeContext.Clear();
+                return;
+            }
+
+            RewindInvoker.ConsumePostLoad();
         }
 
         /// <summary>
@@ -3829,6 +4179,15 @@ namespace Parsek
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.
             RevertDetector.Unsubscribe();
+            // Phase 6 of Rewind-to-Staging: clear the per-RP precondition
+            // cache so the dict does not grow unbounded across long sessions
+            // (Fix 8). The cache is 60s-TTL'd anyway but long-lived scene loops
+            // can accumulate entries faster than TTL cleanup.
+            RewindInvoker.PreconditionCache.ClearAll();
+            // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
+            // EffectiveState does not read stale scenario state after destruction.
+            if (ReferenceEquals(s_instance, this))
+                s_instance = null;
         }
     }
 }

@@ -1,0 +1,247 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Phase 6 of Rewind-to-Staging (design §6.4 step 4): guards
+    /// <see cref="PostLoadStripper.Strip(RewindPoint, int, IVesselEnumeration)"/>.
+    /// Uses stub <see cref="IStrippableVessel"/>s so the tests drive identifier
+    /// correlation without a live KSP scene.
+    /// </summary>
+    [Collection("Sequential")]
+    public class PostLoadStripperTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly HashSet<uint> ghostPidsBackup;
+
+        public PostLoadStripperTests()
+        {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Snapshot + clear GhostMapPresence so per-test injection is hermetic.
+            ghostPidsBackup = new HashSet<uint>(GhostMapPresence.ghostMapVesselPids);
+            GhostMapPresence.ghostMapVesselPids.Clear();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+
+            GhostMapPresence.ghostMapVesselPids.Clear();
+            foreach (var pid in ghostPidsBackup)
+                GhostMapPresence.ghostMapVesselPids.Add(pid);
+        }
+
+        private sealed class StubVessel : IStrippableVessel
+        {
+            public uint PersistentId { get; set; }
+            public uint RootPartPersistentId { get; set; }
+            public string VesselName { get; set; }
+            public Vessel LiveVessel => null; // tests do not construct live Unity objects
+            public bool Died { get; private set; }
+            public bool ThrowOnDie { get; set; }
+            public void Die()
+            {
+                if (ThrowOnDie) throw new InvalidOperationException("simulated");
+                Died = true;
+            }
+        }
+
+        private sealed class StubEnumeration : IVesselEnumeration
+        {
+            private readonly List<IStrippableVessel> vessels;
+            public StubEnumeration(IEnumerable<IStrippableVessel> v)
+            {
+                vessels = new List<IStrippableVessel>(v ?? Array.Empty<IStrippableVessel>());
+            }
+            public IEnumerable<IStrippableVessel> EnumerateVessels() => vessels;
+        }
+
+        private static RewindPoint MakeRp(
+            Dictionary<uint, int> pidSlotMap = null,
+            Dictionary<uint, int> rootPartPidMap = null)
+        {
+            return new RewindPoint
+            {
+                RewindPointId = "rp_test",
+                BranchPointId = "bp_test",
+                ChildSlots = new List<ChildSlot>(),
+                PidSlotMap = pidSlotMap ?? new Dictionary<uint, int>(),
+                RootPartPidMap = rootPartPidMap ?? new Dictionary<uint, int>(),
+            };
+        }
+
+        [Fact]
+        public void PrimaryMatchViaPidSlotMap()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 100u, 0 }, // selected
+                { 101u, 1 }, // stripped
+            });
+
+            var v0 = new StubVessel { PersistentId = 100, VesselName = "V0" };
+            var v1 = new StubVessel { PersistentId = 101, VesselName = "V1" };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, v1 });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(100u, result.SelectedPid);
+            Assert.False(v0.Died);
+            Assert.True(v1.Died);
+            Assert.Contains(101u, result.StrippedPids);
+            Assert.DoesNotContain(100u, result.StrippedPids);
+            Assert.Equal(0, result.FallbackMatches);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip stripped=[101]") &&
+                l.Contains("selected=100"));
+        }
+
+        [Fact]
+        public void FallbackMatchViaRootPartPidMap()
+        {
+            // PidSlotMap does not contain the vessel pid; RootPartPidMap does.
+            var rp = MakeRp(
+                pidSlotMap: new Dictionary<uint, int>(),
+                rootPartPidMap: new Dictionary<uint, int>
+                {
+                    { 5000u, 0 },
+                    { 5001u, 1 },
+                });
+
+            var v0 = new StubVessel
+            {
+                PersistentId = 200,
+                RootPartPersistentId = 5000,
+                VesselName = "V0",
+            };
+            var v1 = new StubVessel
+            {
+                PersistentId = 201,
+                RootPartPersistentId = 5001,
+                VesselName = "V1",
+            };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, v1 });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(200u, result.SelectedPid);
+            Assert.True(v1.Died);
+            Assert.False(v0.Died);
+            Assert.Equal(2, result.FallbackMatches);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Rewind]") &&
+                l.Contains("Fallback match"));
+        }
+
+        [Fact]
+        public void GhostProtoVesselGuard_NotStripped()
+        {
+            // Ghost pid is in the guard set; even if the RP's maps claim it, we do not strip.
+            GhostMapPresence.ghostMapVesselPids.Add(9000u);
+
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 300u, 0 }, // selected
+                { 9000u, 1 }, // ghost guard wins
+            });
+            var v0 = new StubVessel { PersistentId = 300 };
+            var vg = new StubVessel { PersistentId = 9000, VesselName = "GHOST" };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, vg });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(300u, result.SelectedPid);
+            Assert.False(vg.Died);
+            Assert.Equal(1, result.GhostsGuarded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip guard: ghost-ProtoVessel") &&
+                l.Contains("9000"));
+        }
+
+        [Fact]
+        public void UnrelatedVesselLeftAlone()
+        {
+            // Vessel not in either slot map - do nothing.
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 400u, 0 },
+            });
+            var v0 = new StubVessel { PersistentId = 400 };
+            var unrelated = new StubVessel { PersistentId = 999, VesselName = "Unrelated" };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, unrelated });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(400u, result.SelectedPid);
+            Assert.False(unrelated.Died);
+            Assert.Equal(1, result.LeftAlone);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip leaveAlone") &&
+                l.Contains("unrelated v=999"));
+        }
+
+        [Fact]
+        public void SelectedSlotVessel_NotStripped()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 500u, 0 },
+                { 501u, 1 },
+                { 502u, 2 },
+            });
+            var v0 = new StubVessel { PersistentId = 500 };
+            var v1 = new StubVessel { PersistentId = 501 };
+            var v2 = new StubVessel { PersistentId = 502 };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, v1, v2 });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 1, source);
+
+            Assert.Equal(501u, result.SelectedPid);
+            Assert.True(v0.Died);
+            Assert.False(v1.Died);
+            Assert.True(v2.Died);
+        }
+
+        [Fact]
+        public void NoMatchingVessels_LogsAndContinues()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 600u, 0 },
+            });
+            // Only an unrelated vessel.
+            var unrelated = new StubVessel { PersistentId = 700 };
+            var source = new StubEnumeration(new IStrippableVessel[] { unrelated });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(0u, result.SelectedPid);
+            Assert.Null(result.SelectedVessel);
+            Assert.Empty(result.StrippedPids);
+            Assert.Equal(1, result.LeftAlone);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip stripped=[]") &&
+                l.Contains("selected=none"));
+        }
+
+        [Fact]
+        public void NullRewindPoint_ReturnsEmptyResult()
+        {
+            var result = PostLoadStripper.Strip(null, 0, new StubEnumeration(Array.Empty<IStrippableVessel>()));
+            Assert.Equal(0u, result.SelectedPid);
+            Assert.NotNull(result.StrippedPids);
+            Assert.Empty(result.StrippedPids);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Rewind]") && l.Contains("null rp"));
+        }
+    }
+}

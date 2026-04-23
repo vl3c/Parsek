@@ -16,6 +16,25 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## Rewind to Staging — v0.9 shipped
+
+The feature shipped on `feat/rewind-staging` across v0.9's development cycle. See:
+
+- Design doc: `docs/parsek-rewind-to-staging-design.md` (post-implementation, final).
+- Pre-implementation spec (archived): `docs/dev/done/parsek-rewind-staging-design.md`.
+- Roadmap entry: `docs/roadmap.md` → Completed → v0.9.
+- CHANGELOG: `CHANGELOG.md` → v0.9.0 features + Internals block.
+
+Follow-up shipped after the `2026-04-23_1855_logs-package` audit: RP-backed unfinished-flight rows now route through `RewindInvoker` from both the virtual group and the normal recordings table. The log showed `Kerbal X Probe` had gone through the legacy branch-recording launch rewind (`Kerbal X` at UT 8.28 into Space Center); the fix makes the normal row resolve the child's Rewind Point slot first, blocks disabled slots before a scene load, and leaves non-crashed branch children on the regular temporal controls. The same audit also found that load-time cleanup could purge normal staging RPs before the pending-tree merge dialog; normal RPs without a creating session now survive that load, promote to persistent once the tree is accepted, crash-terminal RP children are stamped `CommittedProvisional`, and `Unfinished Flights` membership accepts both legacy `Immutable` crashes and current `CommittedProvisional` crashes.
+
+Carryover follow-ups (tracked in the design doc under Known Limitations / Future Work):
+
+- Index-to-recording-id refactor to lift the 13 grep-audit exemptions added in Phase 3.
+- Halt `EffectiveRecordingId` walk at cross-tree boundaries (v1 does not produce cross-tree supersedes; latent-invariant guard).
+- Wider v2 tombstone scope (contracts, milestones) when safe.
+
+---
+
 # Known Bugs
 
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~

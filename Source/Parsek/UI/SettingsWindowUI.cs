@@ -395,6 +395,16 @@ namespace Parsek
                 ParsekLog.Info("UI", "Run Diagnostics Report button clicked");
                 DiagnosticsComputation.RunDiagnosticsReport();
             }
+
+            // Phase 14 of Rewind-to-Staging (design §7.28): live rewind-point
+            // disk-usage line. The helper caches for 10s so the per-frame
+            // GUI redraw does not hammer the filesystem.
+            string rpDir = RewindPointDiskUsage.ResolveCurrentSaveDirectory();
+            var rpSnap = RewindPointDiskUsage.GetSnapshot(rpDir);
+            GUILayout.Label(new GUIContent(
+                RewindPointDiskUsage.FormatLine(rpSnap),
+                "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
+                + "Refreshed every 10 seconds."));
         }
 
         private void DrawSamplingSettings(ParsekSettings s)
@@ -426,6 +436,10 @@ namespace Parsek
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
 
+            // [ERS-exempt] reason: the wipe-all button reports the raw count of
+            // stored recordings (including NotCommitted / superseded) because the
+            // wipe path clears the whole store via RecordingStore.ClearCommitted().
+            // ERS would under-count and mislead the user.
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int milestoneCount = MilestoneStore.Milestones.Count;
 

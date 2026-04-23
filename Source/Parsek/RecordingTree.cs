@@ -215,6 +215,12 @@ namespace Parsek
                 $"legacyResidualPresent={tree.legacyResidual != null} " +
                 $"resourcesAppliedFieldPresent={resourcesAppliedStr != null}");
 
+            // Rewind-to-Staging Phase 1 (design section 9): one-shot migration log
+            // emitted after each tree load. The counter is cumulative across the save,
+            // so the first tree with legacy `committed` entries flushes it; subsequent
+            // loads in the same session become no-ops.
+            RecordingStore.EmitLegacyMergeStateMigrationLogOnce();
+
             // Phase F: surface pre-Phase-F .sfs files that still carry the legacy
             // resource fields. Phase A's MigrateLegacyTreeResources is expected to
             // process these on the same load cycle; this VERBOSE line is a
@@ -664,6 +670,19 @@ namespace Parsek
             // Dock target vessel PID (Phase 11)
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(ic));
+
+            // Rewind-to-Staging (design section 5.5). Omit the default Immutable enum value
+            // so legacy saves stay byte-identical; write the string form for durability across
+            // enum renumbering. SupersedeTargetId is transient but written defensively so a
+            // mid-session crash can be diagnosed.
+            if (rec.MergeState != MergeState.Immutable)
+                recNode.AddValue("mergeState", rec.MergeState.ToString());
+            if (!string.IsNullOrEmpty(rec.CreatingSessionId))
+                recNode.AddValue("creatingSessionId", rec.CreatingSessionId);
+            if (!string.IsNullOrEmpty(rec.SupersedeTargetId))
+                recNode.AddValue("supersedeTargetId", rec.SupersedeTargetId);
+            if (!string.IsNullOrEmpty(rec.ProvisionalForRpId))
+                recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -1132,6 +1151,57 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, ic, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
+
+            // Rewind-to-Staging (design section 5.5 + 9). Legacy saves without `mergeState`
+            // default to Immutable. Saves that carried the old binary `committed` bool map
+            // to the tri-state via RecordingStore's batch migration helper (idempotent,
+            // one-shot logged). Stray transient SupersedeTargetId on committed recordings
+            // is logged Warn and treated as cleared.
+            string mergeStateStr = recNode.GetValue("mergeState");
+            bool mergeStateWasExplicit = false;
+            if (mergeStateStr != null)
+            {
+                mergeStateWasExplicit = true;
+                MergeState parsed;
+                if (Enum.TryParse(mergeStateStr, out parsed))
+                    rec.MergeState = parsed;
+                else
+                    ParsekLog.Warn("RecordingTree",
+                        $"LoadRecordingFrom: unknown mergeState '{mergeStateStr}' for rec={rec.RecordingId} — defaulting to Immutable");
+            }
+            else
+            {
+                rec.MergeState = MergeState.Immutable;
+            }
+
+            // Legacy migration: binary `committed` bool -> MergeState tri-state. The field
+            // was never shipped in a release but design section 9 defines the mapping for
+            // forward safety. Counter incremented in RecordingStore for a one-shot Info log.
+            if (!mergeStateWasExplicit)
+            {
+                string committedStr = recNode.GetValue("committed");
+                if (committedStr != null)
+                {
+                    bool committed;
+                    if (bool.TryParse(committedStr, out committed))
+                    {
+                        rec.MergeState = committed ? MergeState.Immutable : MergeState.NotCommitted;
+                        RecordingStore.BumpLegacyMergeStateMigrationCounterForTesting();
+                    }
+                }
+            }
+
+            rec.CreatingSessionId = recNode.GetValue("creatingSessionId");
+            rec.SupersedeTargetId = recNode.GetValue("supersedeTargetId");
+            rec.ProvisionalForRpId = recNode.GetValue("provisionalForRpId");
+
+            if (!string.IsNullOrEmpty(rec.SupersedeTargetId)
+                && rec.MergeState != MergeState.NotCommitted)
+            {
+                ParsekLog.Warn("Recording",
+                    $"Stray SupersedeTargetId on committed rec={rec.RecordingId}; treating as cleared");
+                rec.SupersedeTargetId = null;
+            }
         }
 
         #endregion
@@ -1177,6 +1247,10 @@ namespace Parsek
             // TERMINAL metadata
             if (bp.TerminalCause != null)
                 bpNode.AddValue("terminalCause", bp.TerminalCause);
+
+            // Rewind-to-Staging (design section 5.4)
+            if (!string.IsNullOrEmpty(bp.RewindPointId))
+                bpNode.AddValue("rewindPointId", bp.RewindPointId);
 
             ParsekLog.Verbose("RecordingTree",
                 $"SaveBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
@@ -1267,6 +1341,10 @@ namespace Parsek
 
             // TERMINAL metadata
             bp.TerminalCause = bpNode.GetValue("terminalCause");
+
+            // Rewind-to-Staging (design section 5.4). Absent -> null.
+            string rpId = bpNode.GetValue("rewindPointId");
+            bp.RewindPointId = string.IsNullOrEmpty(rpId) ? null : rpId;
 
             ParsekLog.Verbose("RecordingTree",
                 $"LoadBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +

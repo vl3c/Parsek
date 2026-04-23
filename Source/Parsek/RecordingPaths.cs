@@ -92,6 +92,48 @@ namespace Parsek
             return Path.Combine("Parsek", "Saves", saveFileName + ".sfs");
         }
 
+        /// <summary>
+        /// Relative path to the <c>Parsek/RewindPoints/&lt;rpId&gt;.sfs</c>
+        /// quicksave file for a given <see cref="RewindPoint"/> id. Input is
+        /// validated through <see cref="ValidateRecordingId"/> to reject path
+        /// traversal and invalid filename characters; returns <c>null</c> on
+        /// validation failure (and the validator logs a Warn).
+        /// </summary>
+        internal static string BuildRewindPointRelativePath(string rewindPointId)
+        {
+            if (!ValidateRecordingId(rewindPointId))
+                return null;
+            return Path.Combine(RewindPointsSubdir, rewindPointId + ".sfs");
+        }
+
+        internal const string RewindPointsSubdir = "Parsek/RewindPoints";
+
+        /// <summary>
+        /// Ensures <c>saves/&lt;save&gt;/Parsek/RewindPoints/</c> exists; returns
+        /// the absolute directory path or <c>null</c> if the KSP root or current
+        /// save folder cannot be resolved.
+        /// </summary>
+        internal static string EnsureRewindPointsDirectory()
+        {
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.VerboseRateLimited("Paths", "ensure-rewindpoints-missing-context",
+                    $"EnsureRewindPointsDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
+                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+                return null;
+            }
+
+            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "RewindPoints"));
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+                ParsekLog.Info("Paths", $"Created rewind points directory '{dir}'");
+            }
+            return dir;
+        }
+
         internal static string EnsureRewindSavesDirectory()
         {
             string root = KSPUtil.ApplicationRootPath ?? "";

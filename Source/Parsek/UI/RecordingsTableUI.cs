@@ -56,6 +56,20 @@ namespace Parsek
         private HashSet<string> expandedChains = new HashSet<string>();
         private HashSet<string> expandedGroups = new HashSet<string>();
 
+        // Rewind-to-Staging row context. Any RP-backed unfinished flight row
+        // must use the Rewind-to-RP button instead of the legacy
+        // rewind-to-launch path; this depth only tells DrawRecordingRow when
+        // to reserve an empty cell if a virtual-group member loses its RP
+        // between group membership computation and row rendering.
+        // Integer counter rather than bool so nested draw calls (theoretical
+        // future) compose.
+        private int unfinishedFlightRowDepth;
+
+        // CanInvoke result cache by RP id — reset every OnGUI tick so log
+        // transitions fire exactly once per draw when the result flips.
+        private readonly Dictionary<string, bool> lastCanInvoke
+            = new Dictionary<string, bool>();
+
         // Group rename (deferred to next frame to avoid IMGUI layout mismatch)
         private string renamingGroup;
         private string renamingGroupText = "";
@@ -93,7 +107,7 @@ namespace Parsek
         private bool sortAscending = true;
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
-        private enum RootItemType { Group, Chain, Recording }
+        private enum RootItemType { Group, Chain, Recording, VirtualGroup }
 
         private struct RootDrawItem
         {
@@ -242,8 +256,9 @@ namespace Parsek
         {
             if (!showRecordingsWindow) showRecordingsWindow = true;
 
-            // Find the recording
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: cross-link navigation resolves to the
+            // effective set only; hidden/superseded recordings cannot be scrolled to.
+            var committed = EffectiveState.ComputeERS();
             Recording target = null;
             for (int i = 0; i < committed.Count; i++)
             {
@@ -256,7 +271,7 @@ namespace Parsek
 
             if (target == null)
             {
-                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in committed list");
+                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in effective recording set");
                 return;
             }
 
@@ -1025,6 +1040,14 @@ namespace Parsek
                 DeleteGhostOnlyRecording(delIdx);
             }
 
+            // [ERS-exempt] reason: the recordings-table window is the authoritative
+            // management surface — it lists, sorts, renames, groups, and deletes
+            // recordings by index into the raw committed list (including
+            // NotCommitted rows when present). Sort + delete index-paths would
+            // shift under ERS, breaking user actions. Visibility filters
+            // (Hidden, HideActive, superseded chain blocks) continue to be
+            // handled inline per-row as before.
+            // TODO(phase 6+): migrate recording table to recording-id-keyed rows.
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
             recordingsWindowTooltipText = string.Empty;
@@ -1183,6 +1206,26 @@ namespace Parsek
                         b.ItemType == RootItemType.Group, b.GroupName, b.SortName, b.SortKey,
                         col, asc));
 
+                // Phase 5 (design §5.11): append the Unfinished Flights virtual group
+                // AFTER user-defined groups. Membership is ERS filtered through
+                // IsUnfinishedFlight; we skip rendering entirely when empty so the
+                // row never shows up for players with no unresolved split siblings.
+                var unfinishedMembers = UnfinishedFlightsGroup.ComputeMembers();
+                if (unfinishedMembers != null && unfinishedMembers.Count > 0)
+                {
+                    rootItems.Add(new RootDrawItem
+                    {
+                        SortKey = double.MaxValue,
+                        SortName = UnfinishedFlightsGroup.GroupName,
+                        ItemType = RootItemType.VirtualGroup,
+                        GroupName = UnfinishedFlightsGroup.GroupName,
+                        RecIdx = -1
+                    });
+                    ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                        "unfinishedflights-render",
+                        $"render: group row present members={unfinishedMembers.Count}");
+                }
+
                 // -- Draw tree --
                 bool deleted = false;
 
@@ -1201,6 +1244,9 @@ namespace Parsek
                             break;
                         case RootItemType.Recording:
                             deleted = DrawRecordingRow(item.RecIdx, committed, now, 0f);
+                            break;
+                        case RootItemType.VirtualGroup:
+                            deleted = DrawVirtualUnfinishedFlightsGroup(committed, now);
                             break;
                     }
                 }
@@ -1451,6 +1497,12 @@ namespace Parsek
             }
 
             // Rewind / Fast-forward button
+            if (DrawUnfinishedFlightRewindButton(rec, ri,
+                reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
+            {
+                // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
+            }
+            else
             {
                 bool isFuture = now < rec.StartUT;
                 bool isActive = now >= rec.StartUT && now <= rec.EndUT;
@@ -1517,8 +1569,27 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowArchive");
             if (hidden != rec.Hidden)
             {
-                rec.Hidden = hidden;
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
+                // Phase 14 of Rewind-to-Staging (design §7.33 / §7.30): an
+                // Unfinished Flight is a diagnostic of an unresolved split
+                // sibling. Hiding would sweep the re-fly opportunity out of
+                // the player's view, so we refuse the toggle + toast a clear
+                // warning. The recording's Hidden flag stays unchanged.
+                if (unfinishedFlightRowDepth > 0
+                    && EffectiveState.IsUnfinishedFlight(rec))
+                {
+                    ParsekLog.Warn("UnfinishedFlights",
+                        $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
+                    ParsekLog.ScreenMessage(
+                        $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
+                        "Re-fly the rewind point or merge as Immutable to clear it from the list.",
+                        4f);
+                }
+                else
+                {
+                    rec.Hidden = hidden;
+                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
+                }
             }
 
             GUILayout.EndHorizontal();
@@ -2061,6 +2132,504 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 5 of Rewind-to-Staging (design §5.11 / §7.25 / §7.30). Draws
+        /// the virtual "Unfinished Flights" group row. Members are computed
+        /// each frame from ERS filtered through
+        /// <see cref="EffectiveState.IsUnfinishedFlight"/>. The row:
+        /// <list type="bullet">
+        ///   <item><description>has NO X disband button (mirrors the chain block precedent in <see cref="DrawChainBlock"/>);</description></item>
+        ///   <item><description>has NO hide checkbox (design §7.30); consults <see cref="GroupHierarchyStore.CanHide"/>;</description></item>
+        ///   <item><description>is NOT a drop target for manual group assignment (design §7.25); the G button is absent on the group header.</description></item>
+        /// </list>
+        /// Per-member rows render via <see cref="DrawRecordingRow"/> so rename
+        /// / hide / G button on the individual row remain usable per §7.33.
+        /// Returns true if the recording list was modified.
+        /// </summary>
+        private bool DrawVirtualUnfinishedFlightsGroup(
+            IReadOnlyList<Recording> committed, double now)
+        {
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            if (members == null || members.Count == 0)
+                return false;
+
+            string groupName = UnfinishedFlightsGroup.GroupName;
+
+            // Build descendants set (committed-list indices) so the shared
+            // group helpers (status / earliest / duration) can work unchanged.
+            var descendants = new HashSet<int>();
+            for (int m = 0; m < members.Count; m++)
+            {
+                var rec = members[m];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                for (int c = 0; c < committed.Count; c++)
+                {
+                    if (committed[c] == null) continue;
+                    if (string.Equals(committed[c].RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    {
+                        descendants.Add(c);
+                        break;
+                    }
+                }
+            }
+
+            int memberCount = descendants.Count;
+            if (memberCount == 0)
+                return false;
+
+            GUILayout.BeginHorizontal();
+
+            // -- Enable checkbox (aggregate) --
+            int enabledCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].PlaybackEnabled) enabledCount++;
+            bool allEnabled = memberCount > 0 && enabledCount == memberCount;
+            bool newEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            if (newEnabled != allEnabled)
+            {
+                foreach (int idx in descendants)
+                    committed[idx].PlaybackEnabled = newEnabled;
+                ParsekLog.Info("UI",
+                    $"Virtual group '{groupName}' playback enabled={newEnabled} ({memberCount} recordings)");
+            }
+
+            // # spacer (indent column)
+            GUILayout.Label("", GUILayout.Width(ColW_Index));
+            GUILayout.Space(NameColumnLeadGap);
+
+            // Expand / collapse toggle + label — no rename (system group).
+            bool expanded = expandedGroups.Contains(groupName);
+            string arrow = expanded ? "\u25bc" : "\u25b6";
+            if (GUILayout.Button($"{arrow} {groupName} ({memberCount})",
+                GUI.skin.label, GUILayout.ExpandWidth(true)))
+            {
+                if (expanded) expandedGroups.Remove(groupName);
+                else expandedGroups.Add(groupName);
+                expanded = !expanded;
+                ParsekLog.Verbose("UI",
+                    $"Virtual group '{groupName}' {(expanded ? "expanded" : "collapsed")} ({memberCount} recordings)");
+            }
+
+            // Phase placeholder.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
+
+            // Site from main recording if any.
+            int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            string grpSite = mainIdx >= 0 ? committed[mainIdx].LaunchSiteName : null;
+            GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+
+            // Earliest start UT.
+            double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
+            string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
+                ? KSPUtil.PrintDateCompact(grpEarliest, true)
+                : "-";
+            GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
+
+            // Total duration.
+            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
+            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
+
+            if (showExpandedStats)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
+            }
+
+            // Status.
+            string grpStatusText;
+            int grpStatusOrder;
+            GetGroupStatus(descendants, committed, now, out grpStatusText, out grpStatusOrder);
+            GUIStyle grpStatusStyle = grpStatusOrder == 0 ? statusStyleFuture
+                : grpStatusOrder == 1 ? statusStyleActive
+                : statusStylePast;
+            GUILayout.Label(grpStatusText, grpStatusStyle, GUILayout.Width(ColW_Status));
+
+            // System group: no G button (design §7.25 rejects adds), no X
+            // disband button (design §7.30 the group cannot be removed). Keep
+            // the column occupied with an empty cell so sibling rows stay
+            // aligned.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Group));
+
+            // Loop aggregate (acts on member rows; members are real recordings
+            // so the per-row loop toggle remains valid).
+            int loopCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].LoopPlayback) loopCount++;
+            bool allLoop = memberCount > 0 && loopCount == memberCount;
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            bool newLoop = GUILayout.Toggle(allLoop, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newLoop != allLoop)
+            {
+                foreach (int idx in descendants)
+                    committed[idx].LoopPlayback = newLoop;
+                ParsekLog.Info("UI",
+                    $"Virtual group '{groupName}' loop set to {newLoop} ({memberCount} recordings)");
+            }
+
+            // Period placeholder.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+
+            // Watch placeholder (flight only) — Unfinished Flights row does
+            // not expose a group-level W button; per-row W remains available.
+            if (parentUI.InFlightMode)
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
+
+            // Rewind / FF placeholder — the virtual group has no aggregate
+            // Rewind action because each member maps to a specific child slot.
+            // Individual rows below render the RP-backed Rewind button.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+
+            // Hide checkbox — design §7.30: system group cannot be hidden.
+            // We consult GroupHierarchyStore.CanHide so the gate lives in the
+            // store (single source of truth). Render an empty cell to keep
+            // alignment.
+            if (GroupHierarchyStore.CanHide(groupName))
+            {
+                // Unreachable in Phase 5, but guard the branch so a future
+                // CanHide flip does not silently drop the control.
+                int hiddenCount = 0;
+                foreach (int idx in descendants)
+                    if (committed[idx].Hidden) hiddenCount++;
+                bool allHidden = memberCount > 0 && hiddenCount == memberCount;
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+                GUILayout.FlexibleSpace();
+                bool newAllHidden = GUILayout.Toggle(allHidden, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (newAllHidden != allHidden)
+                {
+                    foreach (int idx in descendants)
+                        committed[idx].Hidden = newAllHidden;
+                    ParsekLog.Info("UI",
+                        $"Virtual group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
+                }
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Hide));
+            }
+
+            GUILayout.EndHorizontal();
+
+            if (!expanded) return false;
+
+            // -- Draw member rows --
+            // Order by StartUT to match the group-level sort.
+            var sortedMembers = new List<int>(descendants);
+            sortedMembers.Sort((a, b) =>
+            {
+                double ua = committed[a].StartUT;
+                double ub = committed[b].StartUT;
+                return ua.CompareTo(ub);
+            });
+
+            unfinishedFlightRowDepth++;
+            try
+            {
+                for (int i = 0; i < sortedMembers.Count; i++)
+                {
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, 15f))
+                        return true;
+                }
+            }
+            finally
+            {
+                unfinishedFlightRowDepth--;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.3). Renders the Rewind-to-RP
+        /// button for an Unfinished Flight row, whether the row is shown in the
+        /// normal recording list or inside the virtual group. Returns
+        /// <c>true</c> iff this row consumed the Rewind/FF cell, so the caller
+        /// can skip the legacy rewind-to-launch fallback.
+        /// </summary>
+        private bool DrawUnfinishedFlightRewindButton(
+            Recording rec, int ri, bool reserveCellWhenUnavailable = false)
+        {
+            if (rec == null) return false;
+
+            // Find the RP + child-slot list index for this recording. This is
+            // deliberately not limited to rows rendered under the virtual
+            // Unfinished Flights group: the normal list shows the same
+            // recordings, and sending those rows through RecordingStore's
+            // launch-save fallback would rewind to the tree root instead of
+            // the staging split.
+            RewindPoint rp;
+            int slotListIndex;
+            string routeReason;
+            UnfinishedFlightRewindRoute route = ResolveUnfinishedFlightRewindRoute(
+                rec, out rp, out slotListIndex, out routeReason);
+            if (route == UnfinishedFlightRewindRoute.NotUnfinishedFlight)
+            {
+                if (reserveCellWhenUnavailable)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (route == UnfinishedFlightRewindRoute.MissingSlot)
+            {
+                DrawDisabledUnfinishedFlightRewindButton(
+                    rec, ri, routeReason ?? "Rewind point slot not found");
+                return true;
+            }
+
+            if (rp == null || slotListIndex < 0 || rp.ChildSlots == null
+                || slotListIndex >= rp.ChildSlots.Count)
+            {
+                DrawDisabledUnfinishedFlightRewindButton(
+                    rec, ri, "Rewind point slot not found");
+                return true;
+            }
+
+            string reason;
+            bool canInvoke = CanInvokeRewindPointSlot(rp, slotListIndex, out reason);
+            bool prev;
+            string rpKey = rp.RewindPointId ?? "<no-id>";
+            var selectedSlot = rp.ChildSlots[slotListIndex];
+            int slotId = selectedSlot != null ? selectedSlot.SlotIndex : slotListIndex;
+            string invokeKey = rpKey + "/" + slotId.ToString(CultureInfo.InvariantCulture);
+            if (!lastCanInvoke.TryGetValue(invokeKey, out prev) || prev != canInvoke)
+            {
+                lastCanInvoke[invokeKey] = canInvoke;
+                ParsekLog.Verbose("RewindUI",
+                    $"Rewind #{ri} rp={rpKey} slot={slotId}: " +
+                    $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
+            }
+
+            GUI.enabled = canInvoke;
+            string tooltip = canInvoke
+                ? "Rewind to the split that produced this unfinished flight"
+                : (reason ?? "Rewind unavailable");
+            if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
+            {
+                ParsekLog.Info("RewindUI",
+                    $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
+                RewindInvoker.ShowDialog(rp, slotListIndex);
+            }
+            GUI.enabled = true;
+            return true;
+        }
+
+        private void DrawDisabledUnfinishedFlightRewindButton(
+            Recording rec, int ri, string reason)
+        {
+            reason = string.IsNullOrEmpty(reason) ? "Rewind unavailable" : reason;
+            string recId = rec?.RecordingId ?? "<no-id>";
+            string key = "disabled/" + recId + "/" + reason;
+            bool prev;
+            if (!lastCanInvoke.TryGetValue(key, out prev) || prev)
+            {
+                lastCanInvoke[key] = false;
+                ParsekLog.Verbose("RewindUI",
+                    $"Rewind #{ri} rec={recId} disabled — {reason}");
+            }
+
+            GUI.enabled = false;
+            DrawBodyCenteredButton(new GUIContent("Rewind", reason), ColW_Rewind);
+            GUI.enabled = true;
+        }
+
+        internal enum UnfinishedFlightRewindRoute
+        {
+            NotUnfinishedFlight,
+            Resolved,
+            MissingSlot
+        }
+
+        internal static UnfinishedFlightRewindRoute ResolveUnfinishedFlightRewindRoute(
+            Recording rec, out RewindPoint rp, out int slotListIndex, out string reason)
+        {
+            rp = null;
+            slotListIndex = -1;
+            reason = null;
+
+            if (!IsVisibleUnfinishedFlight(rec, out reason))
+                return UnfinishedFlightRewindRoute.NotUnfinishedFlight;
+
+            if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex))
+            {
+                reason = "Rewind point slot not found";
+                return UnfinishedFlightRewindRoute.MissingSlot;
+            }
+
+            return UnfinishedFlightRewindRoute.Resolved;
+        }
+
+        /// <summary>
+        /// Resolves the RewindPoint + child-slot list index for an unfinished
+        /// flight recording. Used by both normal rows and the virtual
+        /// Unfinished Flights group so the row cannot accidentally fall back to
+        /// the tree root's legacy launch rewind.
+        /// </summary>
+        internal static bool TryResolveUnfinishedFlightRewindPoint(
+            Recording rec, out RewindPoint rp, out int slotListIndex)
+        {
+            string reason;
+            return ResolveUnfinishedFlightRewindRoute(
+                rec, out rp, out slotListIndex, out reason)
+                == UnfinishedFlightRewindRoute.Resolved;
+        }
+
+        /// <summary>
+        /// Cheap, non-logging front gate for row rendering. The full
+        /// <see cref="EffectiveState.IsUnfinishedFlight"/> predicate emits
+        /// diagnostic Verbose lines for every rejection, so normal table rows
+        /// use this shape check before asking the full RP-backed predicate.
+        /// </summary>
+        internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
+                return false;
+            if (!EffectiveState.IsTerminalCrashed(rec)) return false;
+            return !string.IsNullOrEmpty(rec.ParentBranchPointId);
+        }
+
+        internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
+        {
+            reason = null;
+            if (!IsUnfinishedFlightCandidateShape(rec))
+            {
+                reason = "not an unfinished flight";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            var supersedes = !object.ReferenceEquals(null, scenario)
+                ? scenario.RecordingSupersedes
+                : null;
+            if (!EffectiveState.IsVisible(rec, supersedes))
+            {
+                reason = "recording is superseded";
+                return false;
+            }
+
+            if (!EffectiveState.IsUnfinishedFlight(rec))
+            {
+                reason = "no matching rewind point";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the RewindPoint + child-slot list index for a recording with
+        /// a parent branch point. This helper does not apply the unfinished
+        /// flight classifier; callers that expose user actions should decide the
+        /// eligibility predicate first.
+        /// </summary>
+        internal static bool TryResolveRewindPointForRecording(
+            Recording rec, out RewindPoint rp, out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId))
+                return false;
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return false;
+
+            string bpId = rec.ParentBranchPointId;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var candidate = scenario.RewindPoints[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
+                    continue;
+
+                int resolved = ResolveSlotListIndexForRecording(candidate, rec);
+                if (resolved < 0)
+                    return false;
+
+                rp = candidate;
+                slotListIndex = resolved;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Slot-aware precondition for an RP invocation. The global RP
+        /// precondition can pass while a specific child slot is disabled
+        /// because the split-time vessel could not be correlated into the
+        /// quicksave; keep that disabled row from starting an invocation that
+        /// would fail only after a scene load.
+        /// </summary>
+        internal static bool CanInvokeRewindPointSlot(
+            RewindPoint rp, int slotListIndex, out string reason)
+        {
+            if (rp == null)
+            {
+                reason = "rewind point is null";
+                return false;
+            }
+            if (rp.ChildSlots == null || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
+            {
+                reason = "rewind slot missing";
+                return false;
+            }
+
+            var slot = rp.ChildSlots[slotListIndex];
+            if (slot == null)
+            {
+                reason = "rewind slot missing";
+                return false;
+            }
+            if (slot.Disabled)
+            {
+                reason = !string.IsNullOrEmpty(slot.DisabledReason)
+                    ? "rewind slot disabled: " + slot.DisabledReason
+                    : "rewind slot disabled";
+                return false;
+            }
+
+            return RewindInvoker.CanInvoke(rp, out reason);
+        }
+
+        /// <summary>
+        /// Resolves the child-slot list index inside <paramref name="rp"/> whose
+        /// <see cref="ChildSlot.OriginChildRecordingId"/> matches
+        /// <paramref name="rec"/> (or the forward-walked effective recording
+        /// id so that a re-fly that produced another crash still maps back to
+        /// its slot).
+        /// </summary>
+        internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)
+        {
+            if (rp == null || rp.ChildSlots == null || rec == null) return -1;
+            var supersedes = ParsekScenario.Instance?.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                var slot = rp.ChildSlots[i];
+                if (slot == null) continue;
+                string effective = slot.EffectiveRecordingId(supersedes);
+                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Draws a chain block (header + members). Returns true if the recording list was modified.
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
@@ -2484,6 +3053,8 @@ namespace Parsek
         /// </summary>
         private void DeleteGhostOnlyRecording(int index)
         {
+            // [ERS-exempt] reason: delete operates by index into the raw
+            // committed list. See TODO(phase 6+) on DrawRecordingsWindow.
             var committed = RecordingStore.CommittedRecordings;
             if (index < 0 || index >= committed.Count)
             {
@@ -3654,6 +4225,9 @@ namespace Parsek
 
                     if (submitPeriod)
                     {
+                        // [ERS-exempt] reason: loopPeriodFocusedRi is an index
+                        // into the raw committed list used by the recordings
+                        // table. See TODO(phase 6+) on DrawRecordingsWindow.
                         CommitLoopPeriodEdit(RecordingStore.CommittedRecordings);
                         Event.current.Use();
                     }

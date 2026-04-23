@@ -1,0 +1,159 @@
+# Phase 3 of Rewind-to-Staging (design doc §3.4 / §11.7).
+# Files listed here are permitted to read RecordingStore.CommittedRecordings
+# and/or GameActions.Ledger.Actions directly. All other consumers must route
+# through EffectiveState.ComputeERS() / ComputeELS().
+#
+# One path per line, repo-relative, forward slashes. '#' starts a comment.
+
+# --- Storage + effective-state owners ---
+Source/Parsek/RecordingStore.cs
+Source/Parsek/EffectiveState.cs
+
+# --- Serialization (I/O not semantics) ---
+Source/Parsek/ParsekScenario.cs
+
+# --- Ledger owner + orchestration internals ---
+Source/Parsek/GameActions/Ledger.cs
+Source/Parsek/GameActions/LedgerOrchestrator.cs
+Source/Parsek/KerbalsModule.cs
+
+# --- Internal game-state-event suppression check ---
+Source/Parsek/GameStateRecorder.cs
+
+# --- Tests (unit + in-game) ---
+Source/Parsek.Tests/
+Source/Parsek/InGameTests/
+
+# --- Phase 3 ERS-exempt files (see inline [ERS-exempt] / TODO comments) ---
+# These hold raw index-based readers that Phase 3 leaves in place pending a
+# deeper refactor (tracked as TODO(phase 6+): migrate to EffectiveRecordingId
+# walk). Each exemption is documented at the call site.
+Source/Parsek/GhostMapPresence.cs
+Source/Parsek/WatchModeController.cs
+Source/Parsek/ChainSegmentManager.cs
+Source/Parsek/ParsekFlight.cs
+Source/Parsek/ParsekPlaybackPolicy.cs
+Source/Parsek/ParsekTrackingStation.cs
+Source/Parsek/Diagnostics/DiagnosticsComputation.cs
+Source/Parsek/FlightRecorder.cs
+Source/Parsek/ParsekKSC.cs
+Source/Parsek/ParsekUI.cs
+Source/Parsek/UI/RecordingsTableUI.cs
+Source/Parsek/UI/GroupPickerUI.cs
+Source/Parsek/UI/SettingsWindowUI.cs
+
+# --- Phase 4 ERS-exempt files ---
+# RewindPointAuthor captures PidSlotMap / RootPartPidMap at a multi-controllable
+# split (design §5.1). The author correlates each ChildSlot to a live vessel by
+# raw Vessel.persistentId -- supersede visibility is not meaningful at
+# speculative-RP creation time, before any session merge can produce a
+# RecordingSupersede relation (§6.6). Documented at the call site with an
+# inline [ERS-exempt] comment.
+Source/Parsek/RewindPointAuthor.cs
+
+# --- Phase 6 ERS-exempt files ---
+# RewindInvoker orchestrates the invocation flow; it reads the committed list
+# exactly once (FindRecordingById) to locate the origin child recording by its
+# OriginChildRecordingId. Supersede-aware lookups would mis-resolve the origin
+# by walking to the effective recording, which is precisely the id we need to
+# store as SupersedeTargetId on the provisional re-fly record (design §6.3).
+Source/Parsek/RewindInvoker.cs
+
+# ReconciliationBundle (design §6.4) captures the raw committed list + raw
+# ledger actions so the restore-after-load path can re-install them verbatim.
+# Routing through ERS/ELS would drop superseded/tombstoned entries from the
+# snapshot, breaking the reconciliation invariant.
+Source/Parsek/ReconciliationBundle.cs
+
+# PostLoadStripper (design §6.4 step 4) correlates live vessels to slot indices
+# via raw Vessel.persistentId / rootPart.persistentId against the RP's
+# PidSlotMap / RootPartPidMap. This is a physical identity correlation at load
+# time, not a supersede-aware recording lookup.
+Source/Parsek/PostLoadStripper.cs
+
+# --- Phase 7 ERS-exempt files ---
+# SessionSuppressionState (design §3.3 / §10.3) exposes two index-based helpers
+# — IsSuppressedRecordingIndex / the internal id->Recording lookup — that
+# physical-visibility consumers (GhostPlaybackEngine, GhostMapPresence, watch
+# mode) call with raw committed-list indices/ids. Routing through ERS would
+# shift the index space (ERS excludes NotCommitted / superseded / suppressed
+# entries) and break every caller. The suppression predicate is itself the
+# gate that consumers use AFTER the raw lookup, so it must read the raw list.
+Source/Parsek/SessionSuppressionState.cs
+
+# CrewReservationManager.ActiveVesselMatchesReFlyRecording (§3.3.1 dual-
+# residence carve-out) looks up the provisional re-fly recording by id to
+# correlate its VesselPersistentId with the active vessel. The provisional
+# recording is intentionally NotCommitted (§3.1), so ERS filters it out by
+# definition — the raw read is the only way to find it.
+Source/Parsek/CrewReservationManager.cs
+
+# --- Phase 8 ERS-exempt files ---
+# MergeDialog.TryCommitReFlySupersede looks up the provisional re-fly
+# recording by its id (marker.ActiveReFlyRecordingId) immediately after
+# CommitPendingTree migrates it from the pending tree into the committed
+# list. The provisional still carries MergeState=NotCommitted at this
+# point (Phase 8 step that flips it runs inside SupersedeCommit), so ERS
+# filters it out by definition — raw read is the only way to find it.
+Source/Parsek/MergeDialog.cs
+
+# --- Phase 9 ERS-exempt files ---
+# SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the
+# tombstone set for the superseded subtree (design §6.6 step 4). Routing
+# the scan through ELS would be circular — ELS is defined as "ledger minus
+# tombstones" (design §3.2), so reading it here would hide actions that
+# exist in the ledger and thus need tombstones emitted for them. The tomb
+# write itself bumps TombstoneStateVersion so downstream ELS consumers
+# see the retirement on their next call.
+Source/Parsek/SupersedeCommit.cs
+
+# --- Phase 10 ERS-exempt files ---
+# MergeJournalOrchestrator.RunFinisher's rollback path scans the RAW
+# committed list (by id) to remove the session-provisional recording that
+# was added during the interrupted re-fly session (design §6.9 step 2).
+# The provisional carries MergeState=NotCommitted, so ERS filters it out
+# by definition — the raw read is the only way to find it. Also routes
+# the durable-save + journal lifecycle that the finisher recovers from.
+Source/Parsek/MergeJournalOrchestrator.cs
+
+# --- Phase 11 ERS-exempt files ---
+# RewindPointReaper.ReapOrphanedRPs resolves each ChildSlot's origin
+# recording id through the raw committed list to inspect MergeState
+# (design §6.6 step 9 / §6.8 / §6.10). The slot may still point at a
+# NotCommitted provisional, which ERS filters out; the reaper MUST see
+# that state to decide "retain" vs "reap." No ELS reads.
+Source/Parsek/RewindPointReaper.cs
+
+# TreeDiscardPurge.PurgeTree builds the tree's recording-id set from the
+# tree's own Recordings dictionary (tree-local, no ERS routing needed)
+# and walks raw Ledger.Actions to classify tombstones by their target
+# action's RecordingId (design §6.10 / §3.5 invariant 7). Routing
+# through ELS would be circular (tombstones we are about to remove are
+# exactly what ELS uses to hide actions).
+Source/Parsek/TreeDiscardPurge.cs
+
+# --- Phase 13 ERS-exempt files ---
+# MarkerValidator.Validate looks up marker references in the RAW
+# committed list. The active re-fly recording the marker points at is
+# NotCommitted by definition (design §5.7 / §6.3 step 1), so ERS
+# filters it out. The whole point of marker validation is "does this
+# NotCommitted provisional still exist and is it still NotCommitted."
+Source/Parsek/MarkerValidator.cs
+
+# LoadTimeSweep.Run gathers zombie NotCommitted recordings from the
+# RAW committed list (design §6.9 step 4-6). NotCommitted recordings
+# are invisible to ERS, but they ARE the zombies the sweep exists to
+# discard. Also scans raw Ledger.Actions to classify orphan tombstones
+# (§6.9 step 8); routing through ELS would be circular because
+# tombstones ARE the ELS filter.
+Source/Parsek/LoadTimeSweep.cs
+
+# RevertInterceptor.DiscardReFlyHandler looks up the session's provisional
+# re-fly recording by id (marker.ActiveReFlyRecordingId) in the raw
+# committed list so it can remove it via RecordingStore.RemoveCommittedInternal
+# (design §6.14). The provisional is NotCommitted by invariant — marker
+# validation guarantees this on load, and no production path upgrades it
+# before the user clicks Discard — so ERS filters it out by definition.
+# The raw read is the only way to resolve the provisional to a Recording
+# reference for removal.
+Source/Parsek/RevertInterceptor.cs

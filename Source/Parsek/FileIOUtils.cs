@@ -85,5 +85,59 @@ namespace Parsek
                 throw;
             }
         }
+
+        /// <summary>
+        /// Atomically moves <paramref name="src"/> to <paramref name="dst"/>. Ensures
+        /// the destination directory exists, deletes the destination if present, then
+        /// invokes <see cref="File.Move"/> (an atomic rename on the same volume on
+        /// Windows and POSIX). Logs and re-throws on failure; the caller decides how
+        /// to recover.
+        ///
+        /// <para>
+        /// Used by <see cref="RewindPointAuthor"/> to move the stock KSP save from the
+        /// saves root (where <c>GamePersistence.SaveGame</c> writes) to the RP subdir
+        /// <c>Parsek/RewindPoints/&lt;rpId&gt;.sfs</c> (design §5.10).
+        /// </para>
+        /// </summary>
+        internal static void SafeMove(string src, string dst, string tag)
+        {
+            if (string.IsNullOrEmpty(src)) throw new ArgumentException("src is required", nameof(src));
+            if (string.IsNullOrEmpty(dst)) throw new ArgumentException("dst is required", nameof(dst));
+
+            string dstDir = Path.GetDirectoryName(dst);
+            if (!string.IsNullOrEmpty(dstDir) && !Directory.Exists(dstDir))
+            {
+                Directory.CreateDirectory(dstDir);
+            }
+
+            if (File.Exists(dst))
+            {
+                try
+                {
+                    ParsekLog.Verbose(tag,
+                        $"SafeMove: overwriting existing destination '{dst}'");
+                    File.Delete(dst);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(tag,
+                        $"SafeMove: failed to delete existing destination '{dst}': {ex.Message}");
+                    throw;
+                }
+            }
+
+            try
+            {
+                File.Move(src, dst);
+                ParsekLog.Verbose(tag,
+                    $"SafeMove: moved '{src}' -> '{dst}'");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(tag,
+                    $"SafeMove: File.Move('{src}' -> '{dst}') failed: {ex.Message}");
+                throw;
+            }
+        }
     }
 }
