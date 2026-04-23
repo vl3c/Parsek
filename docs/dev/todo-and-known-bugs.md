@@ -727,6 +727,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~559. Research Building stays unlocked to future tech after rewind~~
+
+**Source:** user report from the 2026-04-23 log review, confirmed against `logs/2026-04-23_1829_logs-package/parsek/GameState/ledger.pgld` and saved baselines. The player rewound to adjusted UT 49.4, before the UT 124.43 `ScienceSpending` unlocks for `basicRocketry` and `engineering101`, but the Research Building still showed the future button state.
+
+**Concern:** `KspStatePatcher.PatchAll(...)` restored resources, facilities, milestones, contracts, and crew-derived state but did not restore KSP's R&D tech availability. Once KSP had loaded a future save with later researched nodes, rewinding the ledger cutoff could fix science balance without locking the future tech nodes again.
+
+**Fix:** patching now builds an authoritative target tech set from the latest baseline at or before the cutoff plus affordable `ScienceSpending` actions up to that same cutoff, and `PatchTechTree(...)` (gated to the rewind path where `utCutoff.HasValue`) updates `ResearchAndDevelopment` proto-tech state, mirrors availability onto the static tech-tree proto nodes, removes future nodes from the proto dictionary, unconditionally rehydrates bypass-entry-purchase parts from loaded part metadata with dedup so stale or partial `partsPurchased` lists self-heal, and refreshes the tech-tree UI. Non-rewind `RecalculateAndPatch` calls no longer touch the live tech tree, so post-baseline unlocks are preserved. Reflection lookups now emit a one-shot `ParsekLog.Warn` identifying the failed field, the "missing targets" skip log lists the first ~10 missing tech ids, and the `PatchTechTree: available=...` info log now includes the cutoff UT and selected baseline UT.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless target-tech selection coverage plus `PatchTechTree` log-assertion coverage (no-target skip, missing R&D singleton, one-shot reflection-failure warn); live Research Building UI evidence still requires a manual KSP rewind run.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

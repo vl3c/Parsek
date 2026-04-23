@@ -34,11 +34,15 @@ namespace Parsek
         internal static void PatchAll(ScienceModule science, FundsModule funds,
             ReputationModule reputation, MilestonesModule milestones, FacilitiesModule facilities,
             ContractsModule contracts = null,
-            bool authoritativeRepeatableRecordState = false)
+            IReadOnlyCollection<string> targetTechIds = null,
+            bool authoritativeRepeatableRecordState = false,
+            double? techUtCutoff = null,
+            double? techBaselineUt = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
                 PatchScience(science);
+                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt);
                 PatchFunds(funds);
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
@@ -112,6 +116,369 @@ namespace Parsek
             // Always patch per-subject credited totals — individual subjects may have changed
             // even when the total balance is unchanged (e.g., one experiment reverted, another added)
             PatchPerSubjectScience(science);
+        }
+
+        /// <summary>
+        /// Builds the authoritative researched-tech set for a recalculation patch.
+        /// Baselines provide the researched nodes already present at the selected point
+        /// in time; affordable ScienceSpending actions add tech nodes unlocked by the
+        /// ledger walk up to the same cutoff.
+        /// </summary>
+        internal static HashSet<string> BuildTargetTechIdsForPatch(
+            IReadOnlyList<GameStateBaseline> baselines,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            var selectedBaseline = SelectTechBaselineForPatch(baselines, utCutoff);
+            if (selectedBaseline == null ||
+                selectedBaseline.researchedTechIds == null ||
+                selectedBaseline.researchedTechIds.Count == 0)
+            {
+                return null;
+            }
+
+            var target = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < selectedBaseline.researchedTechIds.Count; i++)
+            {
+                string techId = selectedBaseline.researchedTechIds[i];
+                if (!string.IsNullOrEmpty(techId))
+                    target.Add(techId);
+            }
+
+            if (actions == null)
+                return target;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null || action.Type != GameActionType.ScienceSpending)
+                    continue;
+                if (string.IsNullOrEmpty(action.NodeId))
+                    continue;
+                if (utCutoff.HasValue && action.UT > utCutoff.Value)
+                    continue;
+                if (!action.Affordable)
+                    continue;
+
+                target.Add(action.NodeId);
+            }
+
+            return target;
+        }
+
+        /// <summary>
+        /// Returns the UT of the baseline selected by <see cref="SelectTechBaselineForPatch"/>
+        /// for the given cutoff, or <c>null</c> when no baseline is eligible. Exposes the
+        /// selection UT so callers (e.g., LedgerOrchestrator) can forward it to logs without
+        /// re-walking the baseline list.
+        /// </summary>
+        internal static double? GetSelectedTechBaselineUt(
+            IReadOnlyList<GameStateBaseline> baselines,
+            double? utCutoff)
+        {
+            var selected = SelectTechBaselineForPatch(baselines, utCutoff);
+            return selected == null ? (double?)null : selected.ut;
+        }
+
+        private static GameStateBaseline SelectTechBaselineForPatch(
+            IReadOnlyList<GameStateBaseline> baselines,
+            double? utCutoff)
+        {
+            if (baselines == null || baselines.Count == 0)
+                return null;
+
+            GameStateBaseline selected = null;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                for (int i = 0; i < baselines.Count; i++)
+                {
+                    var baseline = baselines[i];
+                    if (baseline == null)
+                        continue;
+                    if (baseline.ut <= cutoff &&
+                        (selected == null || baseline.ut > selected.ut))
+                    {
+                        selected = baseline;
+                    }
+                }
+
+                return selected;
+            }
+
+            for (int i = 0; i < baselines.Count; i++)
+            {
+                var baseline = baselines[i];
+                if (baseline == null)
+                    continue;
+                if (selected == null || baseline.ut > selected.ut)
+                    selected = baseline;
+            }
+
+            return selected;
+        }
+
+        /// <summary>
+        /// Patches KSP's R&amp;D tech state to the recalculated timeline state.
+        /// This updates both the authoritative proto-tech dictionary and the static
+        /// tech-tree proto nodes, then asks KSP to refresh the tech-tree UI.
+        /// </summary>
+        internal static void PatchTechTree(
+            IReadOnlyCollection<string> targetTechIds,
+            double? utCutoff = null,
+            double? baselineUt = null)
+        {
+            if (targetTechIds == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchTechTree: no target tech set supplied — skipping");
+                return;
+            }
+
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchTechTree: ResearchAndDevelopment.Instance is null — skipping");
+                return;
+            }
+
+            if (AssetBase.RnDTechTree == null || AssetBase.RnDTechTree.GetTreeTechs() == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchTechTree: RnDTechTree unavailable — skipping");
+                return;
+            }
+
+            var target = targetTechIds as HashSet<string>
+                ?? new HashSet<string>(targetTechIds, StringComparer.Ordinal);
+
+            var protoNodes = GetProtoTechNodesDictionary();
+            if (protoNodes == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchTechTree: protoTechNodes dictionary unavailable — static tech-tree nodes will still be patched");
+            }
+
+            int madeAvailable = 0;
+            int madeUnavailable = 0;
+            int alreadyAvailable = 0;
+            int alreadyUnavailable = 0;
+            int missingTargets = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            List<string> missingTargetIds = null;
+
+            foreach (var tech in AssetBase.RnDTechTree.GetTreeTechs())
+            {
+                if (tech == null || string.IsNullOrEmpty(tech.techID))
+                    continue;
+
+                string techId = tech.techID;
+                seen.Add(techId);
+                bool shouldBeAvailable = target.Contains(techId);
+                RDTech.State currentState = ResearchAndDevelopment.GetTechnologyState(techId);
+
+                if (shouldBeAvailable)
+                {
+                    ProtoTechNode proto = ResearchAndDevelopment.Instance.GetTechState(techId);
+                    if (proto == null || proto.state != RDTech.State.Available)
+                        madeAvailable++;
+                    else
+                        alreadyAvailable++;
+
+                    proto = EnsureAvailableProtoTechNode(tech, proto);
+                    ResearchAndDevelopment.Instance.SetTechState(techId, proto);
+                    tech.state = RDTech.State.Available;
+                }
+                else
+                {
+                    if (currentState == RDTech.State.Available || tech.state == RDTech.State.Available)
+                        madeUnavailable++;
+                    else
+                        alreadyUnavailable++;
+
+                    if (protoNodes != null)
+                        protoNodes.Remove(techId);
+                    tech.state = RDTech.State.Unavailable;
+                }
+            }
+
+            foreach (string techId in target)
+            {
+                if (seen.Contains(techId))
+                    continue;
+                missingTargets++;
+                if (missingTargetIds == null)
+                    missingTargetIds = new List<string>();
+                if (missingTargetIds.Count < 10)
+                    missingTargetIds.Add(techId);
+            }
+
+            RefreshTechTreeUi();
+
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", IC)
+                : "null";
+            string baselineLabel = baselineUt.HasValue
+                ? baselineUt.Value.ToString("R", IC)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"PatchTechTree: available={target.Count.ToString(IC)}, " +
+                $"madeAvailable={madeAvailable.ToString(IC)}, " +
+                $"madeUnavailable={madeUnavailable.ToString(IC)}, " +
+                $"alreadyAvailable={alreadyAvailable.ToString(IC)}, " +
+                $"alreadyUnavailable={alreadyUnavailable.ToString(IC)}, " +
+                $"missingTargets={missingTargets.ToString(IC)}, " +
+                $"utCutoff={cutoffLabel}, baselineUt={baselineLabel}");
+
+            if (missingTargets > 0 && missingTargetIds != null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchTechTree: first {missingTargetIds.Count.ToString(IC)} missing tech ids (of {missingTargets.ToString(IC)}): " +
+                    string.Join(", ", missingTargetIds));
+            }
+        }
+
+        private static ProtoTechNode EnsureAvailableProtoTechNode(ProtoTechNode tech, ProtoTechNode existing)
+        {
+            var proto = existing ?? new ProtoTechNode();
+            proto.techID = tech.techID;
+            proto.state = RDTech.State.Available;
+            proto.scienceCost = tech.scienceCost;
+            if (proto.partsPurchased == null)
+                proto.partsPurchased = new List<AvailablePart>();
+
+            // #559 review follow-up: rehydrate bypass-entry-purchase parts unconditionally
+            // when bypass is on. The previous `partsPurchased.Count == 0` guard missed the
+            // stale/partial case where a proto node kept a subset of purchased parts from a
+            // prior unlock — those carried-over entries would block AddPurchasedPartsForTech
+            // and leave the tech tree silently missing the rest. AddPurchasedPartsForTech
+            // already dedups by reference + part.name, so re-running it is safe.
+            if (GameStateRecorder.IsBypassEntryPurchaseAfterResearch())
+            {
+                int beforeCount = proto.partsPurchased.Count;
+                int added = AddPurchasedPartsForTech(proto, tech.techID, PartLoader.LoadedPartsList);
+                if (added == 0 && beforeCount == 0 && tech.partsPurchased != null)
+                    AddPurchasedParts(proto, tech.partsPurchased);
+                ParsekLog.Verbose(Tag,
+                    $"EnsureAvailableProtoTechNode: bypass rehydrate techId={tech.techID} " +
+                    $"before={beforeCount.ToString(IC)} added={added.ToString(IC)} " +
+                    $"after={proto.partsPurchased.Count.ToString(IC)}");
+            }
+
+            return proto;
+        }
+
+        internal static int AddPurchasedPartsForTech(
+            ProtoTechNode proto, string techId, IEnumerable<AvailablePart> loadedParts)
+        {
+            if (proto == null || string.IsNullOrEmpty(techId) || loadedParts == null)
+                return 0;
+
+            if (proto.partsPurchased == null)
+                proto.partsPurchased = new List<AvailablePart>();
+
+            int added = 0;
+            foreach (var part in loadedParts)
+            {
+                if (part == null)
+                    continue;
+                if (!string.Equals(part.TechRequired, techId, StringComparison.Ordinal))
+                    continue;
+                if (ContainsPurchasedPart(proto.partsPurchased, part))
+                    continue;
+
+                proto.partsPurchased.Add(part);
+                added++;
+            }
+
+            return added;
+        }
+
+        private static void AddPurchasedParts(ProtoTechNode proto, IEnumerable<AvailablePart> parts)
+        {
+            foreach (var part in parts)
+            {
+                if (part == null || ContainsPurchasedPart(proto.partsPurchased, part))
+                    continue;
+                proto.partsPurchased.Add(part);
+            }
+        }
+
+        private static bool ContainsPurchasedPart(List<AvailablePart> parts, AvailablePart candidate)
+        {
+            if (parts == null || candidate == null)
+                return false;
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                var existing = parts[i];
+                if (existing == null)
+                    continue;
+                if (object.ReferenceEquals(existing, candidate))
+                    return true;
+                if (!string.IsNullOrEmpty(candidate.name)
+                    && string.Equals(existing.name, candidate.name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        // #559 review follow-up: one-shot reflection-failure diagnostics. When KSP renames
+        // or changes the visibility of `protoTechNodes` / its backing field, rewind patches
+        // silently fall back to static-tree-only coverage. The Warn log fires exactly once
+        // per session (guarded by a static bool; reset in ResetForTesting) to flag the
+        // regression without spamming per-call.
+        private static bool protoTechNodesReflectionWarnEmitted;
+
+        private static Dictionary<string, ProtoTechNode> GetProtoTechNodesDictionary()
+        {
+            if (ResearchAndDevelopment.Instance == null)
+                return null;
+
+            var field = typeof(ResearchAndDevelopment).GetField(
+                "protoTechNodes",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (field == null)
+            {
+                EmitProtoTechNodesReflectionWarnOnce(
+                    "field typeof(ResearchAndDevelopment).GetField(\"protoTechNodes\") returned null");
+                return null;
+            }
+
+            var value = field.GetValue(ResearchAndDevelopment.Instance)
+                as Dictionary<string, ProtoTechNode>;
+            if (value == null)
+            {
+                EmitProtoTechNodesReflectionWarnOnce(
+                    "field.GetValue returned null or wrong type for \"protoTechNodes\"");
+            }
+            return value;
+        }
+
+        // Internal so xUnit can drive the one-shot warn path without booting R&D singletons.
+        internal static void EmitProtoTechNodesReflectionWarnOnce(string detail)
+        {
+            if (protoTechNodesReflectionWarnEmitted)
+                return;
+            protoTechNodesReflectionWarnEmitted = true;
+            ParsekLog.Warn(Tag,
+                "PatchTechTree: reflection lookup for ResearchAndDevelopment.protoTechNodes failed " +
+                $"(one-shot per session) — {detail}. Static tech-tree nodes will still be patched, " +
+                "but future nodes cannot be removed from the proto dictionary until this is resolved.");
+        }
+
+        private static void RefreshTechTreeUi()
+        {
+            try
+            {
+                ResearchAndDevelopment.RefreshTechTreeUI();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchTechTree: RefreshTechTreeUI threw: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1386,6 +1753,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;
+            protoTechNodesReflectionWarnEmitted = false;
         }
     }
 }
