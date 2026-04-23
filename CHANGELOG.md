@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#521` Career State now keeps its cached view model until the next visible timeline boundary instead of rebuilding on every sub-frame `Planetarium` UT tick while the window is open. That removes the main-window flicker during Parsek UI interactions without leaving the banner or pending/current rows stale.
 - `#523` The SPACECENTER strategy-lifecycle canaries now hydrate `Administration.Instance` by creating a hidden stock Administration canvas instead of firing the stock facility spawn/despawn events, so the career probes no longer time out in plain KSC and the harness avoids visible Administration flashes, `persistent.sfs` teardown overwrites, and `MusicLogic.UnpauseWithCrossfade()` blips.
 - `#529` Live `BackupVessel()` snapshots now normalize landed/splashed `ORBIT` nodes through the shared backup path instead of only one finalize call site. Stable-terminal persistence, limbo pre-capture, split/chain snapshots, and other live snapshot users all get the canonical surface tuple for the live body, the rewrite logs explicitly, and spawn validation still self-heals older same-body stale surface sidecars from endpoint or snapshot coordinates.
 - `#526` Timeline FF and other time jumps no longer let the real pad vessel auto-start a bogus launch recording during the jump transient.
