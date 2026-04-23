@@ -830,6 +830,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## ~~560. Default solution build returned exit code 1 even after a clean MSBuild success summary~~
+
+**Source:** `dotnet build Source\Parsek.sln` on SDK `6.0.428` in the `bug/547-latest-log-orbit-anomalies` worktree.
+
+**Concern:** the solution built both `Parsek` and `Parsek.Tests` as default top-level solution projects. On this SDK, the parallel solution-level project dispatch could report `Build succeeded` with `0 Warning(s)` / `0 Error(s)` while still returning process exit code `1`. Direct project builds and `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` were clean, so this was solution orchestration noise rather than a compiler failure.
+
+**Fix:** the default solution build now builds the deployable `Parsek` plugin project only. `Parsek.Tests` remains listed in the solution and keeps its active Debug/Release configuration, but its `Build.0` entries are removed so tests are built through the explicit test command instead of the default solution build. This keeps `dotnet build Source\Parsek.sln` deterministic while preserving `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` as the full validation path.
+
+**Files:** `Source/Parsek.sln`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
