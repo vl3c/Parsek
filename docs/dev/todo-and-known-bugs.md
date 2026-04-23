@@ -37,6 +37,16 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 # Known Bugs
 
+## ~~557. Scene-enter auto-record never resumed on vessels with a committed recording~~
+
+Observed in the `2026-04-23_2200_playtest-post-v083` playtest: launch a vessel, commit the recording, exit to KSC, re-enter the same vessel via Tracking Station, drive it. Auto-record stayed `mode=none` for the entire session. The `FlightRecorder.OnVesselGoOffRails` handler early-returns when `IsRecording` is false, and the design spec (`recording-system-design.md` §4.5 "When the player returns to flight, vessels come off rails → new checkpoints captured → physics sampling resumes") expected the resume path to run here.
+
+Root cause: the existing `TryRestoreCommittedTreeForSpawnedActiveVessel` pipeline (triggered from `OnFlightReady`) does look up the committed tree by active vessel pid, but its filter in `TryFindCommittedTreeForSpawnedVessel` requires both `rec.VesselSpawned == true` AND `rec.SpawnedVesselPersistentId == activeVesselPid`. Only the pid is persisted; the flag was not re-derived from the pid on load, so after every save/load `VesselSpawned` dropped back to its default `false` and the filter silently skipped the match.
+
+Fix: both load paths (`RecordingTree.Load` and `ParsekScenario.OnLoad`'s tree-rec mutable-state restore) now set `rec.VesselSpawned = (spawnedPid != 0)` alongside `rec.SpawnedVesselPersistentId`. The invariant is straight from the existing `BuildSpawnedVesselPidSet(ERS)` / spawner `rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;` pattern; the fix brings the load side in line. Regression tests in `RecordingTreeTests.RecordingTree_SpawnedPid_RestoresVesselSpawnedFlagOnLoad` + `RecordingTree_NoSpawnedPid_LeavesVesselSpawnedFalseOnLoad` and `VesselSwitchTreeTests.TryFindCommittedTreeForSpawnedVessel_MatchesTreeReloadedFromConfigNode`.
+
+Related playtest observation (separate bug, not fixed here): the KSC-view adoption (`VesselSpawner.TryAdoptExistingSourceVesselForSpawn`) still treats the original on-pad launch vessel as the terminal real-spawn, so ghosts playing from launch → terminal vanish at end without a visible terminal-position vessel in KSC view. Once auto-record-on-resume starts producing new commits, the adopted vessel position drifts with the recording lineage and this surfaces less often, but a principled fix (move / re-spawn at terminal on commit; or render a persistent terminal indicator in KSC) is still open.
+
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.

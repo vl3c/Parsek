@@ -353,6 +353,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_MatchesTreeReloadedFromConfigNode()
+        {
+            // Regression for the v0.8.3 playtest bug: after Save → Load, the
+            // scene-enter restore lookup used to miss because VesselSpawned was
+            // not re-derived from the persisted spawnedPid. The full pipeline
+            // covered here (tree save → ConfigNode → tree load → lookup) is the
+            // realistic path that fires on every KSC → FLIGHT scene change.
+            var tree = new RecordingTree
+            {
+                Id = "tree_reload",
+                TreeName = "Reload Test",
+                RootRecordingId = "rec_reload",
+                ActiveRecordingId = "rec_reload"
+            };
+            tree.Recordings["rec_reload"] = new Recording
+            {
+                RecordingId = "rec_reload",
+                VesselName = "Crater Crawler",
+                VesselPersistentId = 4206290288u,
+                SpawnedVesselPersistentId = 4206290288u,
+                VesselSpawned = true,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 25.9,
+                TreeId = "tree_reload"
+            };
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            var reloaded = RecordingTree.Load(node);
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { reloaded },
+                activeVesselPid: 4206290288u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found,
+                "After Save → Load the restore-lookup must still match the spawned pid; " +
+                "if this fails, the VesselSpawned invariant is not being rebuilt on load.");
+            Assert.Same(reloaded, matchedTree);
+            Assert.Equal("rec_reload", matchedRecordingId);
+        }
+
+        [Fact]
         public void PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry()
         {
             var tree = MakeTree("rec_active", (20, "rec_tip"));

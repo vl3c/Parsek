@@ -1014,7 +1014,16 @@ namespace Parsek
             {
                 uint spawnedPid;
                 if (uint.TryParse(pidStr, NumberStyles.Integer, ic, out spawnedPid))
+                {
                     rec.SpawnedVesselPersistentId = spawnedPid;
+                    // Invariant: VesselSpawned ⇔ SpawnedVesselPersistentId != 0. The field
+                    // is not serialized directly; re-derive on load. Without this, the
+                    // scene-enter resume path (TryFindCommittedTreeForSpawnedVessel) fails
+                    // its `!VesselSpawned` filter after any save/load, so auto-record
+                    // doesn't resume when the player re-enters a vessel that already has
+                    // a committed recording (fix for v0.8.3 playtest bug).
+                    rec.VesselSpawned = spawnedPid != 0;
+                }
             }
             string destroyedStr = recNode.GetValue("vesselDestroyed");
             if (destroyedStr != null)

@@ -39,6 +39,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Returning to a vessel that already has a committed recording now auto-resumes recording instead of leaving the vessel unrecorded. The existing scene-enter restore path is gated on a `VesselSpawned` flag that was not being re-derived from the persisted `spawnedPid` on load, so after any save/load the filter silently missed and no new track section ever opened.
 - `#521` Career State now keeps its cached view model until the next visible timeline boundary instead of rebuilding on every sub-frame `Planetarium` UT tick while the window is open. That removes the main-window flicker during Parsek UI interactions without leaving the banner or pending/current rows stale.
 - `#529` Live `BackupVessel()` snapshots now normalize landed/splashed `ORBIT` nodes through the shared backup path instead of only one finalize call site. Stable-terminal persistence, limbo pre-capture, split/chain snapshots, and other live snapshot users all get the canonical surface tuple for the live body, the rewrite logs explicitly, and spawn validation still self-heals older same-body stale surface sidecars from endpoint or snapshot coordinates.
 - `#526` Timeline FF and other time jumps no longer let the real pad vessel auto-start a bogus launch recording during the jump transient.
