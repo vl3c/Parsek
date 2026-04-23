@@ -288,6 +288,159 @@ namespace Parsek.Tests
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
         }
 
+        [Fact]
+        public void IsUnfinishedFlight_ChainHeadWithCrashedTip_True()
+        {
+            // Regression for the post-v0.8.3 booster case: Optimizer.SplitAtSection
+            // splits the live recording at the atmo→exo env boundary, leaving the
+            // chain HEAD (parentBranchPointId + RP link) with terminal=null and
+            // the chain TIP with terminal=Destroyed. The predicate must walk the
+            // chain to find the tip's terminal, otherwise a destroyed booster's
+            // recording is silently excluded from Unfinished Flights.
+            var bp = new BranchPoint { Id = "bp_stage", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_boost",
+                TreeName = "Booster",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_atmo",
+                VesselName = "Booster (atmo)",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null, // mid-chain, no own terminal
+                ParentBranchPointId = "bp_stage",
+                TreeId = "tree_boost",
+                ChainId = "chain_boost",
+                ChainIndex = 0
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_exo",
+                VesselName = "Booster (exo)",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = null, // chain continuation, no RP link
+                TreeId = "tree_boost",
+                ChainId = "chain_boost",
+                ChainIndex = 1
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                SessionProvisional = false
+            };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("IsUnfinishedFlight=true") && l.Contains("rec_atmo"));
+            // The chain-tip classification is also reflected in the ResolveChainTerminalRecording helper.
+            Assert.Same(tip, EffectiveState.ResolveChainTerminalRecording(head));
+        }
+
+        [Fact]
+        public void IsUnfinishedFlight_ChainHeadWithOrbitingTip_False()
+        {
+            // Non-regression: a post-staging booster that actually reached a
+            // stable orbit (tip terminal=Orbiting) must NOT enter Unfinished
+            // Flights. The predicate stays narrow: destruction / loss only.
+            var bp = new BranchPoint { Id = "bp_stage", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_orbit",
+                TreeName = "SafeBoost",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_atmo",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp_stage",
+                TreeId = "tree_orbit",
+                ChainId = "chain_orbit",
+                ChainIndex = 0
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_exo",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Orbiting,
+                ParentBranchPointId = null,
+                TreeId = "tree_orbit",
+                ChainId = "chain_orbit",
+                ChainIndex = 1
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.False(EffectiveState.IsUnfinishedFlight(head));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed:Orbiting"));
+        }
+
+        [Fact]
+        public void ResolveChainTerminalRecording_NoChain_ReturnsSelf()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_solo",
+                ChainId = null,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            Assert.Same(rec, EffectiveState.ResolveChainTerminalRecording(rec));
+        }
+
+        [Fact]
+        public void ResolveChainTerminalRecording_ChainLen3_ReturnsMaxIndexSegment()
+        {
+            var tree = new RecordingTree { Id = "tree_chain", TreeName = "C" };
+            var seg0 = new Recording { RecordingId = "s0", TreeId = "tree_chain", ChainId = "ch", ChainIndex = 0, MergeState = MergeState.Immutable };
+            var seg1 = new Recording { RecordingId = "s1", TreeId = "tree_chain", ChainId = "ch", ChainIndex = 1, MergeState = MergeState.Immutable };
+            var seg2 = new Recording { RecordingId = "s2", TreeId = "tree_chain", ChainId = "ch", ChainIndex = 2, MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed };
+            tree.AddOrReplaceRecording(seg0);
+            tree.AddOrReplaceRecording(seg1);
+            tree.AddOrReplaceRecording(seg2);
+            RecordingStore.CommittedTrees.Add(tree);
+            MakeScenario();
+
+            Assert.Same(seg2, EffectiveState.ResolveChainTerminalRecording(seg0));
+            Assert.Same(seg2, EffectiveState.ResolveChainTerminalRecording(seg1));
+            Assert.Same(seg2, EffectiveState.ResolveChainTerminalRecording(seg2));
+        }
+
+        [Fact]
+        public void ResolveChainTerminalRecording_DifferentChainBranch_DoesNotCrossBranches()
+        {
+            // Two siblings on different ChainBranch values must not be treated
+            // as the same chain. Each resolves to its own branch's tip.
+            var tree = new RecordingTree { Id = "tree_br", TreeName = "Br" };
+            var seg0a = new Recording { RecordingId = "s0a", TreeId = "tree_br", ChainId = "ch", ChainBranch = 0, ChainIndex = 0, MergeState = MergeState.Immutable };
+            var seg1a = new Recording { RecordingId = "s1a", TreeId = "tree_br", ChainId = "ch", ChainBranch = 0, ChainIndex = 1, MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Landed };
+            var seg0b = new Recording { RecordingId = "s0b", TreeId = "tree_br", ChainId = "ch", ChainBranch = 1, ChainIndex = 0, MergeState = MergeState.Immutable };
+            var seg1b = new Recording { RecordingId = "s1b", TreeId = "tree_br", ChainId = "ch", ChainBranch = 1, ChainIndex = 1, MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed };
+            tree.AddOrReplaceRecording(seg0a);
+            tree.AddOrReplaceRecording(seg1a);
+            tree.AddOrReplaceRecording(seg0b);
+            tree.AddOrReplaceRecording(seg1b);
+            RecordingStore.CommittedTrees.Add(tree);
+            MakeScenario();
+
+            Assert.Same(seg1a, EffectiveState.ResolveChainTerminalRecording(seg0a));
+            Assert.Same(seg1b, EffectiveState.ResolveChainTerminalRecording(seg0b));
+        }
+
         // =====================================================================
         // ComputeERS
         // =====================================================================

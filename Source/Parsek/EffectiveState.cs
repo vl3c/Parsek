@@ -160,10 +160,19 @@ namespace Parsek
                     $"IsUnfinishedFlight=false rec={recId} reason=mergeState:{rec.MergeState}");
                 return false;
             }
-            if (!IsTerminalCrashed(rec))
+            // Chain-walk for the terminal check: merge-time SplitAtSection
+            // splits a single live recording at env boundaries (atmo→exo) into
+            // chained segments. The chain HEAD carries the parentBranchPointId
+            // (→ RewindPoint link), the chain TIP carries the terminal state.
+            // Checking the head's own terminal would always read null for a
+            // multi-segment chain and silently exclude destroyed siblings
+            // from Unfinished Flights. Walk forward and use the tip.
+            Recording terminalRec = ResolveChainTerminalRecording(rec);
+            if (!IsTerminalCrashed(terminalRec))
             {
                 ParsekLog.Verbose("UnfinishedFlights",
-                    $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{rec.TerminalStateValue}");
+                    $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{terminalRec.TerminalStateValue} " +
+                    $"(tip={(ReferenceEquals(terminalRec, rec) ? "self" : terminalRec.RecordingId ?? "<no-id>")})");
                 return false;
             }
             if (string.IsNullOrEmpty(rec.ParentBranchPointId))
@@ -218,6 +227,64 @@ namespace Parsek
         public static bool IsTerminalCrashed(Recording rec)
         {
             return TerminalKindClassifier.Classify(rec) == TerminalKind.Crashed;
+        }
+
+        /// <summary>
+        /// Resolves the recording whose <c>TerminalStateValue</c> actually
+        /// represents the ending of <paramref name="rec"/>'s vessel. For a
+        /// chained recording, merge-time <c>Optimizer.SplitAtSection</c>
+        /// splits a single live recording at environment boundaries (atmo→exo,
+        /// etc.) into two or more chained segments: the HEAD keeps the
+        /// parent-branch-point link back to the Rewind Point, and the TIP
+        /// carries the terminal state. Callers asking "did this vessel end
+        /// crashed?" must consult the tip, not the head. Non-chained
+        /// recordings return themselves.
+        ///
+        /// <para>
+        /// The tip is chosen as the recording with the same
+        /// <c>ChainId</c> / <c>ChainBranch</c> and the largest
+        /// <c>ChainIndex</c> found in the same committed tree. Chain members
+        /// live in the same <see cref="RecordingTree"/> so the scan is
+        /// bounded by the tree's recording dictionary.
+        /// </para>
+        /// </summary>
+        internal static Recording ResolveChainTerminalRecording(Recording rec)
+        {
+            if (rec == null) return null;
+            if (string.IsNullOrEmpty(rec.ChainId)) return rec;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return rec;
+
+            RecordingTree owningTree = null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                if (!string.IsNullOrEmpty(rec.TreeId) && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (tree.Recordings != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && tree.Recordings.ContainsKey(rec.RecordingId))
+                {
+                    owningTree = tree;
+                    break;
+                }
+            }
+            if (owningTree?.Recordings == null) return rec;
+
+            Recording tip = rec;
+            int maxIdx = rec.ChainIndex;
+            foreach (var candidate in owningTree.Recordings.Values)
+            {
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (candidate.ChainIndex <= maxIdx) continue;
+                tip = candidate;
+                maxIdx = candidate.ChainIndex;
+            }
+            return tip;
         }
 
         /// <summary>
