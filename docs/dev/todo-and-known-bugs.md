@@ -343,7 +343,7 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 ---
 
-## ~~550. Rewind top-bar funds/science could show gross or future-inflated values instead of the spendable balance~~
+## ~~558. Rewind top-bar funds/science could show gross or future-inflated values instead of the spendable balance~~
 
 **Source:** follow-up investigation of `logs/2026-04-23` rewind/cutoff behavior and the April 23 design pass. The visible ledger walk was correctly scoped to the rewound UT, but the top-bar values still needed to represent what the player could actually spend at that moment.
 
@@ -677,7 +677,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## ~~550. Delayed science/reputation seeding can turn future balances into UT0 after rewind~~
+## ~~557. Delayed science/reputation seeding can turn future balances into UT0 after rewind~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows initial deferred seeding stopped as soon as Funding reported 25000 while Science and Reputation still read zero. Later, after the first committed flight and before the rewind, `ledger.pgld` gained `ScienceInitial = 11.04` and `ReputationInitial = 0.999999464` at UT0 even though the earliest baseline had both resources at zero. The rewind recalculation at adjusted UT 49.4 then included those UT0 seeds and patched science/reputation from future state.
 
