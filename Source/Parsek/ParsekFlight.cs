@@ -2183,13 +2183,21 @@ namespace Parsek
                 $"TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '{activeTree.TreeName}' " +
                 $"for vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}");
             // Surface a screen message mirroring the launch and post-switch auto-record
-            // paths so the player can see that recording resumed. The inner
-            // FlightRecorder.StartRecording call suppresses its own message when
-            // isPromotion=true, which is the path both ResumeCommittedActiveRecording
-            // and PromoteRecordingFromBackground use.
-            ScreenMessage("Recording STARTED (resume)", 2f);
+            // paths. OnFlightReady fires before KSP's ScreenMessages UI queue is ready
+            // to display messages; calling ScreenMessage directly here gets the toast
+            // swallowed by the scene-load transition. Defer to a coroutine that waits
+            // a short duration so the UI has settled — the launch path's (auto) toast
+            // works because it posts from OnVesselSituationChange after physics starts,
+            // well after scene-load.
+            StartCoroutine(DeferredResumeScreenMessage());
             ParsekLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
+        }
+
+        private System.Collections.IEnumerator DeferredResumeScreenMessage()
+        {
+            yield return new WaitForSeconds(0.5f);
+            ScreenMessage("Recording STARTED (resume)", 4f);
         }
 
         private bool ResumeCommittedActiveRecording(string recordingId, Vessel activeVessel)

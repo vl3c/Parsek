@@ -1316,6 +1316,17 @@ namespace Parsek
             return true;
         }
 
+        // Tolerance for "tail still matches terminal surface state" checks. A landed
+        // vessel at rest has tiny physics jitter in position and rotation — exact
+        // equality between a trajectory point and the captured terminal pose almost
+        // never holds after even a few frames of idle. The tolerances below are large
+        // enough to absorb float/double precision drift and sub-frame physics jitter,
+        // while still catching real movement (sub-degree rotation or sub-meter
+        // position change).
+        internal const double TailPositionLatLonEpsilonDeg = 1e-6;  // ~0.11 m at Kerbin's equator
+        internal const double TailAltitudeEpsilonMeters = 0.25;
+        internal const float TailRotationEpsilonDegrees = 0.5f;
+
         private static bool SurfacePointMatchesTerminal(TrajectoryPoint pt,
             string terminalBody, double terminalLat, double terminalLon, double terminalAlt,
             Quaternion terminalRotation, bool hasTerminalRotation)
@@ -1327,13 +1338,13 @@ namespace Parsek
                     return false;
             }
 
-            if (pt.latitude != terminalLat)
+            if (System.Math.Abs(pt.latitude - terminalLat) > TailPositionLatLonEpsilonDeg)
                 return false;
 
-            if (pt.longitude != terminalLon)
+            if (System.Math.Abs(pt.longitude - terminalLon) > TailPositionLatLonEpsilonDeg)
                 return false;
 
-            if (pt.altitude != terminalAlt)
+            if (System.Math.Abs(pt.altitude - terminalAlt) > TailAltitudeEpsilonMeters)
                 return false;
 
             bool pointHasRotation = HasMeaningfulRotation(pt.rotation);
@@ -1342,13 +1353,10 @@ namespace Parsek
                 if (!(hasTerminalRotation && pointHasRotation))
                     return false;
 
-                if (pt.rotation.x != terminalRotation.x
-                    || pt.rotation.y != terminalRotation.y
-                    || pt.rotation.z != terminalRotation.z
-                    || pt.rotation.w != terminalRotation.w)
-                {
+                Quaternion pointRot = TrajectoryMath.SanitizeQuaternion(pt.rotation);
+                Quaternion terminalRot = TrajectoryMath.SanitizeQuaternion(terminalRotation);
+                if (Quaternion.Angle(pointRot, terminalRot) > TailRotationEpsilonDegrees)
                     return false;
-                }
             }
 
             return true;

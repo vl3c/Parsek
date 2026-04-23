@@ -51,13 +51,25 @@ Follow-up the same hour (`2026-04-23_2305_post-fix-regression`): once the restor
 
 UX polish (same branch): the FlightRecorder `StartRecording(isPromotion: true)` path suppresses the inner `Recording STARTED` screen toast, so scene-enter resume used to happen silently. `TryRestoreCommittedTreeForSpawnedActiveVessel` now surfaces `Recording STARTED (resume)` after a successful restore, matching the `(auto)` and `(auto - post switch)` messages on the other auto-record paths.
 
-## 558. Real-spawned vessel post-resume can stand tilted / on its side when physics activates
+## 558. Real-spawned vessel post-resume stands on its side when physics activates
 
-Observed in `2026-04-23_2333_spawn-orientation` playtest: after the resume + re-commit + KSC real-spawn cycle works end-to-end, the real-spawned Crater Crawler (`pid=4087302943`, lat=-0.069 lon=-74.72 alt=66.78) produced `OnVesselSituationChange: ignoring non-active vessel (0 → ORBITING) | suppressed=10` immediately after flight #4 loaded 155 m away. User visually reports the rover standing on its side. Spawn-rotation prep log: `srfRel=0.02057,-0.13141,-0.15384,0.97910` (≈18° tilt, ~−17° roll + ~−16° yaw in body-fixed Euler), `world=0.13752,-0.87511,0.07194,-0.45836`. No `Unpacking Crater Crawler` in the flight-#4 load sequence despite the 155 m proximity, which suggests KSP resolved the proto into ORBITING and stayed packed.
+Observed in `2026-04-23_2333_spawn-orientation`, reproduced cleanly in `2026-04-24_0004_orientation-regression`. After the resume + re-commit + real-spawn cycle now works end-to-end (thanks to the 557 fix chain), the real-spawned vessel arrives in the scene with a visibly wrong orientation. User phrasing: "on its side." The 04-24 spawn was an in-flight spawn at game UT ~471 during an active Bug-E Buggy flight; prep log:
 
-Probably root cause (unconfirmed): `TryApplySpawnRotationFromSurfaceRelative` writes the computed world rotation (`body.bodyTransform.rotation * srfRel`) to `VESSEL.rot`, but KSP's ProtoVessel loader for LANDED vessels may interpret `rot` as relative to the body's rotating reference frame (includes body spin) rather than world; writing world-space gives the wrong orientation when the scene reconstructs the rotating frame, especially at non-zero lon. Alternate suspicion: the captured `srfRel` at a non-flat terrain point is the vessel's actual tilt at that spot, so after rewind the vessel is re-placed on smoother terrain and the stored tilt no longer matches — the tilt would be ≤20° in that case, not "on its side". Either hypothesis is consistent with the logs; the one-liner fix depends on which is right.
+```
+srfRel=-0.000111888832,-0.133055791,-0.000464609941,0.991108477
+world=0.000474858942,-0.885830998,5.37633787E-05,-0.464007854
+```
 
-Next diagnostic: launch a flat-runway recording (no driving), commit, exit, re-enter, note the terminal `srfRel` (should be near identity). If it's near identity and the rover still tilts on spawn, bug is in the reconstruction/persistence path, not in capture.
+`srfRel` is an upright rover with ~15° yaw — zero roll/pitch. `world = body.bodyTransform.rotation * srfRel` comes out as ~125° of rotation, dominated by the body's own transform rotation at the spawn moment. The fact that the stored `VESSEL.rot` contains this composed "world" value was intentional per commit `2737c6fc` ("Fix spawn-time rotation reconstruction") which said `VESSEL.rot must be written in world space before ProtoVessel.Load()`. The current playtest evidence suggests KSP actually re-multiplies by body at load, so writing world gives a double-rotation. Also possible: `body.bodyTransform.rotation` is time-varying (not tilt-only as `.claude/CLAUDE.md` claims) and captures the body spin, in which case `world_at_capture ≠ world_at_spawn` and using either "write srfRel" or "write world at spawn" would both be consistent.
+
+**Risk of fixing blind:** commit 2737c6fc shipped with explicit tests (`SpawnRotationInGameTests`, `SpawnRotationTests`) that assert the current `body * srfRel` behavior. Flipping to write `srfRel` means changing both those tests and the code, and could regress whichever KSP flow 2737c6fc was actually fixing (SpawnAtPosition vs snapshot-prep respawns vs chain-tip spawns — the CHANGELOG lists all three). Needs a paired-playtest validation: drive a flat-runway recording, commit/exit, trigger a real-spawn (via rewind-strip + re-enter KSC), observe orientation; then try the srfRel write and observe again.
+
+Diagnostic recipe for next session:
+1. Fresh install baseline: launch vessel, drive ~10 m, come back, commit, rewind to strip original, let KSC spawn fire, enter flight, check orientation.
+2. If tilted: patch `ApplyWorldSpawnRotationToNode` to write `surfaceRelativeRotation` directly and repeat.
+3. Capture the spawn-rotation prep log both runs and compare.
+
+Not causally related to the 557 fix chain — the resume + detach changes don't touch rotation code. This surfaces now only because the real-spawn path fires reliably where before it was blocked by the VesselSpawned-after-load bug.
 
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
