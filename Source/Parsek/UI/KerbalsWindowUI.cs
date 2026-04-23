@@ -503,7 +503,7 @@ namespace Parsek
             int end,
             bool folded)
         {
-            string boldName = $"<b>{kerbalName}</b>";
+            string boldName = $"<b>{EscapeRichText(kerbalName)}</b>";
             if (!folded) return boldName;
 
             string summary = FormatKerbalSummary(kerbalName, entries, start, end);
@@ -512,6 +512,12 @@ namespace Parsek
                 return boldName + summary.Substring(kerbalName.Length);
             }
             return boldName + " " + summary;
+        }
+
+        private static string EscapeRichText(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            return text.Replace("<", "<\u200B");
         }
 
         /// <summary>

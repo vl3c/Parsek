@@ -850,6 +850,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatMissionOutcomeHeaderText_EscapesKerbalNameRichTextTags()
+        {
+            const string name = "Bill </b><color=red>Kerman";
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry(name, KerbalEndState.Recovered)
+            };
+
+            string result = KerbalsWindowUI.FormatMissionOutcomeHeaderText(
+                name, entries, 0, entries.Count, folded: true);
+
+            Assert.Equal(
+                "<b>Bill <\u200B/b><\u200Bcolor=red>Kerman</b> (1 mission - 1 Recovered)",
+                result);
+            Assert.DoesNotContain("</b><color=red>", result);
+        }
+
+        [Fact]
         public void ToggleFold_WhenNotFolded_AddsToSetAndLogsFolded()
         {
             var folded = new HashSet<string>(StringComparer.Ordinal);
