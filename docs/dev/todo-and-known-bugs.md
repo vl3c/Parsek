@@ -685,7 +685,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Fix:** `OnVesselRecoveryFunds(...)` now defers unmatched recovery requests and `GameStateRecorder.OnFundsChanged(...)` calls `OnRecoveryFundsEventRecorded(...)` for recovery reasons so the delayed event can complete the pairing. Pending callbacks are preserved until they pair with distinct `FundsChanged(VesselRecovery)` event fingerprints, including same-named recoveries inside the UT epsilon, and are cleared on load/test resets. Pairing prefers requests whose vessel name matches the funds event and warns when multiple candidates share the same UT after name matching, then falls back to nearest UT. Pending requests that never receive a paired funds event are evicted on scene switches, save loads, and rewind boundaries with a WARN listing the unclaimed entries.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `CHANGELOG.md`.
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/ParsekScenario.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused callback-before-event coverage, staleness eviction on lifecycle boundaries, and vessel-name-preferred pairing with WARN on ambiguous ties.
 
@@ -697,7 +697,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Concern:** direct ledger forwarding only allowed non-FLIGHT scenes. That is correct for tagged FLIGHT teardown events, but untagged pre-recording FLIGHT contract events have no later commit-time `ConvertEvents` owner. If they are not written directly, the ledger can miss contract state or rewards. The same ownership reasoning applies to tech, part-purchase, crew-hire, strategy, facility, and science-subject events that arrive untagged before any recording exists.
 
-**Fix:** contract lifecycle forwarding now keys on the `recordingId` stamped by `Emit(ref evt)` and whether a live recorder can still own an empty-tag event. Non-empty tags suppress direct ledger writes so teardown/discard fate remains intact; empty tags forward directly only when no live recorder exists, covering true pre-recording FLIGHT events without turning tag-resolution drift into null-owner ledger actions. The same `ShouldForwardDirectLedgerEvent` predicate is threaded through `TechResearched`, `PartPurchased`, `CrewHired`, strategy activate/deactivate/complete, facility upgrade, and science-subject handlers so every direct-ledger path shares one gate.
+**Fix:** contract lifecycle forwarding now keys on the `recordingId` stamped by `Emit(ref evt)` and whether a live recorder can still own an empty-tag event. Non-empty tags suppress direct ledger writes so teardown/discard fate remains intact; empty tags forward directly only when no live recorder exists, covering true pre-recording FLIGHT events without turning tag-resolution drift into null-owner ledger actions. The same `ShouldForwardDirectLedgerEvent` predicate is threaded through `TechResearched`, `PartPurchased`, `CrewHired`, `MilestoneAchieved` (in-flight and standalone paths), `StrategyActivated`, `StrategyDeactivated`, and `FacilityUpgraded` handlers so every direct-ledger path shares one gate.
 
 **Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/DiscardFateTests.cs`, `CHANGELOG.md`.
 
