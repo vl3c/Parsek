@@ -28,6 +28,7 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -41,6 +42,7 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
             LedgerOrchestrator.ResetForTesting();
+            RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -347,9 +349,28 @@ namespace Parsek.Tests
             LedgerOrchestrator.ReconcileKscAction(events, ledger, action, ut);
         }
 
-        private static GameStateEvent MakeKeyedFundsChanged(
-            double ut, double before, double after, string reason, string recordingId = "")
+        private static void EnsureVisibleRecording(string recordingId)
         {
+            if (string.IsNullOrEmpty(recordingId) ||
+                RecordingStore.IsCurrentTimelineRecordingId(recordingId))
+            {
+                return;
+            }
+
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = recordingId
+            });
+        }
+
+        private static GameStateEvent MakeKeyedFundsChanged(
+            double ut, double before, double after, string reason, string recordingId = "",
+            bool visible = true)
+        {
+            if (visible)
+                EnsureVisibleRecording(recordingId);
+
             return new GameStateEvent
             {
                 ut = ut,
@@ -362,8 +383,12 @@ namespace Parsek.Tests
         }
 
         private static GameStateEvent MakeKeyedScienceChanged(
-            double ut, double before, double after, string reason, string recordingId = "")
+            double ut, double before, double after, string reason, string recordingId = "",
+            bool visible = true)
         {
+            if (visible)
+                EnsureVisibleRecording(recordingId);
+
             return new GameStateEvent
             {
                 ut = ut,
@@ -376,8 +401,12 @@ namespace Parsek.Tests
         }
 
         private static GameStateEvent MakeKeyedRepChanged(
-            double ut, double before, double after, string reason, string recordingId = "")
+            double ut, double before, double after, string reason, string recordingId = "",
+            bool visible = true)
         {
+            if (visible)
+                EnsureVisibleRecording(recordingId);
+
             return new GameStateEvent
             {
                 ut = ut,
@@ -1853,8 +1882,23 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_CoalescedWindow_MatchesOnce_NoWarn()
         {
+            EnsureVisibleRecording("rec-mun");
             var events = new List<GameStateEvent>
             {
+                new GameStateEvent
+                {
+                    ut = 19540.3,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Mun/Flyby",
+                    recordingId = "rec-mun"
+                },
+                new GameStateEvent
+                {
+                    ut = 19540.3,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Kerbin/Escape",
+                    recordingId = "rec-mun"
+                },
                 MakeKeyedFundsChanged(19540.3, 100000, 126200, "Progression", recordingId: "rec-mun"),
                 MakeKeyedRepChanged(19540.3, 10, 13, "Progression", recordingId: "rec-mun"),
                 MakeKeyedScienceChanged(19540.3, 2, 3, "Progression", recordingId: "rec-mun")
@@ -1908,7 +1952,24 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_CoalescedWindow_MissingEvent_WarnsOncePerLeg()
         {
-            var events = new List<GameStateEvent>();
+            EnsureVisibleRecording("rec-mun");
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 19540.3,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Mun/Flyby",
+                    recordingId = "rec-mun"
+                },
+                new GameStateEvent
+                {
+                    ut = 19540.3,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Kerbin/Escape",
+                    recordingId = "rec-mun"
+                }
+            };
             var actions = new List<GameAction>
             {
                 new GameAction
@@ -1962,7 +2023,24 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_CoalescedTinyScienceLegs_AggregateWarnsOnce()
         {
-            var events = new List<GameStateEvent>();
+            EnsureVisibleRecording("rec-small");
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 600,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "TinyA",
+                    recordingId = "rec-small"
+                },
+                new GameStateEvent
+                {
+                    ut = 600,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "TinyB",
+                    recordingId = "rec-small"
+                }
+            };
             var actions = new List<GameAction>
             {
                 new GameAction
@@ -2048,7 +2126,15 @@ namespace Parsek.Tests
                 EndUT = 650,
                 Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 650,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             var action = new GameAction
@@ -2071,7 +2157,6 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_WithoutLiveSourceAnchorInNewEpoch_Skipped_NoWarn()
         {
-            MilestoneStore.CurrentEpoch = 1;
             var laterMilestone = new GameStateEvent
             {
                 ut = 100,
@@ -2108,7 +2193,6 @@ namespace Parsek.Tests
                 Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("ro-RO");
                 Thread.CurrentThread.CurrentUICulture = CultureInfo.GetCultureInfo("ro-RO");
 
-                MilestoneStore.CurrentEpoch = 1;
                 var milestoneEvt = new GameStateEvent
                 {
                     ut = 50,
@@ -2148,7 +2232,6 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_WithLiveFundsButNoSourceAnchorInNewEpoch_DoesNotSkip()
         {
-            MilestoneStore.CurrentEpoch = 1;
             var liveFunds = MakeKeyedFundsChanged(50, 0, 800, "Progression");
             GameStateStore.AddEvent(ref liveFunds);
             var action = new GameAction
@@ -2172,8 +2255,6 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_StaleNeighborInsideCoalesceWindow_DoesNotInflateLiveExpected()
         {
-            MilestoneStore.CurrentEpoch = 1;
-
             var liveMilestone = new GameStateEvent
             {
                 ut = 50.05,
@@ -2214,19 +2295,23 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_StaleObservedEventIgnored_InLiveWindow()
         {
-            MilestoneStore.CurrentEpoch = 1;
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = "live-rec",
+                VesselName = "Visible"
+            });
 
             var staleFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
-            staleFunds.epoch = 0;
+            staleFunds.recordingId = "old-rec";
             var liveMilestone = new GameStateEvent
             {
                 ut = 50.05,
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = "LaterMilestone",
-                epoch = 1
+                recordingId = "live-rec"
             };
             var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
-            liveFunds.epoch = 1;
+            liveFunds.recordingId = "live-rec";
 
             var action = new GameAction
             {
@@ -2250,15 +2335,22 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_ThresholdStraddlingStaleNeighbor_DoesNotSuppressLiveFallback()
         {
-            MilestoneStore.CurrentEpoch = 1;
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
                 MilestoneId = "m1",
                 StartUT = 0,
                 EndUT = 50.0,
-                Epoch = 1,
+                Epoch = 0,
                 Committed = true,
-                Events = new List<GameStateEvent>()
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50.0,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "m1-seed"
+                    }
+                }
             });
 
             var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
@@ -2295,8 +2387,6 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_LiveNoSourceOverlap_SkipsAmbiguousFallback()
         {
-            MilestoneStore.CurrentEpoch = 1;
-
             var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
             GameStateStore.AddEvent(ref liveFunds);
 
@@ -3019,7 +3109,15 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_NoMatchingEvent_WarnsMissingChannel()
         {
-            var events = new List<GameStateEvent>();  // no events at all
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 500,
+                    eventType = GameStateEventType.ContractCompleted,
+                    key = "c_orphan"
+                }
+            };
             var action = new GameAction
             {
                 UT = 500,

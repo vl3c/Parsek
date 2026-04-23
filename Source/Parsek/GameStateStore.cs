@@ -30,9 +30,6 @@ namespace Parsek
 
         internal static void AddEvent(ref GameStateEvent e)
         {
-            // Stamp current epoch for branch isolation
-            e.epoch = MilestoneStore.CurrentEpoch;
-
             // Resource coalescing: if this is a resource event and the last event
             // of the same type + same recordingId tag is within the epsilon window,
             // update it instead. #431: the tag equality gate is required — without
@@ -74,7 +71,34 @@ namespace Parsek
 
             events.Add(e);
             ParsekLog.Verbose("GameStateStore",
-                $"AddEvent: {e.eventType} key='{e.key}' epoch={e.epoch} ut={e.ut:F1} (total={events.Count})");
+                $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} (total={events.Count})");
+        }
+
+        internal static bool IsEventVisibleToCurrentTimeline(GameStateEvent e)
+        {
+            string recordingId = e.recordingId ?? "";
+            return string.IsNullOrEmpty(recordingId)
+                || RecordingStore.IsCurrentTimelineRecordingId(recordingId);
+        }
+
+        internal static bool EventIdentityMatches(GameStateEvent candidate, GameStateEvent target)
+        {
+            if (candidate.ut != target.ut
+                || candidate.eventType != target.eventType
+                || !string.Equals(candidate.key, target.key, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            string candidateRecordingId = candidate.recordingId ?? "";
+            string targetRecordingId = target.recordingId ?? "";
+            if (!string.Equals(candidateRecordingId, targetRecordingId, StringComparison.Ordinal))
+                return false;
+
+            // Legacy saves can still carry old epoch stamps on otherwise-untagged rows.
+            // Preserve that as a final tie-breaker for historical duplicates, but new
+            // production logic no longer depends on the field.
+            return !string.IsNullOrEmpty(candidateRecordingId) || candidate.epoch == target.epoch;
         }
 
         internal static bool IsResourceEvent(GameStateEventType type)
@@ -120,20 +144,13 @@ namespace Parsek
         /// </summary>
         internal static int GetUncommittedEventCount()
         {
-            uint epoch = MilestoneStore.CurrentEpoch;
-            double lastMilestoneEndUT = 0;
-            var milestones = MilestoneStore.Milestones;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                if (milestones[i].Epoch == epoch && milestones[i].EndUT > lastMilestoneEndUT)
-                    lastMilestoneEndUT = milestones[i].EndUT;
-            }
+            double lastMilestoneEndUT = MilestoneStore.GetLatestCommittedEndUT();
 
             int count = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.epoch != epoch) continue;
+                if (!IsEventVisibleToCurrentTimeline(e)) continue;
                 if (e.ut <= lastMilestoneEndUT) continue;
                 if (IsMilestoneFilteredEvent(e.eventType)) continue;
                 count++;
@@ -193,19 +210,17 @@ namespace Parsek
         /// and then, when the Harmony postfix on ProgressNode.AwardProgress has the
         /// real values, patches the stored event in place.
         /// </summary>
-        internal static bool UpdateEventDetail(
-            double ut, GameStateEventType eventType, string key, uint epoch, string newDetail)
+        internal static bool UpdateEventDetail(GameStateEvent target, string newDetail)
         {
             for (int i = 0; i < events.Count; i++)
             {
-                var e = events[i];
-                if (e.ut == ut && e.eventType == eventType &&
-                    e.key == key && e.epoch == epoch)
+                if (EventIdentityMatches(events[i], target))
                 {
+                    var e = events[i];
                     e.detail = newDetail;
                     events[i] = e;
                     ParsekLog.Verbose("GameStateStore",
-                        $"Updated event detail: {eventType} key='{key}' ut={ut:F1}");
+                        $"Updated event detail: {target.eventType} key='{target.key}' ut={target.ut:F1}");
                     return true;
                 }
             }
@@ -220,9 +235,7 @@ namespace Parsek
         {
             for (int i = 0; i < events.Count; i++)
             {
-                var e = events[i];
-                if (e.ut == target.ut && e.eventType == target.eventType &&
-                    e.key == target.key && e.epoch == target.epoch)
+                if (EventIdentityMatches(events[i], target))
                 {
                     events.RemoveAt(i);
                     ParsekLog.Info("GameStateStore",
@@ -234,21 +247,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes events that have been consumed by milestone creation and ledger conversion.
-        /// Call after both CreateMilestone and OnRecordingCommitted have completed.
-        /// Events are pruned if they belong to an old epoch OR if their UT is at or below
-        /// the latest committed milestone EndUT in the current epoch.
+        /// Removes visible events that have been consumed by milestone creation and ledger
+        /// conversion. Hidden tagged events from reverted-away branches are preserved so a
+        /// later F9 quickload that restores the matching recording ids can make them visible
+        /// again without relying on the old epoch gate.
         /// </summary>
         internal static int PruneProcessedEvents()
         {
-            uint currentEpoch = MilestoneStore.CurrentEpoch;
             double threshold = MilestoneStore.GetLatestCommittedEndUT();
 
             int pruned = 0;
+            int hiddenPreserved = 0;
             for (int i = events.Count - 1; i >= 0; i--)
             {
                 var e = events[i];
-                if (e.epoch != currentEpoch || e.ut <= threshold)
+                if (!IsEventVisibleToCurrentTimeline(e))
+                {
+                    hiddenPreserved++;
+                    continue;
+                }
+
+                if (e.ut <= threshold)
                 {
                     events.RemoveAt(i);
                     pruned++;
@@ -259,7 +278,7 @@ namespace Parsek
             {
                 ParsekLog.Info("GameStateStore",
                     $"PruneProcessedEvents: removed {pruned} events " +
-                    $"(epoch={currentEpoch}, threshold={threshold:F1}, remaining={events.Count})");
+                    $"(threshold={threshold:F1}, hiddenPreserved={hiddenPreserved}, remaining={events.Count})");
             }
 
             return pruned;

@@ -379,9 +379,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref msEvt, "test");
 
             var original = GameStateStore.Events.First();
-            bool updated = GameStateStore.UpdateEventDetail(
-                original.ut, original.eventType, original.key, original.epoch,
-                "reward=25000");
+            bool updated = GameStateStore.UpdateEventDetail(original, "reward=25000");
 
             Assert.True(updated);
             var after = GameStateStore.Events.First();
@@ -447,6 +445,9 @@ namespace Parsek.Tests
             var flushEvt = MakeEvent(GameStateEventType.ContractAccepted, "guid-flush", 100.0);
             GameStateRecorder.Emit(ref flushEvt, "flight");
 
+            var tree = MakeTree("tree001", "rec-flush");
+            RecordingStore.StashPendingTree(tree);
+
             // Simulate F5 mid-flight — flush pulls the event into a committed milestone,
             // PruneProcessedEvents then removes it from the live events list.
             var milestone = MilestoneStore.FlushPendingEvents(150.0);
@@ -457,9 +458,6 @@ namespace Parsek.Tests
             Assert.Equal(1, MilestoneStore.MilestoneCount);
             Assert.Contains(MilestoneStore.Milestones[0].Events,
                 e => e.key == "guid-flush" && e.recordingId == "rec-flush");
-
-            var tree = MakeTree("tree001", "rec-flush");
-            RecordingStore.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 

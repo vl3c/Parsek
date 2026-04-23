@@ -19,22 +19,58 @@ namespace Parsek
         internal static IReadOnlyList<Milestone> Milestones => milestones;
         internal static int MilestoneCount => milestones.Count;
 
-        internal static uint CurrentEpoch { get; set; }
+        private static bool TryGetVisibleWatermarkEndUT(Milestone milestone, out double watermarkEndUT)
+        {
+            watermarkEndUT = 0;
+            if (milestone == null || !milestone.Committed || milestone.Events == null)
+                return false;
+
+            bool sawVisible = false;
+            bool sawHidden = false;
+            double latestVisibleEventUT = 0;
+            for (int i = 0; i < milestone.Events.Count; i++)
+            {
+                if (GameStateStore.IsEventVisibleToCurrentTimeline(milestone.Events[i]))
+                {
+                    if (!sawVisible || milestone.Events[i].ut > latestVisibleEventUT)
+                        latestVisibleEventUT = milestone.Events[i].ut;
+                    sawVisible = true;
+                }
+                else
+                {
+                    sawHidden = true;
+                }
+            }
+
+            if (!sawVisible)
+                return false;
+
+            // Fully-visible milestones keep their authoritative EndUT so resource-only gaps
+            // still count as consumed. Mixed-visibility milestones clamp to the latest live
+            // event UT so hidden abandoned-branch tails do not advance the current timeline.
+            watermarkEndUT = sawHidden
+                ? Math.Min(milestone.EndUT, latestVisibleEventUT)
+                : milestone.EndUT;
+            return true;
+        }
 
         /// <summary>
-        /// Returns the highest EndUT among all milestones in the current epoch.
-        /// Returns 0 if no milestones exist for the current epoch.
+        /// Returns the highest visible watermark among all committed milestones that still
+        /// contribute at least one event to the current timeline.
         /// Used by GameStateStore.PruneProcessedEvents to determine the threshold
         /// below which events have been consumed.
         /// </summary>
         internal static double GetLatestCommittedEndUT()
         {
-            uint epoch = CurrentEpoch;
             double latest = 0;
             for (int i = 0; i < milestones.Count; i++)
             {
-                if (milestones[i].Epoch == epoch && milestones[i].Committed && milestones[i].EndUT > latest)
-                    latest = milestones[i].EndUT;
+                double visibleWatermarkEndUT;
+                if (TryGetVisibleWatermarkEndUT(milestones[i], out visibleWatermarkEndUT)
+                    && visibleWatermarkEndUT > latest)
+                {
+                    latest = visibleWatermarkEndUT;
+                }
             }
             return latest;
         }
@@ -42,35 +78,29 @@ namespace Parsek
         internal static Milestone CreateMilestone(string recordingId, double currentUT)
         {
             double startUT = 0;
-            uint epoch = CurrentEpoch;
             for (int i = 0; i < milestones.Count; i++)
             {
-                if (milestones[i].Epoch == epoch && milestones[i].EndUT > startUT)
-                    startUT = milestones[i].EndUT;
+                double visibleWatermarkEndUT;
+                if (TryGetVisibleWatermarkEndUT(milestones[i], out visibleWatermarkEndUT)
+                    && visibleWatermarkEndUT > startUT)
+                {
+                    startUT = visibleWatermarkEndUT;
+                }
             }
 
             ParsekLog.Verbose("MilestoneStore",
-                $"CreateMilestone: scanning events epoch={epoch}, window UT {startUT:F0}-{currentUT:F0}, recordingId={recordingId ?? "(flush)"}");
+                $"CreateMilestone: scanning visible events in window UT {startUT:F0}-{currentUT:F0}, recordingId={recordingId ?? "(flush)"}");
 
             var events = GameStateStore.Events;
 
             var filtered = new List<GameStateEvent>();
-            int skippedEpoch = 0, skippedWindow = 0, skippedResource = 0;
+            int skippedHidden = 0, skippedWindow = 0, skippedResource = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.epoch != epoch)
+                if (!GameStateStore.IsEventVisibleToCurrentTimeline(e))
                 {
-                    // #431 cohab log: the legacy epoch filter is about to hide an event whose
-                    // recordingId still matches a live committed recording. That signals drift
-                    // between the legacy filter and the new tag-based purge. Warn so the
-                    // disagreement is visible before it surprises a user.
-                    if (!string.IsNullOrEmpty(e.recordingId) && RecordingStore.IsCommittedRecordingId(e.recordingId))
-                        ParsekLog.Warn("MilestoneStore",
-                            $"Epoch-filter cohabitation drift: event '{e.eventType}' key='{e.key}' " +
-                            $"filtered by epoch ({e.epoch} != {epoch}) but tagged '{e.recordingId}' " +
-                            "still matches a committed recording");
-                    skippedEpoch++;
+                    skippedHidden++;
                     continue;
                 }
                 if (e.ut <= startUT || e.ut > currentUT) { skippedWindow++; continue; }
@@ -80,12 +110,12 @@ namespace Parsek
 
             ParsekLog.Verbose("MilestoneStore",
                 $"CreateMilestone: {events.Count} total events, {filtered.Count} matched, " +
-                $"skipped: epoch={skippedEpoch}, window={skippedWindow}, resource={skippedResource}");
+                $"skipped: hidden={skippedHidden}, window={skippedWindow}, resource={skippedResource}");
 
             if (filtered.Count == 0)
             {
                 ParsekLog.Verbose("MilestoneStore",
-                    $"No game state events for milestone (epoch={epoch}, UT {startUT:F0}-{currentUT:F0}) — skipped");
+                    $"No visible game state events for milestone (UT {startUT:F0}-{currentUT:F0}) — skipped");
                 return null;
             }
 
@@ -97,7 +127,6 @@ namespace Parsek
                 StartUT = startUT,
                 EndUT = currentUT,
                 RecordingId = recordingId ?? "",
-                Epoch = epoch,
                 Events = filtered,
                 Committed = true,
                 LastReplayedEventIndex = filtered.Count - 1
@@ -107,7 +136,7 @@ namespace Parsek
             ResourceBudget.Invalidate();
             ParsekLog.Info("MilestoneStore",
                 $"Milestone created: id={ShortId(milestone.MilestoneId)}, {filtered.Count} events, " +
-                $"UT {startUT:F0}-{currentUT:F0}, epoch={epoch}");
+                $"UT {startUT:F0}-{currentUT:F0}");
 
             for (int i = 0; i < filtered.Count; i++)
             {
@@ -419,7 +448,6 @@ namespace Parsek
             milestones.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
-            CurrentEpoch = 0;
         }
 
         internal static void AddMilestoneForTesting(Milestone m)
@@ -442,19 +470,20 @@ namespace Parsek
         #endregion
 
         /// <summary>
-        /// Counts non-resource events across all committed milestones in the current epoch.
+        /// Counts non-resource events across all committed milestones that are still visible
+        /// in the current timeline.
         /// Used for the Actions button badge in the main window.
         /// </summary>
         internal static int GetPendingEventCount()
         {
             int count = 0;
-            uint epoch = CurrentEpoch;
             for (int i = 0; i < milestones.Count; i++)
             {
                 var m = milestones[i];
-                if (!m.Committed || m.Epoch != epoch) continue;
+                if (!m.Committed) continue;
                 for (int j = 0; j < m.Events.Count; j++)
                 {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
                     if (!GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
                         count++;
                 }
@@ -468,16 +497,14 @@ namespace Parsek
         /// </summary>
         internal static bool RemoveCommittedEvent(GameStateEvent target)
         {
-            uint epoch = CurrentEpoch;
             for (int i = 0; i < milestones.Count; i++)
             {
                 var m = milestones[i];
-                if (!m.Committed || m.Epoch != epoch) continue;
+                if (!m.Committed) continue;
                 for (int j = 0; j < m.Events.Count; j++)
                 {
                     var e = m.Events[j];
-                    if (e.ut == target.ut && e.eventType == target.eventType &&
-                        e.key == target.key)
+                    if (GameStateStore.EventIdentityMatches(e, target))
                     {
                         m.Events.RemoveAt(j);
                         if (j <= m.LastReplayedEventIndex)
@@ -492,7 +519,7 @@ namespace Parsek
                 }
             }
             ParsekLog.Verbose("MilestoneStore",
-                $"RemoveCommittedEvent: no match for {target.eventType} key='{target.key}' ut={target.ut:F1} in epoch={CurrentEpoch}");
+                $"RemoveCommittedEvent: no match for {target.eventType} key='{target.key}' ut={target.ut:F1}");
             return false;
         }
 
@@ -511,6 +538,7 @@ namespace Parsek
                 if (!m.Committed) continue;
                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                 {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
                     if (m.Events[j].eventType == GameStateEventType.TechResearched
                         && !string.IsNullOrEmpty(m.Events[j].key))
                         result.Add(m.Events[j].key);
@@ -536,6 +564,7 @@ namespace Parsek
                 if (!m.Committed) continue;
                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                 {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
                     if (m.Events[j].eventType == GameStateEventType.FacilityUpgraded
                         && !string.IsNullOrEmpty(m.Events[j].key))
                         result.Add(m.Events[j].key);
@@ -560,6 +589,7 @@ namespace Parsek
                 if (!m.Committed) continue;
                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                 {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
                     if (m.Events[j].eventType == type && m.Events[j].key == key)
                     {
                         ParsekLog.Verbose("MilestoneStore",

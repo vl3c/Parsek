@@ -14,6 +14,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -942,29 +943,28 @@ namespace Parsek.Tests
         #region Epoch Stamping
 
         [Fact]
-        public void AddEvent_StampsCurrentEpoch()
+        public void AddEvent_PreservesLegacyEpochField()
         {
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
 
-            MilestoneStore.CurrentEpoch = 3;
             var epoch3Evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
+                key = "basicRocketry",
+                epoch = 3
             };
             GameStateStore.AddEvent(ref epoch3Evt);
 
             Assert.Equal(3u, GameStateStore.Events[0].epoch);
 
-            // Change epoch and add another
-            MilestoneStore.CurrentEpoch = 5;
             var epoch5Evt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.PartPurchased,
-                key = "mk1pod.v2"
+                key = "mk1pod.v2",
+                epoch = 5
             };
             GameStateStore.AddEvent(ref epoch5Evt);
 
@@ -975,18 +975,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GameStateEvent_EpochField_SerializationRoundtrip()
+        public void GameStateEvent_DeserializeFrom_ReadsLegacyEpochField()
         {
-            var original = new GameStateEvent
-            {
-                ut = 17000,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                epoch = 7
-            };
-
             var node = new ConfigNode("GAME_STATE_EVENT");
-            original.SerializeInto(node);
+            node.AddValue("ut", "17000");
+            node.AddValue("type", ((int)GameStateEventType.TechResearched).ToString(CultureInfo.InvariantCulture));
+            node.AddValue("key", "basicRocketry");
+            node.AddValue("epoch", "7");
 
             var deserialized = GameStateEvent.DeserializeFrom(node);
 
@@ -994,14 +989,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GameStateEvent_EpochZero_NotSerialized()
+        public void GameStateEvent_SerializeInto_OmitsLegacyEpochField()
         {
-            // epoch=0 is omitted from ConfigNode (space optimization)
             var original = new GameStateEvent
             {
                 ut = 17000,
                 eventType = GameStateEventType.BuildingDestroyed,
-                epoch = 0
+                epoch = 7
             };
 
             var node = new ConfigNode("GAME_STATE_EVENT");
@@ -1540,8 +1534,6 @@ namespace Parsek.Tests
         [Fact]
         public void GetUncommittedEventCount_CountsEventsAfterLastMilestone()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             // Add events and create a milestone covering ut 0-100
             var techEvt = new GameStateEvent
             {
@@ -1582,8 +1574,6 @@ namespace Parsek.Tests
         [Fact]
         public void GetUncommittedEventCount_ZeroWhenAllCommitted()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             var techEvt = new GameStateEvent
             {
                 ut = 50,
@@ -1599,8 +1589,6 @@ namespace Parsek.Tests
         [Fact]
         public void GetUncommittedEventCount_AllUncommittedWhenNoMilestones()
         {
-            MilestoneStore.CurrentEpoch = 0;
-
             var contractEvt = new GameStateEvent
             {
                 ut = 50,
@@ -1617,6 +1605,35 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref partEvt);
 
             Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
+        }
+
+        [Fact]
+        public void GetUncommittedEventCount_IgnoresHiddenTaggedEvents()
+        {
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = "live-rec",
+                VesselName = "Visible"
+            });
+
+            var hiddenEvt = new GameStateEvent
+            {
+                ut = 150,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "hidden-guid",
+                recordingId = "old-rec"
+            };
+            GameStateStore.AddEvent(ref hiddenEvt);
+            var visibleEvt = new GameStateEvent
+            {
+                ut = 160,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "visible-guid",
+                recordingId = "live-rec"
+            };
+            GameStateStore.AddEvent(ref visibleEvt);
+
+            Assert.Equal(1, GameStateStore.GetUncommittedEventCount());
         }
 
         #endregion

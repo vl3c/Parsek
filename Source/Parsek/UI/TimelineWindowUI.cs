@@ -324,7 +324,7 @@ namespace Parsek
                     EffectiveState.ComputeERS(),
                     EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
-                    MilestoneStore.CurrentEpoch);
+                    GameStateStore.IsEventVisibleToCurrentTimeline);
                 timelineDirty = false;
                 filterDirty = true;
 

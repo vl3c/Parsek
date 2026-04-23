@@ -172,7 +172,7 @@ TimelineBuilder.Build(
     IReadOnlyList<Recording> committedRecordings,
     IReadOnlyList<GameAction> ledgerActions,
     IReadOnlyList<Milestone> milestones,
-    uint currentEpoch
+    Func<GameStateEvent, bool> isLegacyEventVisible
 ) → List<TimelineEntry>
 ```
 
@@ -182,7 +182,7 @@ Three collectors then stable sort by UT:
 
 **Game Action Collector** — maps types 1:1, humanizes display text (science subjects, tech nodes, milestones, strategies, crew assignments with vessel name), classifies as Action or Event via `IsPlayerAction`, demotes ineffective T1 entries to T2, resolves vessel name from RecordingId.
 
-**Legacy Collector** — iterates committed milestones matching current epoch, skips filtered event types, all entries at T2.
+**Legacy Collector** — iterates committed milestones, keeps only events visible to the current timeline (untagged rows plus tagged rows whose recording id is in the committed/pending/active current branch), skips filtered event types, all entries at T2.
 
 ### 3.5 Cache invalidation
 

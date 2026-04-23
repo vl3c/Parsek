@@ -42,7 +42,7 @@ namespace Parsek
         public string detail;    // semicolon-separated extra info (optional)
         public double valueBefore;
         public double valueAfter;
-        public uint epoch;       // branch epoch — incremented on revert, filters abandoned branches
+        public uint epoch;       // legacy load-only branch stamp retained for compatibility heuristics
         public string recordingId; // #431: id of the flight recording that captured this event; empty for career-level events
 
         public void SerializeInto(ConfigNode node)
@@ -57,8 +57,6 @@ namespace Parsek
                 node.AddValue("valBefore", valueBefore.ToString("R", CultureInfo.InvariantCulture));
             if (valueAfter != 0)
                 node.AddValue("valAfter", valueAfter.ToString("R", CultureInfo.InvariantCulture));
-            if (epoch != 0)
-                node.AddValue("epoch", epoch.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(recordingId))
                 node.AddValue("recordingId", recordingId);
         }

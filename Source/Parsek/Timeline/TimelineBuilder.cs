@@ -26,7 +26,7 @@ namespace Parsek
             IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
             IReadOnlyList<Milestone> milestones,
-            uint currentEpoch)
+            Func<GameStateEvent, bool> isLegacyEventVisible)
         {
             // Build recording-id to vessel-name lookup once, shared by both collectors
             var vesselNameById = new Dictionary<string, string>();
@@ -46,7 +46,11 @@ namespace Parsek
 
             int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
             int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, entries);
-            int legacyCount = CollectLegacyEntries(milestones, currentEpoch, legacyDuplicateKeys, entries);
+            int legacyCount = CollectLegacyEntries(
+                milestones,
+                isLegacyEventVisible ?? (_ => true),
+                legacyDuplicateKeys,
+                entries);
 
             entries.Sort((a, b) => a.UT.CompareTo(b.UT));
             int compactedMilestoneRows = CompactAdjacentMilestoneEntries(entries);
@@ -545,7 +549,7 @@ namespace Parsek
 
         private static int CollectLegacyEntries(
             IReadOnlyList<Milestone> milestones,
-            uint currentEpoch,
+            Func<GameStateEvent, bool> isLegacyEventVisible,
             HashSet<string> legacyDuplicateKeys,
             List<TimelineEntry> entries)
         {
@@ -555,11 +559,12 @@ namespace Parsek
             for (int i = 0; i < milestones.Count; i++)
             {
                 var m = milestones[i];
-                if (!m.Committed || m.Epoch != currentEpoch) continue;
+                if (!m.Committed) continue;
 
                 for (int j = 0; j < m.Events.Count; j++)
                 {
                     var e = m.Events[j];
+                    if (!isLegacyEventVisible(e)) continue;
                     if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
                     if (legacyDuplicateKeys.Contains(EncodeLegacyDuplicateKey(e.eventType, e.ut, e.key)))
                     {
