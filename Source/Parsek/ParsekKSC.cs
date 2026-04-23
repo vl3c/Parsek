@@ -1220,14 +1220,20 @@ namespace Parsek
                 return;
             }
 
-            // At KSC, FlightGlobals.Vessels may be empty/null but
-            // HighLogic.CurrentGame.flightState.protoVessels is always available.
-            // RespawnVessel uses protoVessels directly — works in any scene.
-            ParsekLog.Info("KSCSpawn",
-                $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
-
             try
             {
+                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                    rec,
+                    "KSCSpawn",
+                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
+                    return;
+
+                // At KSC, FlightGlobals.Vessels may be empty/null but
+                // HighLogic.CurrentGame.flightState.protoVessels is always available.
+                // RespawnVessel uses protoVessels directly - works in any scene.
+                ParsekLog.Info("KSCSpawn",
+                    $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
+
                 // Bug #167: Apply crew swap on a snapshot copy before spawning.
                 // In KSC scene, SwapReservedCrewInFlight cannot run (no loaded vessel),
                 // so we swap reserved crew names directly in the snapshot.

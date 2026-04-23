@@ -28,16 +28,22 @@ namespace Parsek.Tests
 
         public TimeJumpManagerTests()
         {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
         }
 
         public void Dispose()
         {
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
         }
 
         // --- Helper: build a simple GhostChain ---
@@ -289,6 +295,72 @@ namespace Parsek.Tests
             var result = TimeJumpManager.FindCrossedChainTips(chains, 1000.0, 2000.0);
 
             Assert.Empty(result);
+        }
+
+        #endregion
+
+        #region SpawnCrossedChainTips source-vessel duplicate bypass
+
+        [Fact]
+        public void SpawnCrossedChainTips_SceneEntrySourceExists_PassesReplayDuplicateBypass()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "tip-rec",
+                VesselName = "Replay Chain Tip",
+                VesselPersistentId = 777,
+                VesselSnapshot = null
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.SceneEntryActiveVesselPid = 777;
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 777);
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 777, MakeChain(777, 1500.0, tipRecId: "tip-rec") }
+            };
+            var ghoster = new VesselGhoster();
+
+            var spawnedPids = TimeJumpManager.SpawnCrossedChainTips(
+                chains,
+                ghoster,
+                1000.0,
+                2000.0);
+
+            Assert.Empty(spawnedPids);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains("has no VesselSnapshot"));
+        }
+
+        [Fact]
+        public void SpawnCrossedChainTips_LinkedTipSceneEntrySourceExists_UsesTipPidForReplayBypass()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "linked-tip-rec",
+                VesselName = "Linked Replay Chain Tip",
+                VesselPersistentId = 888,
+                VesselSnapshot = null
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.SceneEntryActiveVesselPid = 888;
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 888);
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 777, MakeChain(777, 1500.0, tipRecId: "linked-tip-rec") }
+            };
+            var ghoster = new VesselGhoster();
+
+            var spawnedPids = TimeJumpManager.SpawnCrossedChainTips(
+                chains,
+                ghoster,
+                1000.0,
+                2000.0);
+
+            Assert.Empty(spawnedPids);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains("has no VesselSnapshot"));
         }
 
         #endregion
