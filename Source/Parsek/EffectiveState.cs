@@ -221,6 +221,74 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Broader sibling of <see cref="IsUnfinishedFlight"/>: true iff the
+        /// recording is committed-visible (<c>Immutable</c> or
+        /// <c>CommittedProvisional</c>) and its parent BranchPoint carries a
+        /// live <see cref="RewindPoint"/>. Terminal state is intentionally
+        /// ignored so the Rewind-to-Staging button surfaces on the split's
+        /// sibling recordings regardless of whether they crashed, landed, or
+        /// are still coasting.
+        ///
+        /// <para>
+        /// This is the predicate the recordings-table row consults when
+        /// deciding whether to draw the Rewind-to-Staging button in place of
+        /// the legacy Rewind-to-launch <c>R</c> button. The narrower
+        /// <see cref="IsUnfinishedFlight"/> is still used by the Unfinished
+        /// Flights virtual group membership, the hide-refusal rule, and the
+        /// drag-into-user-group rejection, because those affordances are
+        /// crash-specific. Design §7.31 (lifted 2026-04-23) motivates the
+        /// broader UI predicate: the player's booster coasting to an
+        /// unsatisfying landing still deserves a re-fly button even though
+        /// the classifier labels it "Landed".
+        /// </para>
+        /// </summary>
+        public static bool IsRewindableSlot(Recording rec)
+        {
+            if (rec == null) return false;
+
+            string recId = rec.RecordingId ?? "<no-id>";
+
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
+            {
+                ParsekLog.Verbose("RewindableSlot",
+                    $"IsRewindableSlot=false rec={recId} reason=mergeState:{rec.MergeState}");
+                return false;
+            }
+            if (string.IsNullOrEmpty(rec.ParentBranchPointId))
+            {
+                ParsekLog.Verbose("RewindableSlot",
+                    $"IsRewindableSlot=false rec={recId} reason=noParentBp");
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                ParsekLog.Verbose("RewindableSlot",
+                    $"IsRewindableSlot=false rec={recId} reason=noScenario");
+                return false;
+            }
+
+            string bpId = rec.ParentBranchPointId;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null) continue;
+                if (string.Equals(rp.BranchPointId, bpId, StringComparison.Ordinal))
+                {
+                    ParsekLog.Verbose("RewindableSlot",
+                        $"IsRewindableSlot=true rec={recId} bp={bpId} rp={rp.RewindPointId} terminal={rec.TerminalStateValue}");
+                    return true;
+                }
+            }
+
+            ParsekLog.Verbose("RewindableSlot",
+                $"IsRewindableSlot=false rec={recId} reason=noMatchingRP bp={bpId} rpCount={scenario.RewindPoints.Count}");
+            return false;
+        }
+
+        /// <summary>
         /// Computes the Effective Recording Set per design §3.1: committed
         /// recordings that are visible (not superseded), not <c>NotCommitted</c>,
         /// minus the active re-fly's <c>SessionSuppressedSubtree</c>.

@@ -289,6 +289,135 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // IsRewindableSlot (broader sibling of IsUnfinishedFlight; gates the
+        // Rewind-to-Staging UI button independently of terminal state).
+        // Regression: post-v0.8.3 playtest, a non-crashed booster whose parent
+        // BP has an RP must still expose the Rewind button (design §7.31
+        // lifted 2026-04-23).
+        // =====================================================================
+
+        [Fact]
+        public void IsRewindableSlot_ImmutableCrashedUnderRP_True()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RewindableSlot]") && l.Contains("IsRewindableSlot=true") && l.Contains("rec_A"));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_ImmutableLandedUnderRP_True()
+        {
+            // Design §7.31 (lifted): a safely-landed booster still gets a
+            // Rewind button.
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_ImmutableOrbitingUnderRP_True()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_ImmutableSubOrbitalUnderRP_True()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.SubOrbital,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_ImmutableInFlightWithoutTerminalUnderRP_True()
+        {
+            // The booster's terminal hasn't been written yet. Must still
+            // qualify so the row gets the button.
+            var rec = Rec("rec_A", MergeState.Immutable, terminal: null,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_CommittedProvisionalCrashedUnderRP_True()
+        {
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsRewindableSlot(rec));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_NotCommitted_False()
+        {
+            // Mid-re-fly provisional: NotCommitted rows never expose the button.
+            var rec = Rec("rec_A", MergeState.NotCommitted, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.False(EffectiveState.IsRewindableSlot(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RewindableSlot]") && l.Contains("mergeState:NotCommitted"));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_NoParentBp_False()
+        {
+            // Tree root: no ParentBranchPointId. Legacy launch-rewind handles
+            // this row.
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: null);
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.False(EffectiveState.IsRewindableSlot(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RewindableSlot]") && l.Contains("noParentBp"));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_ParentBpWithoutRp_False()
+        {
+            // Single-controllable breakup: no RP authored for the split.
+            // Matches the s4 playtest's four early "Kerbal X Debris" rows.
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_no_rp");
+            MakeScenario();
+
+            Assert.False(EffectiveState.IsRewindableSlot(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RewindableSlot]") && l.Contains("noMatchingRP"));
+        }
+
+        [Fact]
+        public void IsRewindableSlot_NullRecording_False()
+        {
+            Assert.False(EffectiveState.IsRewindableSlot(null));
+        }
+
+        // =====================================================================
         // ComputeERS
         // =====================================================================
 

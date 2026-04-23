@@ -179,8 +179,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveUnfinishedFlightRewindPoint_NonCrashedChildDoesNotPreemptLegacyButtons()
+        public void TryResolveUnfinishedFlightRewindPoint_LandedChildResolvesToStagingSlot()
         {
+            // Regression for the post-v0.8.3 playtest: a child that split off
+            // at a staging RP and then landed safely (or is still coasting)
+            // must still expose the Rewind-to-Staging button. Prior to
+            // 2026-04-23 the router gated on IsTerminalCrashed per design §7.31;
+            // that gate has been lifted — the Unfinished Flights virtual group
+            // stays narrow but the UI button is broader so the player can
+            // re-fly a non-crashed booster.
             var landed = new Recording
             {
                 RecordingId = "rec_landed",
@@ -189,18 +196,195 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Landed,
                 ParentBranchPointId = "bp_stage"
             };
-            InstallScenarioWithRp(new RewindPoint
+            var rp = new RewindPoint
             {
                 RewindPointId = "rp_stage",
                 BranchPointId = "bp_stage",
                 ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed") }
-            });
+            };
+            InstallScenarioWithRp(rp);
 
             bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
                 landed, out RewindPoint resolvedRp, out int slotListIndex);
 
-            Assert.False(resolved);
-            Assert.Null(resolvedRp);
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_OrbitingChildResolvesToStagingSlot()
+        {
+            // Matches the s4 playtest case: "Kerbal X Probe" split at staging,
+            // reached orbit, terminal=Orbiting. The RP still exists; the UI
+            // button must surface.
+            var orbiting = new Recording
+            {
+                RecordingId = "rec_probe",
+                VesselName = "Kerbal X Probe",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Orbiting,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_probe") }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                orbiting, out RewindPoint resolvedRp, out int slotListIndex);
+
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_SubOrbitalChildResolvesToStagingSlot()
+        {
+            var suborb = new Recording
+            {
+                RecordingId = "rec_booster",
+                VesselName = "Coasting Booster",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.SubOrbital,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_booster") }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                suborb, out RewindPoint resolvedRp, out int slotListIndex);
+
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_InFlightChildWithoutTerminalResolvesToStagingSlot()
+        {
+            // No TerminalStateValue set (still in progress). Classifier returns
+            // InFlight. Must still resolve so the player can re-fly a booster
+            // that hasn't yet reached its end state.
+            var inFlight = new Recording
+            {
+                RecordingId = "rec_inflight",
+                VesselName = "Live Booster",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_inflight") }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                inFlight, out RewindPoint resolvedRp, out int slotListIndex);
+
+            Assert.True(resolved);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_NoParentBranchPointDoesNotResolve()
+        {
+            // Tree roots and chain continuations have no ParentBranchPointId —
+            // they never qualify for Rewind-to-Staging even if a sibling's RP
+            // happens to exist. Legacy rewind-to-launch stays in charge.
+            var root = new Recording
+            {
+                RecordingId = "rec_root",
+                VesselName = "Tree Root",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = null
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "other") }
+            });
+
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                root, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_ParentBpWithoutRpDoesNotResolve()
+        {
+            // The common "debris split with only 1 controllable child"
+            // scenario: no RP was authored for the breakup, so the debris
+            // recording's parent BP has no matching RP. Route must stay in
+            // NotUnfinishedFlight so the row renders an empty cell (or falls
+            // through to legacy R for the tree root).
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris",
+                VesselName = "Kerbal X Debris",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_breakup_no_rp"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_other",
+                BranchPointId = "bp_other",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_other") }
+            });
+
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                debris, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnfinishedFlightRewindPoint_NotCommittedMergeStateDoesNotResolve()
+        {
+            // In-flight provisional recordings during an active re-fly session
+            // are NotCommitted; they should not expose the button even though
+            // the parent BP has an RP.
+            var provisional = new Recording
+            {
+                RecordingId = "rec_prov",
+                VesselName = "Mid-ReFly",
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_prov") }
+            });
+
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                provisional, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
+            Assert.Null(rp);
             Assert.Equal(-1, slotListIndex);
         }
 

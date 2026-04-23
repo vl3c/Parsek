@@ -2415,12 +2415,12 @@ namespace Parsek
 
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Rewind to the split that produced this unfinished flight"
+                ? "Rewind to the staging split that produced this recording"
                 : (reason ?? "Rewind unavailable");
             if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
             {
                 ParsekLog.Info("RewindUI",
-                    $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
+                    $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\" terminal={rec.TerminalStateValue}");
                 RewindInvoker.ShowDialog(rp, slotListIndex);
             }
             GUI.enabled = true;
@@ -2460,7 +2460,17 @@ namespace Parsek
             slotListIndex = -1;
             reason = null;
 
-            if (!IsVisibleUnfinishedFlight(rec, out reason))
+            // Route resolves for ANY committed-visible recording whose parent
+            // branch point carries a RewindPoint — not only the crashed
+            // "Unfinished Flight" subset. Design §7.31 originally gated this
+            // button on IsUnfinishedFlight (crashed terminal only), but a
+            // player whose booster is still coasting or already landed also
+            // deserves a Rewind-to-Staging button (limitation lifted
+            // 2026-04-23). The Unfinished Flights virtual group membership,
+            // hide refusal, and drag-into-user-group rejection still use the
+            // narrower IsUnfinishedFlight predicate — those affordances
+            // remain crash-specific.
+            if (!IsVisibleRewindableSlot(rec, out reason))
                 return UnfinishedFlightRewindRoute.NotUnfinishedFlight;
 
             if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex))
@@ -2473,10 +2483,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves the RewindPoint + child-slot list index for an unfinished
-        /// flight recording. Used by both normal rows and the virtual
-        /// Unfinished Flights group so the row cannot accidentally fall back to
-        /// the tree root's legacy launch rewind.
+        /// Resolves the RewindPoint + child-slot list index for any recording
+        /// whose parent BranchPoint carries a RewindPoint. Used by both normal
+        /// rows and the virtual Unfinished Flights group so the row cannot
+        /// accidentally fall back to the tree root's legacy launch rewind.
+        /// Name retained for call-site compatibility; scope is
+        /// "rewindable slot" (see <see cref="EffectiveState.IsRewindableSlot"/>).
         /// </summary>
         internal static bool TryResolveUnfinishedFlightRewindPoint(
             Recording rec, out RewindPoint rp, out int slotListIndex)
@@ -2503,6 +2515,23 @@ namespace Parsek
             return !string.IsNullOrEmpty(rec.ParentBranchPointId);
         }
 
+        /// <summary>
+        /// Cheap, non-logging front gate for row rendering — broader sibling of
+        /// <see cref="IsUnfinishedFlightCandidateShape"/> that drops the
+        /// terminal-crash requirement. The full
+        /// <see cref="EffectiveState.IsRewindableSlot"/> predicate emits
+        /// diagnostic Verbose lines for every rejection, so table rows do this
+        /// shape check first.
+        /// </summary>
+        internal static bool IsRewindableSlotCandidateShape(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
+                return false;
+            return !string.IsNullOrEmpty(rec.ParentBranchPointId);
+        }
+
         internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
         {
             reason = null;
@@ -2523,6 +2552,42 @@ namespace Parsek
             }
 
             if (!EffectiveState.IsUnfinishedFlight(rec))
+            {
+                reason = "no matching rewind point";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Broader visibility check used by the Rewind-to-Staging button: a
+        /// recording qualifies when it is committed-visible, not superseded,
+        /// and its parent BranchPoint has a matching RewindPoint. Terminal
+        /// state is intentionally ignored. See
+        /// <see cref="EffectiveState.IsRewindableSlot"/> for the underlying
+        /// predicate.
+        /// </summary>
+        internal static bool IsVisibleRewindableSlot(Recording rec, out string reason)
+        {
+            reason = null;
+            if (!IsRewindableSlotCandidateShape(rec))
+            {
+                reason = "not a rewindable slot";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            var supersedes = !object.ReferenceEquals(null, scenario)
+                ? scenario.RecordingSupersedes
+                : null;
+            if (!EffectiveState.IsVisible(rec, supersedes))
+            {
+                reason = "recording is superseded";
+                return false;
+            }
+
+            if (!EffectiveState.IsRewindableSlot(rec))
             {
                 reason = "no matching rewind point";
                 return false;

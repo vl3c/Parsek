@@ -995,7 +995,9 @@ Deep-parse precondition (`RewindInvoker.CanInvoke` step 6) walks the quicksave's
 `GroupHierarchyStore.CanHide` denies. UI hide checkbox is not drawn for the virtual group. **Shipped (test)**: `UnfinishedFlightsGroupCannotHideTests`.
 
 ### 7.31 Non-crashed BG sibling (e.g. booster coasts to landing on its own)
-Terminal kind classifies as `Landed` (via `TerminalKindClassifier`). `IsUnfinishedFlight` returns false. Recording sits `CommittedProvisional` indefinitely (parent BP has an RP, but the predicate additionally requires crashed terminal). **Accepted v1 limitation** — the slot is rewindable in principle but the predicate keeps it out of Unfinished Flights because the player has no regret to fix.
+Terminal kind classifies as `Landed` / `Orbiting` / `SubOrbital` / `InFlight` via `TerminalKindClassifier`. `IsUnfinishedFlight` returns false, so the recording does NOT appear in the Unfinished Flights virtual group — that group stays crash-specific per `EffectiveState.IsUnfinishedFlight`.
+
+However the Rewind-to-Staging **button** on the recordings-table row IS drawn for any committed-visible recording whose parent BP has an RP, regardless of terminal state. The UI router consults the broader `EffectiveState.IsRewindableSlot` predicate (v0.9 follow-up, 2026-04-23; the earlier v1 "no regret to fix" assumption was wrong — a player whose booster coasted to an unsatisfying landing or is still in orbit still wants to re-fly it). Hide-refusal, drag-into-user-group rejection, and virtual-group membership remain narrow. **Shipped (test)**: `IsRewindableSlot_*` in `EffectiveStateTests`, `TryResolveUnfinishedFlightRewindPoint_{Landed,Orbiting,SubOrbital,InFlight}ChildResolvesToStagingSlot` in `RecordingsTableUITests`.
 
 ### 7.32 Classifier drift across Parsek versions
 Old RPs retained; no reclassify. `[Rewind] Verbose` notes the mismatch.
