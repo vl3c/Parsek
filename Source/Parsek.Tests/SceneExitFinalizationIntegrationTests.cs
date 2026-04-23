@@ -27,6 +27,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldApplyExtrapolatorResult_SubSurfaceStart_AppliesEvenWithNoSegments()
+        {
+            // Regression for the playtest where the booster's extrapolator
+            // classified terminal=Destroyed via SubSurfaceStart but the
+            // finalizer's applied check returned false (no segments, UT not
+            // advanced past recording.EndUT) and the caller overwrote with
+            // SUB_ORBITAL from v.situation. SubSurfaceStart must force-apply.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 375.9,
+                recordingEndUT: 375.9, // no advancement
+                failureReason: ExtrapolationFailureReason.SubSurfaceStart));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_SubSurfaceStart_AppliesEvenIfTerminalUtNotAdvanced()
+        {
+            // terminalUT < recording.EndUT: guard still force-applies.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 200.0,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.SubSurfaceStart));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_SegmentsAppended_Applies()
+        {
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 3,
+                terminalUT: 200.0,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.None));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_TerminalUtAdvanced_Applies()
+        {
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 500.0,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.None));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_NoSegmentsNoAdvancement_DoesNotApply()
+        {
+            // Pre-existing idempotence guard: extrapolator ran but produced no
+            // new data and didn't extend the timeline. Don't touch the recording.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 200.0,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.None));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_NanTerminalUt_DoesNotApply()
+        {
+            Assert.False(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: double.NaN,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.None));
+        }
+
+        [Fact]
+        public void ShouldApplyExtrapolatorResult_NanRecordingEndUt_AppliesWithFiniteTerminal()
+        {
+            // Fresh recording with no prior EndUT: any finite terminalUT applies.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 100.0,
+                recordingEndUT: double.NaN,
+                failureReason: ExtrapolationFailureReason.None));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_SceneExitHook_AppendsTailAndExtendsEndUT()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =

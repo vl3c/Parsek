@@ -235,14 +235,22 @@ namespace Parsek
                 if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
                     StampTerminalOrbitFromSegment(recording, appendedSegments[appendedSegments.Count - 1]);
 
-                bool applied = appendedSegments.Count > 0
-                    || (!double.IsNaN(result.terminalUT)
-                        && (double.IsNaN(recording.EndUT) || result.terminalUT > recording.EndUT));
+                bool applied = ShouldApplyExtrapolatorResult(
+                    appendedSegments.Count,
+                    result.terminalUT,
+                    recording.EndUT,
+                    extrapolated.failureReason);
                 if (!applied)
                 {
                     ParsekLog.Warn("Extrapolator",
                         $"TryFinalizeRecording: no extended lifetime produced for '{recording.RecordingId}' " +
                         $"(terminal={result.terminalState}, terminalUT={result.terminalUT:F1}, failure={extrapolated.failureReason})");
+                }
+                else if (extrapolated.failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+                {
+                    ParsekLog.Info("Extrapolator",
+                        $"TryFinalizeRecording: sub-surface destroyed terminal applied for '{recording.RecordingId}' " +
+                        $"(terminalUT={result.terminalUT:F1}) — skipping segment append");
                 }
 
                 return applied;
@@ -631,6 +639,35 @@ namespace Parsek
                         segments.Count,
                         recordingId ?? "(null)"));
             }
+        }
+
+        /// <summary>
+        /// Decides whether the extrapolator's result should be committed to the
+        /// recording. A normal ballistic extrapolation applies when it produced
+        /// new segments or advanced the terminal UT past the recording's last
+        /// known endpoint. A <see cref="ExtrapolationFailureReason.SubSurfaceStart"/>
+        /// result is a terminal classification (Destroyed): the extrapolator
+        /// intentionally skips segment emission and UT advancement because the
+        /// vessel's live orbit state is already nonsense, so the committed
+        /// verdict must survive even without segments. Without this carve-out,
+        /// <see cref="ParsekFlight"/>'s fallback
+        /// (<c>DetermineTerminalState(v.situation, v)</c>) overwrites the
+        /// Destroyed verdict with KSP's last known situation — typically
+        /// <c>SUB_ORBITAL</c>, which silently undoes the fix.
+        /// </summary>
+        internal static bool ShouldApplyExtrapolatorResult(
+            int appendedSegmentCount,
+            double terminalUT,
+            double recordingEndUT,
+            ExtrapolationFailureReason failureReason)
+        {
+            if (failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+                return true;
+            if (appendedSegmentCount > 0)
+                return true;
+            if (double.IsNaN(terminalUT))
+                return false;
+            return double.IsNaN(recordingEndUT) || terminalUT > recordingEndUT;
         }
 
         private static bool TryBuildStartStateFromVessel(
