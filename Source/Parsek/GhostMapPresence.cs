@@ -15,6 +15,13 @@ namespace Parsek
     /// Every FlightGlobals.Vessels iteration and vessel GameEvent handler in Parsek
     /// must check this before processing a vessel.
     /// </summary>
+    // [ERS-exempt — Phase 3] GhostMapPresence keys its ghost-vessel dictionaries
+    // (vesselsByRecordingIndex, vesselPidToRecordingIndex) by committed recording
+    // index; callers pass raw indices through this contract. Routing through
+    // EffectiveState.ComputeERS() here would de-align the index space and break
+    // every consumer. The file stays on the grep-audit allowlist pending a
+    // recording-id-keyed refactor.
+    // TODO(phase 6+): migrate GhostMapPresence to recording-id-keyed storage.
     internal static class GhostMapPresence
     {
         internal enum TrackingStationGhostSource
@@ -90,6 +97,16 @@ namespace Parsek
         internal static bool IsIconSuppressed(uint persistentId)
         {
             return ghostsWithSuppressedIcon.Contains(persistentId);
+        }
+
+        /// <summary>
+        /// Phase 7 of Rewind-to-Staging (design §3.3): shared helper — is the
+        /// recording at this index in the active session's SessionSuppressedSubtree?
+        /// Returns false when no session is active or the index is out of range.
+        /// </summary>
+        internal static bool IsSuppressedByActiveSession(int recordingIndex)
+        {
+            return SessionSuppressionState.IsSuppressedRecordingIndex(recordingIndex);
         }
 
         private static double GetCurrentUTSafe()
@@ -373,6 +390,15 @@ namespace Parsek
             if (traj == null || !HasOrbitData(traj))
                 return null;
 
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
+            // session, suppressed recordings must NOT own map presence. Destroy
+            // any leftover entry from before the session started and skip.
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
+
             // Already exists?
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -398,6 +424,13 @@ namespace Parsek
             int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
         {
             if (traj == null) return null;
+
+            // Phase 7 session-suppression gate (design §3.3).
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
 
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -508,6 +541,7 @@ namespace Parsek
             var suppressed = hasCommittedRecordings
                 ? FindTrackingStationSuppressedRecordingIds(committed, currentUT)
                 : new HashSet<string>();
+            AddActiveSessionSuppressedRecordingIds(suppressed, committed);
             CachedTrackingStationSuppressedIds = suppressed;
 
             RefreshTrackingStationGhosts(committed, suppressed, currentUT);
@@ -724,6 +758,13 @@ namespace Parsek
             TrajectoryPoint point, double ut)
         {
             if (traj == null) return null;
+
+            // Phase 7 session-suppression gate (design §3.3).
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
 
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -1037,6 +1078,23 @@ namespace Parsek
             return suppressed;
         }
 
+        private static void AddActiveSessionSuppressedRecordingIds(
+            HashSet<string> suppressed, IReadOnlyList<Recording> recordings)
+        {
+            if (suppressed == null || recordings == null)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (!IsSuppressedByActiveSession(i))
+                    continue;
+
+                string recordingId = recordings[i]?.RecordingId;
+                if (!string.IsNullOrEmpty(recordingId))
+                    suppressed.Add(recordingId);
+            }
+        }
+
         /// <summary>
         /// Pure: resolve which orbital representation, if any, should back a
         /// tracking-station ghost at the current UT. Current visible orbit
@@ -1224,6 +1282,7 @@ namespace Parsek
             // Step 1: identify recordings currently hidden by a started child.
             double currentUT = CurrentUTNow();
             var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
+            AddActiveSessionSuppressedRecordingIds(suppressed, committed);
             CachedTrackingStationSuppressedIds = suppressed;
 
             int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;

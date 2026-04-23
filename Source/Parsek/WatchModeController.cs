@@ -42,6 +42,13 @@ namespace Parsek
     /// through loop/overlap cycle transitions, and restoring the camera
     /// to the active vessel on exit.
     /// </summary>
+    // [ERS-exempt — Phase 3] WatchModeController tracks watchedRecordingIndex /
+    // lineageProtectionRecordingIndex as indices into RecordingStore.CommittedRecordings
+    // and passes the raw list to GhostPlaybackLogic helpers that bounds-check
+    // against the same index space. Routing through EffectiveState.ComputeERS()
+    // here would de-align indices and break camera lineage protection across
+    // warp and chain transitions.
+    // TODO(phase 6+): migrate WatchModeController to recording-id-keyed lineage tracking.
     internal class WatchModeController
     {
         private readonly ParsekFlight host;
@@ -1351,6 +1358,18 @@ namespace Parsek
                 return;
             }
 
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
+            // session, recordings in the session's suppressed subtree have no
+            // physical presence — refuse watch-mode entry on them.
+            if (SessionSuppressionState.IsActive
+                && SessionSuppressionState.IsSuppressedRecordingIndex(index))
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Watch mode entry refused: recording #{index} " +
+                    $"\"{committed[index].VesselName}\" is session-suppressed by active re-fly");
+                return;
+            }
+
             // Ghost playback state must exist. Hidden-tier ghosts may not currently
             // have a loaded mesh, but watch mode is allowed to force a rebuild.
             var ghostStates = host.Engine.ghostStates;
@@ -2384,6 +2403,21 @@ namespace Parsek
         internal void UpdateWatchCamera()
         {
             if (watchedRecordingIndex < 0) return;
+
+            // Phase 7 of Rewind-to-Staging (design §3.3): if the watched
+            // recording entered the session-suppressed subtree (e.g. player
+            // just invoked an RP that supersedes the watched recording's
+            // ancestor), exit watch mode so the camera falls back to the
+            // newly-spawned provisional re-fly vessel / active vessel.
+            if (SessionSuppressionState.IsActive
+                && SessionSuppressionState.IsSuppressedRecordingIndex(watchedRecordingIndex))
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Watch mode exited: anchor recording #{watchedRecordingIndex} " +
+                    $"suppressed by session");
+                ExitWatchModePreservingLineage();
+                return;
+            }
 
             UpdateMapFocusRestore();
 

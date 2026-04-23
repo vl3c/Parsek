@@ -1,0 +1,870 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using UnityEngine;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Phase 6 of Rewind-to-Staging (design §6.3 + §6.4): orchestrates the
+    /// user-initiated rewind-to-rewind-point flow. The flow straddles a KSP
+    /// scene reload:
+    ///
+    /// <list type="number">
+    ///   <item><description><c>CanInvoke</c> precondition gates (§7.5 / §7.22 / §7.29 / §7.34)</description></item>
+    ///   <item><description><c>ShowDialog</c> displays the confirmation popup</description></item>
+    ///   <item><description>On confirm, <c>StartInvoke</c> runs the PRE-LOAD phase synchronously: validate preconditions, generate <c>sessionId</c>, capture the reconciliation bundle, stash it in <see cref="RewindInvokeContext"/>, copy the RP's quicksave to the save-root, and trigger <c>GamePersistence.LoadGame</c> + <c>HighLogic.LoadScene(FLIGHT)</c>.</description></item>
+    ///   <item><description>KSP reloads the scene. The old <see cref="ParsekScenario"/> MonoBehaviour dies and Unity stops its coroutines; only the static <see cref="RewindInvokeContext"/> survives.</description></item>
+    ///   <item><description>The new <see cref="ParsekScenario.OnLoad"/> calls <see cref="ConsumePostLoad"/>, which runs the POST-LOAD phase synchronously: <see cref="ReconciliationBundle.Restore"/>, <see cref="PostLoadStripper.Strip"/>, <c>FlightGlobals.SetActiveVessel</c>, <see cref="AtomicMarkerWrite"/>, delete the temp quicksave, clear the context, recalculate the ledger.</description></item>
+    /// </list>
+    ///
+    /// <para>
+    /// This matches the legacy rewind-to-launch pattern in
+    /// <see cref="RecordingStore.InitiateRewind"/> — the only known-good way to
+    /// resume Parsek work after a KSP quickload in a fresh scene.
+    /// </para>
+    ///
+    /// <para>
+    /// [ERS-exempt — Phase 6] The invoker correlates live vessels to the RP's
+    /// PidSlotMap/RootPartPidMap via raw <c>Vessel.persistentId</c> reads; this
+    /// is a physical identity correlation at load time, not a supersede-aware
+    /// recording lookup, so routing through <see cref="EffectiveState.ComputeERS"/>
+    /// would not apply. The file is allowlisted in
+    /// <c>scripts/ers-els-audit-allowlist.txt</c> with a call-site rationale.
+    /// </para>
+    /// </summary>
+    internal static class RewindInvoker
+    {
+        private const string InvokeTag = "Rewind";
+        private const string UITag = "RewindUI";
+        private const string SessionTag = "ReFlySession";
+
+        // Test seam: allows unit tests to capture the synchronous atomic block
+        // phase boundaries without running the full coroutine. Set to non-null
+        // in tests to record each checkpoint; the invoker calls it at key
+        // points during the §6.3 step 4 phase 1+2 critical section.
+        internal static Action<string> CheckpointHookForTesting;
+
+        /// <summary>
+        /// Returns <c>true</c> if the Rewind button for <paramref name="rp"/>
+        /// should be enabled. Checks five preconditions per §6.3 / §7.22:
+        /// <list type="bullet">
+        ///   <item><description>Scene is FLIGHT / SPACECENTER / TRACKSTATION — not a scene transition (§7.22)</description></item>
+        ///   <item><description>RP is not Corrupted</description></item>
+        ///   <item><description>Quicksave file exists on disk (§7.34)</description></item>
+        ///   <item><description>No other re-fly session is active (§7.5)</description></item>
+        ///   <item><description>Deep-parse precondition passes — every PART node in the quicksave resolves via <see cref="PartLoader.getPartInfoByName"/> (§7.29)</description></item>
+        /// </list>
+        /// The result + reason are cached per RP for 60s via
+        /// <see cref="PreconditionCache"/> so repeated UI draws do not re-parse
+        /// the .sfs every frame.
+        /// </summary>
+        internal static bool CanInvoke(RewindPoint rp, out string reason)
+        {
+            if (rp == null)
+            {
+                reason = "rewind point is null";
+                return false;
+            }
+
+            // §7.22: reject during scene transitions. A scene reload is already
+            // in flight, so firing another LoadGame on top of it would either
+            // stomp state or deadlock Unity's loader.
+            if (!IsInvokableScene(HighLogic.LoadedScene))
+            {
+                reason = "Scene transition in progress — please wait";
+                return false;
+            }
+
+            // Context-level guard: another invocation is already mid-flight
+            // (pre-load phase captured, post-load hasn't consumed yet).
+            if (RewindInvokeContext.Pending)
+            {
+                reason = "Another rewind invocation is already in flight";
+                return false;
+            }
+
+            if (rp.Corrupted)
+            {
+                reason = "Rewind point is marked corrupted";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(rp.QuicksaveFilename))
+            {
+                reason = "Rewind point has no quicksave file";
+                return false;
+            }
+
+            string abs = ResolveAbsoluteQuicksavePath(rp);
+            if (string.IsNullOrEmpty(abs) || !File.Exists(abs))
+            {
+                reason = $"Quicksave file missing on disk: {rp.QuicksaveFilename}";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "Another re-fly session is already active";
+                return false;
+            }
+
+            // Deep-parse PartLoader precondition (cached per RP).
+            if (!PreconditionCache.IsValid(rp))
+            {
+                var result = PartLoaderPrecondition.Check(rp, abs);
+                PreconditionCache.Store(rp, result);
+            }
+
+            var cached = PreconditionCache.Get(rp);
+            if (cached.HasValue && !cached.Value.Passed)
+            {
+                reason = cached.Value.Reason ?? "Deep-parse precondition failed";
+                return false;
+            }
+
+            reason = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Spawns the "Rewind?" confirmation PopupDialog. On accept, starts
+        /// the <see cref="StartInvoke"/> pre-load phase; the post-load phase
+        /// is driven by <see cref="ParsekScenario.OnLoad"/> calling
+        /// <see cref="ConsumePostLoad"/> once the scene reload lands.
+        /// </summary>
+        internal static void ShowDialog(RewindPoint rp, int selectedSlotIndex)
+        {
+            if (rp == null)
+            {
+                ParsekLog.Warn(UITag, "ShowDialog called with null RP");
+                return;
+            }
+            if (rp.ChildSlots == null || selectedSlotIndex < 0 || selectedSlotIndex >= rp.ChildSlots.Count)
+            {
+                ParsekLog.Warn(UITag,
+                    $"ShowDialog: invalid slot index {selectedSlotIndex} (slots={rp.ChildSlots?.Count ?? 0}) for rp={rp.RewindPointId}");
+                return;
+            }
+
+            var selected = rp.ChildSlots[selectedSlotIndex];
+            string slotName = selected?.OriginChildRecordingId ?? "<unknown>";
+            string title = "Parsek - Rewind to Staging";
+            var ic = CultureInfo.InvariantCulture;
+            string utText = rp.UT.ToString("F1", ic);
+            string message =
+                $"Rewind to rewind point {rp.RewindPointId} at UT {utText}?\n" +
+                $"Spawning the selected child (slot {selectedSlotIndex}, origin={slotName}) live; " +
+                $"merged siblings will play as ghosts.\n\n" +
+                "Career state during this attempt stays as it is now. Supersede on merge " +
+                "retires only kerbal-death events; contract / milestone / facility / strategy " +
+                "/ tech / science / funds state is unchanged.";
+
+            var capturedRp = rp;
+            var capturedSlotIdx = selectedSlotIndex;
+            var capturedSelected = selected;
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekRewindInvoke",
+                    message,
+                    title,
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Rewind", () =>
+                    {
+                        ParsekLog.Info(UITag,
+                            $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +
+                            $"rp={capturedRp.RewindPointId} slot={capturedSlotIdx}");
+                        StartInvoke(capturedRp, capturedSelected);
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Info(UITag,
+                            $"Cancelled rp={capturedRp.RewindPointId} slot={capturedSlotIdx}");
+                    })
+                ),
+                false, HighLogic.UISkin);
+        }
+
+        /// <summary>
+        /// Runs the PRE-LOAD phase synchronously (design §6.3 steps 1-3):
+        /// generate session id, capture reconciliation bundle, park state in
+        /// <see cref="RewindInvokeContext"/>, copy the RP's quicksave to the
+        /// save-root (KSP's <c>LoadGame</c> does not support subdirectory
+        /// paths), then trigger <c>GamePersistence.LoadGame</c> +
+        /// <c>HighLogic.LoadScene(FLIGHT)</c>.
+        /// <para>
+        /// The new scenario's <see cref="ParsekScenario.OnLoad"/> drains the
+        /// context via <see cref="ConsumePostLoad"/>. Post-load execution does
+        /// NOT run here — Unity tears down the coroutine on scene reload.
+        /// </para>
+        /// </summary>
+        internal static void StartInvoke(RewindPoint rp, ChildSlot selected)
+        {
+            if (rp == null)
+            {
+                ParsekLog.Error(InvokeTag, "StartInvoke called with null rp");
+                ShowUserError("Rewind failed: invalid rewind point");
+                return;
+            }
+            if (selected == null)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"StartInvoke called with null slot (rp={rp.RewindPointId})");
+                ShowUserError("Rewind failed: invalid slot");
+                return;
+            }
+            if (RewindInvokeContext.Pending)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"StartInvoke: another invocation already pending (sess={RewindInvokeContext.SessionId}) " +
+                    $"— ignoring new request for rp={rp.RewindPointId}");
+                ShowUserError("Rewind failed: another invocation is already pending");
+                return;
+            }
+
+            string sessionId = "sess_" + Guid.NewGuid().ToString("N");
+            ParsekLog.Info(InvokeTag,
+                $"StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
+                $"slot={selected.SlotIndex}");
+
+            // Step 1: capture reconciliation bundle (synchronous, no yield).
+            ReconciliationBundle bundle;
+            try
+            {
+                bundle = ReconciliationBundle.Capture();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Invocation failed: bundle capture threw: {ex.Message}");
+                ShowUserError($"Rewind failed: bundle capture error ({ex.Message})");
+                return;
+            }
+
+            // Step 2: copy RP quicksave from saves/<save>/Parsek/RewindPoints/<rpId>.sfs
+            // to saves/<save>/Parsek_Rewind_<sessionId>.sfs (root; KSP's LoadGame
+            // does not accept subdirectory paths).
+            string tempPath;
+            string tempLoadName;
+            try
+            {
+                CopyQuicksaveToSaveRoot(rp, sessionId, out tempPath, out tempLoadName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Invocation failed: copy-to-root threw: {ex.Message} rp={rp.RewindPointId}");
+                ShowUserError($"Rewind failed: could not stage quicksave ({ex.Message})");
+                HandleQuicksaveMissing(rp);
+                return;
+            }
+            if (string.IsNullOrEmpty(tempPath) || string.IsNullOrEmpty(tempLoadName))
+            {
+                // Treated as "cannot stage"; clean up the partial copy and bail.
+                TryDeleteTemp(tempPath);
+                ShowUserError("Rewind failed: could not stage quicksave");
+                return;
+            }
+
+            // Step 3: park state for the post-load consumer.
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = sessionId;
+            RewindInvokeContext.RewindPoint = rp;
+            RewindInvokeContext.Selected = selected;
+            RewindInvokeContext.RewindPointId = rp.RewindPointId;
+            RewindInvokeContext.SelectedSlotIndex = selected.SlotIndex;
+            RewindInvokeContext.SelectedOriginChildRecordingId = selected.OriginChildRecordingId;
+            RewindInvokeContext.CapturedBundle = bundle;
+            RewindInvokeContext.HasCapturedBundle = true;
+            RewindInvokeContext.TempQuicksavePath = tempPath;
+
+            // Step 4: trigger the load. Past this point, Unity will destroy the
+            // current scenario; only the static context survives to the new
+            // scenario's OnLoad, which calls ConsumePostLoad.
+            try
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"Loading quicksave: tempPath='{tempPath}' loadName='{tempLoadName}' " +
+                    $"saveFolder='{HighLogic.SaveFolder}'");
+                Game game = GamePersistence.LoadGame(
+                    tempLoadName, HighLogic.SaveFolder, true, false);
+                if (game == null)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Invocation failed: load error (GamePersistence.LoadGame returned null) " +
+                        $"rp={rp.RewindPointId}");
+                    TryDeleteTemp(tempPath);
+                    RewindInvokeContext.Clear();
+                    HandleQuicksaveMissing(rp);
+                    TryRestoreBundle(bundle);
+                    ShowUserError("Rewind failed: KSP rejected the quicksave");
+                    return;
+                }
+
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.FLIGHT);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Invocation failed: load error: {ex.Message} rp={rp.RewindPointId}");
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+                HandleQuicksaveMissing(rp);
+                TryRestoreBundle(bundle);
+                ShowUserError($"Rewind failed: load error ({ex.Message})");
+            }
+        }
+
+        /// <summary>
+        /// Runs the POST-LOAD phase synchronously (design §6.3 step 4, §6.4):
+        /// Restore → Strip → Activate → AtomicMarkerWrite. Called by
+        /// <see cref="ParsekScenario.OnLoad"/> exactly once per invocation,
+        /// after the scene has reloaded and the new scenario module is live.
+        /// <para>
+        /// Consumes <see cref="RewindInvokeContext"/>; clears it before
+        /// returning. Cleans up the root-level temp quicksave copy regardless
+        /// of success/failure.
+        /// </para>
+        /// </summary>
+        internal static void ConsumePostLoad()
+        {
+            if (!RewindInvokeContext.Pending)
+                return;
+
+            string sessionId = RewindInvokeContext.SessionId;
+            RewindPoint rp = RewindInvokeContext.RewindPoint;
+            ChildSlot selected = RewindInvokeContext.Selected;
+            ReconciliationBundle bundle = RewindInvokeContext.CapturedBundle;
+            bool hasBundle = RewindInvokeContext.HasCapturedBundle;
+            string tempPath = RewindInvokeContext.TempQuicksavePath;
+            int slotIdx = selected?.SlotIndex ?? -1;
+
+            ParsekLog.Info(InvokeTag,
+                $"ConsumePostLoad begin: sess={sessionId} rp={rp?.RewindPointId ?? "<null>"} " +
+                $"slot={slotIdx}");
+
+            try
+            {
+                if (rp == null || selected == null)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        "ConsumePostLoad: context missing rp or slot — aborting");
+                    ShowUserError("Rewind failed: invocation context corrupted");
+                    return;
+                }
+
+                // Step 1: reconcile (restore pre-load in-memory state over the .sfs-loaded state).
+                if (hasBundle)
+                {
+                    try
+                    {
+                        ReconciliationBundle.Restore(bundle);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Error(InvokeTag,
+                            $"Invocation failed: reconciliation restore threw: {ex.Message}");
+                        ShowUserError($"Rewind failed: reconcile error ({ex.Message})");
+                        return;
+                    }
+                }
+                else
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        "ConsumePostLoad: no captured bundle — skipping reconciliation");
+                }
+
+                // Step 2: post-load strip (§6.4 step 4).
+                PostLoadStripResult stripResult;
+                try
+                {
+                    stripResult = PostLoadStripper.Strip(rp, slotIdx);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Invocation failed: strip threw: {ex.Message}");
+                    ShowUserError($"Rewind failed: post-load strip error ({ex.Message})");
+                    return;
+                }
+
+                if (stripResult.SelectedPid == 0u || stripResult.SelectedVessel == null)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Activate failed: selected vessel not present on reload " +
+                        $"rp={rp.RewindPointId} slot={slotIdx}");
+                    ShowUserError("Rewind failed: selected vessel not present in quicksave");
+                    return;
+                }
+
+                // Step 3: activate selected child's vessel (§6.4 step 5).
+                try
+                {
+                    FlightGlobals.SetActiveVessel(stripResult.SelectedVessel);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Activate failed: SetActiveVessel threw: {ex.Message}");
+                    ShowUserError($"Rewind failed: could not activate vessel ({ex.Message})");
+                    return;
+                }
+
+                // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
+                // NO yield, NO await between checkpoints A and B.
+                try
+                {
+                    AtomicMarkerWrite(rp, selected, stripResult, sessionId);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Invocation failed: atomic marker write threw: {ex.Message}");
+                    ShowUserError($"Rewind failed: marker write error ({ex.Message})");
+                    return;
+                }
+
+                // Step 5: post-atomic ledger recalc.
+                try
+                {
+                    LedgerOrchestrator.RecalculateAndPatch();
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Post-invoke ledger recalculate threw (non-fatal): {ex.Message}");
+                }
+
+                ParsekLog.Info(InvokeTag,
+                    $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
+                    $"slot={slotIdx} activePid={stripResult.SelectedPid}");
+            }
+            finally
+            {
+                // Always drop the temp quicksave copy and clear the context,
+                // whether we succeeded or failed. A leftover Parsek_Rewind_*.sfs
+                // in the save root is user-visible clutter.
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+            }
+        }
+
+        /// <summary>
+        /// §6.3 step 4 critical section. Runs synchronously; throws MUST
+        /// leave the global state untouched (we roll back the provisional
+        /// add before rethrowing). NO yield, NO await, NO deferred save.
+        /// </summary>
+        internal static void AtomicMarkerWrite(
+            RewindPoint rp, ChildSlot selected,
+            PostLoadStripResult stripResult, string sessionId)
+        {
+            if (rp == null) throw new ArgumentNullException(nameof(rp));
+            if (selected == null) throw new ArgumentNullException(nameof(selected));
+            if (stripResult.SelectedPid == 0u)
+                throw new InvalidOperationException("AtomicMarkerWrite: no selected vessel");
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+                throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
+
+            // Resolve the origin recording so we can clone its lineage metadata.
+            Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+
+            var provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+
+            CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+            RecordingStore.AddProvisional(provisional);
+            CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+
+            ReFlySessionMarker marker;
+            try
+            {
+                marker = new ReFlySessionMarker
+                {
+                    SessionId = sessionId,
+                    TreeId = provisional.TreeId,
+                    ActiveReFlyRecordingId = provisional.RecordingId,
+                    OriginChildRecordingId = selected.OriginChildRecordingId,
+                    RewindPointId = rp.RewindPointId,
+                    InvokedUT = SafeNow(),
+                    InvokedRealTime = DateTime.UtcNow.ToString("o"),
+                };
+
+                CheckpointHookForTesting?.Invoke("CheckpointB:BeforeMarker");
+                scenario.ActiveReFlySessionMarker = marker;
+                scenario.BumpSupersedeStateVersion();
+                CheckpointHookForTesting?.Invoke("CheckpointB:AfterMarker");
+            }
+            catch
+            {
+                // Roll back the provisional AND the marker so no half-written
+                // pair leaks out of the critical section. Both clears are
+                // idempotent (RemoveCommittedInternal returns false if absent;
+                // marker clear is a null-assignment).
+                RecordingStore.RemoveCommittedInternal(provisional);
+                try
+                {
+                    if (ParsekScenario.Instance != null)
+                        ParsekScenario.Instance.ActiveReFlySessionMarker = null;
+                }
+                catch { /* idempotent rollback; swallow secondary failure */ }
+                throw;
+            }
+
+            ParsekLog.Info(SessionTag,
+                $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
+                $"provisional={provisional.RecordingId} " +
+                $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
+                $"tree={provisional.TreeId ?? "<none>"}");
+        }
+
+        internal static Recording BuildProvisionalRecording(
+            RewindPoint rp, ChildSlot selected, Recording originChild,
+            string sessionId, PostLoadStripResult stripResult)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_" + Guid.NewGuid().ToString("N"),
+                MergeState = MergeState.NotCommitted,
+                CreatingSessionId = sessionId,
+                SupersedeTargetId = selected.OriginChildRecordingId,
+                ProvisionalForRpId = rp.RewindPointId,
+                ParentBranchPointId = originChild?.ParentBranchPointId ?? rp.BranchPointId,
+                TreeId = originChild?.TreeId,
+                VesselPersistentId = stripResult.SelectedPid,
+                VesselName = stripResult.SelectedVessel != null
+                    ? stripResult.SelectedVessel.vesselName
+                    : (originChild?.VesselName ?? "Re-fly"),
+                PlaybackEnabled = false,
+            };
+            return rec;
+        }
+
+        private static Recording FindRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            // NOTE: raw CommittedRecordings read — this is the only code path
+            // that can locate the origin recording by id at invoke time, since
+            // the Phase 1-5 types carry the recording id but not a pre-resolved
+            // reference. Allowlisted per [ERS-exempt — Phase 6] file-level note.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var r = committed[i];
+                if (r == null) continue;
+                if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
+                    return r;
+            }
+            return null;
+        }
+
+        private static double SafeNow()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch { return 0.0; }
+        }
+
+        internal static string ResolveAbsoluteQuicksavePath(RewindPoint rp)
+        {
+            if (rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename))
+                return null;
+            return RecordingPaths.ResolveSaveScopedPath(rp.QuicksaveFilename);
+        }
+
+        /// <summary>
+        /// Copies the RP's quicksave from
+        /// <c>saves/&lt;save&gt;/Parsek/RewindPoints/&lt;rpId&gt;.sfs</c> to
+        /// <c>saves/&lt;save&gt;/Parsek_Rewind_&lt;sessionId&gt;.sfs</c> (save
+        /// root), because KSP's <c>GamePersistence.LoadGame(fileName, folder, ...)</c>
+        /// does not accept subdirectory paths.
+        /// <para>
+        /// Returns the absolute temp path (for post-load deletion) and the
+        /// base filename without the <c>.sfs</c> extension (to pass to
+        /// <c>LoadGame</c>). Throws on I/O failure.
+        /// </para>
+        /// </summary>
+        internal static void CopyQuicksaveToSaveRoot(
+            RewindPoint rp, string sessionId,
+            out string tempAbsolutePath, out string tempLoadName)
+        {
+            tempAbsolutePath = null;
+            tempLoadName = null;
+
+            string sourceAbs = ResolveAbsoluteQuicksavePath(rp);
+            if (string.IsNullOrEmpty(sourceAbs) || !File.Exists(sourceAbs))
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"CopyQuicksaveToSaveRoot: source missing " +
+                    $"rp={rp?.RewindPointId} source='{sourceAbs ?? "<null>"}'");
+                return;
+            }
+
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"CopyQuicksaveToSaveRoot: missing KSP paths " +
+                    $"rootSet={!string.IsNullOrEmpty(root)} saveSet={!string.IsNullOrEmpty(saveFolder)}");
+                return;
+            }
+
+            string saveRoot = Path.Combine(root, "saves", saveFolder);
+            string tempName = "Parsek_Rewind_" + sessionId;
+            string destAbs = Path.Combine(saveRoot, tempName + ".sfs");
+
+            File.Copy(sourceAbs, destAbs, overwrite: true);
+            tempAbsolutePath = destAbs;
+            tempLoadName = tempName;
+            ParsekLog.Verbose(InvokeTag,
+                $"CopyQuicksaveToSaveRoot: '{sourceAbs}' -> '{destAbs}' loadName='{tempName}'");
+        }
+
+        private static void TryDeleteTemp(string tempPath)
+        {
+            if (string.IsNullOrEmpty(tempPath)) return;
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                    ParsekLog.Verbose(InvokeTag, $"Deleted temp quicksave '{tempPath}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Failed to delete temp quicksave '{tempPath}': {ex.Message}");
+            }
+        }
+
+        /// <summary>§7.22: scenes where Rewind invocation is allowed.</summary>
+        private static bool IsInvokableScene(GameScenes scene)
+        {
+            return scene == GameScenes.FLIGHT
+                || scene == GameScenes.SPACECENTER
+                || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// Posts a user-visible error toast via <c>ScreenMessages</c>. Safe
+        /// when called from a non-flight context (ScreenMessages tolerates it).
+        /// </summary>
+        internal static void ShowUserError(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    message, 5f, ScreenMessageStyle.UPPER_CENTER);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"ShowUserError: ScreenMessages.PostScreenMessage threw: {ex.Message}");
+            }
+        }
+
+        private static void HandleQuicksaveMissing(RewindPoint rp)
+        {
+            if (rp == null) return;
+            string abs = ResolveAbsoluteQuicksavePath(rp);
+            if (!string.IsNullOrEmpty(abs) && !File.Exists(abs))
+            {
+                string previousFilename = rp.QuicksaveFilename;
+                rp.QuicksaveFilename = null;
+                rp.Corrupted = true;
+                ParsekLog.Warn(InvokeTag,
+                    $"Quicksave cleared: rp={rp.RewindPointId} missingFile='{previousFilename}' " +
+                    $"(marking Corrupted)");
+            }
+        }
+
+        private static void TryRestoreBundle(ReconciliationBundle bundle)
+        {
+            try
+            {
+                ReconciliationBundle.Restore(bundle);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"ReconciliationBundle.Restore threw on failure rollback: {ex.Message}");
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Per-RP precondition cache (60s TTL). Populated by CanInvoke.
+        // ----------------------------------------------------------------
+
+        internal struct PreconditionResult
+        {
+            public bool Passed;
+            public string Reason;
+            public DateTime CheckedAtUtc;
+        }
+
+        internal static class PreconditionCache
+        {
+            private static readonly Dictionary<string, PreconditionResult> cache
+                = new Dictionary<string, PreconditionResult>();
+            private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
+
+            internal static void InvalidateForTesting()
+            {
+                cache.Clear();
+            }
+
+            internal static void Invalidate(RewindPoint rp)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return;
+                cache.Remove(rp.RewindPointId);
+            }
+
+            internal static bool IsValid(RewindPoint rp)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return false;
+                PreconditionResult result;
+                if (!cache.TryGetValue(rp.RewindPointId, out result)) return false;
+                return DateTime.UtcNow - result.CheckedAtUtc < Ttl;
+            }
+
+            internal static PreconditionResult? Get(RewindPoint rp)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return null;
+                PreconditionResult result;
+                if (cache.TryGetValue(rp.RewindPointId, out result)) return result;
+                return null;
+            }
+
+            internal static void Store(RewindPoint rp, PreconditionResult result)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return;
+                cache[rp.RewindPointId] = result;
+            }
+
+            /// <summary>
+            /// Clears every cached precondition result. Called on scene unload
+            /// so the dict does not grow unbounded across long sessions.
+            /// </summary>
+            internal static void ClearAll()
+            {
+                int n = cache.Count;
+                cache.Clear();
+                if (n > 0)
+                    ParsekLog.Verbose(InvokeTag,
+                        $"PreconditionCache.ClearAll: dropped {n} cached result(s)");
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Deep-parse PartLoader precondition (§7.29)
+        // ----------------------------------------------------------------
+
+        internal static class PartLoaderPrecondition
+        {
+            // Test seam: when non-null, used instead of PartLoader.getPartInfoByName.
+            internal static Func<string, bool> PartExistsOverrideForTesting;
+
+            internal static PreconditionResult Check(RewindPoint rp, string absolutePath)
+            {
+                var result = new PreconditionResult
+                {
+                    Passed = true,
+                    Reason = null,
+                    CheckedAtUtc = DateTime.UtcNow,
+                };
+
+                if (rp == null) return result;
+                if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
+                {
+                    result.Passed = false;
+                    result.Reason = "Quicksave file missing on disk";
+                    return result;
+                }
+
+                try
+                {
+                    ConfigNode root = ConfigNode.Load(absolutePath);
+                    if (root == null)
+                    {
+                        result.Passed = false;
+                        result.Reason = "Quicksave file failed to parse";
+                        MarkCorrupted(rp, result.Reason);
+                        return result;
+                    }
+
+                    var missing = new List<string>();
+                    CollectMissingParts(root, missing);
+
+                    if (missing.Count > 0)
+                    {
+                        result.Passed = false;
+                        result.Reason = $"Missing parts: {string.Join(", ", missing.ToArray())}";
+                        MarkCorrupted(rp, result.Reason);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.Passed = false;
+                    result.Reason = $"Quicksave parse threw: {ex.Message}";
+                    MarkCorrupted(rp, result.Reason);
+                }
+
+                return result;
+            }
+
+            private static void CollectMissingParts(ConfigNode node, List<string> missing)
+            {
+                if (node == null) return;
+
+                // Walk the whole tree; PART nodes may appear under GAME/FLIGHTSTATE/VESSEL/PART.
+                foreach (ConfigNode child in node.GetNodes())
+                {
+                    if (child == null) continue;
+                    if (string.Equals(child.name, "PART", StringComparison.Ordinal))
+                    {
+                        string partName = child.GetValue("name");
+                        if (string.IsNullOrEmpty(partName)) continue;
+                        if (!PartExists(partName) && !missing.Contains(partName))
+                            missing.Add(partName);
+                    }
+                    else
+                    {
+                        CollectMissingParts(child, missing);
+                    }
+                }
+            }
+
+            private static bool PartExists(string partName)
+            {
+                if (PartExistsOverrideForTesting != null)
+                    return PartExistsOverrideForTesting(partName);
+                try
+                {
+                    return PartLoader.getPartInfoByName(partName) != null;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            private static void MarkCorrupted(RewindPoint rp, string reason)
+            {
+                if (rp == null) return;
+                rp.Corrupted = true;
+                ParsekLog.Warn(InvokeTag,
+                    $"Precondition failed: rp={rp.RewindPointId} reason='{reason}' (marked Corrupted)");
+            }
+        }
+
+    }
+}

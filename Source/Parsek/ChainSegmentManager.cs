@@ -10,6 +10,13 @@ namespace Parsek
     /// boundary anchors, continuation tracking fields, and all commit/sampling methods.
     /// Extracted from ParsekFlight to isolate chain lifecycle into a single owner.
     /// </summary>
+    // [ERS-exempt — Phase 3] ChainSegmentManager stores ContinuationRecordingIdx /
+    // UndockContinuationRecIdx as indices into RecordingStore.CommittedRecordings
+    // captured at commit time. Converting the bounds checks and `committed[idx]`
+    // accesses to EffectiveState.ComputeERS() would shift indices whenever
+    // NotCommitted / superseded / session-suppressed recordings change, breaking
+    // chain continuation tracking.
+    // TODO(phase 6+): migrate continuation tracking to recording-id-keyed refs.
     internal class ChainSegmentManager
     {
         // Tree identity (propagated from ParsekFlight.activeTree)

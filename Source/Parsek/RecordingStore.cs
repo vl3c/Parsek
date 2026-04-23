@@ -85,6 +85,42 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+
+        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
+        // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
+        // that promotes a legacy `committed = True/False` bool to MergeState tri-state
+        // bumps this counter; the scenario load emits a single Info line with the total.
+        internal static int LegacyMergeStateMigrationCount;
+        // Flag: one-shot log has been emitted for the current session. Flipped on first
+        // emission; reset by ResetForTesting and by EmitLegacyMergeStateMigrationLogOnce.
+        private static bool legacyMergeStateMigrationLogEmitted;
+
+        internal static void BumpLegacyMergeStateMigrationCounterForTesting()
+        {
+            LegacyMergeStateMigrationCount++;
+        }
+
+        /// <summary>
+        /// Emits the one-shot <c>[Recording] Legacy migration:</c> Info log summarising
+        /// how many recordings were promoted from the binary <c>committed</c> bool to
+        /// the <see cref="Parsek.MergeState"/> tri-state this session. Idempotent: a
+        /// second call is a no-op. Counter is NOT reset so repeated loads within a
+        /// session (e.g. tests asserting idempotence) do not double-count.
+        /// </summary>
+        internal static void EmitLegacyMergeStateMigrationLogOnce()
+        {
+            if (legacyMergeStateMigrationLogEmitted) return;
+            if (LegacyMergeStateMigrationCount <= 0) return;
+            ParsekLog.Info("Recording",
+                $"Legacy migration: {LegacyMergeStateMigrationCount} recordings mapped from committed-bool to MergeState tri-state");
+            legacyMergeStateMigrationLogEmitted = true;
+        }
+
+        internal static void ResetLegacyMergeStateMigrationForTesting()
+        {
+            LegacyMergeStateMigrationCount = 0;
+            legacyMergeStateMigrationLogEmitted = false;
+        }
         // Auto-assigned-standalone-group tracking has two storage locations:
         //   1. Recording.AutoAssignedStandaloneGroupName (authoritative, persisted
         //      via RecordingTree save/load as `autoAssignedStandaloneGroup`).
@@ -259,6 +295,24 @@ namespace Parsek
         public static RecordingTree PendingTree => pendingTree;
         public static PendingTreeState PendingTreeStateValue => pendingTreeState;
 
+        // Phase 2 (Rewind-to-Staging): state-version counter consumed by
+        // <see cref="EffectiveState"/> to invalidate the ERS cache. Every code
+        // path that mutates <see cref="committedRecordings"/> MUST call
+        // <see cref="BumpStateVersion"/>; the mutating internal helpers below
+        // already do so, so callers that route through them get the bump for
+        // free.
+        internal static int StateVersion;
+
+        /// <summary>
+        /// Bumps <see cref="StateVersion"/>. Called whenever
+        /// <see cref="committedRecordings"/> is mutated so the
+        /// <see cref="EffectiveState"/> ERS cache knows to rebuild.
+        /// </summary>
+        internal static void BumpStateVersion()
+        {
+            unchecked { StateVersion++; }
+        }
+
         /// <summary>
         /// Creates a Recording from raw flight data, trimming leading stationary points
         /// and retiming events. Returns null if too short (fewer than 2 points after trim).
@@ -372,6 +426,7 @@ namespace Parsek
 
             rec.FilesDirty = true;
             committedRecordings.Add(rec);
+            BumpStateVersion();
             Log($"[Parsek] Committed recording from {rec.VesselName} " +
                 $"({rec.Points.Count} points). Total committed: {committedRecordings.Count}");
             ParsekLog.Verbose("RecordingStore", $"CommitRecordingDirect: {rec.DebugName}");
@@ -409,6 +464,7 @@ namespace Parsek
                 rec.RecordingGroups.Add(GloopsGroupName);
 
             committedRecordings.Add(rec);
+            BumpStateVersion();
             FlushDirtyFiles(committedRecordings);
 
             ParsekLog.Info("RecordingStore",
@@ -425,6 +481,30 @@ namespace Parsek
         internal static void AddCommittedInternal(Recording rec)
         {
             committedRecordings.Add(rec);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.3 step 4 phase 1): adds a
+        /// provisional re-fly recording to the committed list in the same
+        /// synchronous block as the <see cref="ReFlySessionMarker"/> write.
+        /// Bumps <see cref="StateVersion"/> so the ERS cache invalidates
+        /// immediately; no disk flush (the provisional is durable via the
+        /// scenario save, not via sidecar files, until it is merged).
+        /// </summary>
+        internal static void AddProvisional(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("RecordingStore", "AddProvisional called with null recording");
+                return;
+            }
+            committedRecordings.Add(rec);
+            BumpStateVersion();
+            ParsekLog.Verbose("RecordingStore",
+                $"AddProvisional: rec={rec.RecordingId} state={rec.MergeState} " +
+                $"supersedeTarget={rec.SupersedeTargetId ?? "<none>"} " +
+                $"total={committedRecordings.Count}");
         }
 
         /// <summary>
@@ -433,7 +513,10 @@ namespace Parsek
         /// </summary>
         internal static bool RemoveCommittedInternal(Recording rec)
         {
-            return committedRecordings.Remove(rec);
+            bool removed = committedRecordings.Remove(rec);
+            if (removed)
+                BumpStateVersion();
+            return removed;
         }
 
         /// <summary>
@@ -473,6 +556,36 @@ namespace Parsek
         internal static void ClearCommittedInternal()
         {
             committedRecordings.Clear();
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// adds a tree to <see cref="committedTrees"/> without re-running
+        /// <see cref="FinalizeTreeCommit"/>'s full commit pipeline (no session
+        /// merge, no group assignment, no milestone creation). The bundle
+        /// restore path uses this to re-install pre-load trees verbatim after
+        /// a scene reload wiped the parallel list; the trees' recordings are
+        /// re-installed via <see cref="AddCommittedInternal"/> in the same
+        /// restore pass.
+        /// </summary>
+        internal static void AddCommittedTreeInternal(RecordingTree tree)
+        {
+            if (tree == null) return;
+            committedTrees.Add(tree);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging: companion to <see cref="AddCommittedTreeInternal"/>.
+        /// Clears <see cref="committedTrees"/> without touching the parallel
+        /// <see cref="committedRecordings"/> list — the bundle-restore caller
+        /// manages both lists in lockstep.
+        /// </summary>
+        internal static void ClearCommittedTreesInternal()
+        {
+            committedTrees.Clear();
+            BumpStateVersion();
         }
 
         public static void ClearCommitted()
@@ -482,6 +595,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            BumpStateVersion();
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
@@ -920,12 +1034,16 @@ namespace Parsek
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
             // by CommitRecordingDirect).
+            int addedFromTree = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
                 if (committedRecordings.Contains(rec)) continue;
                 committedRecordings.Add(rec);
+                addedFromTree++;
             }
+            if (addedFromTree > 0)
+                BumpStateVersion();
 
             // Flush to disk immediately to close the crash window.
             // If RunOptimizationPass runs after this, it will re-dirty modified
@@ -1024,6 +1142,14 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore", "DiscardPendingTree called with no pending tree");
                 return;
             }
+
+            // Phase 11 of Rewind-to-Staging (design §3.5 invariant 7 / §6.10):
+            // tree discard is the ONLY purge path for RewindPoints, supersede
+            // relations, and ledger tombstones whose endpoints tie back to
+            // the discarded tree. Runs BEFORE the recording list mutations
+            // below so the purge can still resolve ids -> Recording /
+            // GameAction for in-tree classification.
+            TreeDiscardPurge.PurgeTree(pendingTree.Id);
 
             // #431: collect every recording id in the tree and purge tagged events first.
             // Runs before file deletion so a later failure in DeleteRecordingFiles still
@@ -1221,6 +1347,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(chainId)) return;
 
+            int removed = 0;
             for (int i = committedRecordings.Count - 1; i >= 0; i--)
             {
                 if (committedRecordings[i].ChainId == chainId)
@@ -1228,8 +1355,11 @@ namespace Parsek
                     DeleteRecordingFiles(committedRecordings[i]);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
                     committedRecordings.RemoveAt(i);
+                    removed++;
                 }
             }
+            if (removed > 0)
+                BumpStateVersion();
         }
 
         /// <summary>
@@ -1373,6 +1503,7 @@ namespace Parsek
 
             DeleteRecordingFiles(rec);
             committedRecordings.RemoveAt(index);
+            BumpStateVersion();
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
 
@@ -2177,6 +2308,7 @@ namespace Parsek
         {
             committedRecordings.Clear();
             committedTrees.Clear();
+            BumpStateVersion();
             autoAssignedStandaloneGroupsByRecordingId.Clear();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
@@ -2189,6 +2321,7 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingStashedThisTransition = false;
+            ResetLegacyMergeStateMigrationForTesting();
         }
 
         /// <summary>
@@ -2222,6 +2355,7 @@ namespace Parsek
                 committedTrees.Add(tree);
             }
             committedRecordings.Add(rec);
+            BumpStateVersion();
         }
 
         internal static void MarkAutoAssignedStandaloneGroupForTesting(Recording rec, string groupName)

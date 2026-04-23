@@ -16,6 +16,24 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## Rewind to Staging — v0.9 shipped
+
+The feature shipped on `feat/rewind-staging` across v0.9's development cycle. See:
+
+- Design doc: `docs/parsek-rewind-to-staging-design.md` (post-implementation, final).
+- Pre-implementation spec (archived): `docs/dev/done/parsek-rewind-staging-design.md`.
+- Roadmap entry: `docs/roadmap.md` → Completed → v0.9.
+- CHANGELOG: `CHANGELOG.md` → v0.9.0 features + Internals block.
+
+Carryover follow-ups (tracked in the design doc under Known Limitations / Future Work):
+
+- Index-to-recording-id refactor to lift the 13 grep-audit exemptions added in Phase 3.
+- Flip `EffectiveState.IsUnfinishedFlight` to use `CommittedProvisional` once the classifier emits that state path.
+- Halt `EffectiveRecordingId` walk at cross-tree boundaries (v1 does not produce cross-tree supersedes; latent-invariant guard).
+- Wider v2 tombstone scope (contracts, milestones) when safe.
+
+---
+
 # Known Bugs
 
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~

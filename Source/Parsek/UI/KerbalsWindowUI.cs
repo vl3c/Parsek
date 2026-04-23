@@ -258,7 +258,10 @@ namespace Parsek
             if (cachedVM == null)
             {
                 var kerbals = LedgerOrchestrator.Kerbals;
-                var recordings = RecordingStore.CommittedRecordings;
+                // [Phase 3] ERS-routed: kerbals window view model reads visible
+                // recordings only; NotCommitted / superseded / session-suppressed
+                // entries are excluded from roster context.
+                var recordings = EffectiveState.ComputeERS();
                 if (kerbals == null)
                 {
                     cachedVM = Build(

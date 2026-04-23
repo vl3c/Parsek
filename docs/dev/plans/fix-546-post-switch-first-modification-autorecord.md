@@ -1,7 +1,7 @@
 # Fix #546 - Post-switch first-modification auto-record coverage
 
-**Branch:** `bug/546-auto-start-switch-gap`  
-**Worktree:** `C:/Users/vlad3/Documents/Code/Parsek/Parsek-bug-546-auto-start-switch-gap`  
+**Branch:** `bug/546-auto-start-switch-gap`
+**Worktree:** `C:/Users/vlad3/Documents/Code/Parsek/Parsek-bug-546-auto-start-switch-gap`
 **Related:** `#534` (spawned chain-tip FLIGHT -> FLIGHT restore gap), `#111`, `#155`
 
 ## Problem

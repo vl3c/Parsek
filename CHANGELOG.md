@@ -6,6 +6,30 @@ All notable changes to Parsek are documented here.
 
 ## 0.9.0
 
+### Features
+
+- **Rewind to Staging** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Discard Re-fly / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
+- Revert to VAB/SPH during an active re-fly session now triggers the same 3-option dialog as Revert to Launch (was previously unhandled, bypassing the dialog entirely); Discard Re-fly returns the player to the editor as originally clicked.
+- Discard Re-fly (was `Full Revert`) during an active re-fly session now preserves the tree's supersede relations, tombstones, and other Rewind Points; only the current re-fly session's artifacts and provisional recording are cleared, and the origin RP's quicksave is reloaded so the timeline winds back to the split UT. Launch click returns to the Space Center; VAB/SPH click returns to the clicked editor.
+- New Settings > Diagnostics line shows live rewind-point disk usage (directory size + file count, refreshed every 10 seconds).
+
+### Internals — Rewind to Staging rollout (reference)
+
+- Phase 1 — data model (MergeState tri-state, RewindPoint + ChildSlot + RecordingSupersedeRelation + LedgerTombstone + ReFlySessionMarker + MergeJournal; scenario persistence + one-shot legacy migration).
+- Phase 2 — EffectiveState helper (ERS / ELS with tombstone-only filter, SessionSuppressedSubtree forward-only closure, IsVisible / IsUnfinishedFlight / EffectiveRecordingId; StateVersion counters drive cache invalidation).
+- Phase 3 — route existing raw-recording/ledger readers through ERS/ELS; `scripts/grep-audit-ers-els.ps1` CI gate with per-file allowlist.
+- Phase 4 — rewind points captured at multi-controllable splits (`RewindPointAuthor.Begin`) with scene guard, warp-to-zero, deferred quicksave + safe-move.
+- Phase 5 — Unfinished Flights virtual UI group (membership derived from ERS filtered by IsUnfinishedFlight; cannot hide / cannot be drop target).
+- Phase 6 — rewind button end-to-end (`RewindInvoker`: 5-precondition gate, reconciliation bundle, quicksave copy to save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional + marker write).
+- Phase 7 — session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
+- Phase 8 — merge-time supersede relations + Immutable vs CommittedProvisional commit decision (`SupersedeCommit.CommitSupersede` + `TerminalKindClassifier`).
+- Phase 9 — narrow v1 tombstone scope: only kerbal-death actions (plus bundled rep penalties within a 1s window) are retired on merge; career state stays sticky.
+- Phase 10 — journaled staged commit (`MergeJournalOrchestrator` with 5 crash-recovery checkpoints; OnLoad finisher rolls back or drives-to-completion).
+- Phase 11 — rewind-point reap after merge (`RewindPointReaper`); tree discard purges related RPs, supersede relations, and tombstones (`TreeDiscardPurge`).
+- Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Discard Re-fly / Continue Flying) intercepts both `FlightDriver.RevertToLaunch` and `FlightDriver.RevertToPrelaunch` while a session is active. Discard Re-fly is session-scoped: it removes only the current attempt's provisional recording, promotes the origin RP to persistent, reloads the RP quicksave, and transitions to the Space Center (Launch) or VAB/SPH (Prelaunch) — other RPs, supersede relations, and tombstones in the tree are preserved.
+- Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
+- Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
+
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.

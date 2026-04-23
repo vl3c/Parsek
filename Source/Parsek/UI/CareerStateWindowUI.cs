@@ -1219,8 +1219,10 @@ namespace Parsek
 
             if (ShouldRebuildCachedVM(cachedVM, currentMode, liveUT))
             {
+                // [Phase 3] ELS-routed: career state view reads non-tombstoned
+                // ledger actions only (design §3.4 career-state UI).
                 cachedVM = Build(
-                    Ledger.Actions,
+                    EffectiveState.ComputeELS(),
                     liveUT,
                     currentMode,
                     LedgerOrchestrator.Contracts,
