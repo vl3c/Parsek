@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#529` Live `BackupVessel()` snapshots now normalize landed/splashed `ORBIT` nodes through the shared backup path instead of only one finalize call site. Stable-terminal persistence, limbo pre-capture, split/chain snapshots, and other live snapshot users all get the canonical surface tuple for the live body, the rewrite logs explicitly, and spawn validation still self-heals older same-body stale surface sidecars from endpoint or snapshot coordinates.
 - `#526` Timeline FF and other time jumps no longer let the real pad vessel auto-start a bogus launch recording during the jump transient.
 - `#527` Rewind follow-up post-rewind FLIGHT-load recalculations now rebuild career state at the current loaded UT instead of walking the full ledger. The later FLIGHT `OnLoad` pass no longer restores future funds/contracts immediately after rewind; those actions stay filtered until replay reaches their UT again. The cutoff-dispatch log now includes every decision input, the other deferred `ParsekScenario` recalcs were audited as intentional full-ledger non-rewind paths, and a manual-only live rewind canary now exercises the real load flow.
 - `#530` Pending timeline ghost shells now seed their playback body metadata before a split lazy build finishes, so Timeline and Recordings `W` buttons no longer open in a false disabled state just because the snapshot build is still advancing across frames.

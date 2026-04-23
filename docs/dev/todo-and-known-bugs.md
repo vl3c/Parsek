@@ -322,15 +322,17 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## 529. Stable-terminal landed re-snapshots can still persist a stale orbital `ORBIT` block
+## ~~529. Stable-terminal landed re-snapshots can still persist a stale orbital `ORBIT` block~~
 
 **Source:** the finalized sidecar `parsek/Recordings/a31472b008f042848e868bf1759e1259_vessel.craft.txt` from `logs/2026-04-21_2335_live-collect-script` has `sit = LANDED` and `skipGroundPositioning = True`, but its `ORBIT` block still contains a stale orbital tuple (`SMA = 300816.6`, `ECC = 0.9948`, `REF = 1`). `KSP.log` shows the recording being finalized via the stable-terminal re-snapshot path immediately beforehand.
 
-**Concern:** closed `#479` normalized unsafe `sit` values during stable-terminal persistence, but the current persistence path only rewrites situation metadata. The surface-orbit repair logic still lives only in spawn-time healing, so landed/splashed stable-terminal sidecars can remain internally contradictory until a later repair path touches them.
+**Concern:** closed `#479` normalized unsafe `sit` values during stable-terminal persistence, but the current persistence path only rewrites situation metadata. The surface-orbit repair logic still lived only in spawn-time healing, so landed/splashed stable-terminal sidecars could remain internally contradictory until a later repair path touched them.
 
-**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`.
+**Fix:** landed/splashed `BackupVessel()` snapshots now normalize through the shared live-backup path instead of only the stable-terminal finalize helper, so finalize persistence, limbo pre-capture, split/chain snapshots, and the other live snapshot call sites all rewrite stale `ORBIT` nodes to the canonical surface tuple for the live body. The rewrite is now logged explicitly, and spawn validation still treats same-body landed/splashed orbital tuples as malformed surface data and rewrites them from the recorded or snapshot surface coordinates so older bad sidecars self-heal when they spawn.
 
-**Status:** OPEN. Data-integrity bug captured in-package.
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/VesselSpawner.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`, `Source/Parsek.Tests/SpawnSafetyNetTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.9.0.
 
 ---
 

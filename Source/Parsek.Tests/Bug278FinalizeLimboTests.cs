@@ -19,6 +19,7 @@ namespace Parsek.Tests
     public class Bug278FinalizeLimboTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public Bug278FinalizeLimboTests()
         {
@@ -27,11 +28,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
         }
 
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            TestBodyRegistry.Reset();
+            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -696,6 +700,49 @@ namespace Parsek.Tests
             Assert.Equal("ORBITING", normalized.GetValue("sit"));
             Assert.Equal("False", normalized.GetValue("landed"));
             Assert.Equal("False", normalized.GetValue("splashed"));
+        }
+
+        [Fact]
+        public void NormalizeStableTerminalSnapshotForPersistence_Landed_RewritesStaleOrbitToSurfaceTuple()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("landed", "True");
+            snapshot.AddValue("splashed", "False");
+            ConfigNode orbitNode = snapshot.AddNode("ORBIT");
+            orbitNode.AddValue("SMA", "300816.6");
+            orbitNode.AddValue("ECC", "0.9948");
+            orbitNode.AddValue("INC", "3.5");
+            orbitNode.AddValue("LPE", "12.0");
+            orbitNode.AddValue("LAN", "4.0");
+            orbitNode.AddValue("MNA", "0.25");
+            orbitNode.AddValue("EPH", "123.0");
+            orbitNode.AddValue("REF", "0");
+
+            TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            Assert.True(TestBodyRegistry.ResolveBodyByName("Mun", out CelestialBody body));
+            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+
+            ConfigNode normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
+                snapshot,
+                TerminalState.Landed,
+                body);
+
+            Assert.Same(snapshot, normalized);
+            ConfigNode normalizedOrbit = normalized.GetNode("ORBIT");
+            Assert.NotNull(normalizedOrbit);
+            Assert.Equal("0", normalizedOrbit.GetValue("SMA"));
+            Assert.Equal("1", normalizedOrbit.GetValue("ECC"));
+            Assert.Equal("0", normalizedOrbit.GetValue("INC"));
+            Assert.Equal("0", normalizedOrbit.GetValue("LPE"));
+            Assert.Equal("0", normalizedOrbit.GetValue("LAN"));
+            Assert.Equal("0", normalizedOrbit.GetValue("MNA"));
+            Assert.Equal("0", normalizedOrbit.GetValue("EPH"));
+            Assert.Equal("1", normalizedOrbit.GetValue("REF"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ApplySurfaceOrbitToSnapshot")
+                && l.Contains("stable-terminal snapshot persistence")
+                && l.Contains("Mun"));
         }
 
         [Fact]

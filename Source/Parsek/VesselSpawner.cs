@@ -39,6 +39,7 @@ namespace Parsek
                 if (pv == null) return null;
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
+                NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
                 return node;
             }
             catch (Exception ex)
@@ -46,6 +47,31 @@ namespace Parsek
                 ParsekLog.Error("Spawner", $"Failed to backup vessel snapshot: {ex.Message}");
                 return null;
             }
+        }
+
+        private static void NormalizeBackedUpSnapshotFromLiveVessel(ConfigNode snapshot, Vessel vessel)
+        {
+            if (snapshot == null || vessel == null)
+                return;
+
+            TerminalState liveState = ResolveLiveSnapshotTerminalState(vessel);
+            CelestialBody surfaceBody = vessel.situation == Vessel.Situations.LANDED
+                || vessel.situation == Vessel.Situations.SPLASHED
+                ? vessel.mainBody
+                : null;
+            NormalizeStableSnapshotForPersistence(
+                snapshot,
+                liveState,
+                surfaceBody,
+                $"TryBackupSnapshot pid={vessel.persistentId} vessel='{vessel.vesselName ?? "(unknown)"}'");
+        }
+
+        private static TerminalState ResolveLiveSnapshotTerminalState(Vessel vessel)
+        {
+            if (vessel == null)
+                return TerminalState.SubOrbital;
+
+            return RecordingTree.DetermineTerminalState((int)vessel.situation, vessel);
         }
 
         /// <summary>
@@ -1992,6 +2018,26 @@ namespace Parsek
             return true;
         }
 
+        internal static ConfigNode NormalizeStableSnapshotForPersistence(
+            ConfigNode snapshot,
+            TerminalState? terminalState,
+            CelestialBody body = null,
+            string logContext = null)
+        {
+            if (snapshot == null)
+                return null;
+
+            CorrectUnsafeSnapshotSituation(snapshot, terminalState);
+            if ((terminalState == TerminalState.Landed
+                    || terminalState == TerminalState.Splashed)
+                && !object.ReferenceEquals(body, null))
+            {
+                ApplySurfaceOrbitToSnapshot(snapshot, body, logContext);
+            }
+
+            return snapshot;
+        }
+
         private static void NormalizeCorrectedSituationLocationFields(ConfigNode snapshot)
         {
             if (snapshot == null)
@@ -2791,42 +2837,73 @@ namespace Parsek
             bool hasEndpointBody = hasEndpointCoords;
             if (!hasEndpointBody)
                 hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
-            bool bodyMismatch = hasEndpointBody
-                && hasSnapshotBody
-                && !string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal);
-            bool needsRepair = !hasSnapshotPos || !hasSnapshotBody || bodyMismatch;
+            bool landedLike = rec.TerminalStateValue == TerminalState.Landed
+                || rec.TerminalStateValue == TerminalState.Splashed
+                || IsLandedLikeSnapshot(snapshot);
+            bool? bodyMismatch = hasEndpointBody && hasSnapshotBody
+                ? (bool?)!string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal)
+                : null;
+            bool needsSurfaceOrbitRepair = landedLike
+                && !HasCanonicalSurfaceOrbitSignature(snapshot);
+            bool needsRepair = !hasSnapshotPos
+                || !hasSnapshotBody
+                || bodyMismatch == true
+                || needsSurfaceOrbitRepair;
 
             if (!needsRepair)
                 return true;
 
-            if (!hasEndpointBody)
+            string repairBodyName = hasEndpointBody ? endpointBodyName : snapshotBodyName;
+            if (string.IsNullOrEmpty(repairBodyName))
             {
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
                     $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
-                    $"and no authoritative endpoint body is available");
+                    $"and no repair body is available");
                 return false;
             }
 
-            if (!TryResolveBodyByName(endpointBodyName, out CelestialBody body))
+            if (!TryResolveBodyByName(repairBodyName, out CelestialBody body))
             {
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
-                    $"endpoint body '{endpointBodyName}' was resolved but is not loaded");
+                    $"repair body '{repairBodyName}' was resolved but is not loaded");
                 return false;
             }
 
-            bool landedLike = rec.TerminalStateValue == TerminalState.Landed
-                || rec.TerminalStateValue == TerminalState.Splashed
-                || IsLandedLikeSnapshot(snapshot);
-
-            if (landedLike && hasEndpointCoords)
+            if (landedLike)
             {
-                OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
-                ApplySurfaceOrbitToSnapshot(snapshot, body);
+                bool useEndpointCoords = hasEndpointCoords;
+                bool useSnapshotCoords = !useEndpointCoords
+                    && hasSnapshotPos
+                    && hasSnapshotBody
+                    && bodyMismatch != true;
+
+                if (!useEndpointCoords && !useSnapshotCoords)
+                {
+                    ParsekLog.Error("Spawner",
+                        $"Spawn validation failed for {logContext}: " +
+                        "surface snapshot repair needs usable coordinates " +
+                        $"(endpointCoords={hasEndpointCoords}, snapshotPos={hasSnapshotPos}, " +
+                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"})");
+                    return false;
+                }
+
+                if (useEndpointCoords)
+                {
+                    OverrideSnapshotPosition(
+                        snapshot,
+                        endpointLat,
+                        endpointLon,
+                        endpointAlt,
+                        -1,
+                        logContext ?? rec.VesselName);
+                }
+
+                ApplySurfaceOrbitToSnapshot(snapshot, body, logContext);
                 ParsekLog.Warn("Spawner",
                     $"Spawn validation repaired snapshot for {logContext} " +
-                    $"using endpoint surface coordinates on body '{endpointBodyName}'");
+                    $"using {(useEndpointCoords ? "endpoint" : "snapshot")} surface coordinates on body '{repairBodyName}'");
                 return true;
             }
 
@@ -2925,17 +3002,78 @@ namespace Parsek
             snapshot.AddNode(orbitNode);
         }
 
-        private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
+        private const double CanonicalSurfaceOrbitTolerance = 1e-9;
+
+        private static bool HasCanonicalSurfaceOrbitSignature(ConfigNode snapshot)
+        {
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            return OrbitNodeValueMatches(orbitNode, "SMA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "ECC", 1.0)
+                && OrbitNodeValueMatches(orbitNode, "INC", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LPE", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LAN", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "MNA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "EPH", 0.0);
+        }
+
+        private static bool HasCanonicalSurfaceOrbitForBody(ConfigNode snapshot, int bodyIndex)
+        {
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            return HasCanonicalSurfaceOrbitSignature(snapshot)
+                && OrbitNodeIntValueMatches(orbitNode, "REF", bodyIndex);
+        }
+
+        private static bool OrbitNodeValueMatches(ConfigNode node, string key, double expected)
+        {
+            if (node == null)
+                return false;
+
+            string raw = node.GetValue(key);
+            return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double actual)
+                && Math.Abs(actual - expected) <= CanonicalSurfaceOrbitTolerance;
+        }
+
+        private static bool OrbitNodeIntValueMatches(ConfigNode node, string key, int expected)
+        {
+            if (node == null)
+                return false;
+
+            string raw = node.GetValue(key);
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int actual)
+                && actual == expected;
+        }
+
+        private static string DescribeBodyForLog(CelestialBody body)
+        {
+            if (object.ReferenceEquals(body, null))
+                return "(unknown)";
+
+            if (!string.IsNullOrEmpty(body.bodyName))
+                return body.bodyName;
+
+            if (!string.IsNullOrEmpty(body.name))
+                return body.name;
+
+            return "(unknown)";
+        }
+
+        internal static bool ApplySurfaceOrbitToSnapshot(
+            ConfigNode snapshot,
+            CelestialBody body,
+            string logContext = null)
         {
             if (snapshot == null || object.ReferenceEquals(body, null))
-                return;
+                return false;
 
             if (!TryResolveBodyIndex(body, out int bodyIndex))
             {
                 ParsekLog.Verbose("Spawner",
-                    $"ApplySurfaceOrbitToSnapshot: unable to resolve body index for '{body.name ?? "(unknown)"}'");
-                return;
+                    $"ApplySurfaceOrbitToSnapshot: unable to resolve body index for '{DescribeBodyForLog(body)}'");
+                return false;
             }
+
+            if (HasCanonicalSurfaceOrbitForBody(snapshot, bodyIndex))
+                return false;
 
             snapshot.RemoveNode("ORBIT");
             ConfigNode orbitNode = new ConfigNode("ORBIT");
@@ -2948,6 +3086,11 @@ namespace Parsek
             orbitNode.AddValue("EPH", "0");
             orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
             snapshot.AddNode(orbitNode);
+            ParsekLog.Info("Spawner",
+                $"ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for " +
+                $"{(string.IsNullOrEmpty(logContext) ? "snapshot" : logContext)} on body " +
+                $"'{DescribeBodyForLog(body)}' (REF={bodyIndex})");
+            return true;
         }
 
         private static bool TryResolveBodyIndex(CelestialBody body, out int index)
