@@ -115,8 +115,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#557` Initial science and reputation seeds now prefer captured game-state baselines, including legitimate zero values, before falling back to live KSP singleton balances. A zero seed is now treated as authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
-- `#558` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of either the gross current balance or a blunt full-future spend subtraction. Future spendings reserve current headroom only when the projected balance would dip below the current value, while future earnings before those spendings can cover them without inflating current spendability. Reputation remains a current-UT running value with no reservation.
+- `#557` Initial science and reputation seeds now prefer captured game-state baselines (including legitimate zero values) over live KSP singleton balances. A zero seed is now authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
+- `#558` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of the gross current balance or a blunt full-future spend subtraction. Future spendings only reserve current headroom when the projected balance would dip below the current value, future earnings before those spendings can cover them without inflating current spendability, and reputation stays a current-UT running value with no reservation.
 
 ### Tests
 

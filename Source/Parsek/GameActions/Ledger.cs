@@ -585,7 +585,15 @@ namespace Parsek
         /// <summary>
         /// Creates a ScienceInitial action if none exists in the current ledger.
         /// Called once when Parsek first initializes on a save with existing science.
-        /// The seed is immutable — subsequent calls are no-ops.
+        /// The seed is immutable — subsequent calls are no-ops, including when
+        /// the existing seed is zero. Issue #557 / PR #499 intentionally
+        /// bypassed stale-zero upgrades at the <c>LedgerOrchestrator</c> layer
+        /// because a legitimate zero career baseline must not be overwritten
+        /// by a later live balance (that would inject future science into
+        /// UT0 during rewind). The stale-zero upgrade branch that used to
+        /// live here was removed after PR #499 so a future caller cannot
+        /// reintroduce the regression. A second call with any value logs a
+        /// WARN and returns without mutation.
         /// </summary>
         internal static void SeedInitialScience(float initialScience)
         {
@@ -593,17 +601,10 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.ScienceInitial)
                 {
-                    if (actions[i].InitialScience == 0f && initialScience != 0f)
-                    {
-                        actions[i].InitialScience = initialScience;
-                        ParsekLog.Info("Ledger",
-                            $"SeedInitialScience: updated stale 0-value seed to {initialScience.ToString("R", CultureInfo.InvariantCulture)}");
-                        return;
-                    }
-
-                    ParsekLog.Verbose("Ledger",
+                    ParsekLog.Warn("Ledger",
                         $"SeedInitialScience: ScienceInitial already exists (amount={actions[i].InitialScience.ToString("R", CultureInfo.InvariantCulture)}), " +
-                        $"ignoring new seed amount={initialScience.ToString("R", CultureInfo.InvariantCulture)}");
+                        $"refusing to upgrade to amount={initialScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                        "(#557 / PR #499: baseline is authoritative once seeded)");
                     return;
                 }
             }
@@ -624,7 +625,15 @@ namespace Parsek
         /// <summary>
         /// Creates a ReputationInitial action if none exists in the current ledger.
         /// Called once when Parsek first initializes on a save with existing reputation.
-        /// The seed is immutable — subsequent calls are no-ops.
+        /// The seed is immutable — subsequent calls are no-ops, including when
+        /// the existing seed is near-zero. Issue #557 / PR #499 intentionally
+        /// bypassed stale-zero upgrades at the <c>LedgerOrchestrator</c> layer
+        /// because a legitimate zero career baseline must not be overwritten
+        /// by a later live balance (that would inject future reputation into
+        /// UT0 during rewind). The near-zero upgrade branch that used to
+        /// live here was removed after PR #499 so a future caller cannot
+        /// reintroduce the regression. A second call with any value logs a
+        /// WARN and returns without mutation.
         /// </summary>
         internal static void SeedInitialReputation(float initialReputation)
         {
@@ -632,18 +641,10 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.ReputationInitial)
                 {
-                    if (Math.Abs(actions[i].InitialReputation) < 0.01f
-                        && Math.Abs(initialReputation) >= 0.01f)
-                    {
-                        actions[i].InitialReputation = initialReputation;
-                        ParsekLog.Info("Ledger",
-                            $"SeedInitialReputation: updated stale 0-value seed to {initialReputation.ToString("R", CultureInfo.InvariantCulture)}");
-                        return;
-                    }
-
-                    ParsekLog.Verbose("Ledger",
+                    ParsekLog.Warn("Ledger",
                         $"SeedInitialReputation: ReputationInitial already exists (amount={actions[i].InitialReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
-                        $"ignoring new seed amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}");
+                        $"refusing to upgrade to amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                        "(#557 / PR #499: baseline is authoritative once seeded)");
                     return;
                 }
             }
