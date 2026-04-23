@@ -2074,6 +2074,137 @@ namespace Parsek.Tests
             Assert.Equal(mapReason, tsReason);
         }
 
+        [Fact]
+        public void ResolveMapPresenceGhostSource_StateVectorBelowThreshold_SkipsWithThresholdReason()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "state-vector-below-threshold",
+                TerminalStateValue = TerminalState.SubOrbital,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Mun",
+                        altitude = 200,
+                        velocity = new UnityEngine.Vector3(0, 10, 0)
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 300,
+                        bodyName = "Mun",
+                        altitude = 250,
+                        velocity = new UnityEngine.Vector3(0, 15, 0)
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-threshold",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipStateVectorThreshold, skipReason);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-threshold")
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipStateVectorThreshold));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_SkipsWithRelativeFrameReason()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "state-vector-relative-frame",
+                TerminalStateValue = TerminalState.SubOrbital,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Mun",
+                        altitude = 3000,
+                        velocity = new UnityEngine.Vector3(0, 100, 0)
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 300,
+                        bodyName = "Mun",
+                        altitude = 3000,
+                        velocity = new UnityEngine.Vector3(0, 100, 0)
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100,
+                        endUT = 300,
+                        referenceFrame = ReferenceFrame.Relative
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-relative",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeFrame, skipReason);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-relative")
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeFrame));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_NoTerminalFallback_StateVectorFailure_NormalizesSkipReason()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "state-vector-no-points",
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                500,
+                false,
+                "test-no-fallback",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("no-orbit-data", skipReason);
+        }
+
         #endregion
 
         #region Endpoint-Aligned Orbit Seeds

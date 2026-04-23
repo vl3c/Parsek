@@ -714,7 +714,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Fix:** Added `GhostMapPresence.ResolveMapPresenceGhostSource` as the shared source-decision path used by both `ParsekPlaybackPolicy` and the Tracking Station lifecycle. Tracking Station now follows the same visible-segment and state-vector policy as Map View, keeps terminal-orbit fallback behind endpoint-aligned seed checks, skips endpoint conflicts with the same reason, and removes/suppresses ghosts once a real vessel materializes.
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless parity coverage in `GhostMapPresenceTests` and Tracking Station materialization coverage in `TrackingStationSpawnTests`.
 
