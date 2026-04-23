@@ -699,7 +699,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
+## ~~551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation, plus `logs/2026-04-23_1815_logs-package`.
 
@@ -707,14 +707,16 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Action plan:**
 
-1. Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".
-2. Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.
-3. Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.
-4. Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.
+1. ~~Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".~~
+2. ~~Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.~~
+3. ~~Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.~~
+4. ~~Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.~~
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+**Fix:** Added `GhostMapPresence.ResolveMapPresenceGhostSource` as the shared source-decision path used by both `ParsekPlaybackPolicy` and the Tracking Station lifecycle. Tracking Station now follows the same visible-segment and state-vector policy as Map View, keeps terminal-orbit fallback behind endpoint-aligned seed checks, skips endpoint conflicts with the same reason, and removes/suppresses ghosts once a real vessel materializes.
 
-**Status:** TODO. High priority TS parity follow-up.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless parity coverage in `GhostMapPresenceTests` and Tracking Station materialization coverage in `TrackingStationSpawnTests`.
 
 ---
 
