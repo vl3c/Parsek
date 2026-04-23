@@ -71,13 +71,15 @@ namespace Parsek.Tests
         #region Source vessel adoption
 
         [Fact]
-        public void TryAdoptExistingSourceVesselForKscSpawn_SourceExists_UsesSourcePid()
+        public void TryAdoptExistingSourceVesselForSpawn_SourceExists_UsesSourcePid()
         {
             var rec = MakeEligibleRecording();
 
-            bool adopted = ParsekKSC.TryAdoptExistingSourceVesselForKscSpawn(
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
                 rec,
-                sourceVesselExists: true);
+                sourceVesselExists: true,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
 
             Assert.True(adopted);
             Assert.True(rec.VesselSpawned);
@@ -85,13 +87,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryAdoptExistingSourceVesselForKscSpawn_SourceMissing_DoesNotMutate()
+        public void TryAdoptExistingSourceVesselForSpawn_SourceMissing_DoesNotMutate()
         {
             var rec = MakeEligibleRecording();
 
-            bool adopted = ParsekKSC.TryAdoptExistingSourceVesselForKscSpawn(
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
                 rec,
-                sourceVesselExists: false);
+                sourceVesselExists: false,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
 
             Assert.False(adopted);
             Assert.False(rec.VesselSpawned);
@@ -99,15 +103,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryAdoptExistingSourceVesselForKscSpawn_AlreadySpawned_DoesNotOverwrite()
+        public void TryAdoptExistingSourceVesselForSpawn_AlreadySpawned_DoesNotOverwrite()
         {
             var rec = MakeEligibleRecording();
             rec.VesselSpawned = true;
             rec.SpawnedVesselPersistentId = 99999;
 
-            bool adopted = ParsekKSC.TryAdoptExistingSourceVesselForKscSpawn(
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
                 rec,
-                sourceVesselExists: true);
+                sourceVesselExists: true,
+                logTag: "KSCSpawn",
+                logContext: "test recording");
 
             Assert.False(adopted);
             Assert.Equal(99999u, rec.SpawnedVesselPersistentId);

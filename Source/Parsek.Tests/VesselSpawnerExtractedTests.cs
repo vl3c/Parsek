@@ -22,13 +22,126 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
         }
 
         public void Dispose()
         {
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
         }
+
+        #region Source vessel materialization guard
+
+        [Fact]
+        public void TryAdoptExistingSourceVesselForSpawn_SourceExists_AdoptsSourcePid()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-source",
+                VesselName = "Rover",
+                VesselPersistentId = 777
+            };
+
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists: true,
+                logTag: "Spawner",
+                logContext: "unit-test source guard");
+
+            Assert.True(adopted);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(777u, rec.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") &&
+                l.Contains("adopting instead of spawning duplicate"));
+        }
+
+        [Fact]
+        public void TryAdoptExistingSourceVesselForSpawn_AllowDuplicate_DoesNotAdopt()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-replay",
+                VesselName = "ReplayVessel",
+                VesselPersistentId = 888
+            };
+
+            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                rec,
+                sourceVesselExists: true,
+                logTag: "Spawner",
+                logContext: "unit-test replay bypass",
+                allowExistingSourceDuplicate: true);
+
+            Assert.False(adopted);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void RespawnValidatedRecording_SourceExists_AdoptsBeforeSnapshotValidation()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-existing",
+                VesselName = "ExistingVessel",
+                VesselPersistentId = 999,
+                VesselSnapshot = null
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 999);
+
+            uint pid = VesselSpawner.RespawnValidatedRecording(
+                rec,
+                "unit-test existing source",
+                currentUT: 42.0);
+
+            Assert.Equal(999u, pid);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(999u, rec.SpawnedVesselPersistentId);
+            Assert.DoesNotContain(logLines, l => l.Contains("missing VesselSnapshot"));
+        }
+
+        [Fact]
+        public void SpawnOrRecoverIfTooClose_SourceExists_AdoptsBeforeAttemptLimit()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-max-attempts",
+                VesselName = "MaxAttemptsVessel",
+                VesselPersistentId = 1001,
+                SpawnAttempts = 3
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 1001);
+
+            VesselSpawner.SpawnOrRecoverIfTooClose(rec, 12);
+
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(1001u, rec.SpawnedVesselPersistentId);
+            Assert.DoesNotContain(logLines, l => l.Contains("max attempts"));
+        }
+
+        [Theory]
+        [InlineData(0u, 0u, 0u, false)]
+        [InlineData(777u, 777u, 0u, true)]
+        [InlineData(777u, 0u, 777u, true)]
+        [InlineData(777u, 1u, 2u, false)]
+        public void ShouldAllowExistingSourceDuplicateForReplay_MatchesOnlyExplicitReplayPids(
+            uint sourcePid,
+            uint sceneEntryPid,
+            uint activeVesselPid,
+            bool expected)
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid,
+                sceneEntryPid,
+                activeVesselPid);
+
+            Assert.Equal(expected, result);
+        }
+
+        #endregion
 
         #region DetermineSituation
 

@@ -1216,15 +1216,11 @@ namespace Parsek
 
             try
             {
-                if (TryAdoptExistingSourceVesselForKscSpawn(
+                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
                     rec,
-                    SourceProtoVesselExists(rec.VesselPersistentId)))
-                {
-                    ParsekLog.Info("KSCSpawn",
-                        $"Spawn not needed for #{recIdx} \"{rec.VesselName}\": source vessel still exists " +
-                        $"(pid={rec.SpawnedVesselPersistentId}) - adopted for resume");
+                    "KSCSpawn",
+                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
                     return;
-                }
 
                 // At KSC, FlightGlobals.Vessels may be empty/null but
                 // HighLogic.CurrentGame.flightState.protoVessels is always available.
@@ -1317,41 +1313,6 @@ namespace Parsek
                 ParsekLog.Error("KSCSpawn",
                     $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex}");
             }
-        }
-
-        internal static bool TryAdoptExistingSourceVesselForKscSpawn(
-            Recording rec,
-            bool sourceVesselExists)
-        {
-            if (rec == null || !sourceVesselExists)
-                return false;
-            if (rec.VesselPersistentId == 0)
-                return false;
-            if (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0)
-                return false;
-
-            rec.VesselSpawned = true;
-            rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
-            return true;
-        }
-
-        private static bool SourceProtoVesselExists(uint sourcePid)
-        {
-            if (sourcePid == 0 || GhostMapPresence.IsGhostMapVessel(sourcePid))
-                return false;
-
-            var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
-            if (protoVessels == null)
-                return false;
-
-            for (int i = 0; i < protoVessels.Count; i++)
-            {
-                ProtoVessel pv = protoVessels[i];
-                if (pv != null && pv.persistentId == sourcePid)
-                    return true;
-            }
-
-            return false;
         }
 
         /// <summary>

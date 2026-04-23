@@ -84,9 +84,19 @@ namespace Parsek
                         vesselPid, vesselName, ex.Message));
                 try
                 {
-                    VesselSpawner.RespawnVessel(snapshot, preserveIdentity: true);
-                    ParsekLog.Info(Tag,
-                        string.Format(ic, "Vessel restored from snapshot after despawn failure: pid={0}", vesselPid));
+                    if (VesselSpawner.MaterializedSourceVesselExists(vesselPid))
+                    {
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Restore from snapshot skipped after despawn failure: source vessel pid={0} still exists",
+                                vesselPid));
+                    }
+                    else
+                    {
+                        VesselSpawner.RespawnVessel(snapshot, preserveIdentity: true);
+                        ParsekLog.Info(Tag,
+                            string.Format(ic, "Vessel restored from snapshot after despawn failure: pid={0}", vesselPid));
+                    }
                 }
                 catch (Exception restoreEx)
                 {
@@ -155,7 +165,7 @@ namespace Parsek
         /// Returns the spawned vessel's PID (0 on failure).
         /// If spawn is blocked by collision, sets chain.SpawnBlocked and returns 0.
         /// </summary>
-        internal uint SpawnAtChainTip(GhostChain chain)
+        internal uint SpawnAtChainTip(GhostChain chain, bool allowExistingSourceDuplicate = false)
         {
             if (!CanSpawnAtChainTip(chain))
             {
@@ -168,6 +178,17 @@ namespace Parsek
             Recording tipRecording = FindTipRecording(tipId);
             ConfigNode vesselSnapshot = tipRecording?.VesselSnapshot;
             string vesselName = tipRecording?.VesselName;
+            allowExistingSourceDuplicate = allowExistingSourceDuplicate
+                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
+                    tipRecording != null ? tipRecording.VesselPersistentId : 0u);
+
+            uint adoptedPid = TryAdoptExistingSourceForChainTip(
+                chain,
+                tipRecording,
+                string.Format(ic, "chain tip '{0}'", tipId),
+                allowExistingSourceDuplicate);
+            if (adoptedPid != 0)
+                return adoptedPid;
 
             if (vesselSnapshot == null)
             {
@@ -217,7 +238,8 @@ namespace Parsek
             uint spawnedPid = VesselSpawner.RespawnValidatedRecording(
                 tipRecording,
                 string.Format(ic, "chain tip '{0}'", tipId),
-                preserveIdentity: true);
+                preserveIdentity: true,
+                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
 
             if (spawnedPid == 0)
             {
@@ -245,7 +267,10 @@ namespace Parsek
         /// If clear: spawns at propagated position, clears SpawnBlocked, returns PID.
         /// If still blocked: returns 0.
         /// </summary>
-        internal uint TrySpawnBlockedChain(GhostChain chain, double currentUT)
+        internal uint TrySpawnBlockedChain(
+            GhostChain chain,
+            double currentUT,
+            bool allowExistingSourceDuplicate = false)
         {
             if (chain == null || !chain.SpawnBlocked)
             {
@@ -261,6 +286,17 @@ namespace Parsek
                     string.Format(ic, "TrySpawnBlockedChain: tip recording '{0}' not found", tipId));
                 return 0;
             }
+            allowExistingSourceDuplicate = allowExistingSourceDuplicate
+                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
+                    tipRecording.VesselPersistentId);
+
+            uint adoptedPid = TryAdoptExistingSourceForChainTip(
+                chain,
+                tipRecording,
+                string.Format(ic, "blocked chain tip '{0}'", tipId),
+                allowExistingSourceDuplicate);
+            if (adoptedPid != 0)
+                return adoptedPid;
 
             ConfigNode vesselSnapshot = tipRecording.VesselSnapshot;
             if (vesselSnapshot == null)
@@ -292,7 +328,12 @@ namespace Parsek
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
                 {
                     uint walkbackResult = TryWalkbackSpawn(
-                        chain, tipRecording, vesselSnapshot, spawnBounds, blockerName);
+                        chain,
+                        tipRecording,
+                        vesselSnapshot,
+                        spawnBounds,
+                        blockerName,
+                        allowExistingSourceDuplicate);
                     if (walkbackResult != 0)
                         return walkbackResult;
                 }
@@ -332,7 +373,8 @@ namespace Parsek
                 tipRecording,
                 string.Format(ic, "blocked chain tip '{0}'", tipId),
                 preserveIdentity: true,
-                currentUT: currentUT);
+                currentUT: currentUT,
+                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -355,6 +397,36 @@ namespace Parsek
         }
 
         // --- Private helpers ---
+
+        private uint TryAdoptExistingSourceForChainTip(
+            GhostChain chain,
+            Recording tipRecording,
+            string logContext,
+            bool allowExistingSourceDuplicate)
+        {
+            if (!VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                tipRecording,
+                Tag,
+                logContext,
+                allowExistingSourceDuplicate))
+            {
+                return 0;
+            }
+
+            if (chain != null)
+            {
+                chain.SpawnBlocked = false;
+                CleanupGhostedVessel(chain.OriginalVesselPid);
+            }
+
+            uint adoptedPid = tipRecording.SpawnedVesselPersistentId;
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Chain tip adoption: pid={0} vessel={1} — existing source vessel reused",
+                    adoptedPid,
+                    tipRecording.VesselName ?? "(unknown)"));
+            return adoptedPid;
+        }
 
         /// <summary>
         /// Resolves the world-space spawn position for a chain tip spawn.
@@ -432,7 +504,10 @@ namespace Parsek
         /// </summary>
         private uint TryWalkbackSpawn(
             GhostChain chain, Recording tipRecording,
-            ConfigNode vesselSnapshot, Bounds spawnBounds, string blockerName)
+            ConfigNode vesselSnapshot,
+            Bounds spawnBounds,
+            string blockerName,
+            bool allowExistingSourceDuplicate)
         {
             int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
                 tipRecording.Points,
@@ -480,7 +555,8 @@ namespace Parsek
                     tipRecording,
                     string.Format(ic, "walkback chain tip '{0}'", tipRecording.RecordingId ?? tipRecording.VesselName),
                     preserveIdentity: true,
-                    currentUT: tipRecording.Points[validIdx].ut);
+                    currentUT: tipRecording.Points[validIdx].ut,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
                 if (walkbackPid != 0)
                 {
                     chain.SpawnBlocked = false;
