@@ -685,7 +685,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## ~~550. Tracking Station ghost selection can leave a stale stock vessel as the private fly target~~
+## ~~561. Tracking Station ghost selection can leave a stale stock vessel as the private fly target~~
 
 **Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and `persistent.sfs`. The session created `Learstar A1` correctly as a real `Plane` in Kerbol orbit (`SpawnAtPosition ... pid=3517645340, body=Sun`), but the later Tracking Station fly path loaded stock asteroid `Ast. QME-914` (`persistentId=2902671035`, `type=SpaceObject`, `PotatoRoid`) instead.
 
@@ -701,7 +701,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
 
-**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation, plus `logs/2026-04-23_1815_logs-package`.
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation, plus `logs/2026-04-23_1815_logs-package`.
 
 **Concern:** Flight Map View has the richer ghost lifecycle path: pending-vessel policy, state-vector and orbit-segment source selection, chain-tip dedupe/update behavior, and handoff checks flow through `ParsekPlaybackPolicy` / `GhostMapPresence`. Tracking Station still has its own periodic rebuild loop in `ParsekTrackingStation`, which re-evaluates committed recordings every couple of seconds and has historically lagged Map View on source selection, handoff suppression, and duplicate cleanup.
 
@@ -776,7 +776,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ## 554. Tracking Station runtime coverage is missing from the collected in-game test package
 
-**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
 
 **Concern:** Several TS regressions are scene-integration problems that headless xUnit can only approximate. The latest package proved the Learstar real-vessel spawn and the stale asteroid switch, but it did not prove the TS UI lifecycle, TS ghost toggle recreation, or post-materialization Fly path on a patched build.
 
@@ -793,11 +793,11 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## ~~555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #550 fix~~
+## ~~555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #561 fix~~
 
-**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#550` investigation.
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#561` investigation.
 
-**Concern:** `#550` fixed the worst repeated terminal-orbit ghost attempts and corrected the segment-ghost SMA log, but the TS logs still need a cleaner source story. When a ghost is skipped, rebuilt, seeded from a visible segment, seeded from terminal orbit, or suppressed because a real vessel already exists, the log should make the source and reason clear without generating hundreds of repeated fallback lines.
+**Concern:** `#561` fixed the worst repeated terminal-orbit ghost attempts and corrected the segment-ghost SMA log, but the TS logs still need a cleaner source story. When a ghost is skipped, rebuilt, seeded from a visible segment, seeded from terminal orbit, or suppressed because a real vessel already exists, the log should make the source and reason clear without generating hundreds of repeated fallback lines.
 
 **Action plan:**
 
@@ -818,7 +818,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ## 556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions
 
-**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation.
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
 
 **Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protects Tracking Station from ghost-caused stock NREs, but the broad finalizer shape can also hide unrelated `SpaceTracking.buildVesselsList` failures. That makes TS debugging harder and can mask regressions outside Parsek ghost handling.
 
