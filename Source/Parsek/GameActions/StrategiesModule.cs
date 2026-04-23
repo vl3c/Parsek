@@ -19,7 +19,7 @@ namespace Parsek
     /// Pure computation — no KSP state access.
     /// Design doc: section 11 (Strategies Module).
     /// </summary>
-    internal class StrategiesModule : IResourceModule
+    internal class StrategiesModule : IResourceModule, IProjectionCloneableModule
     {
         private const string Tag = "Strategies";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -215,6 +215,13 @@ namespace Parsek
         {
             maxSlots = slots;
             ParsekLog.Verbose(Tag, $"SetMaxSlots: maxSlots={maxSlots}");
+        }
+
+        public IResourceModule CreateProjectionClone()
+        {
+            var clone = new StrategiesModule();
+            clone.maxSlots = maxSlots;
+            return clone;
         }
 
         public void PostWalk() { }

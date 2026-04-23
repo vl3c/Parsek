@@ -324,6 +324,20 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~550. Rewind top-bar funds/science could show gross or future-inflated values instead of the spendable balance~~
+
+**Source:** follow-up investigation of `logs/2026-04-23` rewind/cutoff behavior and the April 23 design pass. The visible ledger walk was correctly scoped to the rewound UT, but the top-bar values still needed to represent what the player could actually spend at that moment.
+
+**Concern:** after a rewind, the top bar should show the spendable funds/science at the current UT, not a future value and not a blunt subtraction of all future spending. Future spendings should reserve current headroom only when the projected balance would dip below the current running balance; future earnings that arrive before those spendings should be allowed to cover them. Reputation stays current-UT only because it is not a spend-blocking resource.
+
+**Fix:** cutoff recalculation now keeps all visible/current aggregates filtered to the current UT, then runs an isolated full-ledger cashflow projection to install the spendable top-bar funds/science value. The projection follows the committed future cashflow in chronological order and exposes the minimum balance reachable from the current UT forward, clamped to the current running balance. The isolated projection uses cloned modules and suppressed logging so future actions do not leak through the live rewind walk.
+
+**Files:** `Source/Parsek/GameActions/RecalculationEngine.cs`, `Source/Parsek/GameActions/IResourceModule.cs`, `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek/GameActions/ScienceModule.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/StrategiesModule.cs`, `Source/Parsek/ParsekLog.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
 ## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
 
 **Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.

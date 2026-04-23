@@ -85,10 +85,12 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#550` Initial science and reputation seeds now prefer captured game-state baselines, including legitimate zero values, before falling back to live KSP singleton balances. A zero seed is now treated as authoritative instead of being upgraded later from future live state, so rewind/cutoff recalculations no longer turn post-launch science or reputation into UT0 budget.
+- `#550` Rewind/cutoff resource patching now shows cashflow-projected spendable funds and science at the top bar instead of either the gross current balance or a blunt full-future spend subtraction. Future spendings reserve current headroom only when the projected balance would dip below the current value, while future earnings before those spendings can cover them without inflating current spendability. Reputation remains a current-UT running value with no reservation.
 
 ### Tests
 
 - `#550` Added a rewind cutoff regression based on the April 23 log package shape: funds stay on the seed-minus-rollout path, while zero baseline science/reputation remain zero even when future science earnings, tech spending, and reputation milestones exist later in the ledger.
+- `#550` Added rewind affordability regressions for science and funds covering future spending reservation and the matching future-earning-before-future-spending case that preserves current headroom.
 - `Bug278FinalizeLimboTests` now pins the orbit-only terminal-body heal path: a leaf with a stale `TerminalOrbitBody` but only orbit-segment evidence heals to the segment body and emits the `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit` log line.
 - The last xUnit smoke/assertion follow-ups now catch headless `ParsekUI.Cleanup()` teardown in the KSC wiring smoke test and anchor the Bug219 negative log checks to the full production log prefix instead of the overlapping `ShouldPopulate...` diagnostic.
 - Headless landed snapshot-repair coverage now survives Unity pseudo-null `CelestialBody` fixtures all the way through the real `REF` rewrite path instead of bailing out before the repaired surface orbit node is written.
@@ -146,6 +148,7 @@ All notable changes to Parsek are documented here.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 ### Documentation
 
+- `#550` Updated the game-actions design document to define top-bar funds/science as current-UT cashflow-projected spendable resources and to clarify that rewound R&D state locks future tech nodes while keeping their future costs in the projection.
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.
 - Release-closeout docs now define three named evidence bundles and require `collect-logs.py`, `validate-ksp-log.ps1`, and `validate-release-bundle.py` to pass on each retained packet.
 - Release-closeout docs now require the `.claude/CLAUDE.md` deployed-DLL verification recipe before trusting in-game evidence, so a stale `GameData/Parsek/Plugins/Parsek.dll` does not produce false-pass runtime bundles.
