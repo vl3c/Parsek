@@ -699,6 +699,25 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
+## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
+
+**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation, plus `logs/2026-04-23_1815_logs-package`.
+
+**Concern:** Flight Map View has the richer ghost lifecycle path: pending-vessel policy, state-vector and orbit-segment source selection, chain-tip dedupe/update behavior, and handoff checks flow through `ParsekPlaybackPolicy` / `GhostMapPresence`. Tracking Station still has its own periodic rebuild loop in `ParsekTrackingStation`, which re-evaluates committed recordings every couple of seconds and has historically lagged Map View on source selection, handoff suppression, and duplicate cleanup.
+
+**Action plan:**
+
+1. Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".
+2. Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.
+3. Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.
+4. Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+
+**Status:** TODO. High priority TS parity follow-up.
+
+---
+
 ## ~~552. Vessel recovery funds can log a false missing-pair warning when stock delivers the funds event after recovery~~
 
 **Source:** latest collected package `logs/2026-04-23_1829_logs-package/`. `KSP.log` shows `OnVesselRecoveryFunds` warning at `18:23:16.943` because no paired `FundsChanged(VesselRecovery)` was found yet, then the actual `FundsChanged` recovery event arrived at `18:23:16.961`, within the intended pairing window.
@@ -752,6 +771,62 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Files:** `Source/Parsek/GameActions/KspStatePatcher.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/KspStatePatcherTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless target-tech selection coverage plus `PatchTechTree` log-assertion coverage (no-target skip, missing R&D singleton, one-shot reflection-failure warn); live Research Building UI evidence still requires a manual KSP rewind run.
+
+---
+
+## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+
+**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
+
+**Concern:** Several TS regressions are scene-integration problems that headless xUnit can only approximate. The latest package proved the Learstar real-vessel spawn and the stale asteroid switch, but it did not prove the TS UI lifecycle, TS ghost toggle recreation, or post-materialization Fly path on a patched build.
+
+**Action plan:**
+
+1. Restore or add isolated in-game TS canaries for scene entry, show/hide/recreate, ghost object count, and no exception spam.
+2. Add a materialization canary for an orbital terminal recording: enter TS, let the real vessel spawn, verify the ghost is removed/suppressed, select/fly the real vessel, and assert the loaded vessel PID/type/name match the materialized vessel, not a stale asteroid/comet.
+3. Ensure `collect-logs.py` preserves these TS rows in `parsek-test-results.txt` and the release bundle validation can flag their absence when TS work is under test.
+4. Keep manual-only variants for any stock scene transitions that remain too destructive for the regular isolated batch.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
+
+**Status:** TODO. High priority validation gap before claiming full TS parity.
+
+---
+
+## 555. Tracking Station orbit-source diagnostics and fallback noise need a cleanup pass after the #550 fix
+
+**Source:** `logs/2026-04-23_1815_logs-package/KSP.log` and the Tracking Station / Map Mode UI audit from the `#550` investigation.
+
+**Concern:** `#550` fixed the worst repeated terminal-orbit ghost attempts and corrected the segment-ghost SMA log, but the TS logs still need a cleaner source story. When a ghost is skipped, rebuilt, seeded from a visible segment, seeded from terminal orbit, or suppressed because a real vessel already exists, the log should make the source and reason clear without generating hundreds of repeated fallback lines.
+
+**Action plan:**
+
+1. Carry orbit-source metadata through the TS map object build path.
+2. Rate-limit or aggregate recurring skip reasons by recording/source/reason, especially around terminal-orbit and "map-visible orbit window unavailable" fallbacks.
+3. Log terminal vs segment vs state-vector source decisions consistently with Map View.
+4. Add log-assertion tests covering one successful segment ghost, one terminal-orbit ghost, one endpoint-conflict skip, and one already-materialized suppression.
+
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/RecordingEndpointResolver.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`.
+
+**Status:** TODO. Medium priority observability cleanup.
+
+---
+
+## 556. Tracking Station `buildVesselsList` finalizer should not swallow unrelated stock exceptions
+
+**Source:** Tracking Station / Map Mode UI audit from the `#550` investigation.
+
+**Concern:** `GhostTrackingBuildVesselsListPatch.Finalizer` protects Tracking Station from ghost-caused stock NREs, but the broad finalizer shape can also hide unrelated `SpaceTracking.buildVesselsList` failures. That makes TS debugging harder and can mask regressions outside Parsek ghost handling.
+
+**Action plan:**
+
+1. Narrow the finalizer to the known ghost/ProtoVessel failure shape when possible.
+2. For exceptions outside the known ghost path, log enough context and allow the failure to remain visible unless suppressing it is proven necessary for save safety.
+3. Add focused tests for the known ghost NRE suppression and an unrelated exception that should be reported rather than silently eaten.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** TODO. Medium priority debugging correctness follow-up.
 
 ---
 

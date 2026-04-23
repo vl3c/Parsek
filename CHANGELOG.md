@@ -187,6 +187,7 @@ All notable changes to Parsek are documented here.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 ### Documentation
 
+- Added the Tracking Station audit action plan (`#551`-`#556`) covering Map View lifecycle parity, a TS control surface, safe ghost actions, TS runtime coverage, orbit-source diagnostics, and the broad `buildVesselsList` finalizer.
 - `#558` Updated the game-actions design document to define top-bar funds/science as current-UT cashflow-projected spendable resources and to clarify that rewound R&D state locks future tech nodes while keeping their future costs in the projection.
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.
 - Release-closeout docs now define three named evidence bundles and require `collect-logs.py`, `validate-ksp-log.ps1`, and `validate-release-bundle.py` to pass on each retained packet.
