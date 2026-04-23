@@ -279,6 +279,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TagRpsForReap_LogSplitsSessionAndNormalOriginCounts()
+        {
+            // Follow-up to PR #504 review: the "promoted N session-provisional
+            // RP(s)" summary conflated the two code paths. The log now breaks
+            // the total out into fromSession + fromNormalOrigin so a grep can
+            // tell the new normal-origin promotion path from the old same-
+            // session path without re-reading code.
+            var marker = Marker("rec_origin", "rec_provisional");
+            // marker.RewindPointId = "rp_1" (Marker default) matches normal-origin.
+            var normalOriginRp = Rp("rp_1", null, sessionProvisional: true);
+            var sessionRp = Rp("rp_session", "sess_merge_1", sessionProvisional: true);
+            var scenario = InstallScenario(marker,
+                new List<RewindPoint> { normalOriginRp, sessionRp });
+
+            MergeJournalOrchestrator.TagRpsForReap(marker, scenario);
+
+            Assert.False(normalOriginRp.SessionProvisional);
+            Assert.False(sessionRp.SessionProvisional);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]")
+                && l.Contains("TagRpsForReap: promoted 2 session-provisional RP(s)")
+                && l.Contains("fromSession=1")
+                && l.Contains("fromNormalOrigin=1"));
+        }
+
+        [Fact]
         public void RunMerge_Crashed_PromotesProvisionalToCommittedProvisional()
         {
             var (scenario, provisional) = MakeStandardFixture(TerminalState.Destroyed);
