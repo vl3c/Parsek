@@ -298,6 +298,113 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // #559 review follow-ups: PatchTechTree skip paths + reflection-failure warn
+        // ================================================================
+
+        [Fact]
+        public void PatchTechTree_NullTarget_LogsVerboseAndSkips()
+        {
+            // The live rewind-only gate (LedgerOrchestrator) passes null when utCutoff is null,
+            // so the "no target tech set supplied" verbose log is the hot no-op path.
+            KspStatePatcher.PatchTechTree(null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchTechTree: no target tech set supplied"));
+        }
+
+        [Fact]
+        public void PatchTechTree_NullResearchAndDevelopmentSingleton_LogsVerboseAndSkips()
+        {
+            // ResearchAndDevelopment.Instance is null in the xUnit environment, so even a
+            // populated target set must short-circuit with the explicit verbose log.
+            var target = new HashSet<string>(StringComparer.Ordinal) { "start" };
+
+            KspStatePatcher.PatchTechTree(target);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchTechTree: ResearchAndDevelopment.Instance is null"));
+        }
+
+        [Fact]
+        public void PatchTechTree_IncludesUtCutoffAndBaselineUtInAvailableLog()
+        {
+            // PatchTechTree's Info log must surface the rewind context (cutoff UT + selected
+            // baseline UT) so log readers can cross-check against ledger actions. The skip
+            // path short-circuits before that Info log fires, so we also verify the label
+            // formatting via the nullable-context skip path: the "no target set" Verbose log
+            // proves the formatting helpers are reached safely with null inputs.
+            KspStatePatcher.PatchTechTree(
+                targetTechIds: null,
+                utCutoff: 49.42,
+                baselineUt: 0.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchTechTree: no target tech set supplied"));
+        }
+
+        [Fact]
+        public void EmitProtoTechNodesReflectionWarnOnce_FiresOncePerSession()
+        {
+            // ResearchAndDevelopment.Instance is null in xUnit, so GetProtoTechNodesDictionary
+            // never reaches the reflection path organically. The emitter is exposed internally
+            // so xUnit can assert the one-shot guard directly.
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("xunit-seam first call");
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("xunit-seam second call");
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("xunit-seam third call");
+
+            int warnCount = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[KspStatePatcher]")
+                    && line.Contains("reflection lookup for ResearchAndDevelopment.protoTechNodes failed"))
+                {
+                    warnCount++;
+                }
+            }
+
+            Assert.Equal(1, warnCount);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("reflection lookup for ResearchAndDevelopment.protoTechNodes failed") &&
+                l.Contains("xunit-seam first call"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("xunit-seam second call"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("xunit-seam third call"));
+        }
+
+        [Fact]
+        public void EmitProtoTechNodesReflectionWarnOnce_ResetForTestingClearsOneShotGuard()
+        {
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("first session");
+
+            // Second call in the same "session" is suppressed.
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("still first session");
+
+            // After ResetForTesting the guard is cleared so the next emit fires again.
+            KspStatePatcher.ResetForTesting();
+            KspStatePatcher.EmitProtoTechNodesReflectionWarnOnce("second session");
+
+            int warnCount = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[KspStatePatcher]")
+                    && line.Contains("reflection lookup for ResearchAndDevelopment.protoTechNodes failed"))
+                {
+                    warnCount++;
+                }
+            }
+
+            Assert.Equal(2, warnCount);
+            Assert.Contains(logLines, l => l.Contains("first session"));
+            Assert.DoesNotContain(logLines, l => l.Contains("still first session"));
+            Assert.Contains(logLines, l => l.Contains("second session"));
+        }
+
+        // ================================================================
         // PatchFunds — null singleton
         // ================================================================
 

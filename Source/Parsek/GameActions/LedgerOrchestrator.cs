@@ -1517,14 +1517,39 @@ namespace Parsek
                 // live in-tier best value because that finer-grained partial progress is not
                 // persisted in the ledger.
                 kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-                var targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
-                    GameStateStore.Baselines,
-                    actions,
-                    utCutoff);
+                // #559: tech-tree patching is rewind-only. Live unlocks that happened after
+                // the latest captured baseline are not replayed by any ledger action, so a
+                // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
+                // the target tech set when a cutoff is supplied; the null branch no-ops
+                // through PatchTechTree's existing null-target guard.
+                HashSet<string> targetTechIds = null;
+                double? techBaselineUt = null;
+                if (utCutoff.HasValue)
+                {
+                    targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
+                        GameStateStore.Baselines,
+                        actions,
+                        utCutoff);
+                    techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
+                        GameStateStore.Baselines,
+                        utCutoff);
+                    ParsekLog.Verbose(Tag,
+                        "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
+                        $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                        $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                        $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
+                }
                 KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                     milestonesModule, facilitiesModule, contractsModule,
                     targetTechIds,
-                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState);
+                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
+                    techUtCutoff: utCutoff,
+                    techBaselineUt: techBaselineUt);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
