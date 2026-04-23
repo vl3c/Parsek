@@ -116,16 +116,17 @@ namespace Parsek.Tests
             Assert.False(MapMarkerRenderer.ToggleSticky("x", null));
         }
 
-        // ghost-label-click-toggle follow-up: visibility is driven exclusively by
-        // sticky. Hover MUST NOT reveal the label — that behavior from the
-        // original #386 ship was explicitly removed. These cases pin the new
-        // contract: the decision table is just `sticky`.
+        // Simple ghost marker labels are transient on hover and persistent when
+        // pinned by click. These cases pin the full decision table.
         [Theory]
-        [InlineData(false, false)]
-        [InlineData(true,  true)]
-        public void ShouldDrawLabel_ReturnsStickyOnly(bool sticky, bool expected)
+        [InlineData(false, false, false)]
+        [InlineData(false, true,  true)]
+        [InlineData(true,  false, true)]
+        [InlineData(true,  true,  true)]
+        public void ShouldDrawLabel_ReturnsHoverOrSticky(
+            bool sticky, bool hover, bool expected)
         {
-            Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(sticky));
+            Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(sticky, hover));
         }
 
         [Fact]

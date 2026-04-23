@@ -56,6 +56,7 @@ namespace Parsek
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
         private GUIStyle displacedStyle;
+        private GUIStyle missionOutcomeHeaderStyle;
         // Toggle button style for tab bar — mirrors CareerStateWindowUI / TimelineWindowUI:
         // the "on" background is copied from GUI.skin.button.active so the selected tab
         // looks visibly pushed in.
@@ -229,6 +230,10 @@ namespace Parsek
             displacedStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
+            };
+            missionOutcomeHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                richText = true
             };
             // Tab bar button: selected tab looks pressed via onNormal.background copied
             // from GUI.skin.button.active.background (matches CareerStateWindowUI and
@@ -490,6 +495,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Renders the per-kerbal Mission Outcomes fold header with rich text so only
+        /// the main kerbal name is bold; arrow glyphs and folded summary details stay
+        /// in the normal label weight.
+        /// </summary>
+        internal static string FormatMissionOutcomeHeaderText(
+            string kerbalName,
+            IReadOnlyList<CrewEndStateEntry> entries,
+            int start,
+            int end,
+            bool folded)
+        {
+            string boldName = $"<b>{EscapeRichText(kerbalName)}</b>";
+            if (!folded) return boldName;
+
+            string summary = FormatKerbalSummary(kerbalName, entries, start, end);
+            if (summary.StartsWith(kerbalName, StringComparison.Ordinal))
+            {
+                return boldName + summary.Substring(kerbalName.Length);
+            }
+            return boldName + " " + summary;
+        }
+
+        private static string EscapeRichText(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            return text.Replace("<", "<\u200B");
+        }
+
+        /// <summary>
         /// Renders a Roster State chain-member subitem row as a single pre-indented
         /// string with a tree-branch glyph. <paramref name="isLast"/> picks between
         /// the "mid" (├─) and "last" (└─) tree characters.
@@ -518,14 +552,17 @@ namespace Parsek
 
                 bool folded = foldedKerbals.Contains(name);
                 string arrow = folded ? FoldedArrow : UnfoldedArrow;
-                string headerText = folded
-                    ? FormatKerbalSummary(name, endStates, i, j)
-                    : name;
+                string headerText = FormatMissionOutcomeHeaderText(
+                    name,
+                    endStates,
+                    i,
+                    j,
+                    folded);
 
-                // Per-kerbal fold row: non-bold label-styled button so the dropdown header
-                // sits visually as a row rather than a sub-heading (RecordingsTableUI uses
-                // the same pattern for its chain blocks).
-                if (GUILayout.Button($"{arrow} {headerText}", GUI.skin.label, GUILayout.ExpandWidth(true)))
+                // Per-kerbal fold row: label-styled button so the dropdown header
+                // sits visually as a row rather than a sub-heading. Rich text is
+                // limited to the main kerbal-name substring.
+                if (GUILayout.Button($"{arrow} {headerText}", missionOutcomeHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
                     ToggleFold(foldedKerbals, name, j - i);
                 }

@@ -109,6 +109,7 @@ All notable changes to Parsek are documented here.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 - `#450 B2` Timeline ghost snapshot construction now advances in staged chunks across multiple playback frames instead of instantiating the entire snapshot in one `UpdatePlayback` tick, eliminating the remaining bimodal single-spawn hitch after the B3 lazy-reentry follow-up.
+- Kerbals window Mission Outcomes fold headers now bold only the main kerbal name next to the fold arrow, leaving the arrow and folded mission summary in normal weight.
 
 ### Bug Fixes
 
@@ -179,6 +180,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Simple ghost map/tracking-station marker labels now appear on icon hover again, while left-click still pins or unpins the label and non-left clicks continue to pass through to stock handlers.
 - Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Hyperbolic predicted segments now reconstruct true anomaly with a quadrant-safe formula, so parent-body SOI handoffs keep the same boundary state and frozen playback attitude instead of folding the new segment onto the wrong outbound branch.
 - Hyperbolic predicted segments now keep periapsis orientation even when the parent escape orbit is equatorial, so SOI handoffs no longer serialize the parent segment with `argumentOfPeriapsis = 0` and then reconstruct the wrong start state and frozen attitude.
