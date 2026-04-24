@@ -308,8 +308,35 @@ namespace Parsek
                     return;
                 }
 
-                HighLogic.CurrentGame = game;
-                HighLogic.LoadScene(GameScenes.FLIGHT);
+                // KSP's flight-scene loader needs an explicit
+                // `FlightDriver.StartAndFocusVessel(game, idx)` call to
+                // populate FlightGlobals.Vessels from the loaded save's
+                // flightState. Using `HighLogic.LoadScene(FLIGHT)` directly
+                // made KSP fall back to the "launch from VAB auto-saved
+                // ship" path — the flight scene loaded a fresh Kerbal X
+                // craft from `Ships/VAB/Auto-Saved Ship.craft` instead of
+                // the RP quicksave's pre-split state. Evidence from
+                // logs/2026-04-25_0123_rewind-still-failing-after-fixes:
+                //   Loading ship from file: ...\Ships\VAB\Auto-Saved Ship.craft
+                //   [FLIGHT GLOBALS] Switching To Vessel Kerbal X
+                //   Strip stripped=[2708531065] selected=none ... leftAlone=12
+                // The booster (pid 1097581269 per the RP's PID_SLOT_MAP)
+                // was never loaded into FlightGlobals, so Strip couldn't
+                // match slot 1.
+                //
+                // StartAndFocusVessel is the canonical quickload-to-flight
+                // call (stock F9 uses it). It assigns HighLogic.CurrentGame,
+                // preloads FlightDriver.startupFlightState from the game's
+                // flightState, and transitions to FLIGHT with the saved
+                // active vessel focused. The deferred post-load Strip then
+                // switches focus to the slot's target vessel.
+                int activeIdx = game.flightState != null ? game.flightState.activeVesselIdx : 0;
+                if (activeIdx < 0)
+                    activeIdx = 0;
+                ParsekLog.Info(InvokeTag,
+                    $"StartAndFocusVessel: activeVesselIdx={activeIdx} " +
+                    $"vesselCount={game.flightState?.protoVessels?.Count ?? 0}");
+                FlightDriver.StartAndFocusVessel(game, activeIdx);
             }
             catch (Exception ex)
             {
