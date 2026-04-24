@@ -51,26 +51,6 @@ Follow-up the same hour (`2026-04-23_2305_post-fix-regression`): once the restor
 
 UX polish (same branch): the FlightRecorder `StartRecording(isPromotion: true)` path suppresses the inner `Recording STARTED` screen toast, so scene-enter resume used to happen silently. `TryRestoreCommittedTreeForSpawnedActiveVessel` now surfaces `Recording STARTED (resume)` after a successful restore, matching the `(auto)` and `(auto - post switch)` messages on the other auto-record paths.
 
-## 558. Real-spawned vessel post-resume stands on its side when physics activates
-
-Observed in `2026-04-23_2333_spawn-orientation`, reproduced cleanly in `2026-04-24_0004_orientation-regression`. After the resume + re-commit + real-spawn cycle now works end-to-end (thanks to the 557 fix chain), the real-spawned vessel arrives in the scene with a visibly wrong orientation. User phrasing: "on its side." The 04-24 spawn was an in-flight spawn at game UT ~471 during an active Bug-E Buggy flight; prep log:
-
-```
-srfRel=-0.000111888832,-0.133055791,-0.000464609941,0.991108477
-world=0.000474858942,-0.885830998,5.37633787E-05,-0.464007854
-```
-
-`srfRel` is an upright rover with ~15° yaw — zero roll/pitch. `world = body.bodyTransform.rotation * srfRel` comes out as ~125° of rotation, dominated by the body's own transform rotation at the spawn moment. The fact that the stored `VESSEL.rot` contains this composed "world" value was intentional per commit `2737c6fc` ("Fix spawn-time rotation reconstruction") which said `VESSEL.rot must be written in world space before ProtoVessel.Load()`. The current playtest evidence suggests KSP actually re-multiplies by body at load, so writing world gives a double-rotation. Also possible: `body.bodyTransform.rotation` is time-varying (not tilt-only as `.claude/CLAUDE.md` claims) and captures the body spin, in which case `world_at_capture ≠ world_at_spawn` and using either "write srfRel" or "write world at spawn" would both be consistent.
-
-**Risk of fixing blind:** commit 2737c6fc shipped with explicit tests (`SpawnRotationInGameTests`, `SpawnRotationTests`) that assert the current `body * srfRel` behavior. Flipping to write `srfRel` means changing both those tests and the code, and could regress whichever KSP flow 2737c6fc was actually fixing (SpawnAtPosition vs snapshot-prep respawns vs chain-tip spawns — the CHANGELOG lists all three). Needs a paired-playtest validation: drive a flat-runway recording, commit/exit, trigger a real-spawn (via rewind-strip + re-enter KSC), observe orientation; then try the srfRel write and observe again.
-
-Diagnostic recipe for next session:
-1. Fresh install baseline: launch vessel, drive ~10 m, come back, commit, rewind to strip original, let KSC spawn fire, enter flight, check orientation.
-2. If tilted: patch `ApplyWorldSpawnRotationToNode` to write `surfaceRelativeRotation` directly and repeat.
-3. Capture the spawn-rotation prep log both runs and compare.
-
-Not causally related to the 557 fix chain — the resume + detach changes don't touch rotation code. This surfaces now only because the real-spawn path fires reliably where before it was blocked by the VesselSpawned-after-load bug.
-
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
@@ -408,6 +388,20 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 **Fix:** `VesselSpawner` now writes the sanitized recorded surface-relative quaternion directly to `VESSEL.rot` for all ProtoVessel spawn-node paths: normal snapshot respawns, `SpawnAtPosition`, EVA/breakup snapshot prep, chain-tip spawns through `VesselGhoster`, and flag ProtoVessel spawns. Live ghost `Transform.rotation` placement still uses `body.bodyTransform.rotation * srfRelRotation`; only ProtoVessel node authoring changed. `SpawnRotationInGameTests` now assert the surface-relative ProtoVessel invariant for Kerbin and Mun fixtures, null-body rotation prep, `SpawnAtPosition`, and snapshot override rotation rewrites.
 
 **Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/VesselGhoster.cs` (audited caller), `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectoryPoint.cs`, `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `AGENTS.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
+## ~~559. Time-jump chain-tip spawns can leave the materialized recording unmarked~~
+
+**Source:** spawn audit while validating #558 / PR #519. `TimeJumpManager.SpawnCrossedChainTips(...)` called `VesselGhoster.SpawnAtChainTip(...)` and removed the chain key after a non-zero spawned PID, but the time-jump caller did not mirror the normal Flight caller's `VesselSpawned=true` / `SpawnedVesselPersistentId=<pid>` update onto the tip recording.
+
+**Concern:** after a time jump materialized a crossed chain tip, Parsek metadata could still describe the tip as ghost-only/unspawned. Later spawn-death tracking, watch handoff, background-map checks, and spawn policy would have to rediscover the live vessel by adoption instead of following the spawned PID.
+
+**Fix:** `VesselGhoster` now marks the chain-tip recording spawned immediately after successful real-vessel materialization on the normal, blocked-retry, and trajectory-walkback chain-tip paths. `TimeJumpManager` now names its returned values as chain dictionary keys instead of spawned vessel PIDs, and the blocked-retry path no longer logs a successful spawn before checking for `pid=0`.
+
+**Files:** `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/TimeJumpManager.cs`, `Source/Parsek.Tests/VesselGhosterTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
 
