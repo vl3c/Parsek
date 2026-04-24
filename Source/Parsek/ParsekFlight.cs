@@ -6935,6 +6935,8 @@ namespace Parsek
 
         #region Recording
 
+        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
+        // the caller posts its own custom screen message.
         public void StartRecording(bool suppressStartScreenMessage = false)
         {
             // Always-tree mode makes a chain continuation without a live tree impossible.
