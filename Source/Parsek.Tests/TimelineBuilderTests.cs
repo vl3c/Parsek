@@ -226,6 +226,99 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SandboxMode_HidesInitialResourceSeedRows()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 0f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 0f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ReputationInitial, InitialReputation = 0f, Effective = true }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.SANDBOX);
+
+            Assert.Empty(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("Filtered 3 mode-inapplicable initial resource"));
+        }
+
+        [Fact]
+        public void ScienceSandboxMode_ShowsOnlyScienceInitialSeedRow()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 25000f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 12.5f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ReputationInitial, InitialReputation = 0f, Effective = true }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.SCIENCE_SANDBOX);
+
+            var entry = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.ScienceInitial, entry.Type);
+            Assert.Equal("Starting science: 12.5", entry.DisplayText);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("Filtered 2 mode-inapplicable initial resource"));
+        }
+
+        [Fact]
+        public void CareerMode_ShowsAllInitialResourceSeedRows()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 25000f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 12.5f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ReputationInitial, InitialReputation = 25f, Effective = true }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER);
+
+            Assert.Equal(3, result.Count);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.FundsInitial);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.ScienceInitial);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.ReputationInitial);
+        }
+
+        [Fact]
+        public void NullMode_LeavesInitialResourceSeedRowsVisible()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 25000f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 12.5f, Effective = true },
+                new GameAction { UT = 0, Type = GameActionType.ReputationInitial, InitialReputation = 25f, Effective = true }
+            };
+            Game.Modes? nullMode = null;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                nullMode);
+
+            Assert.Equal(3, result.Count);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.FundsInitial);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.ScienceInitial);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.ReputationInitial);
+        }
+
+        [Fact]
         public void MilestoneText_IncludesAllRewardLegs()
         {
             string text = TimelineEntryDisplay.GetGameActionText(

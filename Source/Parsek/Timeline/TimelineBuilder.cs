@@ -26,7 +26,8 @@ namespace Parsek
             IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
             IReadOnlyList<Milestone> milestones,
-            Func<GameStateEvent, bool> isLegacyEventVisible)
+            Func<GameStateEvent, bool> isLegacyEventVisible,
+            Game.Modes? currentMode = null)
         {
             // Build recording-id to vessel-name lookup once, shared by both collectors
             var vesselNameById = new Dictionary<string, string>();
@@ -45,7 +46,7 @@ namespace Parsek
             var entries = new List<TimelineEntry>();
 
             int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
-            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, entries);
+            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, currentMode, entries);
             int legacyCount = CollectLegacyEntries(
                 milestones,
                 isLegacyEventVisible ?? (_ => true),
@@ -442,13 +443,22 @@ namespace Parsek
             IReadOnlyList<GameAction> ledgerActions,
             Dictionary<string, string> vesselNameById,
             HashSet<string> evaBranchKeys,
+            Game.Modes? currentMode,
             List<TimelineEntry> entries)
         {
             int count = 0;
             int evaReassignSkipped = 0;
+            int modeSeedSkipped = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
+
+                if (!IsInitialResourceSeedVisibleInMode(action.Type, currentMode))
+                {
+                    modeSeedSkipped++;
+                    continue;
+                }
+
                 var entryType = TimelineEntryDisplay.MapGameActionType(action.Type);
                 var tier = TimelineEntryDisplay.GetTier(entryType);
 
@@ -502,7 +512,40 @@ namespace Parsek
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {evaReassignSkipped} KerbalAssignment action(s) at EVA branch time(s)");
 
+            if (modeSeedSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {modeSeedSkipped} mode-inapplicable initial resource action(s)");
+
             return count;
+        }
+
+        internal static bool IsInitialResourceSeedVisibleInMode(GameActionType type, Game.Modes? currentMode)
+        {
+            if (!IsInitialResourceSeed(type))
+                return true;
+            if (!currentMode.HasValue)
+                return true;
+
+            switch (currentMode.Value)
+            {
+                case Game.Modes.SCIENCE_SANDBOX:
+                    return type == GameActionType.ScienceInitial;
+
+                case Game.Modes.SANDBOX:
+                case Game.Modes.MISSION_BUILDER:
+                case Game.Modes.MISSION:
+                    return false;
+
+                default:
+                    return true;
+            }
+        }
+
+        private static bool IsInitialResourceSeed(GameActionType type)
+        {
+            return type == GameActionType.FundsInitial
+                || type == GameActionType.ScienceInitial
+                || type == GameActionType.ReputationInitial;
         }
 
         private static bool CanCompactMilestoneEntry(TimelineEntry entry)
