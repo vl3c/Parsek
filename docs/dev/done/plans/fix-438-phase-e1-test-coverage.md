@@ -4,7 +4,7 @@ Status: plan v2, tests-only plus three surgical `ReconcileEarningsWindow` switch
 additions (path b, committed after clean review).
 Worktree: `Parsek-438-phase-e1-test-coverage`, branch `chore/438-phase-e1-test-coverage`
 off `origin/main`.
-Governing plan: `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` (Phase B and
+Governing plan: `docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md` (Phase B and
 Phase E1 sections).
 
 ## v2 revisions (applied from clean review)
@@ -401,7 +401,7 @@ Docs (same commit):
   - If path (a): file two new entries "ReconcileEarningsWindow does not sum
     ContractAccept.AdvanceFunds" and "... FacilityUpgrade/Repair.FacilityCost"
     with "discovered during #438" tag.
-- `docs/dev/plans/fix-438-phase-e1-test-coverage.md` -- this file; update to
+- `docs/dev/done/plans/fix-438-phase-e1-test-coverage.md` -- this file; update to
   reflect review feedback.
 
 ## Logging-capture pattern

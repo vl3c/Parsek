@@ -16,7 +16,7 @@ namespace Parsek.Patches
     /// <see cref="StrategiesModule"/>'s slot-accounting and to reconcile the
     /// <c>FundsChanged(StrategySetup)</c> debit KSP fires inside <c>Activate()</c> when
     /// <c>InitialCostFunds</c> is non-zero. See
-    /// <c>docs/dev/plans/fix-439-strategy-lifecycle-capture.md</c> section 3 for the full
+    /// <c>docs/dev/done/plans/fix-439-strategy-lifecycle-capture.md</c> section 3 for the full
     /// decompile trace.
     ///
     /// Both postfixes respect <see cref="GameStateRecorder.IsReplayingActions"/> so

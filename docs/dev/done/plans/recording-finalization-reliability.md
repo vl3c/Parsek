@@ -3,7 +3,7 @@
 **Branch:** `doc-recording-finalization-design`
 **Worktree:** `C:/Users/vlad3/Documents/Code/Parsek/Parsek-doc-recording-finalization`
 **Design doc:** `docs/parsek-recording-finalization-design.md`
-**Related:** `docs/dev/plans/incomplete-ballistic-extrapolation.md`, `docs/parsek-rewind-to-staging-design.md`
+**Related:** `docs/dev/done/plans/incomplete-ballistic-extrapolation.md`, `docs/parsek-rewind-to-staging-design.md`
 
 ## Goal
 

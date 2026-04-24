@@ -149,7 +149,7 @@ Five new `Fact` methods, shaped as section 8 below specifies.
 
 - `docs/dev/todo-and-known-bugs.md`: strike through `## 440B.` entry with a "Fixed in PR #xxx" status line, matching the #440 entry format.
 - `CHANGELOG.md`: under v0.8.2 "Fixed" (or v0.8.3 if the PR slips). 1-2 sentences: "Commit-path reconciliation (#440B) now reads post-walk Transformed* / EffectiveRep / EffectiveScience fields instead of raw reward fields, matching the rewind-path ReconcilePostWalk semantics. Closes the latent double-WARN on future non-identity reward transforms."
-- `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`: no update needed; #440B is a #440 follow-up, not a new phase.
+- `docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md`: no update needed; #440B is a #440 follow-up, not a new phase.
 
 ## 7. Invariants (enforced by tests)
 
