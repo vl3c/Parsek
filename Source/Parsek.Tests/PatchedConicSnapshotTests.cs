@@ -66,7 +66,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Snapshot_StopsAtManeuverTransition()
+        public void Snapshot_ManeuverTransition_IsFlaggedAsUiNodeBoundary()
         {
             var coastToNodePatch = MakePatch(100, 200, transition: PatchedConicTransitionType.Maneuver);
             coastToNodePatch.NextPatch = MakePatch(200, 260);
@@ -82,7 +82,7 @@ namespace Parsek.Tests
             Assert.Single(result.Segments);
             Assert.Equal(120, result.Segments[0].startUT);
             Assert.Equal(200, result.Segments[0].endUT);
-            Assert.True(result.StoppedBeforeManeuver);
+            Assert.True(result.EncounteredManeuverNode);
             Assert.True(result.HasTruncatedTail);
         }
 
@@ -105,7 +105,7 @@ namespace Parsek.Tests
 
             Assert.Equal(2, result.CapturedPatchCount);
             Assert.Equal(2, result.Segments.Count);
-            Assert.False(result.StoppedBeforeManeuver);
+            Assert.False(result.EncounteredManeuverNode);
             Assert.True(result.HasTruncatedTail);
         }
 
@@ -199,7 +199,7 @@ namespace Parsek.Tests
                 line.Contains("[PatchedSnapshot]") &&
                 line.Contains("captured=1") &&
                 line.Contains("hasTruncatedTail=False") &&
-                line.Contains("stoppedBeforeManeuver=False"));
+                line.Contains("encounteredManeuverNode=False"));
         }
 
         private static FakePatchedConicOrbitPatch MakePatch(

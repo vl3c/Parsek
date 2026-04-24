@@ -341,6 +341,7 @@ namespace Parsek
         public string LaunchSiteName { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
+        internal RecordingFinalizationCache FinalizationCache { get; private set; }
 
         // Adaptive sampling thresholds (read from settings, fallback to Medium defaults)
         private static float minSampleInterval =>
@@ -352,6 +353,8 @@ namespace Parsek
         private static float speedChangeThreshold =>
             (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
         private const double snapshotRefreshIntervalUT = 10.0;
+        private static readonly double finalizationCacheRefreshIntervalUT =
+            RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
@@ -393,6 +396,7 @@ namespace Parsek
         private int pendingStartInventorySlots;
         private Dictionary<string, int> pendingStartCrew;
         private double lastSnapshotRefreshUT = double.MinValue;
+        private double lastFinalizationCacheRefreshUT = double.MinValue;
 
         // Boundary anchor: if set, inserted as the first point when recording starts.
         // Used for chain continuation to seamlessly stitch segments.
@@ -464,6 +468,7 @@ namespace Parsek
                 partName = p.partInfo?.name ?? "unknown"
             });
             ParsekLog.Verbose("Recorder", $"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
+            RefreshFinalizationCache(p.vessel, "part_die", force: true);
         }
 
         internal static PartEventType ClassifyPartDeath(
@@ -518,6 +523,7 @@ namespace Parsek
                 partName = joint.Child.partInfo?.name ?? "unknown"
             });
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
+            RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
 
             // Signal potential vessel split for deferred check by ParsekFlight
             if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
@@ -4486,6 +4492,8 @@ namespace Parsek
             lastRecordedWorldRotation = Quaternion.identity;
             hasLastRecordedWorldRotation = false;
             LastRecordedAltitude = double.NaN;
+            FinalizationCache = null;
+            lastFinalizationCacheRefreshUT = double.MinValue;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -4569,6 +4577,7 @@ namespace Parsek
                 ParsekLog.Verbose("Recorder", $"Boundary anchor inserted at UT {anchorUT:F3}");
             }
             RefreshBackupSnapshot(v, "record_start", force: true);
+            RefreshFinalizationCache(v, "record_start", force: true);
             pendingStartResources = VesselSpawner.ExtractResourceManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartResources?.Count ?? 0} start resource type(s)");
             pendingStartInventory = VesselSpawner.ExtractInventoryManifest(lastGoodVesselSnapshot, out pendingStartInventorySlots);
@@ -4763,6 +4772,7 @@ namespace Parsek
                 isDestroyed,
                 snapshotVessel,
                 destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
+            GetFinalizationCacheForRecording(capture);
             capture.StartResources = pendingStartResources;
             capture.EndResources = VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndResources?.Count ?? 0} end resource type(s)");
@@ -5373,6 +5383,7 @@ namespace Parsek
             UpdateEnvironmentTracking(v);
 
             UpdateAnchorDetection(v);
+            RefreshFinalizationCache(v, "periodic");
 
             double currentUT = Planetarium.GetUniversalTime();
             Vector3 currentVelocity = SampleCurrentVelocity(v);
@@ -6007,6 +6018,7 @@ namespace Parsek
 
             ClearRelativeModeForRailsTransition();
             SamplePosition(v);
+            RefreshFinalizationCache(v, "go_on_rails", force: true);
 
             // Layer 1: Surface vessels (LANDED/SPLASHED/PRELAUNCH) stay in place on rails —
             // their Keplerian orbit is a sub-surface path through the planet, not a valid trajectory.
@@ -6154,6 +6166,7 @@ namespace Parsek
             if (!isOnRails)
             {
                 SamplePosition(v);
+                RefreshFinalizationCache(v, "go_off_rails_surface", force: true);
                 return;
             }
 
@@ -6183,6 +6196,7 @@ namespace Parsek
             // Reseed atmosphere and altitude state for the current body
             ReseedAtmosphereState(v);
             ReseedAltitudeState(v);
+            RefreshFinalizationCache(v, "go_off_rails", force: true);
 
             ParsekLog.Verbose("Recorder", $"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
@@ -6236,6 +6250,7 @@ namespace Parsek
             // Flag for ParsekFlight to trigger chain split in Update()
             SoiChangePending = true;
             SoiChangeFromBody = data.from.name;
+            RefreshFinalizationCache(v, "soi_change", force: true);
 
             ParsekLog.Verbose("Recorder",
                 $"SOI changed {data.from.name} → {data.to.name} — new segment ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
@@ -6268,6 +6283,7 @@ namespace Parsek
 
             VesselDestroyedDuringRecording = true;
             RefreshBackupSnapshot(v, "destroy_event", force: true);
+            RefreshFinalizationCache(v, "destroy_event", force: true);
             ParsekLog.Warn("Recorder",
                 "Active vessel destroyed during recording — captured final position at " +
                 $"lat={v.latitude.ToString("F4", CultureInfo.InvariantCulture)} " +
@@ -6342,6 +6358,9 @@ namespace Parsek
                 ParsekLog.Info("Recorder",
                     $"Background transition: surface vessel (sit={v.situation}), skipping orbit segment");
             }
+
+            if (v != null)
+                RefreshFinalizationCache(v, "transition_to_background", force: true);
 
             // Disconnect from Harmony patch (stop physics-frame sampling)
             Patches.PhysicsFramePatch.ActiveRecorder = null;
@@ -6439,6 +6458,110 @@ namespace Parsek
                     $"Snapshot backup cost ({reason}): {elapsedMs:F1}ms " +
                     $"pid={vessel.persistentId}, points={Recording.Count}");
             }
+        }
+
+        internal bool RefreshFinalizationCache(Vessel vessel, string reason, bool force = false)
+        {
+            if (vessel == null)
+                return false;
+
+            double ut = Planetarium.GetUniversalTime();
+            bool hasMeaningfulThrust = RecordingFinalizationCacheProducer.HasMeaningfulThrust(
+                activeEngineKeys,
+                lastThrottle,
+                activeRcsKeys,
+                lastRcsThrottle);
+            bool inAtmosphere = RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            string currentDigest = RecordingFinalizationCacheProducer.BuildVesselDigest(
+                vessel,
+                hasMeaningfulThrust);
+            bool requiresPeriodicRefresh = hasMeaningfulThrust
+                || inAtmosphere
+                || RecordingFinalizationCacheProducer.IsSurfaceTerminalSituation(vessel.situation)
+                || FinalizationCache == null
+                || FinalizationCache.Status == FinalizationCacheStatus.Failed;
+
+            if (!RecordingFinalizationCacheProducer.ShouldRefresh(
+                    lastFinalizationCacheRefreshUT,
+                    ut,
+                    finalizationCacheRefreshIntervalUT,
+                    force,
+                    FinalizationCache?.LastObservedOrbitDigest,
+                    currentDigest,
+                    requiresPeriodicRefresh))
+            {
+                RecordingFinalizationCacheProducer.TryTouchObservedTerminalCache(
+                    FinalizationCache,
+                    ut,
+                    reason,
+                    currentDigest);
+                return false;
+            }
+
+            Recording context = BuildFinalizationCacheContext(ut);
+            RecordingFinalizationCache refreshed;
+            bool success = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                context,
+                vessel,
+                ut,
+                FinalizationCacheOwner.ActiveRecorder,
+                reason,
+                hasMeaningfulThrust,
+                out refreshed);
+
+            FinalizationCache = refreshed;
+            lastFinalizationCacheRefreshUT = ut;
+            return success;
+        }
+
+        private Recording BuildFinalizationCacheContext(double currentUT)
+        {
+            Recording context = null;
+            if (ActiveTree != null
+                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings != null)
+            {
+                ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out context);
+            }
+
+            if (context != null)
+                return context;
+
+            return new Recording
+            {
+                RecordingId = FinalizationCache?.RecordingId,
+                VesselPersistentId = RecordingVesselId,
+                ExplicitEndUT = !double.IsNaN(LastRecordedUT) ? LastRecordedUT : currentUT
+            };
+        }
+
+        internal RecordingFinalizationCache GetFinalizationCacheForRecording(Recording recording)
+        {
+            if (FinalizationCache == null || recording == null)
+                return FinalizationCache;
+
+            if (!string.IsNullOrEmpty(FinalizationCache.RecordingId))
+                return FinalizationCache;
+
+            FinalizationCache.RecordingId = recording.RecordingId;
+            if (FinalizationCache.VesselPersistentId == 0)
+            {
+                if (recording.VesselPersistentId != 0)
+                {
+                    FinalizationCache.VesselPersistentId = recording.VesselPersistentId;
+                }
+                else
+                {
+                    FinalizationCache.VesselPersistentId = RecordingVesselId;
+                    if (RecordingVesselId != 0)
+                    {
+                        ParsekLog.Verbose("FinalizerCache",
+                            $"Backfilled active cache vessel pid from recorder state: rec={recording.RecordingId ?? "(null)"} " +
+                            $"pid={RecordingVesselId}");
+                    }
+                }
+            }
+            return FinalizationCache;
         }
 
         internal static bool ShouldRefreshSnapshot(

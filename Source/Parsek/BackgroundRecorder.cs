@@ -64,6 +64,11 @@ namespace Parsek
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
 
+        // Per-vessel last-known finalization tails. Consumers land in later phases;
+        // this phase only owns refresh and transfer.
+        private Dictionary<uint, RecordingFinalizationCache> finalizationCaches
+            = new Dictionary<uint, RecordingFinalizationCache>();
+
         // GameEvent subscriptions for discrete events (onPartDie, onPartJointBreak)
         private bool partEventsSubscribed;
 
@@ -300,6 +305,8 @@ namespace Parsek
             ParsekLog.Verbose("BgRecorder",
                 $"Part death on background vessel: {evtType} '{p.partInfo?.name}' " +
                 $"pid={p.persistentId} vesselPid={vesselPid}");
+            RefreshFinalizationCacheForVessel(p.vessel, recordingId, FinalizationCacheOwner.BackgroundLoaded,
+                "background_part_die", force: true);
         }
 
         /// <summary>
@@ -366,6 +373,8 @@ namespace Parsek
                 $"Part joint break on background vessel: Decoupled " +
                 $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
                 $"vesselPid={vesselPid} breakForce={breakForce:F1}");
+            RefreshFinalizationCacheForVessel(joint.Child.vessel, recordingId, FinalizationCacheOwner.BackgroundLoaded,
+                "background_joint_break", force: true);
 
             // Schedule a deferred split check for this background vessel.
             // KSP needs one frame to finalize vessel splits after joint breaks.
@@ -774,6 +783,7 @@ namespace Parsek
             onRailsStates.Remove(parentPid);
             loadedStates.Remove(parentPid);
             debrisTTLExpiry.Remove(parentPid);
+            finalizationCaches.Remove(parentPid);
         }
 
         /// <summary>
@@ -1089,6 +1099,7 @@ namespace Parsek
             {
                 uint pid = kvp.Key;
                 var state = kvp.Value;
+                RefreshOnRailsFinalizationCache(state, currentUT, "background_on_rails_periodic", force: false);
 
                 // Update ExplicitEndUT periodically
                 if (currentUT - state.lastExplicitEndUpdate >= ExplicitEndUpdateInterval)
@@ -1134,6 +1145,8 @@ namespace Parsek
 
             // Poll part events (always, regardless of sampling rate)
             PollPartEvents(bgVessel, state, treeRec, ut);
+            RefreshFinalizationCacheForVessel(bgVessel, recordingId, FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic", force: false);
 
             // Check for environment transitions (always, regardless of sampling rate)
             if (state.environmentHysteresis != null)
@@ -1227,12 +1240,15 @@ namespace Parsek
         /// </summary>
         public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null,
             SegmentEnvironment? initialEnvironmentOverride = null,
-            TrajectoryPoint? initialTrajectoryPoint = null)
+            TrajectoryPoint? initialTrajectoryPoint = null,
+            RecordingFinalizationCache inheritedFinalizationCache = null)
         {
             if (tree == null) return;
 
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            AdoptInheritedFinalizationCache(vesselPid, recordingId, inheritedFinalizationCache);
 
             if (initialEnvironmentOverride.HasValue)
             {
@@ -1282,12 +1298,16 @@ namespace Parsek
             {
                 // Loaded/physics mode
                 InitializeLoadedState(v, vesselPid, recordingId, inherited);
+                RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundLoaded,
+                    "backgrounded_loaded", force: true);
                 ParsekLog.Info("BgRecorder", $"Vessel backgrounded (loaded/physics): pid={vesselPid} recId={recordingId}");
             }
             else
             {
                 // On-rails mode
                 InitializeOnRailsState(v, vesselPid, recordingId);
+                RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
+                    "backgrounded_on_rails", force: true);
                 ParsekLog.Info("BgRecorder", $"Vessel backgrounded (on-rails): pid={vesselPid} recId={recordingId}");
             }
         }
@@ -1335,6 +1355,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
+            finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
 
@@ -1376,6 +1397,8 @@ namespace Parsek
 
             // Initialize on-rails state
             InitializeOnRailsState(v, pid, recordingId);
+            RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
+                "background_go_on_rails", force: true);
         }
 
         /// <summary>
@@ -1408,6 +1431,8 @@ namespace Parsek
             if (!v.packed)
             {
                 InitializeLoadedState(v, pid, recordingId);
+                RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundLoaded,
+                    "background_go_off_rails", force: true);
 
                 // Sample a boundary point
                 Recording treeRec;
@@ -1447,6 +1472,8 @@ namespace Parsek
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
                     state.hasOpenOrbitSegment = true;
                 }
+                RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
+                    "background_soi_change", force: true);
 
                 ParsekLog.Info("BgRecorder", $"SOI change for background vessel: pid={pid} " +
                     $"from={fromBody?.name ?? "?"} to={v.mainBody?.name ?? "?"}");
@@ -1464,6 +1491,12 @@ namespace Parsek
             uint pid = v.persistentId;
             if (!tree.BackgroundMap.ContainsKey(pid)) return;
             double ut = Planetarium.GetUniversalTime();
+            string recordingId;
+            tree.BackgroundMap.TryGetValue(pid, out recordingId);
+            RefreshFinalizationCacheForVessel(v, recordingId, v.loaded && !v.packed
+                ? FinalizationCacheOwner.BackgroundLoaded
+                : FinalizationCacheOwner.BackgroundOnRails,
+                "background_destroy", force: true);
 
             BackgroundOnRailsState railsState;
             if (onRailsStates.TryGetValue(pid, out railsState))
@@ -1504,6 +1537,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
+            finalizationCaches.Remove(pid);
         }
 
         /// <summary>
@@ -1577,6 +1611,7 @@ namespace Parsek
             loadedStates.Clear();
             pendingInitialEnvironmentOverrides.Clear();
             pendingInitialTrajectoryPoints.Clear();
+            finalizationCaches.Clear();
 
             ParsekLog.Info("BgRecorder", "Shutdown complete — all background states cleared");
         }
@@ -3558,14 +3593,172 @@ namespace Parsek
 
         #endregion
 
+        private void AdoptInheritedFinalizationCache(
+            uint vesselPid,
+            string recordingId,
+            RecordingFinalizationCache inheritedCache)
+        {
+            if (inheritedCache == null)
+                return;
+
+            inheritedCache.RecordingId = recordingId;
+            inheritedCache.VesselPersistentId = vesselPid;
+            finalizationCaches[vesselPid] = inheritedCache;
+
+            ParsekLog.Verbose("FinalizerCache",
+                $"Inherited active cache for background pid={vesselPid} rec={recordingId ?? "(null)"} " +
+                $"owner={inheritedCache.Owner} status={inheritedCache.Status} " +
+                $"terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
+        }
+
+        private bool RefreshFinalizationCacheForVessel(
+            Vessel vessel,
+            string recordingId,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool force)
+        {
+            if (vessel == null || string.IsNullOrEmpty(recordingId))
+                return false;
+
+            double ut = Planetarium.GetUniversalTime();
+            uint vesselPid = vessel.persistentId;
+            Recording treeRec = null;
+            if (tree != null && tree.Recordings != null)
+                tree.Recordings.TryGetValue(recordingId, out treeRec);
+
+            BackgroundVesselState loadedState;
+            loadedStates.TryGetValue(vesselPid, out loadedState);
+            bool hasMeaningfulThrust = loadedState != null
+                && RecordingFinalizationCacheProducer.HasMeaningfulThrust(
+                    loadedState.activeEngineKeys,
+                    loadedState.lastThrottle,
+                    loadedState.activeRcsKeys,
+                    loadedState.lastRcsThrottle);
+            bool inAtmosphere = RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            string currentDigest = RecordingFinalizationCacheProducer.BuildVesselDigest(
+                vessel,
+                hasMeaningfulThrust);
+
+            RecordingFinalizationCache previous;
+            finalizationCaches.TryGetValue(vesselPid, out previous);
+            bool requiresPeriodicRefresh = hasMeaningfulThrust
+                || inAtmosphere
+                || RecordingFinalizationCacheProducer.IsSurfaceTerminalSituation(vessel.situation)
+                || previous == null
+                || previous.Status == FinalizationCacheStatus.Failed;
+
+            if (!RecordingFinalizationCacheProducer.ShouldRefresh(
+                    previous != null ? previous.CachedAtUT : double.MinValue,
+                    ut,
+                    RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT,
+                    force,
+                    previous?.LastObservedOrbitDigest,
+                    currentDigest,
+                    requiresPeriodicRefresh))
+            {
+                TryTouchSkippedFinalizationCache(
+                    previous,
+                    ut,
+                    reason,
+                    currentDigest,
+                    requiresPeriodicRefresh);
+                return false;
+            }
+
+            RecordingFinalizationCache refreshed;
+            bool success = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                treeRec,
+                vessel,
+                ut,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                out refreshed);
+
+            refreshed.RecordingId = recordingId;
+            refreshed.VesselPersistentId = vesselPid;
+            finalizationCaches[vesselPid] = refreshed;
+            return success;
+        }
+
+        internal static bool TryTouchSkippedFinalizationCache(
+            RecordingFinalizationCache previous,
+            double currentUT,
+            string reason,
+            string currentDigest,
+            bool requiresPeriodicRefresh)
+        {
+            if (requiresPeriodicRefresh)
+                return false;
+
+            return RecordingFinalizationCacheProducer.TryTouchObservedTerminalCache(
+                previous,
+                currentUT,
+                reason,
+                currentDigest);
+        }
+
+        private bool RefreshOnRailsFinalizationCache(
+            BackgroundOnRailsState state,
+            double currentUT,
+            string reason,
+            bool force)
+        {
+            if (state == null || !state.hasOpenOrbitSegment)
+                return false;
+
+            string currentDigest = RecordingFinalizationCacheProducer.BuildOrbitSegmentDigest(
+                state.currentOrbitSegment);
+            RecordingFinalizationCache previous;
+            finalizationCaches.TryGetValue(state.vesselPid, out previous);
+            if (!RecordingFinalizationCacheProducer.ShouldRefresh(
+                    previous != null ? previous.CachedAtUT : double.MinValue,
+                    currentUT,
+                    RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT,
+                    force,
+                    previous?.LastObservedOrbitDigest,
+                    currentDigest,
+                    requiresPeriodicRefresh: false))
+            {
+                TryTouchSkippedFinalizationCache(
+                    previous,
+                    currentUT,
+                    reason,
+                    currentDigest,
+                    requiresPeriodicRefresh: false);
+                return false;
+            }
+
+            RecordingFinalizationCache refreshed;
+            bool success = RecordingFinalizationCacheProducer.TryBuildFromStableOrbitSegment(
+                state.recordingId,
+                state.vesselPid,
+                state.currentOrbitSegment,
+                currentUT,
+                FinalizationCacheOwner.BackgroundOnRails,
+                reason,
+                out refreshed);
+            finalizationCaches[state.vesselPid] = refreshed;
+            return success;
+        }
+
         #region Testing Support
 
         // Expose internal state for testing
         internal int OnRailsStateCount => onRailsStates.Count;
         internal int LoadedStateCount => loadedStates.Count;
+        internal int FinalizationCacheCount => finalizationCaches.Count;
 
         internal bool HasOnRailsState(uint pid) => onRailsStates.ContainsKey(pid);
         internal bool HasLoadedState(uint pid) => loadedStates.ContainsKey(pid);
+        internal bool HasFinalizationCache(uint pid) => finalizationCaches.ContainsKey(pid);
+
+        internal RecordingFinalizationCache GetFinalizationCacheForTesting(uint pid)
+        {
+            RecordingFinalizationCache cache;
+            return finalizationCaches.TryGetValue(pid, out cache) ? cache : null;
+        }
 
         internal bool GetOnRailsHasOpenSegment(uint pid)
         {
@@ -3627,6 +3820,24 @@ namespace Parsek
                 state.currentOrbitSegment = segment;
                 state.hasOpenOrbitSegment = true;
             }
+        }
+
+        internal bool RefreshOnRailsFinalizationCacheForTesting(
+            uint vesselPid,
+            double currentUT,
+            bool force = false)
+        {
+            BackgroundOnRailsState state;
+            return onRailsStates.TryGetValue(vesselPid, out state)
+                && RefreshOnRailsFinalizationCache(state, currentUT, "test_on_rails", force);
+        }
+
+        internal void AdoptFinalizationCacheForTesting(
+            uint vesselPid,
+            string recordingId,
+            RecordingFinalizationCache cache)
+        {
+            AdoptInheritedFinalizationCache(vesselPid, recordingId, cache);
         }
 
         /// <summary>

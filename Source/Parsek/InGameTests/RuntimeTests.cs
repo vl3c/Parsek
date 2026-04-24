@@ -11278,9 +11278,9 @@ namespace Parsek.InGameTests
                 source, 120.0, 8, "ManeuverRuntime");
 
             InGameAssert.AreEqual(1, snapshot.Segments.Count,
-                "capture should stop before the maneuver patch");
-            InGameAssert.IsTrue(snapshot.StoppedBeforeManeuver,
-                "snapshot should flag that it stopped before a maneuver");
+                "capture should keep only the pre-maneuver coast patch");
+            InGameAssert.IsTrue(snapshot.EncounteredManeuverNode,
+                "snapshot should flag that it encountered a UI maneuver node");
             InGameAssert.AreEqual("Kerbin", snapshot.Segments[0].bodyName,
                 "post-maneuver bodies should not leak into the captured chain");
         }

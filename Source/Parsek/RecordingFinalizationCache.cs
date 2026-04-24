@@ -67,6 +67,7 @@ namespace Parsek
         public Vessel.Situations LastSituation;
         public bool LastWasInAtmosphere;
         public bool LastHadMeaningfulThrust;
+        public string LastObservedOrbitDigest;
 
         // Predicted terminal payload copied into a Recording only when a consumer
         // accepts the cache.

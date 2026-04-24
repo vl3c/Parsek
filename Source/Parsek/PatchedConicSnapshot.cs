@@ -31,7 +31,7 @@ namespace Parsek
         public PatchedConicSnapshotFailureReason FailureReason;
         public int CapturedPatchCount;
         public bool HasTruncatedTail;
-        public bool StoppedBeforeManeuver;
+        public bool EncounteredManeuverNode;
         public int OriginalPatchLimit;
         public int AppliedPatchLimit;
         public string LastCapturedBodyName;
@@ -161,7 +161,7 @@ namespace Parsek
                         return result;
                     }
 
-                    bool stopsBeforeManeuver = patch.EndTransition == PatchedConicTransitionType.Maneuver;
+                    bool endsAtManeuverNode = patch.EndTransition == PatchedConicTransitionType.Maneuver;
                     result.Segments.Add(ToOrbitSegment(
                         patch,
                         result.CapturedPatchCount == 0 ? snapshotUT : double.NaN,
@@ -169,9 +169,9 @@ namespace Parsek
                     result.LastCapturedBodyName = bodyName;
                     result.CapturedPatchCount++;
 
-                    if (stopsBeforeManeuver)
+                    if (endsAtManeuverNode)
                     {
-                        result.StoppedBeforeManeuver = true;
+                        result.EncounteredManeuverNode = true;
                         result.HasTruncatedTail = true;
                         break;
                     }
@@ -179,12 +179,12 @@ namespace Parsek
                     patch = patch.NextPatch;
                 }
 
-                if (!result.StoppedBeforeManeuver && patch != null && result.CapturedPatchCount >= normalizedLimit)
+                if (!result.EncounteredManeuverNode && patch != null && result.CapturedPatchCount >= normalizedLimit)
                     result.HasTruncatedTail = true;
 
                 ParsekLog.Verbose("PatchedSnapshot",
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} captured={result.CapturedPatchCount} " +
-                    $"hasTruncatedTail={result.HasTruncatedTail} stoppedBeforeManeuver={result.StoppedBeforeManeuver} " +
+                    $"hasTruncatedTail={result.HasTruncatedTail} encounteredManeuverNode={result.EncounteredManeuverNode} " +
                     $"lastBody={result.LastCapturedBodyName ?? "(none)"}");
             }
             catch (Exception ex)
@@ -221,7 +221,7 @@ namespace Parsek
             result.Segments.Clear();
             result.CapturedPatchCount = 0;
             result.HasTruncatedTail = false;
-            result.StoppedBeforeManeuver = false;
+            result.EncounteredManeuverNode = false;
             result.LastCapturedBodyName = null;
             result.FailureReason = failureReason;
         }

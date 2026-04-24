@@ -1872,7 +1872,7 @@ namespace Parsek
 
                 // Add old vessel to BackgroundMap
                 string oldRecId = activeTree.ActiveRecordingId;
-                Recording oldRec;
+                Recording oldRec = null;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
                 {
@@ -1881,8 +1881,11 @@ namespace Parsek
                 activeTree.ActiveRecordingId = null;
                 recorder.IsRecording = false;
                 uint bgPid1 = recorder.RecordingVesselId;
+                RecordingFinalizationCache bgCache1 = oldRec != null
+                    ? recorder.GetFinalizationCacheForRecording(oldRec)
+                    : recorder.FinalizationCache;
                 recorder = null;
-                backgroundRecorder?.OnVesselBackgrounded(bgPid1);
+                backgroundRecorder?.OnVesselBackgrounded(bgPid1, inheritedFinalizationCache: bgCache1);
                 Log($"Tree: onVesselSwitchComplete transitioned old recorder to background");
             }
             // OnPhysicsFrame already backgrounded the recorder (TransitionToBackgroundPending),
@@ -1896,7 +1899,7 @@ namespace Parsek
                     logTag: "OnVesselSwitch(bg)");
 
                 string oldRecId = activeTree.ActiveRecordingId;
-                Recording oldRec;
+                Recording oldRec = null;
                 uint bgPid2 = 0;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
@@ -1905,8 +1908,11 @@ namespace Parsek
                     bgPid2 = oldRec.VesselPersistentId;
                 }
                 activeTree.ActiveRecordingId = null;
+                RecordingFinalizationCache bgCache2 = oldRec != null
+                    ? recorder.GetFinalizationCacheForRecording(oldRec)
+                    : recorder.FinalizationCache;
                 recorder = null;
-                if (bgPid2 != 0) backgroundRecorder?.OnVesselBackgrounded(bgPid2);
+                if (bgPid2 != 0) backgroundRecorder?.OnVesselBackgrounded(bgPid2, inheritedFinalizationCache: bgCache2);
                 Log($"Tree: onVesselSwitchComplete flushed backgrounded recorder (recId={oldRecId})");
             }
 
@@ -6822,7 +6828,7 @@ namespace Parsek
 
             // Add old vessel to BackgroundMap
             string oldRecId = activeTree.ActiveRecordingId;
-            Recording oldRec;
+            Recording oldRec = null;
             uint bgPidUpdate = 0;
             if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                 && oldRec.VesselPersistentId != 0)
@@ -6831,8 +6837,13 @@ namespace Parsek
                 bgPidUpdate = oldRec.VesselPersistentId;
             }
             activeTree.ActiveRecordingId = null;
+            RecordingFinalizationCache bgCacheUpdate = oldRec != null
+                ? recorder.GetFinalizationCacheForRecording(oldRec)
+                : recorder.FinalizationCache;
             recorder = null;
-            if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
+            if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(
+                bgPidUpdate,
+                inheritedFinalizationCache: bgCacheUpdate);
             Log($"Tree: recorder flushed to background (recId={oldRecId})");
         }
 
