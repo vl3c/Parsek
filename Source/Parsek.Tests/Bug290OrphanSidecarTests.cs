@@ -267,6 +267,7 @@ namespace Parsek.Tests
             string recordingsDir = CreateRecordingsDir("transient-artifacts");
             var keep = new Recording { RecordingId = "keep-rec", VesselName = "Keep" };
             RecordingStore.AddRecordingWithTreeForTesting(keep);
+            Directory.CreateDirectory(recordingsDir);
 
             string keepPrec = Path.Combine(recordingsDir, "keep-rec.prec");
             string keepVessel = Path.Combine(recordingsDir, "keep-rec_vessel.craft");
@@ -274,12 +275,12 @@ namespace Parsek.Tests
             string keepReadablePrec = Path.Combine(recordingsDir, "keep-rec.prec.txt");
             string keepReadableVessel = Path.Combine(recordingsDir, "keep-rec_vessel.craft.txt");
             string keepReadableGhost = Path.Combine(recordingsDir, "keep-rec_ghost.craft.txt");
-            File.WriteAllText(keepPrec, "keep-prec");
-            File.WriteAllText(keepVessel, "keep-vessel");
-            File.WriteAllText(keepGhost, "keep-ghost");
-            File.WriteAllText(keepReadablePrec, "keep-readable-prec");
-            File.WriteAllText(keepReadableVessel, "keep-readable-vessel");
-            File.WriteAllText(keepReadableGhost, "keep-readable-ghost");
+            WriteTextFile(keepPrec, "keep-prec");
+            WriteTextFile(keepVessel, "keep-vessel");
+            WriteTextFile(keepGhost, "keep-ghost");
+            WriteTextFile(keepReadablePrec, "keep-readable-prec");
+            WriteTextFile(keepReadableVessel, "keep-readable-vessel");
+            WriteTextFile(keepReadableGhost, "keep-readable-ghost");
 
             string transientStage = Path.Combine(recordingsDir, "orphan.prec.stage.1");
             string transientBak = Path.Combine(recordingsDir, "keep-rec_vessel.craft.bak.1");
@@ -287,12 +288,12 @@ namespace Parsek.Tests
             string transientReadableTmp = Path.Combine(recordingsDir, "other-rec_ghost.craft.txt.tmp");
             string orphanReadable = Path.Combine(recordingsDir, "orphan-readable.prec.txt");
             string readme = Path.Combine(recordingsDir, "readme.txt");
-            File.WriteAllText(transientStage, "stage");
-            File.WriteAllText(transientBak, "bak");
-            File.WriteAllText(transientTmp, "tmp");
-            File.WriteAllText(transientReadableTmp, "readable-tmp");
-            File.WriteAllText(orphanReadable, "orphan-readable");
-            File.WriteAllText(readme, "keep-me");
+            WriteTextFile(transientStage, "stage");
+            WriteTextFile(transientBak, "bak");
+            WriteTextFile(transientTmp, "tmp");
+            WriteTextFile(transientReadableTmp, "readable-tmp");
+            WriteTextFile(orphanReadable, "orphan-readable");
+            WriteTextFile(readme, "keep-me");
 
             logLines.Clear();
             RecordingStore.CleanOrphanFiles();
@@ -317,12 +318,21 @@ namespace Parsek.Tests
         {
             string saveFolder = "parsek-test-" + label + "-" + Guid.NewGuid().ToString("N");
             HighLogic.SaveFolder = saveFolder;
-            string root = Path.GetFullPath(Path.Combine("saves", saveFolder));
+            string root = Path.Combine(Path.GetTempPath(), saveFolder);
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
             RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
+        }
+
+        private static void WriteTextFile(string path, string contents)
+        {
+            string directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, contents);
         }
     }
 }

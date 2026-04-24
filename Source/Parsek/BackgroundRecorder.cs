@@ -783,6 +783,7 @@ namespace Parsek
             onRailsStates.Remove(parentPid);
             loadedStates.Remove(parentPid);
             debrisTTLExpiry.Remove(parentPid);
+            finalizationCaches.Remove(parentPid);
         }
 
         /// <summary>
@@ -1354,6 +1355,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
+            finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
 
@@ -1535,6 +1537,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
+            finalizationCaches.Remove(pid);
         }
 
         /// <summary>
@@ -1608,6 +1611,7 @@ namespace Parsek
             loadedStates.Clear();
             pendingInitialEnvironmentOverrides.Clear();
             pendingInitialTrajectoryPoints.Clear();
+            finalizationCaches.Clear();
 
             ParsekLog.Info("BgRecorder", "Shutdown complete — all background states cleared");
         }
@@ -3697,12 +3701,12 @@ namespace Parsek
 
             inheritedCache.RecordingId = recordingId;
             inheritedCache.VesselPersistentId = vesselPid;
-            inheritedCache.Owner = FinalizationCacheOwner.BackgroundOnRails;
             finalizationCaches[vesselPid] = inheritedCache;
 
             ParsekLog.Verbose("FinalizerCache",
                 $"Inherited active cache for background pid={vesselPid} rec={recordingId ?? "(null)"} " +
-                $"status={inheritedCache.Status} terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
+                $"owner={inheritedCache.Owner} status={inheritedCache.Status} " +
+                $"terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
         }
 
         private static void AlignFinalizationCacheIdentity(
@@ -3785,7 +3789,6 @@ namespace Parsek
 
             refreshed.RecordingId = recordingId;
             refreshed.VesselPersistentId = vesselPid;
-            refreshed.LastObservedOrbitDigest = currentDigest;
             finalizationCaches[vesselPid] = refreshed;
             return success;
         }
@@ -3847,7 +3850,6 @@ namespace Parsek
                 FinalizationCacheOwner.BackgroundOnRails,
                 reason,
                 out refreshed);
-            refreshed.LastObservedOrbitDigest = currentDigest;
             finalizationCaches[state.vesselPid] = refreshed;
             return success;
         }

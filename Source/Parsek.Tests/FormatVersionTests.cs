@@ -42,9 +42,35 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is5()
+        public void CurrentRecordingFormatVersion_Is6()
         {
-            Assert.Equal(5, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(6, RecordingStore.CurrentRecordingFormatVersion);
+        }
+
+        [Fact]
+        public void UsesRelativeLocalFrameContract_V5False_V6True()
+        {
+            Assert.False(RecordingStore.UsesRelativeLocalFrameContract(
+                RecordingStore.PredictedOrbitSegmentFormatVersion));
+            Assert.True(RecordingStore.UsesRelativeLocalFrameContract(
+                RecordingStore.RelativeLocalFrameFormatVersion));
+        }
+
+        [Fact]
+        public void NormalizeRecordingFormatVersionAfterLegacyLoopMigration_UpgradesOnlyToV4()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "legacy-loop-v3",
+                RecordingFormatVersion = 3
+            };
+
+            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+
+            Assert.Equal(
+                RecordingStore.LaunchToLaunchLoopIntervalFormatVersion,
+                rec.RecordingFormatVersion);
+            Assert.False(RecordingStore.UsesRelativeLocalFrameContract(rec.RecordingFormatVersion));
         }
 
         [Fact]
@@ -188,7 +214,7 @@ namespace Parsek.Tests
             logLines.Clear();
             RecordingStore.NormalizeRecordingFormatVersionForPredictedSegments(rec);
 
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, rec.RecordingFormatVersion);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN]") &&
                 line.Contains("[RecordingStore]") &&

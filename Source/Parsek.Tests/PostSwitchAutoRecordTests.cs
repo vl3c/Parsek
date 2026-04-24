@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -141,6 +142,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HasMeaningfulAttitudeChange_BelowThreshold_IgnoresNoise()
+        {
+            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+                armedVesselPid: 42,
+                activeVesselPid: 42,
+                hasBaselineRotation: true,
+                baselineWorldRotation: Quaternion.identity,
+                currentWorldRotation: TrajectoryMath.PureAngleAxis(2.5f, Vector3.up));
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void HasMeaningfulAttitudeChange_AboveThreshold_AcceptsDeliberateRotation()
+        {
+            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+                armedVesselPid: 42,
+                activeVesselPid: 42,
+                hasBaselineRotation: true,
+                baselineWorldRotation: Quaternion.identity,
+                currentWorldRotation: TrajectoryMath.PureAngleAxis(4f, Vector3.up));
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void HasMeaningfulAttitudeChange_NoBaseline_IgnoresRotation()
+        {
+            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+                armedVesselPid: 42,
+                activeVesselPid: 42,
+                hasBaselineRotation: false,
+                baselineWorldRotation: Quaternion.identity,
+                currentWorldRotation: TrajectoryMath.PureAngleAxis(10f, Vector3.up));
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void HasMeaningfulAttitudeChange_WrongVessel_IgnoresRotation()
+        {
+            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+                armedVesselPid: 42,
+                activeVesselPid: 7,
+                hasBaselineRotation: true,
+                baselineWorldRotation: Quaternion.identity,
+                currentWorldRotation: TrajectoryMath.PureAngleAxis(10f, Vector3.up));
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void HasMeaningfulOrbitChange_DetectsElementChangesWithoutSituationChange()
         {
             var baseline = new ParsekFlight.PostSwitchOrbitSnapshot
@@ -232,17 +285,19 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(false, false, false, false, false, false, false, (int)ParsekFlight.PostSwitchAutoRecordTrigger.None)]
-        [InlineData(true, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.EngineActivity)]
-        [InlineData(false, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.SustainedRcsActivity)]
-        [InlineData(false, false, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.CrewChange)]
-        [InlineData(false, false, false, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.ResourceChange)]
-        [InlineData(false, false, false, false, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.PartStateChange)]
-        [InlineData(false, false, false, false, false, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.LandedMotion)]
-        [InlineData(false, false, false, false, false, false, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.OrbitChange)]
+        [InlineData(false, false, false, false, false, false, false, false, (int)ParsekFlight.PostSwitchAutoRecordTrigger.None)]
+        [InlineData(true, true, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.EngineActivity)]
+        [InlineData(false, true, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.SustainedRcsActivity)]
+        [InlineData(false, false, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.AttitudeChange)]
+        [InlineData(false, false, false, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.CrewChange)]
+        [InlineData(false, false, false, false, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.ResourceChange)]
+        [InlineData(false, false, false, false, false, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.PartStateChange)]
+        [InlineData(false, false, false, false, false, false, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.LandedMotion)]
+        [InlineData(false, false, false, false, false, false, false, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.OrbitChange)]
         public void EvaluatePostSwitchAutoRecordTrigger_UsesExpectedPriority(
             bool engineTriggered,
             bool rcsTriggered,
+            bool attitudeChanged,
             bool crewChanged,
             bool resourceChanged,
             bool partStateChanged,
@@ -253,6 +308,7 @@ namespace Parsek.Tests
             var result = ParsekFlight.EvaluatePostSwitchAutoRecordTrigger(
                 engineTriggered,
                 rcsTriggered,
+                attitudeChanged,
                 crewChanged,
                 resourceChanged,
                 partStateChanged,
@@ -304,6 +360,20 @@ namespace Parsek.Tests
                 activeVesselTrackedInBackground: true,
                 canRestorePendingTrackedTree: false,
                 suppressStart: true);
+
+            Assert.Equal(ParsekFlight.PostSwitchAutoRecordStartDecision.None, result);
+        }
+
+        [Fact]
+        public void EvaluatePostSwitchAutoRecordStartDecision_VesselMismatch_ReturnsNone()
+        {
+            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+                armedVesselPid: 42,
+                activeVesselPid: 7,
+                hasActiveTree: true,
+                activeVesselTrackedInBackground: true,
+                canRestorePendingTrackedTree: false,
+                suppressStart: false);
 
             Assert.Equal(ParsekFlight.PostSwitchAutoRecordStartDecision.None, result);
         }

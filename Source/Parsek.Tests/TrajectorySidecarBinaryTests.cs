@@ -49,6 +49,7 @@ namespace Parsek.Tests
         [InlineData(3, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(4, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,

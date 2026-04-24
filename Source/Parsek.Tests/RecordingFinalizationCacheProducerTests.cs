@@ -1,11 +1,31 @@
+using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RecordingFinalizationCacheProducerTests
+    public class RecordingFinalizationCacheProducerTests : IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
+        public RecordingFinalizationCacheProducerTests()
+        {
+            RecordingFinalizationCacheProducer.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            RecordingFinalizationCacheProducer.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
         [Fact]
         public void ShouldRefresh_StableCoastDigestUnchanged_DoesNotRefreshAfterCadence()
         {
@@ -79,6 +99,169 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_SurfaceTerminal_CachesSurfaceMetadataAndLogs()
+        {
+            var vessel = new FakeVesselView
+            {
+                PersistentIdValue = 101u,
+                SituationValue = Vessel.Situations.LANDED,
+                BodyNameValue = "Kerbin",
+                LatitudeValue = 1.25,
+                LongitudeValue = -74.5,
+                AltitudeValue = 12.0,
+                HeightFromTerrainValue = 8.5,
+                SurfaceRelativeRotationValue = Quaternion.identity
+            };
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-landed",
+                VesselPersistentId = 101u
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                125.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "unit-live-surface",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Landed, cache.TerminalState);
+            Assert.Equal(125.0, cache.TerminalUT);
+            Assert.True(cache.TerminalPosition.HasValue);
+            Assert.Equal(1.25, cache.TerminalPosition.Value.latitude);
+            Assert.Equal(8.5, cache.TerrainHeightAtEnd);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh accepted") &&
+                line.Contains("rec=rec-live-landed") &&
+                line.Contains("terminal=Landed"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_ExtrapolatorBranch_CachesDefaultFinalizerTailAndLogs()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 180.0,
+                        extrapolatedSegmentCount = 1,
+                        appendedOrbitSegments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                bodyName = "Kerbin",
+                                startUT = refreshUT,
+                                endUT = 180.0,
+                                semiMajorAxis = 650000.0,
+                                eccentricity = 0.2,
+                                inclination = 1.0
+                            }
+                        }
+                    };
+                    return true;
+                };
+
+            var vessel = MakeFlyingView(202u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-extrapolate",
+                VesselPersistentId = 202u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "unit-live-extrapolate",
+                hasMeaningfulThrust: true,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(180.0, cache.TerminalUT);
+            Assert.Single(cache.PredictedSegments);
+            Assert.True(cache.PredictedSegments[0].isPredicted);
+            Assert.Equal(120.0, cache.TailStartsAtUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh accepted") &&
+                line.Contains("rec=rec-live-extrapolate") &&
+                line.Contains("segments=1"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_AtmosphericPackedDefaultDecline_CachesDestroyedFallbackAndLogs()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var vessel = MakeFlyingView(303u, packed: true, loaded: false, inAtmosphere: true);
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-atmo-delete",
+                VesselPersistentId = 303u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                140.0,
+                FinalizationCacheOwner.BackgroundOnRails,
+                "unit-live-atmo-delete",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(140.0, cache.TerminalUT);
+            Assert.True(cache.LastWasInAtmosphere);
+            Assert.Empty(cache.PredictedSegments);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh accepted") &&
+                line.Contains("rec=rec-live-atmo-delete") &&
+                line.Contains("terminal=Destroyed"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_NullVessel_DeclinesAndLogs()
+        {
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                new Recording { RecordingId = "rec-live-null" },
+                (IRecordingFinalizationVesselView)null,
+                150.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "unit-live-null",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("vessel-null", cache.DeclineReason);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh declined") &&
+                line.Contains("rec=rec-live-null") &&
+                line.Contains("reason=vessel-null"));
+        }
+
+        [Fact]
         public void TryBuildFromStableOrbitSegment_CachesOrbitingTerminal()
         {
             var segment = new OrbitSegment
@@ -110,6 +293,40 @@ namespace Parsek.Tests
             Assert.Equal(125.0, cache.TerminalUT);
             Assert.Equal("Mun", cache.TerminalOrbit.Value.bodyName);
             Assert.Empty(cache.PredictedSegments);
+        }
+
+        [Fact]
+        public void TryBuildFromStableOrbitSegment_InvalidSegment_PreservesDigestForCadence()
+        {
+            var segment = new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 100.0,
+                bodyName = "",
+                semiMajorAxis = double.NaN,
+                eccentricity = 0.02,
+                epoch = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromStableOrbitSegment(
+                "rec-invalid-orbit",
+                42u,
+                segment,
+                125.0,
+                FinalizationCacheOwner.BackgroundOnRails,
+                "unit-invalid-orbit",
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("orbit-segment-invalid", cache.DeclineReason);
+            Assert.False(string.IsNullOrEmpty(cache.LastObservedOrbitDigest));
+            Assert.Contains("sma=NaN", cache.LastObservedOrbitDigest);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh declined") &&
+                line.Contains("rec=rec-invalid-orbit") &&
+                line.Contains("reason=orbit-segment-invalid"));
         }
 
         [Fact]
@@ -239,6 +456,78 @@ namespace Parsek.Tests
             Assert.Equal(250.0, cache.TerminalUT);
             Assert.True(cache.LastWasInAtmosphere);
             Assert.Equal("Kerbin", cache.TerminalBodyName);
+        }
+
+        private static FakeVesselView MakeFlyingView(
+            uint vesselPid,
+            bool packed,
+            bool loaded,
+            bool inAtmosphere)
+        {
+            return new FakeVesselView
+            {
+                PersistentIdValue = vesselPid,
+                SituationValue = Vessel.Situations.FLYING,
+                BodyNameValue = "Kerbin",
+                IsPackedValue = packed,
+                IsLoadedValue = loaded,
+                IsInAtmosphereValue = inAtmosphere,
+                OrbitValue = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = "Kerbin",
+                    ReferenceBodyHasAtmosphere = true,
+                    ReferenceBodyAtmosphereDepth = 70000.0,
+                    Inclination = 1.0,
+                    Eccentricity = 0.2,
+                    SemiMajorAxis = 650000.0,
+                    LongitudeOfAscendingNode = 2.0,
+                    ArgumentOfPeriapsis = 3.0,
+                    MeanAnomalyAtEpoch = 0.4,
+                    Epoch = 100.0,
+                    PeriapsisAltitude = 10000.0
+                }
+            };
+        }
+
+        private sealed class FakeVesselView : IRecordingFinalizationVesselView
+        {
+            public uint PersistentIdValue;
+            public Vessel.Situations SituationValue;
+            public string BodyNameValue;
+            public bool IsInAtmosphereValue;
+            public bool IsPackedValue;
+            public bool IsLoadedValue = true;
+            public double LatitudeValue;
+            public double LongitudeValue;
+            public double AltitudeValue;
+            public double HeightFromTerrainValue;
+            public Quaternion SurfaceRelativeRotationValue;
+            public RecordingFinalizationOrbitView? OrbitValue;
+
+            public uint PersistentId => PersistentIdValue;
+            public Vessel.Situations Situation => SituationValue;
+            public string BodyName => BodyNameValue;
+            public bool IsInAtmosphere => IsInAtmosphereValue;
+            public bool IsPacked => IsPackedValue;
+            public bool IsLoaded => IsLoadedValue;
+            public double Latitude => LatitudeValue;
+            public double Longitude => LongitudeValue;
+            public double Altitude => AltitudeValue;
+            public double HeightFromTerrain => HeightFromTerrainValue;
+            public Quaternion SurfaceRelativeRotation => SurfaceRelativeRotationValue;
+            public Vessel RawVessel => null;
+
+            public bool TryGetOrbit(out RecordingFinalizationOrbitView orbit)
+            {
+                if (OrbitValue.HasValue)
+                {
+                    orbit = OrbitValue.Value;
+                    return true;
+                }
+
+                orbit = default(RecordingFinalizationOrbitView);
+                return false;
+            }
         }
     }
 }

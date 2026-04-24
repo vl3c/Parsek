@@ -56,7 +56,8 @@ namespace Parsek
     {
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
-        public const int CurrentRecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
+        public const int RelativeLocalFrameFormatVersion = 6;
+        public const int CurrentRecordingFormatVersion = RelativeLocalFrameFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -81,6 +82,19 @@ namespace Parsek
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
         // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
+        // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
+
+        internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
+        {
+            return recordingFormatVersion >= RelativeLocalFrameFormatVersion;
+        }
+
+        internal static string DescribeRelativeFrameContract(int recordingFormatVersion)
+        {
+            return UsesRelativeLocalFrameContract(recordingFormatVersion)
+                ? "anchor-local"
+                : "legacy-world";
+        }
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -6248,7 +6262,10 @@ namespace Parsek
                 || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
                 return;
 
-            rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
+            // Legacy loop-interval migration only repairs the loop-timing semantic bump.
+            // Do not silently reinterpret older RELATIVE sections as the newer v6
+            // anchor-local contract just because the loop interval was normalized.
+            rec.RecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
         }
 
         /// <summary>
