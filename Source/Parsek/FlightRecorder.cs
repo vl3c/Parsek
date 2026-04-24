@@ -5376,6 +5376,16 @@ namespace Parsek
 
             double currentUT = Planetarium.GetUniversalTime();
             Vector3 currentVelocity = SampleCurrentVelocity(v);
+            if (v.packed)
+            {
+                // OnPhysicsFrame normally runs off-rails, but a packed vessel occasionally
+                // tick-enters this path during pack/unpack transitions. Log so the shift
+                // from rb_velocityD+Krakensbane to obt_velocity is observable in logs.
+                ParsekLog.VerboseRateLimited("Recorder", "onphysicsframe-packed",
+                    $"OnPhysicsFrame sample with packed vessel at ut={currentUT:F2}; " +
+                    $"using obt_velocity instead of rb_velocityD+Krakensbane",
+                    5.0);
+            }
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
             bool motionTriggered = TrajectoryMath.ShouldRecordPoint(
                 currentVelocity,
@@ -5805,12 +5815,40 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
         }
 
+        /// <summary>
+        /// Baseline seed points built via <see cref="BuildTrajectoryPoint"/> carry
+        /// body-relative lat/lon/alt and surface-relative rotation — both only valid
+        /// inside an ABSOLUTE track section. A RELATIVE section would need the anchor
+        /// pose captured at baseline time, which the post-switch path does not record.
+        /// Returns true when the seed must be skipped to avoid corrupting the section.
+        /// </summary>
+        internal static bool ShouldSkipSeedDueToRelativeSection(
+            bool trackSectionActive,
+            ReferenceFrame sectionReferenceFrame)
+        {
+            return trackSectionActive && sectionReferenceFrame == ReferenceFrame.Relative;
+        }
+
         internal void SeedTrajectoryPoint(TrajectoryPoint point, Vessel v, string reason)
         {
             if (v == null)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "seed-null-vessel",
                     "SeedTrajectoryPoint called with null vessel");
+                return;
+            }
+
+            // Skip rather than corrupt — the first adaptive sample after the flip
+            // still captures the current pose via the normal SamplePosition path.
+            if (ShouldSkipSeedDueToRelativeSection(
+                    trackSectionActive,
+                    currentTrackSection.referenceFrame))
+            {
+                ParsekLog.Warn("Recorder",
+                    $"Seed point skipped: reason={reason} UT={point.ut:F2} " +
+                    $"sectionRef=Relative (baseline absolute lat/lon/alt cannot be " +
+                    $"committed into a relative-frame section without the baseline " +
+                    $"anchor pose, which was not captured)");
                 return;
             }
 
@@ -5830,6 +5868,17 @@ namespace Parsek
                 return activeRec.RecordingFormatVersion;
             }
 
+            // A fresh sample that can't locate its owning Recording falls back to the
+            // current format version, so new data always uses the newest RELATIVE-frame
+            // contract. Warn — in practice we should always have an ActiveRecordingId
+            // by the time sampling runs, so hitting this path points at a stale tree
+            // state or a missing recording row.
+            ParsekLog.VerboseRateLimited("Recorder", "format-version-fallback",
+                $"ResolveActiveRecordingFormatVersion fallback to v" +
+                $"{RecordingStore.CurrentRecordingFormatVersion}: " +
+                $"activeTree={(ActiveTree != null)} " +
+                $"activeRecordingId={ActiveTree?.ActiveRecordingId ?? "null"}",
+                5.0);
             return RecordingStore.CurrentRecordingFormatVersion;
         }
 

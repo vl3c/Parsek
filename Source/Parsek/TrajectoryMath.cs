@@ -1002,19 +1002,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves a RELATIVE-frame rotation to world space using the version-specific
-        /// contract for the recording being played back.
+        /// Resolves a RELATIVE-frame rotation to world space.
+        /// Legacy v5-and-older RELATIVE sections stored <c>v.srfRelRotation</c> as the
+        /// "relative" slot; v6 RELATIVE sections store <c>Inverse(anchor) * focus</c>.
+        /// Both contracts reconstitute with the same <c>anchor * stored</c> formula —
+        /// the semantic difference lives at sample time, not playback time — so this
+        /// resolver takes no format-version parameter and is shared across v5 and v6.
         /// </summary>
         internal static Quaternion ResolveRelativePlaybackRotation(
             Quaternion anchorWorldRotation,
-            Quaternion storedRelativeRotation,
-            int recordingFormatVersion)
+            Quaternion storedRelativeRotation)
         {
-            Quaternion sanitizedRelativeRotation = SanitizeQuaternion(storedRelativeRotation);
-            return RecordingStore.UsesRelativeLocalFrameContract(recordingFormatVersion)
-                ? ApplyRelativeLocalRotation(anchorWorldRotation, sanitizedRelativeRotation)
-                : SanitizeQuaternion(
-                    PureMultiply(PureNormalize(anchorWorldRotation), sanitizedRelativeRotation));
+            return ApplyRelativeLocalRotation(
+                anchorWorldRotation,
+                SanitizeQuaternion(storedRelativeRotation));
         }
 
         /// <summary>

@@ -1085,8 +1085,7 @@ namespace Parsek
                             e.ghost.transform.position = ghostPos;
                             e.ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                                 anchor.transform.rotation,
-                                e.relativeRot,
-                                e.relativeRecordingFormatVersion);
+                                e.relativeRot);
                         }
                         else
                         {
@@ -2105,8 +2104,7 @@ namespace Parsek
         /// </summary>
         void PromoteRecordingFromBackground(
             string backgroundRecordingId,
-            Vessel newVessel,
-            TrajectoryPoint? boundaryAnchor = null)
+            Vessel newVessel)
         {
             if (activeTree == null || newVessel == null) return;
 
@@ -2123,8 +2121,6 @@ namespace Parsek
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            if (boundaryAnchor.HasValue)
-                recorder.BoundaryAnchor = boundaryAnchor;
             if (chainManager.PendingBoundaryAnchor.HasValue)
             {
                 recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
@@ -7060,9 +7056,7 @@ namespace Parsek
 
         // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
         // the caller posts its own custom screen message.
-        public void StartRecording(
-            TrajectoryPoint? boundaryAnchor = null,
-            bool suppressStartScreenMessage = false)
+        public void StartRecording(bool suppressStartScreenMessage = false)
         {
             // Always-tree mode makes a chain continuation without a live tree impossible.
             // If we reach StartRecording with orphaned chain/transient state, treat it as
@@ -7101,8 +7095,6 @@ namespace Parsek
             }
 
             recorder = new FlightRecorder();
-            if (boundaryAnchor.HasValue)
-                recorder.BoundaryAnchor = boundaryAnchor;
             if (chainManager.PendingBoundaryAnchor.HasValue)
             {
                 recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
@@ -13525,8 +13517,7 @@ namespace Parsek
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchor.transform.rotation,
-                    interpolatedRot,
-                    recordingFormatVersion);
+                    interpolatedRot);
 
                 ParsekLog.VerboseRateLimited("Flight", "relative-offset-applied",
                     $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
@@ -13607,8 +13598,7 @@ namespace Parsek
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchor.transform.rotation,
-                    sanitized,
-                    recordingFormatVersion);
+                    sanitized);
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 ghostPosEntries.Add(new GhostPosEntry
