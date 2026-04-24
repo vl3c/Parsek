@@ -409,7 +409,7 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 **Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/VesselGhoster.cs` (audited caller), `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectoryPoint.cs`, `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `AGENTS.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
 
-**Status:** CLOSED 2026-04-24. Fixed for v0.8.3.
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
 
 ---
 
