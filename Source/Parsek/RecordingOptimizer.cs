@@ -1536,6 +1536,18 @@ namespace Parsek
 
             RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
 
+            // Clamp ExplicitEndUT to the new trajectory bounds. Without this, the
+            // Recording.EndUT getter falls back to the old finalize-time
+            // ExplicitEndUT (set by the recorder when scene exit fires), so rec.EndUT
+            // stays at the original value even though the trim physically removed all
+            // points, sections, and events past trimUT. That's what the player sees
+            // as "trim not applied": the Recordings table keeps showing the full
+            // pre-trim duration and ghost playback treats the recording as lasting
+            // until the stale ExplicitEndUT. Setting ExplicitEndUT = NaN lets the
+            // getter use the now-authoritative actual-trajectory bounds (max of last
+            // Points[].ut, last TrackSection endUT, last OrbitSegment endUT).
+            rec.ExplicitEndUT = double.NaN;
+
             // Strip events past the new EndUT (they're inert during playback but
             // waste memory and disk space in serialized sidecar files)
             double newEndUT = rec.EndUT;
@@ -1551,8 +1563,11 @@ namespace Parsek
             int removedPoints = originalPointCount - rec.Points.Count;
             ParsekLog.Info("Optimizer",
                 $"TrimBoringTail: trimmed '{rec.VesselName}' ({rec.RecordingId}) " +
-                $"from endUT={originalEndUT:F1} to {rec.EndUT:F1} " +
-                $"(removed {removedSeconds:F0}s, {removedPoints} points)");
+                $"from endUT={originalEndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"to {rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"(removed {removedSeconds.ToString("F1", CultureInfo.InvariantCulture)}s, {removedPoints} points; " +
+                $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)})");
             return true;
         }
 

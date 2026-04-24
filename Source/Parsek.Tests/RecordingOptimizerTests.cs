@@ -2308,6 +2308,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds()
+        {
+            // Regression: commit sets rec.ExplicitEndUT to the scene-exit UT
+            // (e.g. 17630 for a full 630-second recording), but the trim only
+            // physically removes Points and TrackSections past trimUT. Without
+            // clearing ExplicitEndUT, Recording.EndUT keeps returning the stale
+            // finalize-time value because the getter prefers ExplicitEndUT over
+            // the actual trajectory bounds, so the player sees the full original
+            // duration in the Recordings table and the ghost plays past the end
+            // of the trimmed trajectory. Post-trim, ExplicitEndUT must be NaN or
+            // clamped to the new authoritative bounds.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.ExplicitEndUT = 17630; // simulate scene-exit-time finalize value
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(double.IsNaN(rec.ExplicitEndUT),
+                "ExplicitEndUT must be cleared after trim so Recording.EndUT reflects the trimmed trajectory.");
+            // EndUT should now be close to trimUT (17030 + 10 = 17040), not 17630.
+            Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1,
+                $"Post-trim EndUT should be trimmed, got {rec.EndUT}");
+            Assert.True(rec.EndUT < 17630,
+                "Post-trim EndUT must not fall back to the stale pre-trim ExplicitEndUT.");
+        }
+
+        [Fact]
         public void TrimBoringTail_LandedStableTerminalState_StillTrims()
         {
             var logLines = new List<string>();
