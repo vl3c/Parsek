@@ -2,6 +2,10 @@
 
 Use career mode for all tests (resource tracking requires it).
 
+Targeted checklists:
+
+- Recording finalization cache: `docs/dev/manual-testing/test-recording-finalization-cache.md`
+
 ---
 
 ## Release Closeout Evidence

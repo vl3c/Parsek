@@ -6502,6 +6502,286 @@ namespace Parsek.InGameTests
                 "Snapshot sit field must remain stale for non-stable terminal states (no re-snapshot)");
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // Recording finalization cache runtime canaries
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
+            Description = "Destroyed background cache trims predicted tail to the stock deletion UT")]
+        public void RecordingFinalization_BackgroundDestroyedCache_TrimsAtDeletionUT()
+        {
+            uint vesselPid = 910001u;
+            var tree = MakeRuntimeFinalizationTree(
+                vesselPid,
+                "runtime-bg-destroyed",
+                pointUT: 100.0,
+                altitude: 5000.0);
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["runtime-bg-destroyed"];
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                vesselPid,
+                rec.RecordingId,
+                MakeRuntimeFinalizationCache(
+                    rec.RecordingId,
+                    vesselPid,
+                    TerminalState.Destroyed,
+                    terminalUT: 180.0,
+                    SegmentRuntimeFinalization(100.0, 180.0)));
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                vesselPid,
+                endUT: 130.0,
+                consumerPath: "runtime-background-destroyed",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
+            InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
+            InGameAssert.ApproxEqual(130.0, rec.ExplicitEndUT);
+            InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
+            InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
+                "Appended cache tail must stay marked predicted");
+            InGameAssert.ApproxEqual(130.0, rec.OrbitSegments[0].endUT);
+        }
+
+        [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
+            Description = "Stable background cache applies Orbiting to a missing vessel instead of Destroyed")]
+        public void RecordingFinalization_BackgroundStableCache_FinalizesOrbiting()
+        {
+            uint vesselPid = 910002u;
+            var tree = MakeRuntimeFinalizationTree(
+                vesselPid,
+                "runtime-bg-orbiting",
+                pointUT: 100.0,
+                altitude: 90000.0);
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["runtime-bg-orbiting"];
+            RecordingFinalizationCache cache = MakeRuntimeFinalizationCache(
+                rec.RecordingId,
+                vesselPid,
+                TerminalState.Orbiting,
+                terminalUT: 120.0);
+            cache.TerminalOrbit = RuntimeTerminalOrbit("Kerbin", 700000.0);
+            bgRecorder.AdoptFinalizationCacheForTesting(vesselPid, rec.RecordingId, cache);
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                vesselPid,
+                endUT: 150.0,
+                consumerPath: "runtime-background-orbiting",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
+            InGameAssert.AreEqual(TerminalState.Orbiting, rec.TerminalStateValue.Value);
+            InGameAssert.ApproxEqual(150.0, rec.ExplicitEndUT);
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody);
+            InGameAssert.AreEqual(0, rec.OrbitSegments.Count);
+        }
+
+        [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
+            Description = "Non-scene active crash finalization consumes the active cache before Destroyed fallback")]
+        public void RecordingFinalization_ActiveCrashCache_AppendsTailBeforeFallback()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "runtime-active-crash-tree",
+                TreeName = "Runtime Active Crash Cache",
+                ActiveRecordingId = "runtime-active-crash"
+            };
+            var rec = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Runtime Active Crash",
+                VesselPersistentId = 910003u,
+                ChildBranchPointId = null,
+                ExplicitEndUT = 100.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[rec.RecordingId] = rec;
+
+            RecordingFinalizationCache cache = MakeRuntimeFinalizationCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                TerminalState.Destroyed,
+                terminalUT: 155.0,
+                SegmentRuntimeFinalization(100.0, 155.0));
+            cache.Owner = FinalizationCacheOwner.ActiveRecorder;
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 120.0,
+                isSceneExit: false,
+                resolveFinalizationCache: recording =>
+                    recording.RecordingId == rec.RecordingId ? cache : null);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
+            InGameAssert.ApproxEqual(155.0, rec.ExplicitEndUT);
+            InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
+            InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
+                "Active crash fallback should preserve the cached synthetic tail");
+        }
+
+        [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
+            Description = "Failed terminal refresh preserves the previous cache and advances refresh cadence")]
+        public void RecordingFinalization_FailedRefresh_PreservesPreviousCacheCadence()
+        {
+            RecordingFinalizationCache previous = MakeRuntimeFinalizationCache(
+                "runtime-preserve-cache",
+                910004u,
+                TerminalState.Destroyed,
+                terminalUT: 180.0,
+                SegmentRuntimeFinalization(100.0, 180.0));
+            RecordingFinalizationCache failed = new RecordingFinalizationCache
+            {
+                RecordingId = previous.RecordingId,
+                VesselPersistentId = previous.VesselPersistentId,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Failed,
+                DeclineReason = "runtime-forced-refresh-failed",
+                TerminalUT = double.NaN
+            };
+
+            bool preserved =
+                RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
+                    previous,
+                    failed,
+                    observedUT: 175.0,
+                    reason: "runtime-preserve-cache",
+                    observedDigest: "Kerbin|sit=FLYING|atmo=True|thrust=False");
+
+            InGameAssert.IsTrue(preserved,
+                "A failed forced refresh must preserve the previous applicable cache");
+            InGameAssert.AreEqual(FinalizationCacheStatus.Stale, previous.Status);
+            InGameAssert.ApproxEqual(175.0, previous.CachedAtUT);
+            InGameAssert.ApproxEqual(175.0, previous.LastObservedUT);
+            InGameAssert.ApproxEqual(180.0, previous.TerminalUT);
+            InGameAssert.AreEqual(TerminalState.Destroyed, previous.TerminalState.Value);
+        }
+
+        private static RecordingTree MakeRuntimeFinalizationTree(
+            uint vesselPid,
+            string recordingId,
+            double pointUT,
+            double altitude)
+        {
+            var tree = new RecordingTree
+            {
+                Id = "runtime-finalization-tree-" + recordingId,
+                TreeName = "Runtime Finalization Cache",
+                RootRecordingId = "runtime-active",
+                ActiveRecordingId = "runtime-active"
+            };
+            tree.Recordings["runtime-active"] = new Recording
+            {
+                RecordingId = "runtime-active",
+                VesselName = "Runtime Active",
+                ExplicitStartUT = pointUT - 10.0,
+                ExplicitEndUT = pointUT
+            };
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = tree.Id,
+                VesselName = recordingId,
+                VesselPersistentId = vesselPid,
+                ExplicitStartUT = pointUT,
+                ExplicitEndUT = pointUT
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = pointUT,
+                altitude = altitude,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[recordingId] = rec;
+            tree.BackgroundMap[vesselPid] = recordingId;
+            return tree;
+        }
+
+        private static RecordingFinalizationCache MakeRuntimeFinalizationCache(
+            string recordingId,
+            uint vesselPid,
+            TerminalState terminalState,
+            double terminalUT,
+            params OrbitSegment[] segments)
+        {
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = recordingId,
+                VesselPersistentId = vesselPid,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                CachedAtUT = terminalUT - 5.0,
+                RefreshReason = "runtime-test",
+                LastObservedUT = terminalUT - 5.0,
+                LastObservedBodyName = "Kerbin",
+                LastSituation = terminalState == TerminalState.Orbiting
+                    ? Vessel.Situations.ORBITING
+                    : Vessel.Situations.FLYING,
+                LastWasInAtmosphere = terminalState == TerminalState.Destroyed,
+                TailStartsAtUT = segments != null && segments.Length > 0
+                    ? segments[0].startUT
+                    : terminalUT,
+                TerminalUT = terminalUT,
+                TerminalState = terminalState,
+                TerminalBodyName = "Kerbin",
+                PredictedSegments = new List<OrbitSegment>()
+            };
+
+            if (segments != null)
+            {
+                for (int i = 0; i < segments.Length; i++)
+                    cache.PredictedSegments.Add(segments[i]);
+            }
+
+            return cache;
+        }
+
+        private static OrbitSegment SegmentRuntimeFinalization(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.1,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = startUT,
+                isPredicted = true
+            };
+        }
+
+        private static RecordingFinalizationTerminalOrbit RuntimeTerminalOrbit(
+            string bodyName,
+            double semiMajorAxis)
+        {
+            return new RecordingFinalizationTerminalOrbit
+            {
+                bodyName = bodyName,
+                semiMajorAxis = semiMajorAxis,
+                eccentricity = 0.01,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = Planetarium.GetUniversalTime()
+            };
+        }
+
         // ── QuickloadResume (#269) ──────────────────────────────────────────────
 
         /// <summary>

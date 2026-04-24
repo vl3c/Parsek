@@ -97,12 +97,14 @@ All notable changes to Parsek are documented here.
 - Added headless coverage for recording-finalization cache refresh cadence, atmospheric deletion terminals, background on-rails cache production, active-to-background cache adoption, and UI maneuver-node fallback behavior.
 - Added headless scene-exit fallback coverage for live-finalizer precedence, missing-vessel cache application on leaf and active non-leaf recordings, stable-cache override guards, and background cache lookup by recording id.
 - Added headless premature-end coverage for background cache application, deletion-UT trimming, confirmed-destruction cache guards, stable-cache missing-vessel classification, and non-scene active crash fallback.
+- Added FLIGHT runtime canaries for recording-finalization cache application, deletion-UT trimming, stable background cache application, active crash fallback, and failed-refresh cache preservation.
 
 ### Documentation
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
 - `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
+- Added a recording-finalization cache manual checklist covering runtime canaries, atmospheric booster deletion, stable background orbiters, scene-exit mid-burns, maneuver-node ignoring, focused crashes, log sweeps, and cadence calibration.
 
 ## 0.8.3
 
