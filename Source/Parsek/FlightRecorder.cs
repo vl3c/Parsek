@@ -4286,6 +4286,8 @@ namespace Parsek
             return !isPromotion && !suppressStartScreenMessage;
         }
 
+        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
+        // the caller posts its own custom screen message.
         public void StartRecording(bool isPromotion = false, bool suppressStartScreenMessage = false)
         {
             if (Time.timeScale < 0.01f)

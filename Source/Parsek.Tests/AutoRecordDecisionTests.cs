@@ -228,19 +228,34 @@ namespace Parsek.Tests
             string source = File.ReadAllText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "void OnVesselSituationChange");
 
-            int startIdx = methodBody.IndexOf(
-                "StartRecording(suppressStartScreenMessage: true);",
-                StringComparison.Ordinal);
-            int toastIdx = methodBody.IndexOf(
+            AssertCustomToastSuppressesGenericStart(
+                methodBody,
                 "ScreenMessage(\"Recording STARTED (auto)\", 2f);",
-                StringComparison.Ordinal);
+                "Launch auto-record");
+        }
 
-            Assert.True(startIdx >= 0,
-                "Launch auto-record must suppress the generic FlightRecorder start toast.");
-            Assert.True(toastIdx >= 0,
-                "Launch auto-record should keep its custom '(auto)' start toast.");
-            Assert.True(startIdx < toastIdx,
-                "Launch auto-record must suppress the generic toast before posting the custom one.");
+        [Fact]
+        public void PostSwitchFreshAutoRecord_UsesCustomToastWithoutGenericStartToast()
+        {
+            string source = File.ReadAllText(FindParsekFlightSource());
+            string methodBody = ExtractMethodBody(source, "private bool TryStartPostSwitchAutoRecord");
+
+            AssertCustomToastSuppressesGenericStart(
+                methodBody,
+                "ScreenMessage(\"Recording STARTED (auto - post switch)\", 2f);",
+                "Post-switch fresh auto-record");
+        }
+
+        [Fact]
+        public void EvaFromPadAutoRecord_UsesCustomToastWithoutGenericStartToast()
+        {
+            string source = File.ReadAllText(FindParsekFlightSource());
+            string methodBody = ExtractMethodBody(source, "private void HandleDeferredAutoRecordEva");
+
+            AssertCustomToastSuppressesGenericStart(
+                methodBody,
+                "ScreenMessage(\"Recording STARTED (auto - EVA from pad)\", 2f);",
+                "EVA-from-pad auto-record");
         }
 
         [Fact]
@@ -291,8 +306,29 @@ namespace Parsek.Tests
                 "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
+        private static void AssertCustomToastSuppressesGenericStart(
+            string methodBody,
+            string customToastCall,
+            string context)
+        {
+            int startIdx = methodBody.IndexOf(
+                "StartRecording(suppressStartScreenMessage: true);",
+                StringComparison.Ordinal);
+            int toastIdx = methodBody.IndexOf(customToastCall, StringComparison.Ordinal);
+
+            Assert.True(startIdx >= 0,
+                $"{context} must suppress the generic FlightRecorder start toast.");
+            Assert.True(toastIdx >= 0,
+                $"{context} should keep its custom start toast.");
+            Assert.True(startIdx < toastIdx,
+                $"{context} must suppress the generic toast before posting the custom one.");
+        }
+
         private static string ExtractMethodBody(string source, string methodSignature)
         {
+            // This is intentionally a lightweight source-level guard for UI glue that is
+            // hard to instantiate headlessly; production behavior remains covered by the
+            // pure decision tests above.
             int methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
             Assert.True(methodStart >= 0,
                 $"{methodSignature} not found in ParsekFlight.cs.");

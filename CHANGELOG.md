@@ -39,7 +39,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Pad/runway auto-record start now shows one start notification instead of both the generic and `(auto)` messages.
+- Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.

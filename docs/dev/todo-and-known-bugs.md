@@ -51,6 +51,8 @@ Follow-up the same hour (`2026-04-23_2305_post-fix-regression`): once the restor
 
 UX polish (same branch): the FlightRecorder `StartRecording(isPromotion: true)` path suppresses the inner `Recording STARTED` screen toast, so scene-enter resume used to happen silently. `TryRestoreCommittedTreeForSpawnedActiveVessel` now surfaces `Recording STARTED (resume)` after a successful restore, matching the `(auto)` and `(auto - post switch)` messages on the other auto-record paths.
 
+Companion UX polish (2026-04-24): fresh auto-record starts that already post contextual screen messages now suppress the generic `Recording STARTED` toast. This covers pad/runway launch auto-record, post-switch first-modification auto-record, and deferred EVA-from-pad auto-record; chain continuations remain unchanged because their promotion path already suppresses the generic toast.
+
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
