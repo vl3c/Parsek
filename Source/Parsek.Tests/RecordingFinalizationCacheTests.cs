@@ -620,6 +620,7 @@ namespace Parsek.Tests
             rec.TerminalPosition = MakeSurfacePosition(SurfaceSituation.Landed, altitude: 31.0);
             rec.TerrainHeightAtEnd = 7.25;
             var cache = MakeCache("rec-surface-preserve", 42u, TerminalState.Landed, 140.0);
+            cache.TerrainHeightAtEnd = 999.0;
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
                 rec,

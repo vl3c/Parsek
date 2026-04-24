@@ -141,6 +141,34 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_RewindScopeRejectsNonTargetActiveSource()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 777u,
+                activeVesselPid: 777u,
+                replayTargetSourcePid: 123u);
+
+            Assert.False(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("ShouldAllowExistingSourceDuplicate=false")
+                && l.Contains("outside rewind replay target sourcePid=123"));
+        }
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_RewindScopeAllowsTargetActiveSource()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 777u,
+                activeVesselPid: 777u,
+                replayTargetSourcePid: 777u);
+
+            Assert.True(result);
+        }
+
         // Follow-up to PR #505 review: the two bypass helpers used to return
         // true silently, so #226 replay diagnostics were opaque in KSP.log.
         // Each true branch now emits a Verbose Spawner line identifying
@@ -220,6 +248,66 @@ namespace Parsek.Tests
             {
                 RecordingStore.SceneEntryActiveVesselPid = priorPid;
             }
+        }
+
+        #endregion
+
+        #region Spawn path routing
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_EvaRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                EvaCrewName = "Val",
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.True(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_BreakupRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.True(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_PlainLandedVessel_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.False(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_PreparedSnapshotNull_Rejects()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Prepared Snapshot",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            ConfigNode snapshot = VesselSpawner.BuildValidatedRespawnSnapshot(
+                (ConfigNode)null,
+                rec,
+                42.0,
+                "unit-test prepared snapshot");
+
+            Assert.Null(snapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("missing prepared snapshot"));
         }
 
         #endregion

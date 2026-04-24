@@ -1318,6 +1318,9 @@ namespace Parsek
                                         if (pidStr != null)
                                             uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
                                         recordings[i].SpawnedVesselPersistentId = savedPid;
+                                        // Keep the VesselSpawned flag in sync with the spawned-pid invariant
+                                        // so the scene-enter resume path's filter matches after save/load.
+                                        recordings[i].VesselSpawned = savedPid != 0;
 
                                         string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
                                         int resIdx = -1;

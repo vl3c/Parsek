@@ -2308,6 +2308,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds()
+        {
+            // Regression: commit sets rec.ExplicitEndUT to the scene-exit UT
+            // (e.g. 17630 for a full 630-second recording), but the trim only
+            // physically removes Points and TrackSections past trimUT. Without
+            // clearing ExplicitEndUT, Recording.EndUT keeps returning the stale
+            // finalize-time value because the getter prefers ExplicitEndUT over
+            // the actual trajectory bounds, so the player sees the full original
+            // duration in the Recordings table and the ghost plays past the end
+            // of the trimmed trajectory. Post-trim, ExplicitEndUT must be NaN or
+            // clamped to the new authoritative bounds.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.ExplicitEndUT = 17630; // simulate scene-exit-time finalize value
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(double.IsNaN(rec.ExplicitEndUT),
+                "ExplicitEndUT must be cleared after trim so Recording.EndUT reflects the trimmed trajectory.");
+            // EndUT should now be close to trimUT (17030 + 10 = 17040), not 17630.
+            Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1,
+                $"Post-trim EndUT should be trimmed, got {rec.EndUT}");
+            Assert.True(rec.EndUT < 17630,
+                "Post-trim EndUT must not fall back to the stale pre-trim ExplicitEndUT.");
+        }
+
+        [Fact]
         public void TrimBoringTail_LandedStableTerminalState_StillTrims()
         {
             var logLines = new List<string>();
@@ -2386,6 +2413,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_LandedIdleTailWithFloatJitter_StillTrims()
+        {
+            // Regression: TailMatchesTerminalSurfaceState used to compare
+            // lat/lon/alt/rotation with exact equality. A landed rover at rest
+            // accumulates tiny float/double drift every physics frame, so the
+            // tail never matched the captured terminal pose byte-for-byte and
+            // the trim was silently skipped on every real recording. After the
+            // fix, the comparison uses epsilon tolerances sized to absorb
+            // physics jitter while still rejecting real movement.
+            // Quaternion.Euler is a Unity engine call and cannot be invoked in
+            // headless xUnit; use raw quaternions instead. A ~0.05° rotation
+            // change is represented by tiny jitter in the y component.
+            var baseRot = new Quaternion(0f, 0.1045285f, 0f, 0.9945219f); // ~12° yaw
+            var jitterRotA = new Quaternion(0f, 0.1046f, 0f, 0.9945f);    // ~12.01°
+            var jitterRotB = new Quaternion(0f, 0.1044f, 0f, 0.9945f);    // ~11.98°
+
+            var rec = new Recording
+            {
+                RecordingId = "trim-landed-jitter",
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0,
+                    rotation = baseRot,
+                    rotationRecorded = true,
+                    situation = SurfaceSituation.Landed
+                }
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin", latitude = 0.1, longitude = 0.2, altitude = 100, rotation = baseRot });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin", latitude = 0.3, longitude = 0.4, altitude = 60, rotation = baseRot });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = baseRot });
+            rec.Points.Add(new TrajectoryPoint { ut = 130, bodyName = "Kerbin", latitude = 1.0 + 1e-10, longitude = 2.0 - 1e-10, altitude = 3.0 + 0.02, rotation = jitterRotA });
+            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.0 - 2e-10, longitude = 2.0 + 3e-10, altitude = 3.0 - 0.03, rotation = jitterRotB });
+            rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin", latitude = 1.0 + 5e-10, longitude = 2.0 - 1e-10, altitude = 3.0 + 0.01, rotation = jitterRotA });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 120 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 120, endUT = 150 });
+
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                "Sub-meter / sub-degree jitter in the idle tail must not block the trim.");
+            Assert.True(rec.EndUT <= 120 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
+            Assert.True(rec.EndUT >= 120);
+        }
+
+        [Fact]
         public void TrimBoringTail_LandedTerminalStateChangesLater_DoesNotTrim()
         {
             var rec = new Recording
@@ -2405,7 +2483,10 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin", latitude = 0.3, longitude = 0.4, altitude = 60, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 130, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
-            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.00005, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            // Mid-tail jump representing real vessel movement (≈55 m). The tail match
+            // tolerances are sized to absorb physics jitter but reject movement this
+            // large — a vessel that drove even briefly would exceed this threshold.
+            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.0005, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.TrackSections.Add(new TrackSection
                 { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 120 });

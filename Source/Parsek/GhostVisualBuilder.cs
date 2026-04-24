@@ -7075,6 +7075,7 @@ namespace Parsek
         /// </summary>
         internal static GameObject SpawnFlagVessel(FlagEvent evt)
         {
+            ProtoVessel pv = null;
             try
             {
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
@@ -7116,7 +7117,9 @@ namespace Parsek
                 vesselNode.SetValue("alt", evt.altitude.ToString("R", ic), true);
                 vesselNode.SetValue("landedAt", body.name, true);
 
-                // Reconstruct world-space VESSEL.rot from the recorded surface-relative frame.
+                // ProtoVessel.rot is loaded into vesselRef.srfRelRotation, so keep the
+                // recorded surface-relative frame here. Live ghost transforms compose
+                // body.bodyTransform.rotation separately when assigning Transform.rotation.
                 Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
                 VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
                     vesselNode,
@@ -7125,7 +7128,7 @@ namespace Parsek
                     "Flag spawn");
 
                 // Spawn via ProtoVessel
-                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+                pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
 
@@ -7133,6 +7136,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("GhostVisual",
                         $"Flag vessel spawn failed: ProtoVessel.Load() produced null vesselRef");
+                    VesselSpawner.CleanupFailedSpawnedProtoVessel(pv, "GhostVisual", "Flag spawn cleanup");
                     return null;
                 }
 
@@ -7146,6 +7150,7 @@ namespace Parsek
             {
                 ParsekLog.Error("GhostVisual",
                     $"Failed to spawn flag vessel: {ex.Message}");
+                VesselSpawner.CleanupFailedSpawnedProtoVessel(pv, "GhostVisual", "Flag spawn cleanup");
                 return null;
             }
         }

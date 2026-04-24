@@ -357,6 +357,9 @@ namespace Parsek
             if (string.IsNullOrEmpty(existing.body))
                 return false;
 
+            // A cache without TerminalBodyName can only prove identity through
+            // RecordingId/PID plus matching surface state, so preserve the pair
+            // rather than mixing partial cache metadata into the surface tuple.
             if (!string.IsNullOrEmpty(cache.TerminalBodyName)
                 && !string.Equals(existing.body, cache.TerminalBodyName, StringComparison.Ordinal))
             {
