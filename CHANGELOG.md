@@ -135,6 +135,7 @@ All notable changes to Parsek are documented here.
 - `#556` Tracking Station `buildVesselsList` finalizer now suppresses only the known ghost ProtoVessel missing-orbit-renderer NRE shape, using the first failing missing-renderer vessel plus the stock IL offset when available; unrelated or ambiguous stock exceptions are warned with vessel-context counts and left visible.
 - `#562` Tracking Station ghost-selection clearing now also zeroes the previously selected vessel's `orbitRenderer.isFocused`/`drawIcons` and detaches its patched-conics solver before nulling the private `selectedVessel` field, so focusing a Parsek ghost no longer leaves the earlier real-vessel orbit focus and patched-conics state latched without re-entering stock `SpaceTracking.SetVessel`.
 - `#564` Tracking Station ghost selections now open a Parsek-owned ghost action panel with safe Focus, Target, Recording details, and a selected-recording-only Materialize action keyed by stable recording ID; the panel refreshes action eligibility every GUI frame, and when that ghost resolves, Target and map Focus now hand off to the materialized real vessel, while stock Fly/Delete/Recover remain explicitly blocked and the private KSP selected-vessel field is still cleared on every ghost block.
+- Timeline initial-resource rows now respect the save mode: Sandbox hides resource seed rows entirely, and Science mode shows only the science baseline instead of zero funds/reputation noise.
 
 ### Tests
 
