@@ -89,8 +89,31 @@ namespace Parsek
             uint sceneEntryActiveVesselPid,
             uint activeVesselPid)
         {
+            return ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid,
+                sceneEntryActiveVesselPid,
+                activeVesselPid,
+                replayTargetSourcePid: 0);
+        }
+
+        internal static bool ShouldAllowExistingSourceDuplicateForReplay(
+            uint sourcePid,
+            uint sceneEntryActiveVesselPid,
+            uint activeVesselPid,
+            uint replayTargetSourcePid)
+        {
             if (sourcePid == 0)
                 return false;
+
+            if (replayTargetSourcePid != 0 && sourcePid != replayTargetSourcePid)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldAllowExistingSourceDuplicate=false sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"outside rewind replay target sourcePid={replayTargetSourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)}, " +
+                    $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)})");
+                return false;
+            }
 
             // #226 replay/revert duplicate-spawn exception: when the recorded
             // source vessel matches the scene-entry active vessel or the
@@ -137,7 +160,8 @@ namespace Parsek
             bool allow = ShouldAllowExistingSourceDuplicateForReplay(
                 sourcePid,
                 RecordingStore.SceneEntryActiveVesselPid,
-                activeVesselPid);
+                activeVesselPid,
+                RecordingStore.RewindReplayTargetSourcePid);
             if (allow)
             {
                 ParsekLog.Verbose("Spawner",
@@ -467,8 +491,59 @@ namespace Parsek
             return manifest;
         }
 
+        internal static void CleanupFailedSpawnedProtoVessel(
+            ProtoVessel pv,
+            string logTag,
+            string logContext)
+        {
+            CleanupFailedSpawnedProtoVessel(
+                pv,
+                logTag,
+                logContext,
+                HighLogic.CurrentGame?.flightState?.protoVessels,
+                proto =>
+                {
+                    if (proto?.vesselRef != null)
+                        proto.vesselRef.Die();
+                });
+        }
+
+        internal static void CleanupFailedSpawnedProtoVessel(
+            ProtoVessel pv,
+            string logTag,
+            string logContext,
+            IList<ProtoVessel> protoVessels,
+            Action<ProtoVessel> destroyPartialVessel)
+        {
+            if (pv == null)
+                return;
+
+            try
+            {
+                destroyPartialVessel?.Invoke(pv);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(
+                    string.IsNullOrEmpty(logTag) ? "Spawner" : logTag,
+                    $"{logContext}: failed to destroy partially spawned vessel during cleanup: {ex.Message}");
+            }
+
+            try
+            {
+                protoVessels?.Remove(pv);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(
+                    string.IsNullOrEmpty(logTag) ? "Spawner" : logTag,
+                    $"{logContext}: failed to remove ProtoVessel during cleanup: {ex.Message}");
+            }
+        }
+
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
+            ProtoVessel pv = null;
             try
             {
                 ParsekLog.Verbose("Spawner",
@@ -504,13 +579,14 @@ namespace Parsek
                 }
                 EnsureSpawnReadiness(spawnNode);
 
-                ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
+                pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
 
                 if (pv.vesselRef == null)
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
+                    CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -530,44 +606,43 @@ namespace Parsek
             catch (System.Exception ex)
             {
                 ParsekLog.Error("Spawner", $"Failed to respawn vessel: {ex.Message}");
+                CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
                 return 0;
             }
         }
 
         /// <summary>
         /// Real-vessel spawn consumes format-v0 surface-relative recording data. `VESSEL.rot`
-        /// must be written in world space before ProtoVessel.Load(), so reconstruct explicitly
-        /// instead of relying on stock spawn-side interpretation.
+        /// is ProtoVessel.rotation and KSP loads it into vesselRef.srfRelRotation, so keep
+        /// it in the recorded surface-relative frame. Do not compose bodyTransform here;
+        /// that conversion is only for assigning live Transform.rotation.
         /// </summary>
-        internal static Quaternion ComputeWorldSpawnRotationFromSurfaceRelative(
-            Quaternion bodyRotation,
+        internal static Quaternion ComputeProtoVesselSpawnRotationFromSurfaceRelative(
             Quaternion surfaceRelativeRotation)
         {
-            Quaternion sanitizedBodyRotation = TrajectoryMath.SanitizeQuaternion(bodyRotation);
-            Quaternion sanitizedSurfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
-            return TrajectoryMath.SanitizeQuaternion(
-                sanitizedBodyRotation * sanitizedSurfaceRelativeRotation);
+            return TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
         }
 
-        internal static Quaternion ApplyWorldSpawnRotationToNode(
+        internal static Quaternion ApplyProtoVesselSpawnRotationToNode(
             ConfigNode vesselNode,
             string bodyName,
-            Quaternion bodyRotation,
+            Quaternion? bodyRotation,
             Quaternion surfaceRelativeRotation,
             string context)
         {
-            Quaternion worldRotation = ComputeWorldSpawnRotationFromSurfaceRelative(
-                bodyRotation, surfaceRelativeRotation);
-            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(worldRotation), true);
+            Quaternion protoVesselRotation =
+                ComputeProtoVesselSpawnRotationFromSurfaceRelative(surfaceRelativeRotation);
+            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(protoVesselRotation), true);
 
             ParsekLog.Verbose("Spawner",
                 $"Spawn rotation prep ({context}): body={bodyName ?? "?"} " +
-                "frame=surface-relative(format-v0) -> world via " +
-                "body.bodyTransform.rotation * srfRelRotation " +
+                "frame=surface-relative(format-v0) -> ProtoVessel.rot " +
+                "(KSP loads as vessel.srfRelRotation; no body multiply) " +
                 $"srfRel={KSPUtil.WriteQuaternion(surfaceRelativeRotation)} " +
-                $"world={KSPUtil.WriteQuaternion(worldRotation)}");
+                $"bodyRot={(bodyRotation.HasValue ? KSPUtil.WriteQuaternion(bodyRotation.Value) : "(unavailable)")} " +
+                $"rot={KSPUtil.WriteQuaternion(protoVesselRotation)}");
 
-            return worldRotation;
+            return protoVesselRotation;
         }
 
         internal static bool TryApplySpawnRotationFromSurfaceRelative(
@@ -580,18 +655,10 @@ namespace Parsek
             if (vesselNode == null || !surfaceRelativeRotation.HasValue)
                 return false;
 
-            if (!bodyRotation.HasValue)
-            {
-                ParsekLog.Warn("Spawner",
-                    $"Spawn rotation prep skipped ({context}): missing body/bodyTransform " +
-                    $"for format-v0 surface-relative rotation (body={bodyName ?? "?"})");
-                return false;
-            }
-
-            ApplyWorldSpawnRotationToNode(
+            ApplyProtoVesselSpawnRotationToNode(
                 vesselNode,
                 bodyName,
-                bodyRotation.Value,
+                bodyRotation,
                 surfaceRelativeRotation.Value,
                 context);
             return true;
@@ -671,12 +738,12 @@ namespace Parsek
             Recording rec,
             TrajectoryPoint? fallbackPoint,
             out string bodyName,
-            out Quaternion bodyRotation,
+            out Quaternion? bodyRotation,
             out Quaternion surfaceRelativeRotation,
             out string source)
         {
             bodyName = null;
-            bodyRotation = Quaternion.identity;
+            bodyRotation = null;
             surfaceRelativeRotation = Quaternion.identity;
             source = null;
 
@@ -686,16 +753,13 @@ namespace Parsek
                 return false;
             }
 
-            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
-            if (body == null || body.bodyTransform == null)
+            if (TryResolveBodyByName(bodyName, out CelestialBody body)
+                && body != null
+                && body.bodyTransform != null)
             {
-                ParsekLog.Warn("Spawner",
-                    $"Spawn rotation prep skipped: body '{bodyName ?? "?"}' unavailable " +
-                    $"for {source}");
-                return false;
+                bodyRotation = body.bodyTransform.rotation;
             }
 
-            bodyRotation = body.bodyTransform.rotation;
             return true;
         }
 
@@ -708,7 +772,7 @@ namespace Parsek
             if (!TryResolvePreferredSpawnRotation(
                 rec, fallbackPoint,
                 out string bodyName,
-                out Quaternion bodyRotation,
+                out Quaternion? bodyRotation,
                 out Quaternion surfaceRelativeRotation,
                 out string source))
             {
@@ -721,6 +785,61 @@ namespace Parsek
                 bodyRotation,
                 surfaceRelativeRotation,
                 $"{context}, source={source}");
+        }
+
+        internal static void ApplyResolvedSpawnStateToSnapshot(
+            ConfigNode spawnSnapshot,
+            Recording rec,
+            TrajectoryPoint? rotationPoint,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            int index,
+            string logContext,
+            bool allowPreferredRotation = true,
+            bool stripEvaLadder = true)
+        {
+            if (spawnSnapshot == null)
+                return;
+
+            string snapshotLabel = !string.IsNullOrEmpty(logContext)
+                ? logContext
+                : rec?.VesselName ?? "(unknown)";
+            string vesselName = rec?.VesselName ?? snapshotLabel;
+            if (allowPreferredRotation
+                && TryResolvePreferredSpawnRotation(
+                    rec,
+                    rotationPoint,
+                    out string rotationBodyName,
+                    out Quaternion? rotationBodyRotation,
+                    out Quaternion surfaceRelativeRotation,
+                    out string rotationSource))
+            {
+                OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    snapshotLabel,
+                    rotationBodyName,
+                    rotationBodyRotation,
+                    surfaceRelativeRotation,
+                    rotationSource);
+            }
+            else
+            {
+                OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    snapshotLabel);
+            }
+
+            if (stripEvaLadder && !string.IsNullOrEmpty(rec?.EvaCrewName))
+                StripEvaLadderState(spawnSnapshot, index, vesselName);
         }
 
         internal static CelestialBody ResolveSpawnRotationBody(
@@ -778,7 +897,7 @@ namespace Parsek
                 $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
 
             // Optional rotation override: recorded trajectory points store surface-relative
-            // rotation (format-v0 contract), so reconstruct world-space VESSEL.rot explicitly.
+            // rotation (format-v0 contract), and ProtoVessel.rot consumes that same frame.
             if (surfaceRelativeRotation.HasValue)
             {
                 TryApplySpawnRotationFromSurfaceRelative(
@@ -805,6 +924,7 @@ namespace Parsek
             Quaternion? surfaceRelativeRotation = null,
             Orbit orbitOverride = null)
         {
+            ProtoVessel pv = null;
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
@@ -862,13 +982,14 @@ namespace Parsek
                 }
                 EnsureSpawnReadiness(spawnNode);
 
-                ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
+                pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
 
                 if (pv.vesselRef == null)
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
+                    CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -889,6 +1010,7 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
+                CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
                 return 0;
             }
         }
@@ -1076,26 +1198,15 @@ namespace Parsek
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
             if (isEva && rec.VesselSnapshot != null)
             {
-                if (TryResolvePreferredSpawnRotation(
-                    rec, lastPt,
-                    out string evaRotationBodyName,
-                    out Quaternion evaBodyRotation,
-                    out Quaternion evaSurfaceRelativeRotation,
-                    out string evaRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        evaRotationBodyName,
-                        evaBodyRotation,
-                        evaSurfaceRelativeRotation,
-                        evaRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
-                StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName);
             }
 
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
@@ -1103,26 +1214,17 @@ namespace Parsek
             // endpoint. Same pattern as EVA fix above. (#224)
             if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
             {
-                if (!useRecordedTerminalOrbit
-                    && TryResolvePreferredSpawnRotation(
-                        rec, lastPt,
-                        out string breakupRotationBodyName,
-                        out Quaternion breakupBodyRotation,
-                        out Quaternion breakupSurfaceRelativeRotation,
-                        out string breakupRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        breakupRotationBodyName,
-                        breakupBodyRotation,
-                        breakupSurfaceRelativeRotation,
-                        breakupRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    allowPreferredRotation: !useRecordedTerminalOrbit,
+                    stripEvaLadder: false);
             }
 
             // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
@@ -1131,27 +1233,18 @@ namespace Parsek
             // uses the raw snapshot. Override position and rotation so the vessel spawns
             // in its near-landing orientation, not the mid-flight descent pose. (#231)
             if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
-                && (rec.TerminalStateValue == TerminalState.Landed || rec.TerminalStateValue == TerminalState.Splashed))
+                && IsSurfaceTerminal(rec.TerminalStateValue))
             {
-                if (TryResolvePreferredSpawnRotation(
-                    rec, lastPt,
-                    out string surfaceRotationBodyName,
-                    out Quaternion surfaceBodyRotation,
-                    out Quaternion surfaceRelativeRotation,
-                    out string surfaceRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        surfaceRotationBodyName,
-                        surfaceBodyRotation,
-                        surfaceRelativeRotation,
-                        surfaceRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    stripEvaLadder: false);
             }
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
@@ -1160,9 +1253,7 @@ namespace Parsek
             // this catches the case where the entire crew complement is dead.
             if (!isEva && rec.VesselSnapshot != null)
             {
-                var snapshotCrew = ExtractCrewNamesFromSnapshot(rec.VesselSnapshot);
-                var deadSet = BuildDeadCrewSet(snapshotCrew);
-                if (ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet))
+                if (ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnAbandoned = true;
@@ -1194,20 +1285,16 @@ namespace Parsek
             //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
             //   walked endpoint so the kerbal stays where recorded.
             // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
-            //   Rotation is preserved via the same surface-relative -> world helper used by
-            //   snapshot-prep fallbacks.
+            //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
+            //   used by snapshot-prep fallbacks.
             //
             // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
             // paths remain as defense-in-depth for the RespawnVessel fallback below: if
             // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
             // endpoint pose. For breakup-continuous surface/state-vector spawns that now
-            // includes the reconstructed world rot, so the degraded fallback does not
-            // regress to writing raw format-v0 surface-relative quaternions.
-            bool routeThroughSpawnAtPosition =
-                rec.TerminalStateValue == TerminalState.Orbiting
-                || rec.TerminalStateValue == TerminalState.Docked
-                || isEva
-                || isBreakupContinuous;
+            // includes the surface-relative ProtoVessel.rot rewrite, so the degraded
+            // fallback keeps the same KSP load-frame contract.
+            bool routeThroughSpawnAtPosition = ShouldRouteThroughSpawnAtPosition(rec);
             if (routeThroughSpawnAtPosition)
             {
                 ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
@@ -1870,6 +1957,15 @@ namespace Parsek
                     deadSet.Add(crewNames[i]);
             }
             return deadSet;
+        }
+
+        internal static bool ShouldBlockSpawnForDeadCrewInSnapshot(
+            ConfigNode snapshot,
+            out List<string> snapshotCrew)
+        {
+            snapshotCrew = ExtractCrewNamesFromSnapshot(snapshot);
+            var deadSet = BuildDeadCrewSet(snapshotCrew);
+            return ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet);
         }
 
         /// <summary>
@@ -3008,7 +3104,24 @@ namespace Parsek
                 return null;
             }
 
-            ConfigNode snapshot = rec.VesselSnapshot.CreateCopy();
+            return BuildValidatedRespawnSnapshot(rec.VesselSnapshot, rec, currentUT, logContext);
+        }
+
+        internal static ConfigNode BuildValidatedRespawnSnapshot(
+            ConfigNode sourceSnapshot,
+            Recording rec,
+            double currentUT,
+            string logContext)
+        {
+            string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
+            if (sourceSnapshot == null)
+            {
+                ParsekLog.Error("Spawner",
+                    $"BuildValidatedRespawnSnapshot: missing prepared snapshot for {resolvedContext}");
+                return null;
+            }
+
+            ConfigNode snapshot = sourceSnapshot.CreateCopy();
             CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
 
             if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, resolvedContext))
@@ -3647,6 +3760,20 @@ namespace Parsek
                 && rec != null
                 && rec.TerminalStateValue == TerminalState.Orbiting
                 && HasRecordedTerminalOrbit(rec);
+        }
+
+        internal static bool ShouldRouteThroughSpawnAtPosition(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+
+            return rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked
+                || isEva
+                || isBreakupContinuous;
         }
 
         internal static bool TryBuildRecordedTerminalOrbitForSpawn(

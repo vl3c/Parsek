@@ -608,6 +608,8 @@ namespace Parsek
             // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
             if (rec.SpawnedVesselPersistentId != 0)
                 recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+                recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
@@ -1014,7 +1016,16 @@ namespace Parsek
             {
                 uint spawnedPid;
                 if (uint.TryParse(pidStr, NumberStyles.Integer, ic, out spawnedPid))
+                {
                     rec.SpawnedVesselPersistentId = spawnedPid;
+                    // Invariant: VesselSpawned ⇔ SpawnedVesselPersistentId != 0. The field
+                    // is not serialized directly; re-derive on load. Without this, the
+                    // scene-enter resume path (TryFindCommittedTreeForSpawnedVessel) fails
+                    // its `!VesselSpawned` filter after any save/load, so auto-record
+                    // doesn't resume when the player re-enters a vessel that already has
+                    // a committed recording (fix for v0.8.3 playtest bug).
+                    rec.VesselSpawned = spawnedPid != 0;
+                }
             }
             string destroyedStr = recNode.GetValue("vesselDestroyed");
             if (destroyedStr != null)
@@ -1023,6 +1034,7 @@ namespace Parsek
                 if (bool.TryParse(destroyedStr, out destroyed))
                     rec.VesselDestroyed = destroyed;
             }
+            rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
             string resIdxStr = recNode.GetValue("lastResIdx");
             if (resIdxStr != null)
             {

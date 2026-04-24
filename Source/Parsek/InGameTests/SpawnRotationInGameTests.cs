@@ -10,18 +10,18 @@ namespace Parsek.InGameTests
             new Quaternion(-0.7009714f, -0.09230039f, -0.09728389f, 0.7004681f);
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
-            Description = "ApplyWorldSpawnRotationToNode reconstructs the Kerbin world-frame spawn rotation and logs the source frame")]
-        public static void ApplyWorldSpawnRotationToNode_KerbinPadCase_ReconstructsWorldRotationAndLogsFrame()
+            Description = "ApplyProtoVesselSpawnRotationToNode writes the Kerbin surface-relative ProtoVessel rotation and logs the source frame")]
+        public static void ApplyProtoVesselSpawnRotationToNode_KerbinPadCase_WritesSurfaceRelativeRotationAndLogsFrame()
         {
             List<string> logLines = CaptureLogLines(() =>
             {
                 var snapshot = new ConfigNode("VESSEL");
                 Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
 
-                Quaternion expected = TrajectoryMath.SanitizeQuaternion(
-                    bodyRotation * KerbinPadSurfaceRelativeRotation);
+                Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                    KerbinPadSurfaceRelativeRotation);
 
-                Quaternion written = VesselSpawner.ApplyWorldSpawnRotationToNode(
+                Quaternion written = VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
                     snapshot,
                     "Kerbin",
                     bodyRotation,
@@ -33,21 +33,21 @@ namespace Parsek.InGameTests
             });
 
             AssertContains(logLines, "[Spawner]", "Kerbin pad spawn test",
-                "surface-relative(format-v0)", "body.bodyTransform.rotation * srfRelRotation");
+                "surface-relative(format-v0)", "ProtoVessel.rot", "no body multiply");
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
-            Description = "ApplyWorldSpawnRotationToNode reconstructs the Mun world-frame spawn rotation")]
-        public static void ApplyWorldSpawnRotationToNode_MunCase_ReconstructsWorldRotation()
+            Description = "ApplyProtoVesselSpawnRotationToNode writes the Mun surface-relative ProtoVessel rotation")]
+        public static void ApplyProtoVesselSpawnRotationToNode_MunCase_WritesSurfaceRelativeRotation()
         {
             var snapshot = new ConfigNode("VESSEL");
             Quaternion bodyRotation = Quaternion.Euler(18f, -40f, 12f);
             Quaternion munSurfaceRelativeRotation = Quaternion.Euler(-8f, 15f, 27f);
 
-            Quaternion expected = TrajectoryMath.SanitizeQuaternion(
-                bodyRotation * munSurfaceRelativeRotation);
+            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                munSurfaceRelativeRotation);
 
-            Quaternion written = VesselSpawner.ApplyWorldSpawnRotationToNode(
+            Quaternion written = VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
                 snapshot,
                 "Mun",
                 bodyRotation,
@@ -59,13 +59,12 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
-            Description = "PrepareSpawnNodeAtPosition rewrites Kerbin spawn nodes into world-frame rotation")]
-        public static void PrepareSpawnNodeAtPosition_KerbinPadCase_RewritesSpawnNodeRotToWorldFrame()
+            Description = "PrepareSpawnNodeAtPosition rewrites Kerbin spawn nodes into surface-relative ProtoVessel rotation")]
+        public static void PrepareSpawnNodeAtPosition_KerbinPadCase_RewritesSpawnNodeRotToSurfaceRelativeFrame()
         {
             var spawnNode = new ConfigNode("VESSEL");
             Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
-            Quaternion expected = VesselSpawner.ComputeWorldSpawnRotationFromSurfaceRelative(
-                bodyRotation,
+            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 KerbinPadSurfaceRelativeRotation);
 
             string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
@@ -86,14 +85,13 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
-            Description = "PrepareSpawnNodeAtPosition rewrites Mun spawn nodes into world-frame rotation")]
-        public static void PrepareSpawnNodeAtPosition_MunCase_RewritesSpawnNodeRotToWorldFrame()
+            Description = "PrepareSpawnNodeAtPosition rewrites Mun spawn nodes into surface-relative ProtoVessel rotation")]
+        public static void PrepareSpawnNodeAtPosition_MunCase_RewritesSpawnNodeRotToSurfaceRelativeFrame()
         {
             var spawnNode = new ConfigNode("VESSEL");
             Quaternion bodyRotation = Quaternion.Euler(18f, -40f, 12f);
             Quaternion munSurfaceRelativeRotation = Quaternion.Euler(-8f, 15f, 27f);
-            Quaternion expected = VesselSpawner.ComputeWorldSpawnRotationFromSurfaceRelative(
-                bodyRotation,
+            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 munSurfaceRelativeRotation);
 
             string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
@@ -114,9 +112,13 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
-            Description = "Spawn rotation prep leaves rot unchanged and warns when body resolution is unavailable")]
-        public static void TryApplySpawnRotationFromSurfaceRelative_NullBody_LeavesRotUnchangedAndWarns()
+            Description = "Spawn rotation prep can write ProtoVessel rot even when body rotation is unavailable")]
+        public static void TryApplySpawnRotationFromSurfaceRelative_NullBody_WritesSurfaceRelativeRotAndLogsFrame()
         {
+            Quaternion surfaceRelativeRotation = Quaternion.Euler(3f, 4f, 5f);
+            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                surfaceRelativeRotation);
+
             List<string> logLines = CaptureLogLines(() =>
             {
                 var snapshot = new ConfigNode("VESSEL");
@@ -125,14 +127,15 @@ namespace Parsek.InGameTests
                 bool applied = VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
                     snapshot,
                     body: null,
-                    surfaceRelativeRotation: Quaternion.identity,
+                    surfaceRelativeRotation: surfaceRelativeRotation,
                     context: "missing body test");
 
-                InGameAssert.IsFalse(applied, "Expected null-body spawn prep to decline");
-                InGameAssert.AreEqual("1,0,0,0", snapshot.GetValue("rot"));
+                InGameAssert.IsTrue(applied, "ProtoVessel rot is surface-relative and does not need body rotation");
+                InGameAssert.AreEqual(KSPUtil.WriteQuaternion(expected), snapshot.GetValue("rot"));
             });
 
-            AssertContains(logLines, "[Spawner]", "Spawn rotation prep skipped", "missing body test");
+            AssertContains(logLines, "[Spawner]", "missing body test",
+                "ProtoVessel.rot", "bodyRot=(unavailable)");
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
@@ -287,8 +290,7 @@ namespace Parsek.InGameTests
 
                 Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
                 Quaternion surfaceRelativeRotation = Quaternion.Euler(7f, -18f, 33f);
-                Quaternion expected = VesselSpawner.ComputeWorldSpawnRotationFromSurfaceRelative(
-                    bodyRotation,
+                Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                     surfaceRelativeRotation);
 
                 VesselSpawner.OverrideSnapshotPosition(
