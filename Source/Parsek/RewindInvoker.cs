@@ -559,6 +559,15 @@ namespace Parsek
                 ParsekLog.Info(InvokeTag,
                     $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
                     $"slot={slotIdx} activePid={stripResult.SelectedPid}");
+
+                // Diagnostic hint: a pre-existing quicksave vessel whose name
+                // matches a recording in the re-fly tree produces two
+                // identical-looking objects in the scene (real orbital relic +
+                // playback ghost). The 01:53 playtest hit exactly this with a
+                // prior-career "Kerbal X" at 162 km. Warn so the player knows
+                // not to blame the re-fly pipeline — the real vessel predates
+                // the rewind and is outside the tree.
+                WarnOnLeftAloneNameCollisions(stripResult);
             }
             finally
             {
@@ -869,6 +878,56 @@ namespace Parsek
             return scene == GameScenes.FLIGHT
                 || scene == GameScenes.SPACECENTER
                 || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAloneNames"/>
+        /// against the committed-recording vessel names in the scenario's
+        /// trees. A match means the player has a pre-existing quicksave
+        /// vessel sharing a name with a recording in the active tree — they
+        /// will see both in-scene and almost always mistake the real vessel
+        /// for a second ghost. WARN-log + ScreenMessage so the situation is
+        /// diagnosable without reading KSP.log.
+        /// </summary>
+        internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
+        {
+            if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
+                return;
+
+            IEnumerable<string> treeNames = EnumerateCommittedVesselNames();
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                stripResult.LeftAloneNames, treeNames);
+            if (collisions == null || collisions.Count == 0)
+                return;
+
+            string joined = string.Join(", ", collisions.ToArray());
+            ParsekLog.Warn(InvokeTag,
+                $"Strip left {collisions.Count} pre-existing vessel(s) whose name matches a " +
+                $"tree recording: [{joined}] — not related to the re-fly, will appear as " +
+                $"second Kerbal X-shaped object in scene");
+            ShowUserError(
+                $"Heads up: pre-existing vessel(s) [{joined}] share a name with your re-fly " +
+                $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
+        }
+
+        private static IEnumerable<string> EnumerateCommittedVesselNames()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null) yield break;
+
+            // Pull names straight from the committed-recording list. Any recording
+            // in an active tree is in scope here; the goal is a cheap diagnostic,
+            // not a strict ERS-filtered view.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) yield break;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                string name = rec.VesselName;
+                if (!string.IsNullOrEmpty(name)) yield return name;
+            }
         }
 
         /// <summary>

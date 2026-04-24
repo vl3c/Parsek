@@ -243,5 +243,70 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") && l.Contains("null rp"));
         }
+
+        [Fact]
+        public void Strip_CapturesLeftAloneNamesForCollisionDetection()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 600u, 0 },
+            });
+            var selected = new StubVessel { PersistentId = 600u, VesselName = "Kerbal X Probe" };
+            var preexistingOrbiter = new StubVessel { PersistentId = 700u, VesselName = "Kerbal X" };
+            var asteroid = new StubVessel { PersistentId = 701u, VesselName = "Ast. ABC-123" };
+            var source = new StubEnumeration(new IStrippableVessel[]
+            {
+                selected, preexistingOrbiter, asteroid,
+            });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(2, result.LeftAlone);
+            Assert.NotNull(result.LeftAloneNames);
+            Assert.Equal(2, result.LeftAloneNames.Count);
+            Assert.Contains("Kerbal X", result.LeftAloneNames);
+            Assert.Contains("Ast. ABC-123", result.LeftAloneNames);
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_ReturnsIntersectionDedupedOrdinal()
+        {
+            var leftAlone = new[] { "Kerbal X", "Kerbal X", "Ast. ABC-123", "Kerbal X Debris" };
+            var treeNames = new[] { "Kerbal X", "Kerbal X Probe", "Kerbal X Debris" };
+
+            var collisions = PostLoadStripper.FindTreeNameCollisions(leftAlone, treeNames);
+
+            Assert.Equal(2, collisions.Count);
+            Assert.Contains("Kerbal X", collisions);
+            Assert.Contains("Kerbal X Debris", collisions);
+            // Dedup: duplicate "Kerbal X" in input produces a single output entry.
+            Assert.Single(collisions.FindAll(s => s == "Kerbal X"));
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_NullInputsReturnEmpty()
+        {
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(null, new[] { "X" }));
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(new[] { "X" }, null));
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(null, null));
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_NoOverlapReturnsEmpty()
+        {
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                new[] { "Ast. ABC-123", "UnknownComet" },
+                new[] { "Kerbal X", "Kerbal X Probe" });
+            Assert.Empty(collisions);
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_CaseSensitive()
+        {
+            // Ordinal comparison: "Kerbal X" != "kerbal x".
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                new[] { "kerbal x" }, new[] { "Kerbal X" });
+            Assert.Empty(collisions);
+        }
     }
 }
