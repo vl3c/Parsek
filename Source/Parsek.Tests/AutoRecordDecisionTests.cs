@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -203,6 +205,44 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        [Theory]
+        [InlineData(false, false, true)]
+        [InlineData(true, false, false)]
+        [InlineData(false, true, false)]
+        [InlineData(true, true, false)]
+        public void ShouldShowStartRecordingScreenMessage_RequiresFreshUnsuppressedStart(
+            bool isPromotion,
+            bool suppressStartScreenMessage,
+            bool expected)
+        {
+            bool result = FlightRecorder.ShouldShowStartRecordingScreenMessage(
+                isPromotion,
+                suppressStartScreenMessage);
+
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void LaunchAutoRecord_UsesCustomToastWithoutGenericStartToast()
+        {
+            string source = File.ReadAllText(FindParsekFlightSource());
+            string methodBody = ExtractMethodBody(source, "void OnVesselSituationChange");
+
+            int startIdx = methodBody.IndexOf(
+                "StartRecording(suppressStartScreenMessage: true);",
+                StringComparison.Ordinal);
+            int toastIdx = methodBody.IndexOf(
+                "ScreenMessage(\"Recording STARTED (auto)\", 2f);",
+                StringComparison.Ordinal);
+
+            Assert.True(startIdx >= 0,
+                "Launch auto-record must suppress the generic FlightRecorder start toast.");
+            Assert.True(toastIdx >= 0,
+                "Launch auto-record should keep its custom '(auto)' start toast.");
+            Assert.True(startIdx < toastIdx,
+                "Launch auto-record must suppress the generic toast before posting the custom one.");
+        }
+
         [Fact]
         public void ShouldIgnoreFlightReadyReset_LiveRecorderWithoutPendingRestore_ReturnsTrue()
         {
@@ -234,6 +274,48 @@ namespace Parsek.Tests
                 (ParsekScenario.ActiveTreeRestoreMode)restoreMode);
 
             Assert.False(result);
+        }
+
+        private static string FindParsekFlightSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+        }
+
+        private static string ExtractMethodBody(string source, string methodSignature)
+        {
+            int methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
+            Assert.True(methodStart >= 0,
+                $"{methodSignature} not found in ParsekFlight.cs.");
+
+            int openBrace = source.IndexOf('{', methodStart);
+            Assert.True(openBrace >= 0,
+                $"{methodSignature} has no opening brace in ParsekFlight.cs.");
+
+            int depth = 0;
+            for (int i = openBrace; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(methodStart, i - methodStart + 1);
+                }
+            }
+
+            Assert.True(false,
+                $"{methodSignature} has unbalanced braces in ParsekFlight.cs.");
+            return string.Empty;
         }
     }
 }
