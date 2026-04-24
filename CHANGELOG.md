@@ -41,6 +41,8 @@ All notable changes to Parsek are documented here.
 
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
+- Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.
+
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.
@@ -62,9 +64,10 @@ All notable changes to Parsek are documented here.
 - `#545` Timeline milestone rows now squash same-moment duplicate entries for the same milestone into one richer entry, including near-UT copies inside the same 0.1s window and same-timestamp rows separated by another entry. The surviving row unions missing funds/rep/science reward legs while leaving genuinely conflicting reward values split instead of inventing a combined total. Timeline milestone labels now also show science rewards, reducing the remaining “looks double-counted” milestone presentation path from `#522`.
 - `#546` Idle vessel switches now arm auto-record and start on the first meaningful physical modification.
 - `#550` Real-vessel materialization now uses a shared source-vessel adoption guard before spawning from a recording snapshot. KSC end-of-recording spawn, Flight tree-leaf spawn, Flight end-of-recording spawn handoffs, and chain-tip spawns now adopt a surviving source PID instead of creating a duplicate real vessel at the same endpoint; the new VesselSpawner guard also layers defense-in-depth on Tracking Station's existing `ShouldSkipTrackingStationDuplicateSpawn` path, and the #226 replay/revert duplicate-spawn exception remains an explicit opt-in at its call site.
-- `#558` Real-vessel spawn now writes format-v0 surface-relative recording rotation directly to `VESSEL.rot` before `ProtoVessel.Load()`, matching KSP's `ProtoVessel.rotation -> vesselRef.srfRelRotation` contract. `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns no longer pre-compose `body.bodyTransform.rotation * srfRelRotation`, preventing landed surface respawns from loading with a double-applied body rotation.
+- `#558` Landed respawns now preserve their recorded orientation instead of loading with a double-applied surface rotation that could leave them tilted or on their side.
 - `#559` Time jumps that cross ghost chain tips now keep the materialized tip recording attached to the spawned vessel PID, so later spawn tracking and watch handoff follow the real vessel instead of rediscovering it.
 - `#565` Continued scene-enter resume replays no longer materialize an older endpoint as an intermediate rover before the continued recording reaches its final spawn.
+- Spawn-path audit follow-ups now route the remaining KSC end-of-recording and chain-tip normal/blocked/walkback materialization paths through the shared resolved-state spawn flow, including subdivided walkback interpolation for blocked chain tips. Failed respawns and flag spawns also clean up any transient `ProtoVessel` inserted before `ProtoVessel.Load()` aborts, and scene-load tree-leaf spawns now use the same shared materialization helper.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
 - `#504` Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
 - `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
@@ -99,12 +102,15 @@ All notable changes to Parsek are documented here.
 - `#550` Added headless source-vessel materialization guard coverage for adoption, no-mutation and replay-bypass cases, validated-spawn short-circuiting before snapshot validation, chain-tip adoption before collision/snapshot work, KSC spawn adoption, time-jump chain-tip bypass preservation, and committed-tree restore matching of adopted source vessels.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 - `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
+- Added headless coverage for the recording-finalization cache applier, including identity mismatches, stale-cache rejection, terminal-UT rollback rejection, predicted-tail trimming, authored-data preservation, surface metadata preservation, and terminal orbit stamping.
+- Added headless spawn-path audit coverage for `VesselSpawner` route selection and prepared-snapshot validation, plus subdivided walkback interpolation of UT, velocity, and rotation for blocked chain-tip recovery.
 
 ### Documentation
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
 - `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
+- Updated the spawn audit design note and todo docs to mark the KSC, chain-tip, tree-leaf, and orphan-`ProtoVessel` follow-ups closed.
 
 ## 0.8.3
 

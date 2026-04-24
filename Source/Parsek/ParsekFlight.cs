@@ -4422,7 +4422,7 @@ namespace Parsek
                     return;
             }
 
-            StartRecording();
+            StartRecording(suppressStartScreenMessage: true);
             Log($"Auto-record started ({data.from} → {data.to})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
@@ -5376,7 +5376,7 @@ namespace Parsek
 
                 case PostSwitchAutoRecordStartDecision.StartFreshRecording:
                     PrepareActiveTreeForFreshPostSwitchRecording(v, state, currentUT);
-                    StartRecording();
+                    StartRecording(suppressStartScreenMessage: true);
                     if (IsRecording)
                     {
                         Log($"Auto-record started (post-switch {trigger})");
@@ -7007,7 +7007,7 @@ namespace Parsek
                 activeVesselIsEva: hasActiveVessel && FlightGlobals.ActiveVessel.isEVA))
                 return;
 
-            StartRecording();
+            StartRecording(suppressStartScreenMessage: true);
 
             if (IsRecording)
             {
@@ -7058,7 +7058,11 @@ namespace Parsek
 
         #region Recording
 
-        public void StartRecording(TrajectoryPoint? boundaryAnchor = null)
+        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
+        // the caller posts its own custom screen message.
+        public void StartRecording(
+            TrajectoryPoint? boundaryAnchor = null,
+            bool suppressStartScreenMessage = false)
         {
             // Always-tree mode makes a chain continuation without a live tree impossible.
             // If we reach StartRecording with orphaned chain/transient state, treat it as
@@ -7165,7 +7169,9 @@ namespace Parsek
                 recorder.ActiveTree = activeTree;
                 chainManager.ActiveTreeId = activeTree.Id;
             }
-            recorder.StartRecording(isPromotion: isContinuation);
+            recorder.StartRecording(
+                isPromotion: isContinuation,
+                suppressStartScreenMessage: suppressStartScreenMessage);
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
@@ -8143,9 +8149,11 @@ namespace Parsek
             // ghost-only, which nulls the VesselSnapshot at commit time. Subsequent
             // KSC spawns then skip with "no vessel snapshot". Clearing the flags here
             // lets the next commit re-evaluate spawn eligibility from scratch. Before
-            // clearing the spawned PID, promote the matched live vessel PID into the
-            // recording's normal VesselPersistentId so later finalization/snapshot code
-            // tracks the vessel the player just entered, not the original source PID.
+            // clearing the spawned PID, intentionally promote the matched live vessel PID
+            // into the recording's normal VesselPersistentId. Downstream tree-finalization,
+            // snapshot refresh, and rollout-adoption paths key off VesselPersistentId and
+            // must follow the vessel the player actually re-entered here, not the older
+            // source PID that originally produced the committed recording.
             if (committedTree.Recordings != null
                 && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null
@@ -9465,47 +9473,27 @@ namespace Parsek
 
                 try
                 {
-                    // Correct unsafe snapshot situation before spawning (#169)
-                    VesselSpawner.CorrectUnsafeSnapshotSituation(leaf.VesselSnapshot, leaf.TerminalStateValue);
-
-                    // Clamp altitude for surface terminals (#231). The snapshot position may be
-                    // from mid-flight. Without clamping, the vessel spawns in the air and crashes.
-                    if (leaf.Points.Count > 0
-                        && (leaf.TerminalStateValue == TerminalState.Landed
-                            || leaf.TerminalStateValue == TerminalState.Splashed))
+                    // Route scene-load leaf spawns through the shared end-of-recording helper
+                    // so EVA/orbital paths rebuild endpoint-aligned ORBIT data the same way
+                    // the in-flight spawn path does.
+                    if (leaf.SpawnAttempts > 0)
                     {
-                        var lastPt = leaf.Points[leaf.Points.Count - 1];
-                        double spawnLat, spawnLon, spawnAlt;
-                        VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
-                            out spawnLat, out spawnLon, out spawnAlt);
-                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
-                            leaf, lastPt,
-                            out string rotationBodyName,
-                            out Quaternion? rotationBodyRotation,
-                            out Quaternion surfaceRelativeRotation,
-                            out string rotationSource))
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                                -1, leaf.VesselName,
-                                rotationBodyName,
-                                rotationBodyRotation,
-                                surfaceRelativeRotation,
-                                rotationSource);
-                        }
-                        else
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                                -1, leaf.VesselName);
-                        }
+                        ParsekLog.Verbose("Flight",
+                            $"SpawnTreeLeaves: leaf '{leaf.VesselName}' entering shared spawn path " +
+                            $"with prior attempts={leaf.SpawnAttempts} (shared helper caps retries at 3)");
                     }
 
-                    uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
-                    if (spawnedPid != 0)
+                    VesselSpawner.SpawnOrRecoverIfTooClose(leaf, -1);
+                    if (leaf.SpawnedVesselPersistentId != 0)
                     {
-                        leaf.VesselSpawned = true;
-                        leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
-                        ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
+                        ParsekLog.Info("Flight",
+                            $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={leaf.SpawnedVesselPersistentId}");
+                    }
+                    else if (leaf.SpawnAbandoned)
+                    {
+                        ParsekLog.Warn("Flight",
+                            $"SpawnTreeLeaves: abandoned leaf '{leaf.VesselName}' without a spawned vessel");
                     }
                     else
                     {

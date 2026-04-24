@@ -63,6 +63,8 @@ Follow-up the same hour (`2026-04-23_2305_post-fix-regression`): once the restor
 
 UX polish (same branch): the FlightRecorder `StartRecording(isPromotion: true)` path suppresses the inner `Recording STARTED` screen toast, so scene-enter resume used to happen silently. `TryRestoreCommittedTreeForSpawnedActiveVessel` now surfaces `Recording STARTED (resume)` after a successful restore, matching the `(auto)` and `(auto - post switch)` messages on the other auto-record paths.
 
+Companion UX polish (2026-04-24): fresh auto-record starts that already post contextual screen messages now suppress the generic `Recording STARTED` toast. This covers pad/runway launch auto-record, post-switch first-modification auto-record, and deferred EVA-from-pad auto-record; chain continuations remain unchanged because their promotion path already suppresses the generic toast.
+
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
@@ -430,6 +432,20 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 **Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/RecordingTree.cs`, `Source/Parsek/Recording.cs`, `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/TreeCommitTests.cs`, `Source/Parsek.Tests/ChainSpawnSuppressionTests.cs`, `Source/Parsek.Tests/TimelineBuilderTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
+## ~~566. Spawn audit follow-ups still left KSC and chain-tip materialization on older respawn paths~~
+
+**Source:** 2026-04-24 Parsek spawn audit across `VesselSpawner`, `ParsekFlight.SpawnTreeLeaves`, `ParsekKSC.TrySpawnAtRecordingEnd`, `VesselGhoster` chain-tip spawns, `GhostVisualBuilder` flag spawns, and the related design notes.
+
+**Concern:** even after the in-flight EVA / breakup stale-orbit fixes, several secondary materialization paths still diverged from the shared spawn contract. KSC materialization still prepared a raw snapshot override and called `RespawnVessel` directly, chain-tip blocked/walkback spawns still relied on the older mutate-then-respawn pattern, blocked-clear chain-tip rechecks only used the propagated position for collision testing instead of for the actual materialization state, and failed `ProtoVessel.Load()` on several spawn paths could leave orphaned `ProtoVessel` entries behind in `flightState.protoVessels`.
+
+**Fix:** failed `ProtoVessel.Load()` cleanup is now centralized in `VesselSpawner.CleanupFailedSpawnedProtoVessel(...)` and applied to normal respawns, `SpawnAtPosition`, and flag spawning. `ParsekFlight.SpawnTreeLeaves` now routes through `SpawnOrRecoverIfTooClose`, KSC materialization now prepares a private snapshot copy and uses the same endpoint/rotation/EVA-breakup spawn prep plus `SpawnAtPosition` / validated-respawn split as flight, and `VesselGhoster` now routes chain-tip normal spawns, blocked-clear spawns, and walkback spawns through explicit resolved spawn state. Chain-tip walkback now uses the subdivided walkback helper with interpolated trajectory points, while the older point walkback remains only as a body-resolution fallback.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/SpawnCollisionDetector.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/EndOfRecordingWalkbackTests.cs`, `docs/dev/todo-and-known-bugs.md`, `docs/dev/done/plans/eva-spawn-position-fix.md`, `docs/dev/done/todo-and-known-bugs-v2.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed in the `spawn-audit-fixes` worktree; full build/test verification remains blocked on the local .NET Framework 4.7.2 targeting pack / KSP dependency environment.
 
 ---
 

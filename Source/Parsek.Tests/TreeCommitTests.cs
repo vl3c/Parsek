@@ -399,6 +399,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_MarksPriorSpawnEndpointSupersededByPidMatchAfterRename()
+        {
+            var prior = MakeRecording("old-butterfly", null,
+                vesselName: "Butterfly Rover",
+                pid: 22060629,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.ExplicitStartUT = 18.0;
+            prior.ExplicitEndUT = 61.0;
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 1215753389u;
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "Butterfly Rover");
+
+            var tree = MakeSimpleTree("continued_tree");
+            var continued = tree.Recordings["root"];
+            continued.RecordingId = "continued-butterfly-renamed";
+            continued.VesselName = "Butterfly Rover Mk II";
+            continued.VesselPersistentId = 1215753389u;
+            continued.TerminalStateValue = TerminalState.Landed;
+            continued.VesselSnapshot = MakeMinimalSnapshot();
+            continued.ExplicitStartUT = 97.0;
+            continued.ExplicitEndUT = 116.0;
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal("continued-butterfly-renamed",
+                prior.TerminalSpawnSupersededByRecordingId);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                prior, isActiveChainMember: false, isChainLooping: false);
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal spawn superseded", reason);
+        }
+
+        [Fact]
         public void ResetAllPlaybackState_MarksPollutedSameNameEndpointSupersededBeforePidReset()
         {
             var prior = MakeRecording("old-butterfly", null,
