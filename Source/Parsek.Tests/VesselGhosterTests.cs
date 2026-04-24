@@ -185,6 +185,69 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Chain tip spawn state
+
+        [Fact]
+        public void MarkChainTipRecordingSpawned_ValidPid_SetsSpawnState()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "tip-rec",
+                VesselName = "Tip Vessel",
+                VesselPersistentId = 111,
+                VesselSpawned = false,
+                SpawnedVesselPersistentId = 0
+            };
+
+            bool marked = VesselGhoster.MarkChainTipRecordingSpawned(
+                rec,
+                222,
+                "unit-test time-jump chain tip");
+
+            Assert.True(marked);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(222u, rec.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ghoster]") &&
+                l.Contains("marked chain-tip recording spawned") &&
+                l.Contains("unit-test time-jump chain tip") &&
+                l.Contains("pid=222"));
+        }
+
+        [Fact]
+        public void MarkChainTipRecordingSpawned_ZeroPid_DoesNotMutate()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "tip-rec",
+                VesselName = "Tip Vessel",
+                VesselSpawned = false,
+                SpawnedVesselPersistentId = 0
+            };
+
+            bool marked = VesselGhoster.MarkChainTipRecordingSpawned(
+                rec,
+                0,
+                "unit-test zero-pid");
+
+            Assert.False(marked);
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void MarkChainTipRecordingSpawned_NullRecording_ReturnsFalse()
+        {
+            bool marked = VesselGhoster.MarkChainTipRecordingSpawned(
+                null,
+                222,
+                "unit-test null-recording");
+
+            Assert.False(marked);
+        }
+
+        #endregion
+
         #region IsGhosted — state tracking
 
         [Fact]

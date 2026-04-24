@@ -47,16 +47,21 @@ namespace Parsek
 
     internal sealed class RecordingFinalizationCache
     {
+        // Identity fields are enforced by the applier before any recording is mutated.
         public string RecordingId;
         public uint VesselPersistentId;
         public FinalizationCacheOwner Owner;
         public FinalizationCacheStatus Status;
 
+        // Refresh producers and diagnostics own these fields; the pure applier only
+        // reports status/owner/reasons in logs.
         public double CachedAtUT = double.NaN;
         public float CachedAtRealtime;
         public string RefreshReason;
         public string DeclineReason;
 
+        // Last-observed state is the producer-side digest used to skip redundant
+        // refreshes and explain stale cache decisions.
         public double LastObservedUT = double.NaN;
         public string LastObservedBodyName;
         public Vessel.Situations LastSituation;
@@ -64,6 +69,8 @@ namespace Parsek
         public bool LastHadMeaningfulThrust;
         public string LastObservedOrbitDigest;
 
+        // Predicted terminal payload copied into a Recording only when a consumer
+        // accepts the cache.
         public double TailStartsAtUT = double.NaN;
         public double TerminalUT = double.NaN;
         public TerminalState? TerminalState;
