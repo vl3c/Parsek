@@ -35,6 +35,16 @@ python scripts/release.py    # build Release, run tests, package zip
 
 Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DLL + version file + toolbar textures). Validates that `Parsek.version` and `AssemblyInfo.cs` versions match before building.
 
+## Utility Scripts
+
+- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
+- `python scripts/collect-logs.py [label] [--save NAME] [--skip-validation] [--skip-recordings] [--ksp-dir PATH]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`; runs log validation unless explicitly skipped.
+- `pwsh -File scripts/inject-recordings.ps1 [--clean-start] [--save-name NAME] [--target-save FILE] [--build] [--run-diagnostics-tests]` - injects synthetic test recordings into a chosen KSP save, optionally rebuilding first and/or running the diagnostics/observability test slice before injection.
+- `python scripts/release.py` - builds Release, runs the full headless test suite, and packages `Parsek-v{version}.zip` with the `GameData/Parsek/` release layout.
+- `pwsh -File scripts/test-coverage.ps1 [-TestProject PATH] [-OutputDir DIR] [-Format cobertura] [-NoRestore] [-NoBuild]` - runs local xUnit coverage, validates the emitted report shape, and writes coverage artifacts under `TestResults/Coverage` by default.
+- `pwsh -File scripts/validate-ksp-log.ps1 [-LogPath PATH] [-NoBuild]` - resolves the latest `KSP.log`, then runs `LiveKspLogValidationTests.ValidateLatestSession` against it and fails if the retained session does not satisfy the log contract.
+- `python scripts/validate-release-bundle.py <bundle-dir> [--profile NAME]` - validates a retained release-closeout bundle: required artifacts, `log-validation.txt` pass marker, and required runtime rows in `parsek-test-results.txt`; writes `release-bundle-validation.txt` into the bundle.
+
 ## Investigating KSP Internals
 
 When investigating KSP API behavior, search the web and read other open-source KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns and prior art.
