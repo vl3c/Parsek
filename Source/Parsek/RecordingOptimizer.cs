@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -1234,10 +1235,17 @@ namespace Parsek
                 out double terminalLat, out double terminalLon, out double terminalAlt,
                 out Quaternion terminalRotation, out bool hasTerminalRotation))
             {
+                ParsekLog.Verbose("Optimizer",
+                    $"TailMatchesTerminalSurfaceState: no terminal surface reference " +
+                    $"for rec '{rec?.RecordingId ?? "(null)"}'");
                 return false;
             }
 
             bool sawTailPoint = false;
+            int tailPointCount = 0;
+            int firstFailIdx = -1;
+            string firstFailReason = null;
+            double firstFailUT = double.NaN;
             for (int i = 0; i < rec.Points.Count; i++)
             {
                 TrajectoryPoint pt = rec.Points[i];
@@ -1245,9 +1253,25 @@ namespace Parsek
                     continue;
 
                 sawTailPoint = true;
+                tailPointCount++;
                 if (!SurfacePointMatchesTerminal(pt, terminalBody, terminalLat, terminalLon,
-                    terminalAlt, terminalRotation, hasTerminalRotation))
+                    terminalAlt, terminalRotation, hasTerminalRotation,
+                    out string failReason))
                 {
+                    if (firstFailIdx < 0)
+                    {
+                        firstFailIdx = i;
+                        firstFailReason = failReason;
+                        firstFailUT = pt.ut;
+                    }
+                    // Keep iterating to diagnose the whole tail in a single skip log,
+                    // but early-return here once we have the first fail — the public
+                    // caller only needs the bool. Counting stops at the first fail to
+                    // avoid misleading per-point logs on a tail that diverges a lot.
+                    ParsekLog.Verbose("Optimizer",
+                        $"TailMatchesTerminalSurfaceState: rec '{rec.RecordingId}' " +
+                        $"point #{i} (ut={pt.ut.ToString("F2", CultureInfo.InvariantCulture)}) " +
+                        $"diverges: {failReason} (tail scanned so far: {tailPointCount})");
                     return false;
                 }
             }
@@ -1317,46 +1341,77 @@ namespace Parsek
         }
 
         // Tolerance for "tail still matches terminal surface state" checks. A landed
-        // vessel at rest has tiny physics jitter in position and rotation — exact
-        // equality between a trajectory point and the captured terminal pose almost
-        // never holds after even a few frames of idle. The tolerances below are large
-        // enough to absorb float/double precision drift and sub-frame physics jitter,
-        // while still catching real movement (sub-degree rotation or sub-meter
-        // position change).
-        internal const double TailPositionLatLonEpsilonDeg = 1e-6;  // ~0.11 m at Kerbin's equator
-        internal const double TailAltitudeEpsilonMeters = 0.25;
-        internal const float TailRotationEpsilonDegrees = 0.5f;
+        // vessel at rest has non-trivial jitter in position and rotation — floating
+        // point drift, repeated pack/unpack transitions, on-rails terrain snapping,
+        // and time-warp re-anchoring can shift the sampled lat/lon/alt by a few
+        // meters across a 15-minute idle tail even though the vessel is "at rest"
+        // from the player's POV. The previous 1e-6° / 0.25 m / 0.5° tolerances
+        // were tight enough to still fail on every real playtest recording. The
+        // current values are sized to absorb normal idle drift while still rejecting
+        // actual movement: a driving rover covers >1e-4° per second and >1 m altitude
+        // when it goes over a bump, so a 10+ second buffer of real movement is well
+        // over these thresholds. The post-trim divergence between the ghost's last
+        // playback position and the captured TerminalPosition is bounded by these
+        // tolerances and is small enough that the visual jump at ghost end is not
+        // noticeable.
+        internal const double TailPositionLatLonEpsilonDeg = 1e-4;  // ~11 m at Kerbin's equator
+        internal const double TailAltitudeEpsilonMeters = 5.0;
+        internal const float TailRotationEpsilonDegrees = 5.0f;
 
         private static bool SurfacePointMatchesTerminal(TrajectoryPoint pt,
             string terminalBody, double terminalLat, double terminalLon, double terminalAlt,
-            Quaternion terminalRotation, bool hasTerminalRotation)
+            Quaternion terminalRotation, bool hasTerminalRotation,
+            out string failReason)
         {
+            failReason = null;
             string pointBody = pt.bodyName;
             if (!string.IsNullOrEmpty(terminalBody) || !string.IsNullOrEmpty(pointBody))
             {
                 if ((terminalBody ?? string.Empty) != (pointBody ?? string.Empty))
+                {
+                    failReason = $"body mismatch (point='{pointBody ?? "null"}' vs terminal='{terminalBody ?? "null"}')";
                     return false;
+                }
             }
 
-            if (System.Math.Abs(pt.latitude - terminalLat) > TailPositionLatLonEpsilonDeg)
+            double latDelta = pt.latitude - terminalLat;
+            if (System.Math.Abs(latDelta) > TailPositionLatLonEpsilonDeg)
+            {
+                failReason = $"lat delta {latDelta.ToString("R", CultureInfo.InvariantCulture)} > eps {TailPositionLatLonEpsilonDeg.ToString("R", CultureInfo.InvariantCulture)}";
                 return false;
+            }
 
-            if (System.Math.Abs(pt.longitude - terminalLon) > TailPositionLatLonEpsilonDeg)
+            double lonDelta = pt.longitude - terminalLon;
+            if (System.Math.Abs(lonDelta) > TailPositionLatLonEpsilonDeg)
+            {
+                failReason = $"lon delta {lonDelta.ToString("R", CultureInfo.InvariantCulture)} > eps {TailPositionLatLonEpsilonDeg.ToString("R", CultureInfo.InvariantCulture)}";
                 return false;
+            }
 
-            if (System.Math.Abs(pt.altitude - terminalAlt) > TailAltitudeEpsilonMeters)
+            double altDelta = pt.altitude - terminalAlt;
+            if (System.Math.Abs(altDelta) > TailAltitudeEpsilonMeters)
+            {
+                failReason = $"alt delta {altDelta.ToString("F3", CultureInfo.InvariantCulture)}m > eps {TailAltitudeEpsilonMeters.ToString("F3", CultureInfo.InvariantCulture)}m";
                 return false;
+            }
 
             bool pointHasRotation = HasMeaningfulRotation(pt.rotation);
             if (hasTerminalRotation || pointHasRotation)
             {
                 if (!(hasTerminalRotation && pointHasRotation))
+                {
+                    failReason = $"rotation presence mismatch (pt.has={pointHasRotation} terminal.has={hasTerminalRotation})";
                     return false;
+                }
 
                 Quaternion pointRot = TrajectoryMath.SanitizeQuaternion(pt.rotation);
                 Quaternion terminalRot = TrajectoryMath.SanitizeQuaternion(terminalRotation);
-                if (Quaternion.Angle(pointRot, terminalRot) > TailRotationEpsilonDegrees)
+                float rotAngle = Quaternion.Angle(pointRot, terminalRot);
+                if (rotAngle > TailRotationEpsilonDegrees)
+                {
+                    failReason = $"rot angle {rotAngle.ToString("F2", CultureInfo.InvariantCulture)}° > eps {TailRotationEpsilonDegrees.ToString("F2", CultureInfo.InvariantCulture)}°";
                     return false;
+                }
             }
 
             return true;

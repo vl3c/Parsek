@@ -2456,7 +2456,10 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin", latitude = 0.3, longitude = 0.4, altitude = 60, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 130, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
-            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.00005, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            // Mid-tail jump representing real vessel movement (≈55 m). The tail match
+            // tolerances are sized to absorb physics jitter but reject movement this
+            // large — a vessel that drove even briefly would exceed this threshold.
+            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.0005, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
             rec.TrackSections.Add(new TrackSection
                 { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 120 });
