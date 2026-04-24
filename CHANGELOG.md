@@ -40,6 +40,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recordings table no longer renders duplicate rewind-to-launch `R` buttons on tree branches (debris, decouple children, EVA splits) after a normal merge; only the recording that owns the launch save (standalone, or the tree root) shows the legacy `R` button, while branch rows reserve the column slot for layout alignment.
+
+- Re-fly merges where the Limbo-restore path kept the origin recording alive across the RP-quicksave reload no longer write a self-supersede row that turns the supersede chain into a 1-node cycle; in-place continuations now skip the journaled merge, flip MergeState, and clear the marker, and load-time sweep purges any legacy self-supersede rows from older saves.
+
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
 - Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.

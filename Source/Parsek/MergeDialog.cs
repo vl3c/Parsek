@@ -364,6 +364,79 @@ namespace Parsek
                 }
             }
 
+            // Self-continuation guard: if the Limbo-restore path kept the
+            // origin recording alive across an RP-quicksave reload and the
+            // re-fly simply continued writing into that SAME recording, then
+            // after the placeholder redirect above `provisional.RecordingId`
+            // equals `marker.OriginChildRecordingId` — there is no separate
+            // "retired attempt" to supersede. Writing a supersede relation
+            // with old==new would create a 1-node cycle that poisons
+            // EffectiveRecordingId (WARN `cycle detected` every lookup) and
+            // keeps the recording permanently visible to ERS. Skip the
+            // journaled merge entirely and do only the finalization the
+            // orchestrator would have done around AppendRelations: flip
+            // MergeState, clear transient fields, bump versions, durable
+            // save. We deliberately skip tombstones in this v1 path — any
+            // prior kerbal-death actions credited during the original
+            // Destroyed run-through were already finalized in that earlier
+            // session, and the same recording's subsequent continuation
+            // doesn't retroactively un-do them. If the player needs a
+            // deeper unwind they can re-rewind from the RP.
+            if (provisional != null
+                && !string.IsNullOrEmpty(provisional.RecordingId)
+                && string.Equals(provisional.RecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation detected " +
+                    $"(provisional == origin == {provisional.RecordingId}); skipping " +
+                    $"supersede merge (no self-supersede row) and finalizing continuation. " +
+                    $"Tombstones from the prior Destroyed run are left as-is in v1.");
+                try
+                {
+                    // FlipMergeStateAndClearTransient with preserveMarker=false
+                    // flips MergeState, clears SupersedeTargetId, bumps
+                    // SupersedeStateVersion, clears the ActiveReFlySessionMarker
+                    // (and bumps again), and logs the End reason=merged line.
+                    // That covers all the in-memory scenario mutations that a
+                    // normal RunMerge does around AppendRelations + tombstones.
+                    // Also clear CreatingSessionId / ProvisionalForRpId on the
+                    // continuation recording so it no longer looks like a
+                    // session-scoped zombie to the load-time sweep.
+                    provisional.CreatingSessionId = null;
+                    provisional.ProvisionalForRpId = null;
+                    SupersedeCommit.FlipMergeStateAndClearTransient(
+                        marker, provisional, scenario, preserveMarker: false);
+
+                    // Mirror the orchestrator's Durable Save #1 barrier so
+                    // the flipped MergeState + cleared marker survive a
+                    // quit/reload right after the merge dialog.
+                    if (HighLogic.CurrentGame != null
+                        && !string.IsNullOrEmpty(HighLogic.SaveFolder))
+                    {
+                        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                        ParsekLog.Info("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation persisted via persistent.sfs");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation skipped durable save " +
+                            "(no HighLogic.CurrentGame / SaveFolder — test harness or pre-scene path)");
+                    }
+                    return ReFlyMergeCommitResult.Completed;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Error("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation finalization threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — marker left in place for load-time sweep");
+                    ParsekLog.ScreenMessage(
+                        "Merge interrupted — will finish on next load", 3f);
+                    return ReFlyMergeCommitResult.Interrupted;
+                }
+            }
+
             ParsekLog.Info("MergeDialog",
                 $"TryCommitReFlySupersede: invoking MergeJournalOrchestrator for " +
                 $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId} " +

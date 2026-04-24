@@ -150,6 +150,20 @@ namespace Parsek
             }
 
             // ----------------------------------------------------------------
+            // Step 3.5: clean up self-supersede rows (old==new). These are
+            // 1-node cycles that poison EffectiveRecordingId's forward walk —
+            // the cycle guard returns the recording as its own effective id
+            // and logs a WARN on every ERS/ELS rebuild. The caller-side guard
+            // (MergeDialog.TryCommitReFlySupersede) and the defense-in-depth
+            // guard (SupersedeCommit.AppendRelations) both prevent new ones,
+            // but saves written by earlier versions can still contain them.
+            // Remove them here so the cycle guard stops firing; the cleaned
+            // list persists on the next OnSave through the existing chain
+            // (no forced save).
+            // ----------------------------------------------------------------
+            int selfSupersedes = RemoveSelfSupersedes(scenario);
+
+            // ----------------------------------------------------------------
             // Step 4 (§6.9 step 7): orphan supersede relations (log Warn;
             // kept per §3.5 invariant 7 / §7.47).
             // ----------------------------------------------------------------
@@ -204,6 +218,7 @@ namespace Parsek
                 $"[LoadSweep] Marker valid={markerValid.ToString()}; " +
                 $"spare={spareRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"discarded={removedRecordings.ToString(CultureInfo.InvariantCulture)} " +
+                $"selfSupersedes={selfSupersedes.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanSupersedes={orphanSupersedes.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
@@ -254,6 +269,49 @@ namespace Parsek
                     spareRpIds.Add(rp.RewindPointId);
                 }
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Step 3.5 helper: remove self-supersede rows (old==new). These are
+        // 1-node cycles left in saves written before the caller-side guard +
+        // AppendRelations self-skip landed; they cause EffectiveRecordingId
+        // to log a WARN on every ERS/ELS rebuild and keep the superseded
+        // recording visible. The cleanup is idempotent (second pass finds 0)
+        // and the new list persists on the next OnSave through the regular
+        // scenario save chain — no forced save.
+        // ------------------------------------------------------------------
+
+        private static int RemoveSelfSupersedes(ParsekScenario scenario)
+        {
+            if (scenario.RecordingSupersedes == null
+                || scenario.RecordingSupersedes.Count == 0)
+                return 0;
+
+            int removed = 0;
+            // Reverse walk so RemoveAt indices stay valid.
+            for (int i = scenario.RecordingSupersedes.Count - 1; i >= 0; i--)
+            {
+                var rel = scenario.RecordingSupersedes[i];
+                if (rel == null) continue;
+                if (string.IsNullOrEmpty(rel.OldRecordingId)) continue;
+                if (!string.Equals(rel.OldRecordingId, rel.NewRecordingId,
+                        StringComparison.Ordinal))
+                    continue;
+
+                ParsekLog.Warn(SupersedeTag,
+                    $"Self-supersede row rel={rel.RelationId ?? "<no-id>"} " +
+                    $"old={rel.OldRecordingId} new={rel.NewRecordingId}; removing (cycle)");
+                scenario.RecordingSupersedes.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    "self-supersede row(s) (old==new); persists on next OnSave");
+            }
+            return removed;
         }
 
         // ------------------------------------------------------------------

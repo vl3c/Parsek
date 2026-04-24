@@ -129,11 +129,29 @@ namespace Parsek
 
             int added = 0;
             int skippedExisting = 0;
+            int selfSkipped = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
                 {
                     if (string.IsNullOrEmpty(oldId)) continue;
+                    // Defense-in-depth: a self-supersede row (old==new) builds
+                    // a 1-node cycle into the supersede chain. EffectiveRecordingId
+                    // detects the cycle and logs a WARN on every lookup. Caller
+                    // (MergeDialog.TryCommitReFlySupersede) is supposed to catch
+                    // the origin==provisional in-place-continuation case first
+                    // and skip the merge entirely; if we see one here a caller
+                    // has slipped through — refuse the row and log so the
+                    // bug is visible without poisoning the chain.
+                    if (string.Equals(oldId, newRecordingId, StringComparison.Ordinal))
+                    {
+                        selfSkipped++;
+                        ParsekLog.Warn(Tag,
+                            $"CommitSupersede: refusing to write self-supersede row " +
+                            $"old={oldId} new={newRecordingId} (origin == provisional; " +
+                            "caller should have detected in-place continuation)");
+                        continue;
+                    }
                     if (RelationExists(scenario.RecordingSupersedes, oldId, newRecordingId))
                     {
                         skippedExisting++;
@@ -158,7 +176,8 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
-                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)})");
+                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)} " +
+                $"selfSkipped={selfSkipped.ToString(ic)})");
 
             return subtree ?? new List<string>();
         }
