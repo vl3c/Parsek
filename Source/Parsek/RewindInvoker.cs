@@ -520,9 +520,6 @@ namespace Parsek
             }
         }
 
-        private static Action pendingFlightReadyAction;
-        private static bool pendingFlightReadySubscribed;
-
         private static void DeferUntilFlightReady(Action action)
         {
             if (DeferUntilFlightReadyOverrideForTesting != null)
@@ -531,38 +528,64 @@ namespace Parsek
                 return;
             }
 
-            // One-shot onFlightReady subscription. The static handler
-            // unregisters itself before invoking the cached action so a
-            // subsequent scene reload does not re-fire a stale callback.
-            pendingFlightReadyAction = action;
-            if (!pendingFlightReadySubscribed)
+            // Poll `FlightGlobals.ready` via a coroutine on the living
+            // `ParsekScenario` MonoBehaviour. Subscribing to
+            // `GameEvents.onFlightReady` directly from this static context
+            // crashed inside `EventVoid.EvtDelegate..ctor` with a
+            // `NullReferenceException` because KSP derefs `delegate.Target`
+            // while building the subscription's internal name and a static
+            // method has a null Target. A per-frame poll on the scenario's
+            // MonoBehaviour sidesteps the EvtDelegate issue entirely and is
+            // still deterministic: it fires on the first Unity frame after
+            // `FlightGlobals.ready && Vessels.Count > 0` flips true.
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
             {
-                GameEvents.onFlightReady.Add(OnFlightReadyForDeferredInvoke);
-                pendingFlightReadySubscribed = true;
+                ParsekLog.Error(InvokeTag,
+                    "DeferUntilFlightReady: no ParsekScenario.Instance — running action inline (best effort)");
+                try { action?.Invoke(); }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Inline fallback handler threw: {ex.Message}");
+                }
+                return;
             }
+
+            scenario.StartCoroutine(WaitForFlightReadyAndInvoke(action));
         }
 
-        private static void OnFlightReadyForDeferredInvoke()
+        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(Action action)
         {
-            try
+            // Bound the wait so a scene-load that never finishes (catastrophic
+            // failure) doesn't leak the coroutine. 300 frames at 60 fps is 5 s,
+            // well past the ~1.4 s observed async-load completion.
+            const int MaxFrames = 300;
+            int frame = 0;
+            while (frame < MaxFrames && !IsFlightReady())
             {
-                GameEvents.onFlightReady.Remove(OnFlightReadyForDeferredInvoke);
+                frame++;
+                yield return null;
             }
-            catch { }
-            pendingFlightReadySubscribed = false;
 
-            Action action = pendingFlightReadyAction;
-            pendingFlightReadyAction = null;
-            if (action == null) return;
+            if (!IsFlightReady())
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Deferred flight-ready wait timed out after {MaxFrames} frames — rewind aborted");
+                RewindInvokeContext.Clear();
+                yield break;
+            }
 
+            ParsekLog.Verbose(InvokeTag,
+                $"Deferred flight-ready wait completed after {frame} frame(s) — resuming rewind");
             try
             {
-                action();
+                action?.Invoke();
             }
             catch (Exception ex)
             {
                 ParsekLog.Error(InvokeTag,
-                    $"Deferred onFlightReady handler threw: {ex.Message}");
+                    $"Deferred flight-ready handler threw: {ex.Message}");
             }
         }
 
