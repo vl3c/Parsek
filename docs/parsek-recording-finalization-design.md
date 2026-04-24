@@ -169,8 +169,9 @@ internal sealed class RecordingFinalizationCache
 
     public double TailStartsAtUT;
     public double TerminalUT;
-    public TerminalState TerminalState;
+    public TerminalState? TerminalState;
     public string TerminalBodyName;
+    public RecordingFinalizationTerminalOrbit? TerminalOrbit;
     public SurfacePosition? TerminalPosition;
     public double? TerrainHeightAtEnd;
 
@@ -182,6 +183,7 @@ Ownership:
 
 - `FlightRecorder` owns one cache for the focused recording it is currently sampling.
 - `BackgroundRecorder` owns a cache per `BackgroundMap` entry or per loaded/on-rails state. The cache is keyed by recording id and vessel PID so it survives active -> background and background -> active promotion.
+- `VesselPersistentId = 0` means unknown legacy/test identity. Cache application still requires `RecordingId` to match, and when both sides have a nonzero vessel PID, those PIDs must match too.
 - The cache payload is copied into the target `Recording` only when a consumer finalizes that recording.
 
 No `Recording` field is needed for the cache itself. Applying a cache reuses existing persisted fields: `OrbitSegments`, `ExplicitEndUT`, `TerminalStateValue`, terminal orbit fields, `TerminalPosition`, and `TerrainHeightAtEnd`.
