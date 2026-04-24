@@ -140,6 +140,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryApply_RejectsMissingRecordingId()
+        {
+            var rec = MakeRecording("rec-missing-id", 42u, 100.0);
+            rec.RecordingId = null;
+            var cache = MakeCache("rec-missing-id", 42u, TerminalState.Destroyed, 160.0, Segment(100.0, 160.0));
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-null-recording-id"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.False(applied);
+            Assert.Equal(RecordingFinalizationCacheApplyStatus.RejectedMismatchedRecording, result.Status);
+            Assert.False(rec.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, line =>
+                line.Contains("RejectedMismatchedRecording")
+                && line.Contains("consumer=unit-null-recording-id"));
+        }
+
+        [Fact]
         public void TryApply_RejectsMismatchedVesselPid()
         {
             var rec = MakeRecording("rec-pid", 42u, 100.0);
@@ -489,20 +510,65 @@ namespace Parsek.Tests
             Assert.Equal("Mun", rec.EndpointBodyName);
         }
 
+        [Theory]
+        [InlineData(TerminalState.SubOrbital)]
+        [InlineData(TerminalState.Docked)]
+        public void TryApply_StampsTerminalOrbitFromCache_ForOrbitalTerminalStates(TerminalState terminalState)
+        {
+            var rec = MakeRecording($"rec-orbit-{terminalState}", 42u, 100.0);
+            var cache = MakeCache($"rec-orbit-{terminalState}", 42u, terminalState, 300.0, Segment(100.0, 300.0, body: "Mun"));
+            cache.TerminalOrbit = new RecordingFinalizationTerminalOrbit
+            {
+                bodyName = "Mun",
+                semiMajorAxis = 255000.0,
+                eccentricity = 0.04,
+                inclination = 6.0,
+                longitudeOfAscendingNode = 12.0,
+                argumentOfPeriapsis = 34.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 300.0
+            };
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options($"unit-orbit-{terminalState}"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(terminalState, rec.TerminalStateValue);
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(255000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(0.04, rec.TerminalOrbitEccentricity);
+            Assert.Equal(6.0, rec.TerminalOrbitInclination);
+        }
+
+        [Fact]
+        public void TryApply_OrbitingWithoutTailOrTerminalOrbit_AppliesWithoutStampingOrbit()
+        {
+            var rec = MakeRecording("rec-orbit-empty", 42u, 100.0);
+            var cache = MakeCache("rec-orbit-empty", 42u, TerminalState.Orbiting, 160.0);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-orbit-empty"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.True(result.Applied);
+            Assert.Equal(0, result.AppendedSegmentCount);
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+            Assert.Equal(160.0, rec.ExplicitEndUT);
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Equal(0.0, rec.TerminalOrbitSemiMajorAxis);
+        }
+
         [Fact]
         public void TryApply_AppliesSurfaceMetadata()
         {
             var rec = MakeRecording("rec-surface", 42u, 100.0);
-            var terminalPosition = new SurfacePosition
-            {
-                body = "Kerbin",
-                latitude = 1.25,
-                longitude = -74.5,
-                altitude = 12.0,
-                rotation = Quaternion.identity,
-                rotationRecorded = true,
-                situation = SurfaceSituation.Landed
-            };
+            var terminalPosition = MakeSurfacePosition(SurfaceSituation.Landed, altitude: 12.0);
             var cache = MakeCache("rec-surface", 42u, TerminalState.Landed, 140.0);
             cache.TerminalPosition = terminalPosition;
             cache.TerrainHeightAtEnd = 8.5;
@@ -520,6 +586,119 @@ namespace Parsek.Tests
             Assert.Equal(8.5, rec.TerrainHeightAtEnd);
             Assert.Equal(RecordingEndpointPhase.TerminalPosition, rec.EndpointPhase);
             Assert.Equal("Kerbin", rec.EndpointBodyName);
+        }
+
+        [Fact]
+        public void TryApply_AppliesSplashedSurfaceMetadata()
+        {
+            var rec = MakeRecording("rec-splashed", 42u, 100.0);
+            var terminalPosition = MakeSurfacePosition(SurfaceSituation.Splashed, altitude: -0.25);
+            var cache = MakeCache("rec-splashed", 42u, TerminalState.Splashed, 140.0);
+            cache.TerminalPosition = terminalPosition;
+            cache.TerrainHeightAtEnd = -1.5;
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-splashed"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(TerminalState.Splashed, rec.TerminalStateValue);
+            Assert.True(rec.TerminalPosition.HasValue);
+            Assert.Equal(SurfaceSituation.Splashed, rec.TerminalPosition.Value.situation);
+            Assert.Equal(-0.25, rec.TerminalPosition.Value.altitude);
+            Assert.Equal(-1.5, rec.TerrainHeightAtEnd);
+            Assert.Equal(RecordingEndpointPhase.TerminalPosition, rec.EndpointPhase);
+            Assert.Equal("Kerbin", rec.EndpointBodyName);
+        }
+
+        [Fact]
+        public void TryApply_SurfaceStateWithoutCachePosition_PreservesExistingSurfaceMetadata()
+        {
+            var rec = MakeRecording("rec-surface-preserve", 42u, 100.0);
+            rec.TerminalPosition = MakeSurfacePosition(SurfaceSituation.Landed, altitude: 31.0);
+            rec.TerrainHeightAtEnd = 7.25;
+            var cache = MakeCache("rec-surface-preserve", 42u, TerminalState.Landed, 140.0);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-surface-preserve"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.True(rec.TerminalPosition.HasValue);
+            Assert.Equal(31.0, rec.TerminalPosition.Value.altitude);
+            Assert.Equal(7.25, rec.TerrainHeightAtEnd);
+            Assert.False(double.IsNaN(rec.TerrainHeightAtEnd));
+        }
+
+        [Fact]
+        public void TryApply_SurfaceStateWithoutCachePosition_ClearsMismatchedExistingSurfaceState()
+        {
+            var rec = MakeRecording("rec-surface-state-mismatch", 42u, 100.0);
+            rec.TerminalPosition = MakeSurfacePosition(SurfaceSituation.Splashed, altitude: -1.0);
+            rec.TerrainHeightAtEnd = -3.0;
+            var cache = MakeCache("rec-surface-state-mismatch", 42u, TerminalState.Landed, 140.0);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-surface-state-mismatch"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.False(rec.TerminalPosition.HasValue);
+            Assert.True(double.IsNaN(rec.TerrainHeightAtEnd));
+            Assert.NotEqual(RecordingEndpointPhase.TerminalPosition, rec.EndpointPhase);
+        }
+
+        [Fact]
+        public void TryApply_SurfaceStateWithoutCachePosition_ClearsMismatchedExistingSurfaceBody()
+        {
+            var rec = MakeRecording("rec-surface-body-mismatch", 42u, 100.0);
+            rec.TerminalPosition = MakeSurfacePosition(SurfaceSituation.Landed, altitude: 31.0);
+            rec.TerrainHeightAtEnd = 7.25;
+            var cache = MakeCache("rec-surface-body-mismatch", 42u, TerminalState.Landed, 140.0);
+            cache.TerminalBodyName = "Mun";
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-surface-body-mismatch"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.False(rec.TerminalPosition.HasValue);
+            Assert.True(double.IsNaN(rec.TerrainHeightAtEnd));
+            Assert.NotEqual(RecordingEndpointPhase.TerminalPosition, rec.EndpointPhase);
+        }
+
+        [Fact]
+        public void TryApply_SurfaceStateWithoutCachePosition_ClearsBodylessExistingSurfaceMetadata()
+        {
+            var rec = MakeRecording("rec-surface-bodyless", 42u, 100.0);
+            SurfacePosition terminalPosition = MakeSurfacePosition(SurfaceSituation.Landed, altitude: 31.0);
+            terminalPosition.body = null;
+            rec.TerminalPosition = terminalPosition;
+            rec.TerrainHeightAtEnd = 7.25;
+            var cache = MakeCache("rec-surface-bodyless", 42u, TerminalState.Landed, 140.0);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-surface-bodyless"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.False(rec.TerminalPosition.HasValue);
+            Assert.True(double.IsNaN(rec.TerrainHeightAtEnd));
+            Assert.NotEqual(RecordingEndpointPhase.TerminalPosition, rec.EndpointPhase);
         }
 
         private static Recording MakeRecording(string id, uint vesselPid, params double[] pointUTs)
@@ -588,6 +767,20 @@ namespace Parsek.Tests
                 meanAnomalyAtEpoch = 0.4,
                 epoch = startUT,
                 isPredicted = isPredicted
+            };
+        }
+
+        private static SurfacePosition MakeSurfacePosition(SurfaceSituation situation, double altitude)
+        {
+            return new SurfacePosition
+            {
+                body = "Kerbin",
+                latitude = 1.25,
+                longitude = -74.5,
+                altitude = altitude,
+                rotation = Quaternion.identity,
+                rotationRecorded = true,
+                situation = situation
             };
         }
 
