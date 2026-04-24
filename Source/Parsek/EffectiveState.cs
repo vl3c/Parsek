@@ -175,7 +175,15 @@ namespace Parsek
                     $"(tip={(ReferenceEquals(terminalRec, rec) ? "self" : terminalRec.RecordingId ?? "<no-id>")})");
                 return false;
             }
-            if (string.IsNullOrEmpty(rec.ParentBranchPointId))
+            // Accept either the branch-parent link (`ParentBranchPointId`
+            // for the split's new children) or the branch-child link
+            // (`ChildBranchPointId` for the surviving active parent).
+            // Breakup RPs include the active parent as a controllable
+            // output, so it must be able to resolve to the RP too when it
+            // later crashes.
+            string parentBpId = rec.ParentBranchPointId;
+            string childBpId = rec.ChildBranchPointId;
+            if (string.IsNullOrEmpty(parentBpId) && string.IsNullOrEmpty(childBpId))
             {
                 ParsekLog.Verbose("UnfinishedFlights",
                     $"IsUnfinishedFlight=false rec={recId} reason=noParentBp");
@@ -194,25 +202,32 @@ namespace Parsek
                 return false;
             }
 
-            string bpId = rec.ParentBranchPointId;
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var rp = scenario.RewindPoints[i];
                 if (rp == null) continue;
-                if (string.Equals(rp.BranchPointId, bpId, StringComparison.Ordinal))
+                bool matchesParent = !string.IsNullOrEmpty(parentBpId)
+                    && string.Equals(rp.BranchPointId, parentBpId, StringComparison.Ordinal);
+                bool matchesChild = !string.IsNullOrEmpty(childBpId)
+                    && string.Equals(rp.BranchPointId, childBpId, StringComparison.Ordinal);
+                if (matchesParent || matchesChild)
                 {
                     // The parent BP has an RP — and RewindPoint existence IS the
                     // design §5.4 "BranchPoint.RewindPointId != null" check,
                     // since BranchPoint.RewindPointId is backfilled from the
                     // persisted RewindPoint list.
+                    string matchedBp = matchesParent ? parentBpId : childBpId;
+                    string side = matchesParent ? "parent" : "active-parent-child";
                     ParsekLog.Verbose("UnfinishedFlights",
-                        $"IsUnfinishedFlight=true rec={recId} bp={bpId} rp={rp.RewindPointId}");
+                        $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} rp={rp.RewindPointId}");
                     return true;
                 }
             }
 
             ParsekLog.Verbose("UnfinishedFlights",
-                $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP bp={bpId} rpCount={scenario.RewindPoints.Count}");
+                $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP " +
+                $"parentBp={parentBpId ?? "<none>"} childBp={childBpId ?? "<none>"} " +
+                $"rpCount={scenario.RewindPoints.Count}");
             return false;
         }
 

@@ -2601,7 +2601,12 @@ namespace Parsek
             if (rec.MergeState != MergeState.Immutable
                 && rec.MergeState != MergeState.CommittedProvisional)
                 return false;
-            if (string.IsNullOrEmpty(rec.ParentBranchPointId)) return false;
+            // Accept either branch link: `ParentBranchPointId` (break child)
+            // or `ChildBranchPointId` (surviving active parent of a breakup,
+            // which is also a controllable output of the split).
+            if (string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
             var terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
             return EffectiveState.IsTerminalCrashed(terminalRec);
         }
@@ -2645,19 +2650,34 @@ namespace Parsek
         {
             rp = null;
             slotListIndex = -1;
-            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId))
+            if (rec == null) return false;
+
+            // A breakup RP includes BOTH the surviving active parent AND each
+            // break child as controllable outputs (see
+            // `ParsekFlight.TryAuthorRewindPointForBreakup`). The children
+            // reference the branch via `ParentBranchPointId`; the active
+            // parent references the same branch via `ChildBranchPointId`
+            // (it's the split they produced, not the split they came from).
+            // Accept either side so the active parent's row can resolve to
+            // the RP when it later ends up an Unfinished Flight.
+            string parentBp = rec.ParentBranchPointId;
+            string childBp = rec.ChildBranchPointId;
+            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
                 return false;
 
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
                 return false;
 
-            string bpId = rec.ParentBranchPointId;
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var candidate = scenario.RewindPoints[i];
                 if (candidate == null) continue;
-                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
+                bool matchesParent = !string.IsNullOrEmpty(parentBp)
+                    && string.Equals(candidate.BranchPointId, parentBp, StringComparison.Ordinal);
+                bool matchesChild = !string.IsNullOrEmpty(childBp)
+                    && string.Equals(candidate.BranchPointId, childBp, StringComparison.Ordinal);
+                if (!matchesParent && !matchesChild)
                     continue;
 
                 int resolved = ResolveSlotListIndexForRecording(candidate, rec);

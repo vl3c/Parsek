@@ -92,6 +92,108 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ConsumePostLoad_DeferredTempPath_PropagatesThroughSeam()
+        {
+            // Review item: the deferred rewind timeout branch must receive
+            // the temp quicksave path so it can clean up on flight-ready
+            // wait timeout / action failure. Without this, a catastrophic
+            // scene-load that never fires onFlightReady would leak the
+            // root-level Parsek_Rewind_*.sfs copy and violate the
+            // ConsumePostLoad cleanup contract.
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            const string stagedTempPath = @"C:\saves\s19\Parsek_Rewind_sess_xyz.sfs";
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess_temp";
+            RewindInvokeContext.RewindPoint = rp;
+            RewindInvokeContext.Selected = slot;
+            RewindInvokeContext.CapturedBundle = default(ReconciliationBundle);
+            RewindInvokeContext.HasCapturedBundle = false;
+            RewindInvokeContext.TempQuicksavePath = stagedTempPath;
+
+            RewindInvoker.FlightReadyProbeOverrideForTesting = () => false;
+            string sawTempPath = null;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = (a, path) => sawTempPath = path;
+
+            RewindInvoker.ConsumePostLoad();
+
+            Assert.Equal(stagedTempPath, sawTempPath);
+        }
+
+        [Fact]
+        public void ConsumePostLoad_StartInvokeGatePreventsStaleContext_PinnedBySourceInspection()
+        {
+            // Review item: StartInvoke must re-run CanInvoke so a stale
+            // confirmation dialog / retry path / direct caller can't bypass
+            // the safety gates (corrupted RP, missing parts, active session,
+            // scene transition). Pin via source inspection because StartInvoke
+            // touches KSP runtime (scene load, FlightDriver) and isn't
+            // exercisable headless.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string invokerSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+
+            int startInvokeStart = invokerSrc.IndexOf(
+                "internal static void StartInvoke(", StringComparison.Ordinal);
+            Assert.True(startInvokeStart >= 0, "StartInvoke must exist");
+
+            // Find the body start (first `{`) and a reasonable end bound (the
+            // `string sessionId = \"sess_\"` line where the function body kicks
+            // off concrete work).
+            int bodyStart = invokerSrc.IndexOf('{', startInvokeStart);
+            int sessionIdAssign = invokerSrc.IndexOf(
+                "string sessionId = \"sess_\"", bodyStart, StringComparison.Ordinal);
+            Assert.True(sessionIdAssign > bodyStart,
+                "StartInvoke body must include the sessionId assignment");
+
+            string prelude = invokerSrc.Substring(bodyStart, sessionIdAssign - bodyStart);
+
+            Assert.Contains("CanInvoke(rp, out", prelude);
+            Assert.Contains("precondition failed after dialog confirm", prelude);
+        }
+
+        [Fact]
+        public void ConsumePostLoad_PreFlightReadyWindow_CleansOnCatastrophicTimeout_PinnedBySourceInspection()
+        {
+            // Review item: deferring Strip+Activate+Marker leaves a static-only
+            // pending window between Reconcile (runs in OnLoad) and the
+            // actual durable marker+provisional write (runs when
+            // FlightGlobals becomes ready). If KSP crashes / autosaves /
+            // never fires onFlightReady in that window, the temp quicksave
+            // and RewindInvokeContext must still be cleaned up. Pin the
+            // timeout-cleanup contract via source inspection so a future
+            // refactor that forgets `TryDeleteTemp` on the timeout branch
+            // fails the test rather than leaking silently.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string invokerSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+
+            int coroutineStart = invokerSrc.IndexOf(
+                "WaitForFlightReadyAndInvoke(Action action, string tempPath)",
+                StringComparison.Ordinal);
+            Assert.True(coroutineStart >= 0,
+                "WaitForFlightReadyAndInvoke must carry tempPath for cleanup");
+
+            // The timeout branch must call TryDeleteTemp(tempPath) before
+            // clearing the context so the temp file doesn't leak on crash.
+            int timeoutBranch = invokerSrc.IndexOf(
+                "timed out after", coroutineStart, StringComparison.Ordinal);
+            Assert.True(timeoutBranch > coroutineStart, "Timeout branch must exist");
+
+            int timeoutEnd = invokerSrc.IndexOf("yield break", timeoutBranch, StringComparison.Ordinal);
+            Assert.True(timeoutEnd > timeoutBranch);
+
+            string timeoutBody = invokerSrc.Substring(timeoutBranch, timeoutEnd - timeoutBranch);
+            Assert.Contains("TryDeleteTemp(tempPath)", timeoutBody);
+            Assert.Contains("RewindInvokeContext.Clear()", timeoutBody);
+        }
+
+        [Fact]
         public void ConsumePostLoad_FlightReady_RunsStripSynchronously()
         {
             // When FlightGlobals is populated (synchronous reload, or deferred

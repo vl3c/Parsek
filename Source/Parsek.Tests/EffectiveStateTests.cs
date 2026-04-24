@@ -468,6 +468,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsUnfinishedFlight_ActiveParentOfBreakup_WithChildBranchPointId_True()
+        {
+            // Review item: breakup RP creation includes the surviving active
+            // parent as a controllable output (ParsekFlight.TryAuthorRewindPointForBreakup).
+            // The active parent references the branch via ChildBranchPointId
+            // (not ParentBranchPointId). Without accepting ChildBranchPointId,
+            // if the active-parent side later crashes, its row cannot resolve
+            // to the RP and never appears as an Unfinished Flight.
+            var bp = new BranchPoint { Id = "bp_breakup", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_break",
+                TreeName = "Kerbal X",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            var activeParent = new Recording
+            {
+                RecordingId = "rec_active_parent",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = null,          // no parent link
+                ChildBranchPointId = "bp_breakup",   // links as the branch parent
+                TreeId = "tree_break"
+            };
+            tree.AddOrReplaceRecording(activeParent);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_breakup",
+                BranchPointId = "bp_breakup",
+                SessionProvisional = false
+            };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(activeParent));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("IsUnfinishedFlight=true")
+                && l.Contains("rec_active_parent")
+                && l.Contains("side=active-parent-child"));
+        }
+
+        [Fact]
         public void IsChainMemberOfUnfinishedFlight_ChainHeadStable_DoesNotTrip()
         {
             // Chain head with safe-terminal tip: NOT an unfinished flight,

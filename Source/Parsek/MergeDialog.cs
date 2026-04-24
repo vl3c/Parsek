@@ -275,6 +275,95 @@ namespace Parsek
                 return ReFlyMergeCommitResult.Interrupted;
             }
 
+            // `RewindInvoker.AtomicMarkerWrite` added a placeholder provisional
+            // with only metadata (no trajectory) and pointed the marker at it.
+            // Normal flight recording creates its OWN recording(s) in the
+            // restored tree with fresh ids — the placeholder never receives
+            // the re-fly's actual trajectory. If we let the journal merge
+            // use the placeholder, the supersede relation would read
+            // `origin -> <metadata-only>` and the player's actual re-flight
+            // would not be linked to the origin slot.
+            //
+            // Redirect to the live re-fly recording when the placeholder is
+            // empty. Match criteria (all must hold, keep conservative):
+            //   - Same TreeId as the placeholder (so we stay inside the
+            //     origin's tree that TryRestoreActiveTreeNode re-committed).
+            //   - Same VesselPersistentId as the placeholder (the selected
+            //     slot's vessel, which Strip+Activate focused just before
+            //     AtomicMarkerWrite).
+            //   - Non-empty trajectory (this is the whole point).
+            //   - MergeState is NotCommitted or CommittedProvisional —
+            //     i.e. it was part of the just-committed tree, not an
+            //     unrelated Immutable pre-rewind recording.
+            //   - Not the placeholder itself.
+            // If zero or multiple candidates match, fall through with the
+            // placeholder and log so the edge case stays diagnosable.
+            if (provisional.Points == null || provisional.Points.Count == 0)
+            {
+                Recording redirected = null;
+                int matches = 0;
+                var committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        var cand = committed[i];
+                        if (cand == null) continue;
+                        if (ReferenceEquals(cand, provisional)) continue;
+                        if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
+                            continue;
+                        if (cand.VesselPersistentId != provisional.VesselPersistentId)
+                            continue;
+                        if (cand.Points == null || cand.Points.Count == 0) continue;
+                        if (cand.MergeState != MergeState.NotCommitted
+                            && cand.MergeState != MergeState.CommittedProvisional)
+                            continue;
+                        matches++;
+                        redirected = cand;
+                    }
+                }
+
+                if (matches == 1 && redirected != null)
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: placeholder provisional {provisionalId} " +
+                        $"has no trajectory; redirecting merge target to live re-fly " +
+                        $"recording={redirected.RecordingId} points={redirected.Points.Count} " +
+                        $"pid={redirected.VesselPersistentId} tree={redirected.TreeId ?? "<none>"}");
+                    // Preserve the placeholder's supersede lineage metadata on
+                    // the live recording so the journal's FlipMergeStateAndClearTransient
+                    // walk finds the right hooks.
+                    if (string.IsNullOrEmpty(redirected.SupersedeTargetId))
+                        redirected.SupersedeTargetId = provisional.SupersedeTargetId;
+                    if (string.IsNullOrEmpty(redirected.CreatingSessionId))
+                        redirected.CreatingSessionId = provisional.CreatingSessionId;
+                    if (string.IsNullOrEmpty(redirected.ProvisionalForRpId))
+                        redirected.ProvisionalForRpId = provisional.ProvisionalForRpId;
+
+                    // Drop the now-stale placeholder so it doesn't appear in
+                    // the timeline as a zero-point recording.
+                    RecordingStore.RemoveCommittedInternal(provisional);
+                    provisional = redirected;
+                }
+                else if (matches > 1)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"TryCommitReFlySupersede: placeholder {provisionalId} has no trajectory, " +
+                        $"but {matches} candidate live re-fly recordings match " +
+                        $"(tree={provisional.TreeId ?? "<none>"} pid={provisional.VesselPersistentId}); " +
+                        "cannot redirect unambiguously, falling through with placeholder");
+                }
+                else
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"TryCommitReFlySupersede: placeholder {provisionalId} has no trajectory " +
+                        $"and no live re-fly recording matches (tree={provisional.TreeId ?? "<none>"} " +
+                        $"pid={provisional.VesselPersistentId}); supersede relation will point at " +
+                        "metadata-only placeholder — playback of the superseded slot will show " +
+                        "the pre-rewind trajectory with no re-fly continuation");
+                }
+            }
+
             ParsekLog.Info("MergeDialog",
                 $"TryCommitReFlySupersede: invoking MergeJournalOrchestrator for " +
                 $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId} " +

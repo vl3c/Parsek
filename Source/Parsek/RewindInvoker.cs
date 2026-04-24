@@ -229,6 +229,27 @@ namespace Parsek
                 return;
             }
 
+            // Re-run the full precondition gate. The confirmation dialog
+            // called `CanInvoke` when it was opened, but preconditions can
+            // change between dialog-open and confirm-click (scene transition
+            // starts, another session activates, RP gets marked corrupted
+            // by load-time sweep, part loader fails on a modded craft, etc.).
+            // Without this second check, a stale confirmation can bypass
+            // every safety gate and leave the RewindInvokeContext half-set
+            // on top of invalid state. Tests cover each individual gate via
+            // `CanInvoke`; this call is the integration point.
+            if (!CanInvoke(rp, out string canInvokeReason))
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"StartInvoke: precondition failed after dialog confirm — {canInvokeReason} " +
+                    $"(rp={rp.RewindPointId}, slot={selected.SlotIndex})");
+                ShowUserError(
+                    string.IsNullOrEmpty(canInvokeReason)
+                        ? "Rewind failed: precondition check failed"
+                        : $"Rewind failed: {canInvokeReason}");
+                return;
+            }
+
             string sessionId = "sess_" + Guid.NewGuid().ToString("N");
             ParsekLog.Info(InvokeTag,
                 $"StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
@@ -513,9 +534,21 @@ namespace Parsek
                 }
 
                 // Step 5: post-atomic ledger recalc.
+                // Pass `double.MaxValue` as the cutoff so every action in
+                // the reconciled ledger applies, and — critically — so
+                // `bypassPatchDeferral` flips true inside `RecalculateAndPatch`.
+                // Without that bypass, `LedgerOrchestrator` skips tech-tree
+                // patching when no cutoff is supplied, and the live KSP R&D
+                // state stays at the OLD RP quicksave's pre-rewind tech set.
+                // Tech unlocks made after the RP would silently disappear,
+                // violating the design's "career state sticks" rule (§2.3
+                // of the rewind-staging design doc). `double.MaxValue`
+                // means "no time filter" — the full ledger walks and every
+                // tech unlock re-applies to KSP's R&D after the quicksave's
+                // old state overwrote it.
                 try
                 {
-                    LedgerOrchestrator.RecalculateAndPatch();
+                    LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
                 }
                 catch (Exception ex)
                 {
