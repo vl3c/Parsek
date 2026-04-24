@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using HarmonyLib;
+using KSP.UI.Screens;
 
 namespace Parsek
 {
@@ -29,7 +31,25 @@ namespace Parsek
         {
             None = 0,
             Segment = 1,
-            TerminalOrbit = 2
+            TerminalOrbit = 2,
+            StateVector = 3
+        }
+
+        internal struct TrackingStationSpawnHandoffState
+        {
+            internal readonly uint GhostPid;
+            internal readonly bool WasNavigationTarget;
+            internal readonly bool WasMapFocus;
+
+            internal TrackingStationSpawnHandoffState(
+                uint ghostPid,
+                bool wasNavigationTarget,
+                bool wasMapFocus)
+            {
+                GhostPid = ghostPid;
+                WasNavigationTarget = wasNavigationTarget;
+                WasMapFocus = wasMapFocus;
+            }
         }
 
         private const string Tag = "GhostMap";
@@ -38,11 +58,17 @@ namespace Parsek
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
+        internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
+        internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
+        internal const double StateVectorCreateAltitude = 1500;   // meters (airless bodies only)
+        internal const double StateVectorCreateSpeed = 60;        // m/s
+        internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
+        internal const double StateVectorRemoveSpeed = 30;        // m/s
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         internal struct GhostProtoOrbitSeedDiagnostics
@@ -60,6 +86,7 @@ namespace Parsek
             private readonly Dictionary<string, string> firstDetailByKey = new Dictionary<string, string>();
             private int segmentCount;
             private int terminalCount;
+            private int stateVectorCount;
             private int skippedCount;
 
             internal TrackingStationGhostSourceBatch(string context)
@@ -79,6 +106,8 @@ namespace Parsek
                     segmentCount++;
                 else if (source == TrackingStationGhostSource.TerminalOrbit)
                     terminalCount++;
+                else if (source == TrackingStationGhostSource.StateVector)
+                    stateVectorCount++;
                 else
                     skippedCount++;
 
@@ -119,8 +148,8 @@ namespace Parsek
                     "ts-orbit-source-summary-" + context,
                     string.Format(ic,
                         "Tracking-station orbit-source summary: context={0} action={1} recordings={2} " +
-                        "created={3} alreadyTracked={4} sources(visibleSegment={5} terminalOrbit={6}) " +
-                        "skipped={7} skipCounts={8}",
+                        "created={3} alreadyTracked={4} sources(visibleSegment={5} terminalOrbit={6} stateVector={7}) " +
+                        "skipped={8} skipCounts={9}",
                         context,
                         action ?? "(null)",
                         recordingCount,
@@ -128,6 +157,7 @@ namespace Parsek
                         alreadyTracked,
                         segmentCount,
                         terminalCount,
+                        stateVectorCount,
                         skippedCount,
                         FormatTrackingStationGhostSourceCounts()),
                     10.0);
@@ -185,6 +215,19 @@ namespace Parsek
         /// Kept in sync with vesselsByRecordingIndex to make FindRecordingIndexByVesselPid O(1).
         /// </summary>
         private static readonly Dictionary<uint, int> vesselPidToRecordingIndex = new Dictionary<uint, int>();
+
+        private static readonly Dictionary<int, IPlaybackTrajectory> trackingStationStateVectorOrbitTrajectories =
+            new Dictionary<int, IPlaybackTrajectory>();
+
+        private static readonly Dictionary<int, int> trackingStationStateVectorCachedIndices =
+            new Dictionary<int, int>();
+
+        /// <summary>
+        /// Stable reverse lookup: ghost vessel PID -> recording ID.
+        /// Selection actions use this instead of the raw index because the committed
+        /// list can be reordered while a Tracking Station ghost remains selected.
+        /// </summary>
+        private static readonly Dictionary<uint, string> vesselPidToRecordingId = new Dictionary<uint, string>();
 
         /// <summary>
         /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
@@ -245,6 +288,8 @@ namespace Parsek
                     return "visible-segment";
                 case TrackingStationGhostSource.TerminalOrbit:
                     return "terminal-orbit";
+                case TrackingStationGhostSource.StateVector:
+                    return "state-vector";
                 default:
                     return "none";
             }
@@ -540,6 +585,259 @@ namespace Parsek
             return wasTarget;
         }
 
+        internal static bool ShouldTransferTrackingStationNavigationTarget(
+            uint ghostPid,
+            uint currentTargetPid)
+        {
+            return ghostPid != 0
+                && currentTargetPid != 0
+                && ghostPid == currentTargetPid;
+        }
+
+        internal static bool ShouldTransferTrackingStationMapFocus(
+            bool mapViewEnabled,
+            bool hasGhostMapObject,
+            bool mapCameraAlreadyFocusedGhost)
+        {
+            return mapViewEnabled
+                && hasGhostMapObject
+                && mapCameraAlreadyFocusedGhost;
+        }
+
+        internal static bool IsTrackingStationMapFocusSceneActive(
+            bool mapViewEnabled,
+            bool isTrackingStationScene)
+        {
+            return mapViewEnabled || isTrackingStationScene;
+        }
+
+        private static TrackingStationSpawnHandoffState CaptureTrackingStationSpawnHandoffState(
+            int recordingIndex)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel ghostVessel)
+                || ghostVessel == null)
+            {
+                return default(TrackingStationSpawnHandoffState);
+            }
+
+            Vessel currentTargetVessel = FlightGlobals.fetch != null
+                && FlightGlobals.fetch.VesselTarget != null
+                    ? FlightGlobals.fetch.VesselTarget.GetVessel()
+                    : null;
+
+            bool wasNavigationTarget = ShouldTransferTrackingStationNavigationTarget(
+                ghostVessel.persistentId,
+                currentTargetVessel != null ? currentTargetVessel.persistentId : 0u);
+            bool wasMapFocus = ShouldTransferTrackingStationMapFocus(
+                IsTrackingStationMapFocusSceneActive(
+                    MapView.MapIsEnabled,
+                    HighLogic.LoadedScene == GameScenes.TRACKSTATION),
+                ghostVessel.mapObject != null,
+                PlanetariumCamera.fetch != null
+                    && ReferenceEquals(PlanetariumCamera.fetch.target, ghostVessel.mapObject));
+
+            return new TrackingStationSpawnHandoffState(
+                ghostVessel.persistentId,
+                wasNavigationTarget,
+                wasMapFocus);
+        }
+
+        private static void RestoreTrackingStationSpawnHandoffState(
+            uint spawnedPid,
+            TrackingStationSpawnHandoffState handoffState,
+            string reason,
+            bool reselectSpawnedVessel)
+        {
+            if (spawnedPid == 0
+                || (!reselectSpawnedVessel
+                    && !handoffState.WasNavigationTarget
+                    && !handoffState.WasMapFocus))
+            {
+                return;
+            }
+
+            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+            if (spawned == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore focus/target for ghostPid={0} spawnedPid={1} reason={2} (spawned vessel not found)",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+                return;
+            }
+
+            if (reselectSpawnedVessel)
+                RestoreTrackingStationSelectedVessel(spawned, reason);
+
+            if (handoffState.WasNavigationTarget && FlightGlobals.fetch != null)
+            {
+                FlightGlobals.fetch.SetVesselTarget(spawned);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored nav target from ghostPid={0} to spawnedPid={1} reason={2}",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+            }
+
+            if (!handoffState.WasMapFocus)
+                return;
+
+            if (IsTrackingStationMapFocusSceneActive(
+                    MapView.MapIsEnabled,
+                    HighLogic.LoadedScene == GameScenes.TRACKSTATION)
+                && PlanetariumCamera.fetch != null
+                && spawned.mapObject != null)
+            {
+                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} reason={2}",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+                return;
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(ic,
+                    "Tracking-station handoff could not restore map focus for ghostPid={0} spawnedPid={1} reason={2} mapView={3} camera={4} mapObject={5}",
+                    handoffState.GhostPid,
+                    spawnedPid,
+                    reason,
+                    MapView.MapIsEnabled,
+                    PlanetariumCamera.fetch != null,
+                    spawned.mapObject != null));
+        }
+
+        internal static bool TrySelectTrackingStationVessel(
+            object trackingInstance,
+            object vesselSelection,
+            out string error)
+        {
+            error = null;
+
+            if (trackingInstance == null || vesselSelection == null)
+                return false;
+
+            try
+            {
+                MethodInfo setVesselMethod = FindTrackingStationSetVesselMethod(
+                    trackingInstance.GetType(),
+                    vesselSelection.GetType());
+                if (setVesselMethod != null)
+                {
+                    setVesselMethod.Invoke(trackingInstance, new[] { vesselSelection });
+                    return true;
+                }
+
+                FieldInfo selectedField = trackingInstance.GetType().GetField(
+                    "selectedVessel",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (selectedField == null)
+                {
+                    error = "selectedVessel field and SetVessel method not found";
+                    return false;
+                }
+
+                selectedField.SetValue(trackingInstance, vesselSelection);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.GetType().Name + ": " + ex.Message;
+                return false;
+            }
+        }
+
+        internal static bool IsTrackingStationRecordingAlreadyMaterialized(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            bool realVesselExists = false;
+            if (rec.VesselPersistentId != 0)
+            {
+                try
+                {
+                    realVesselExists = GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                }
+                catch (Exception)
+                {
+                    realVesselExists = false;
+                }
+            }
+
+            return ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
+        }
+
+        private static MethodInfo FindTrackingStationSetVesselMethod(
+            Type trackingType,
+            Type selectionType)
+        {
+            if (trackingType == null || selectionType == null)
+                return null;
+
+            MethodInfo[] methods = trackingType.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.Name != "SetVessel")
+                    continue;
+
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length != 1)
+                    continue;
+
+                if (parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                    return method;
+            }
+
+            return null;
+        }
+
+        private static void RestoreTrackingStationSelectedVessel(
+            Vessel spawned,
+            string reason)
+        {
+            if (spawned == null)
+                return;
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore selected vessel for spawnedPid={0} reason={1} (SpaceTracking instance not found)",
+                        spawned.persistentId,
+                        reason));
+                return;
+            }
+
+            if (TrySelectTrackingStationVessel(tracking, spawned, out string error))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored selected vessel to spawnedPid={0} reason={1}",
+                        spawned.persistentId,
+                        reason));
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore selected vessel for spawnedPid={0} reason={1}: {2}",
+                        spawned.persistentId,
+                        reason,
+                        error));
+            }
+        }
+
         /// <summary>
         /// Remove all ghost vessels (rewind or scene cleanup).
         /// </summary>
@@ -582,6 +880,9 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
+            trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationStateVectorCachedIndices.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -618,10 +919,7 @@ namespace Parsek
             string logContext = string.Format(ic, "recording index={0}", recordingIndex);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
             if (vessel != null)
-            {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
-            }
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
 
             return vessel;
         }
@@ -651,8 +949,7 @@ namespace Parsek
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
             if (vessel != null)
             {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
                 ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
             }
 
@@ -682,7 +979,10 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
+            vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
+            trackingStationStateVectorOrbitTrajectories.Remove(recordingIndex);
+            trackingStationStateVectorCachedIndices.Remove(recordingIndex);
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -712,6 +1012,484 @@ namespace Parsek
         /// </summary>
         internal static HashSet<string> CachedTrackingStationSuppressedIds { get; private set; }
             = new HashSet<string>();
+
+        internal static bool IsTerminalStateEligibleForMapPresence(TerminalState? terminal)
+        {
+            return !terminal.HasValue
+                || terminal.Value == TerminalState.Orbiting
+                || terminal.Value == TerminalState.Docked
+                || terminal.Value == TerminalState.SubOrbital;
+        }
+
+        private static bool IsTerminalStateEligibleForTerminalOrbitMapPresence(TerminalState? terminal)
+        {
+            return !terminal.HasValue
+                || terminal.Value == TerminalState.Orbiting
+                || terminal.Value == TerminalState.Docked;
+        }
+
+        internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            double minAltitude = atmosphereDepth > 0 ? atmosphereDepth : StateVectorCreateAltitude;
+            return altitude > minAltitude && speed > StateVectorCreateSpeed;
+        }
+
+        internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            if (atmosphereDepth > 0 && altitude < atmosphereDepth)
+                return true;
+            return altitude < StateVectorRemoveAltitude || speed < StateVectorRemoveSpeed;
+        }
+
+        internal static double GetAtmosphereDepth(string bodyName)
+        {
+            try
+            {
+                var bodies = FlightGlobals.Bodies;
+                if (bodies == null) return 0;
+                for (int i = 0; i < bodies.Count; i++)
+                {
+                    if (bodies[i].name == bodyName && bodies[i].atmosphere)
+                        return bodies[i].atmosphereDepth;
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "GetAtmosphereDepth: FlightGlobals unavailable for body={0} ({1}) — using 0",
+                        bodyName ?? "(null)",
+                        ex.GetType().Name));
+            }
+            return 0;
+        }
+
+        internal static bool IsInRelativeFrame(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            return sectionIdx >= 0
+                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
+        }
+
+        internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
+        {
+            if (!traj.HasOrbitSegments)
+                return false;
+            if (traj.Points == null || traj.Points.Count == 0)
+                return true;
+            return TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, ut) != null;
+        }
+
+        internal static bool IsTrackingStationRecordingMaterialized(
+            Recording rec, bool realVesselExists)
+        {
+            return rec != null
+                && (rec.VesselSpawned
+                    || rec.SpawnedVesselPersistentId != 0
+                    || (rec.VesselPersistentId != 0 && realVesselExists));
+        }
+
+        internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
+            IPlaybackTrajectory traj,
+            bool isSuppressed,
+            bool alreadyMaterialized,
+            double currentUT,
+            bool allowTerminalOrbitFallback,
+            string logOperationName,
+            ref int stateVectorCachedIndex,
+            out OrbitSegment segment,
+            out TrajectoryPoint stateVectorPoint,
+            out string skipReason)
+        {
+            segment = default(OrbitSegment);
+            stateVectorPoint = default(TrajectoryPoint);
+            skipReason = null;
+            string recId = traj?.RecordingId ?? "(null)";
+
+            TrackingStationGhostSource ReturnDecision(
+                TrackingStationGhostSource source,
+                string reason,
+                string detail = null)
+            {
+                if (!string.IsNullOrEmpty(logOperationName))
+                {
+                    ParsekLog.VerboseRateLimited(
+                        Tag,
+                        string.Format(ic,
+                            "map-ghost-source-{0}-{1}-{2}-{3}",
+                            logOperationName,
+                            recId,
+                            source,
+                            reason ?? "none"),
+                        string.Format(ic,
+                            "{0}: rec={1} currentUT={2:F1} source={3} reason={4}{5}",
+                            logOperationName,
+                            recId,
+                            currentUT,
+                            source,
+                            reason ?? "(none)",
+                            string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+                }
+                return source;
+            }
+
+            if (traj == null)
+            {
+                skipReason = "null";
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "null trajectory");
+            }
+
+            if (traj.IsDebris)
+            {
+                skipReason = "debris";
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
+            }
+
+            if (isSuppressed)
+            {
+                skipReason = TrackingStationGhostSkipSuppressed;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuppressed=True");
+            }
+
+            if (alreadyMaterialized)
+            {
+                skipReason = TrackingStationGhostSkipAlreadySpawned;
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already materialized");
+            }
+
+            var terminal = traj.TerminalStateValue;
+            if (!IsTerminalStateEligibleForMapPresence(terminal))
+            {
+                skipReason = "terminal-" + terminal.Value;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "terminal={0}", terminal.Value));
+            }
+
+            if (traj.HasOrbitSegments)
+            {
+                OrbitSegment? currentSegment =
+                    TrajectoryMath.FindOrbitSegmentForMapDisplay(traj.OrbitSegments, currentUT);
+                if (currentSegment.HasValue)
+                {
+                    segment = currentSegment.Value;
+                    return ReturnDecision(
+                        TrackingStationGhostSource.Segment,
+                        skipReason,
+                        string.Format(ic,
+                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                            segment.bodyName ?? "(null)",
+                            segment.startUT,
+                            segment.endUT));
+                }
+            }
+
+            string stateVectorSkipReason = null;
+            if (!traj.HasOrbitSegments)
+            {
+                if (TryResolveStateVectorMapPoint(
+                    traj,
+                    currentUT,
+                    ref stateVectorCachedIndex,
+                    out stateVectorPoint,
+                    out stateVectorSkipReason))
+                {
+                    return ReturnDecision(
+                        TrackingStationGhostSource.StateVector,
+                        skipReason,
+                        string.Format(ic,
+                            "stateVectorBody={0} alt={1:F0} speed={2:F1}",
+                            stateVectorPoint.bodyName ?? "(null)",
+                            stateVectorPoint.altitude,
+                            stateVectorPoint.velocity.magnitude));
+                }
+            }
+
+            if (!allowTerminalOrbitFallback)
+            {
+                skipReason = traj.HasOrbitSegments
+                    ? "no-current-segment"
+                    : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments));
+            }
+
+            if (!HasOrbitData(traj))
+            {
+                skipReason = traj.HasOrbitSegments
+                    ? "no-current-segment"
+                    : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments));
+            }
+
+            if (!IsTerminalStateEligibleForTerminalOrbitMapPresence(terminal))
+            {
+                skipReason = "terminal-" + terminal.Value;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "terminal={0} terminalOrbitFallback=True", terminal.Value));
+            }
+
+            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+            if (currentUT < activationStartUT)
+            {
+                skipReason = "before-activation";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
+            }
+
+            if (currentUT < traj.EndUT)
+            {
+                skipReason = "before-terminal-orbit";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic, "endUT={0:F1}", traj.EndUT));
+            }
+
+            if (!TryResolveGhostProtoOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out string seedBodyName,
+                out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
+            {
+                skipReason = seedDiagnostics.FailureReason == TrackingStationGhostSkipEndpointConflict
+                    ? TrackingStationGhostSkipEndpointConflict
+                    : TrackingStationGhostSkipUnseedableTerminalOrbit;
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    string.Format(ic,
+                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
+                        traj.TerminalOrbitBody ?? "(null)",
+                        traj.EndUT,
+                        seedDiagnostics.FailureReason ?? "(none)",
+                        seedDiagnostics.EndpointBodyName ?? "(none)"));
+            }
+
+            return ReturnDecision(
+                TrackingStationGhostSource.TerminalOrbit,
+                skipReason,
+                string.Format(ic,
+                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
+                    traj.TerminalOrbitBody ?? "(null)",
+                    traj.EndUT,
+                    seedBodyName ?? "(null)",
+                    seedDiagnostics.Source ?? "(none)",
+                    seedDiagnostics.EndpointBodyName ?? "(none)",
+                    seedDiagnostics.FallbackReason ?? "(none)"));
+        }
+
+        private static string BuildTrackingStationGhostSourceDetail(
+            Recording rec,
+            double currentUT,
+            TrackingStationGhostSource source,
+            string skipReason,
+            OrbitSegment segment,
+            TrajectoryPoint stateVectorPoint)
+        {
+            if (rec == null)
+                return "null recording";
+
+            switch (source)
+            {
+                case TrackingStationGhostSource.Segment:
+                    return string.Format(ic,
+                        "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                        segment.bodyName ?? "(null)",
+                        segment.startUT,
+                        segment.endUT);
+
+                case TrackingStationGhostSource.StateVector:
+                    return string.Format(ic,
+                        "stateVectorBody={0} alt={1:F0} speed={2:F1}",
+                        stateVectorPoint.bodyName ?? "(null)",
+                        stateVectorPoint.altitude,
+                        stateVectorPoint.velocity.magnitude);
+
+                case TrackingStationGhostSource.TerminalOrbit:
+                    if (TryResolveGhostProtoOrbitSeed(
+                        rec,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out string seedBodyName,
+                        out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
+                    {
+                        return string.Format(ic,
+                            "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
+                            rec.TerminalOrbitBody ?? "(null)",
+                            rec.EndUT,
+                            seedBodyName ?? "(null)",
+                            seedDiagnostics.Source ?? "(none)",
+                            seedDiagnostics.EndpointBodyName ?? "(none)",
+                            seedDiagnostics.FallbackReason ?? "(none)");
+                    }
+                    break;
+            }
+
+            switch (skipReason)
+            {
+                case "debris":
+                    return "isDebris=True";
+                case TrackingStationGhostSkipSuppressed:
+                    return "isSuppressed=True";
+                case TrackingStationGhostSkipAlreadySpawned:
+                    return "already materialized";
+                case "before-activation":
+                    return string.Format(ic, "activationStartUT={0:F1}",
+                        PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec));
+                case "before-terminal-orbit":
+                    return string.Format(ic, "endUT={0:F1}", rec.EndUT);
+                case TrackingStationGhostSkipEndpointConflict:
+                case TrackingStationGhostSkipUnseedableTerminalOrbit:
+                    TryResolveGhostProtoOrbitSeed(
+                        rec,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out GhostProtoOrbitSeedDiagnostics seedDiagnostics);
+                    return string.Format(ic,
+                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
+                        rec.TerminalOrbitBody ?? "(null)",
+                        rec.EndUT,
+                        seedDiagnostics.FailureReason ?? "(none)",
+                        seedDiagnostics.EndpointBodyName ?? "(none)");
+            }
+
+            if (skipReason != null && skipReason.StartsWith("terminal"))
+                return string.Format(ic, "terminal={0}",
+                    rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)");
+
+            if (skipReason == "no-current-segment" || skipReason == "no-orbit-data")
+                return string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments);
+
+            if (skipReason == TrackingStationGhostSkipStateVectorThreshold)
+                return string.Format(ic, "hasOrbitSegments={0} stateVectorThreshold=True", rec.HasOrbitSegments);
+
+            if (skipReason == TrackingStationGhostSkipRelativeFrame)
+                return "relativeFrame=True";
+
+            if (skipReason == "no-state-vector-point")
+                return string.Format(ic, "stateVectorPointMissing=True hasOrbitSegments={0}", rec.HasOrbitSegments);
+
+            return null;
+        }
+
+        private static string NormalizeStateVectorSkipReasonForNoOrbit(string stateVectorSkipReason)
+        {
+            return string.IsNullOrEmpty(stateVectorSkipReason)
+                || stateVectorSkipReason == "no-points"
+                    ? "no-orbit-data"
+                    : stateVectorSkipReason;
+        }
+
+        private static bool TryResolveStateVectorMapPoint(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref int cachedIndex,
+            out TrajectoryPoint point,
+            out string skipReason)
+        {
+            point = default(TrajectoryPoint);
+            skipReason = null;
+
+            if (traj.Points == null || traj.Points.Count == 0)
+            {
+                skipReason = "no-points";
+                return false;
+            }
+
+            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+            if (currentUT < activationStartUT || currentUT > traj.EndUT)
+            {
+                skipReason = "no-state-vector-point";
+                return false;
+            }
+
+            if (IsInRelativeFrame(traj, currentUT))
+            {
+                skipReason = TrackingStationGhostSkipRelativeFrame;
+                return false;
+            }
+
+            TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cachedIndex);
+            if (!pt.HasValue)
+            {
+                skipReason = "no-state-vector-point";
+                return false;
+            }
+
+            double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
+            if (!ShouldCreateStateVectorOrbit(
+                pt.Value.altitude,
+                pt.Value.velocity.magnitude,
+                atmosphereDepth))
+            {
+                skipReason = TrackingStationGhostSkipStateVectorThreshold;
+                return false;
+            }
+
+            point = pt.Value;
+            return true;
+        }
+
+        internal static Vessel CreateGhostVesselFromSource(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            TrajectoryPoint stateVectorPoint,
+            double currentUT)
+        {
+            switch (source)
+            {
+                case TrackingStationGhostSource.TerminalOrbit:
+                    return CreateGhostVesselForRecording(recordingIndex, traj);
+
+                case TrackingStationGhostSource.Segment:
+                    Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
+                    if (segmentGhost != null)
+                        UpdateGhostOrbitForRecording(recordingIndex, segment);
+                    return segmentGhost;
+
+                case TrackingStationGhostSource.StateVector:
+                    return CreateGhostVesselFromStateVectors(
+                        recordingIndex,
+                        traj,
+                        stateVectorPoint,
+                        currentUT);
+
+                default:
+                    return null;
+            }
+        }
 
         /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
@@ -756,6 +1534,9 @@ namespace Parsek
             AddActiveSessionSuppressedRecordingIds(suppressed, committed);
             CachedTrackingStationSuppressedIds = suppressed;
 
+            if (hasCommittedRecordings)
+                GhostPlaybackLogic.InvalidateVesselCache();
+
             RefreshTrackingStationGhosts(committed, suppressed, currentUT);
 
             if (!hasCommittedRecordings)
@@ -778,26 +1559,41 @@ namespace Parsek
 
                 var rec = committed[i];
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
+                bool realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
+                    ? cached
+                    : -1;
                 TrackingStationGhostSource source = ResolveTrackingStationGhostSourceCore(
                     rec,
                     isSuppressed,
+                    realVesselExists,
                     currentUT,
+                    ref cachedStateVectorIndex,
                     out OrbitSegment segment,
+                    out TrajectoryPoint stateVectorPoint,
                     out _,
                     sourceBatch,
                     i,
                     "tracking-station-lifecycle");
+                trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
-                Vessel v = null;
-                if (source == TrackingStationGhostSource.TerminalOrbit)
-                    v = CreateGhostVesselForRecording(i, rec);
-                else if (source == TrackingStationGhostSource.Segment)
-                    v = CreateGhostVesselFromSegment(i, rec, segment);
+                Vessel v = CreateGhostVesselFromSource(
+                    i,
+                    rec,
+                    source,
+                    segment,
+                    stateVectorPoint,
+                    currentUT);
 
                 if (v != null)
                 {
                     lifecycleCreated++;
+                    if (source == TrackingStationGhostSource.StateVector)
+                        trackingStationStateVectorOrbitTrajectories[i] = rec;
+                    else
+                        trackingStationStateVectorOrbitTrajectories.Remove(i);
                     // Ensure orbit renderer exists (MapView.fetch should be available by now)
                     EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
@@ -845,15 +1641,55 @@ namespace Parsek
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressed != null
                     && suppressed.Contains(rec.RecordingId);
+                bool realVesselExists = rec != null
+                    && rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                bool alreadyMaterialized =
+                    IsTrackingStationRecordingMaterialized(rec, realVesselExists);
                 uint pid = kvp.Value.persistentId;
                 bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
+                bool isStateVector =
+                    trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
 
                 string removeReason = GetTrackingStationGhostRemovalReason(
-                    rec, isSuppressed, hasOrbitBounds, currentUT);
+                    rec, isSuppressed, alreadyMaterialized, hasOrbitBounds, isStateVector, currentUT);
                 if (removeReason != null)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
                     toRemove.Add((idx, removeReason));
+                    continue;
+                }
+
+                if (isStateVector)
+                {
+                    int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
+                        ? cached
+                        : -1;
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
+                        rec.Points,
+                        currentUT,
+                        ref cachedStateVectorIndex);
+                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+                    if (!pt.HasValue || IsInRelativeFrame(rec, currentUT))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "tracking-station-state-vector-expired"));
+                        continue;
+                    }
+
+                    double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
+                    if (ShouldRemoveStateVectorOrbit(
+                        pt.Value.altitude,
+                        pt.Value.velocity.magnitude,
+                        atmosphereDepth))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "below-state-vector-threshold"));
+                        continue;
+                    }
+
+                    UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
                     continue;
                 }
 
@@ -873,6 +1709,8 @@ namespace Parsek
                 int idx = toRemove[i].idx;
                 string reason = toRemove[i].reason;
                 RemoveGhostVesselForRecording(idx, reason);
+                trackingStationStateVectorOrbitTrajectories.Remove(idx);
+                trackingStationStateVectorCachedIndices.Remove(idx);
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Removed tracking-station ghost #{0} — UT {1:F1} reason={2}",
@@ -907,63 +1745,134 @@ namespace Parsek
 
             for (int i = 0; i < eligibleIndices.Count; i++)
             {
-                int index = eligibleIndices[i];
-                Recording rec = committed[index];
-                bool realVesselExists = rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
-                bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
-                    rec,
-                    realVesselExists);
+                RunTrackingStationSpawnHandoffForEligibleIndex(
+                    committed,
+                    eligibleIndices[i],
+                    currentUT,
+                    chains);
+            }
+        }
 
-                if (alreadyMaterialized)
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
-                    RemoveAllGhostPresenceForIndex(
-                        index,
-                        rec.VesselPersistentId,
-                        "tracking-station-existing-real-vessel");
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff skipped duplicate spawn for #{0} \"{1}\" — real vessel pid={2} already exists",
-                            index,
-                            rec.VesselName ?? "(null)",
-                            rec.VesselPersistentId));
-                    continue;
-                }
+        internal static bool TryRunTrackingStationSpawnHandoffForIndex(
+            IReadOnlyList<Recording> committed,
+            int index,
+            double currentUT,
+            bool reselectSpawnedVessel = false)
+        {
+            if (committed == null || index < 0 || index >= committed.Count)
+                return false;
 
-                bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
-                    chains,
-                    rec,
-                    realVesselExists);
-                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
-                if (!rec.VesselSpawned)
-                    continue;
+            var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[index], currentUT, chains);
+            if (!needsSpawn)
+                return false;
 
+            GhostPlaybackLogic.InvalidateVesselCache();
+            RunTrackingStationSpawnHandoffForEligibleIndex(
+                committed,
+                index,
+                currentUT,
+                chains,
+                reselectSpawnedVessel);
+            return true;
+        }
+
+        internal static bool TryRunTrackingStationSpawnHandoffForRecordingId(
+            IReadOnlyList<Recording> committed,
+            string recordingId,
+            double currentUT,
+            bool reselectSpawnedVessel = false)
+        {
+            if (!TryGetCommittedRecordingById(
+                    committed,
+                    recordingId,
+                    out int index,
+                    out Recording _))
+            {
+                return false;
+            }
+
+            return TryRunTrackingStationSpawnHandoffForIndex(
+                committed,
+                index,
+                currentUT,
+                reselectSpawnedVessel);
+        }
+
+        private static void RunTrackingStationSpawnHandoffForEligibleIndex(
+            IReadOnlyList<Recording> committed,
+            int index,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            bool reselectSpawnedVessel = false)
+        {
+            Recording rec = committed[index];
+            TrackingStationSpawnHandoffState handoffState =
+                CaptureTrackingStationSpawnHandoffState(index);
+            bool realVesselExists = rec.VesselPersistentId != 0
+                && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+            bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
+                rec,
+                realVesselExists);
+
+            if (alreadyMaterialized)
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
                 RemoveAllGhostPresenceForIndex(
                     index,
                     rec.VesselPersistentId,
-                    "tracking-station-spawn-handoff");
+                    "tracking-station-existing-real-vessel");
+                RestoreTrackingStationSpawnHandoffState(
+                    rec.VesselPersistentId,
+                    handoffState,
+                    "tracking-station-existing-real-vessel",
+                    reselectSpawnedVessel);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff skipped duplicate spawn for #{0} \"{1}\" — real vessel pid={2} already exists",
+                        index,
+                        rec.VesselName ?? "(null)",
+                        rec.VesselPersistentId));
+                return;
+            }
 
-                if (rec.SpawnedVesselPersistentId != 0)
-                {
-                    GhostPlaybackLogic.InvalidateVesselCache();
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff spawned #{0} \"{1}\" pid={2} preserveIdentity={3}",
-                            index,
-                            rec.VesselName ?? "(null)",
-                            rec.SpawnedVesselPersistentId,
-                            preserveIdentity));
-                }
-                else if (rec.SpawnAbandoned)
-                {
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
-                            index,
-                            rec.VesselName ?? "(null)"));
-                }
+            bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
+                chains,
+                rec,
+                realVesselExists);
+            VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            if (!rec.VesselSpawned)
+                return;
+
+            RemoveAllGhostPresenceForIndex(
+                index,
+                rec.VesselPersistentId,
+                "tracking-station-spawn-handoff");
+
+            if (rec.SpawnedVesselPersistentId != 0)
+            {
+                GhostPlaybackLogic.InvalidateVesselCache();
+                RestoreTrackingStationSpawnHandoffState(
+                    rec.SpawnedVesselPersistentId,
+                    handoffState,
+                    "tracking-station-spawn-handoff",
+                    reselectSpawnedVessel);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff spawned #{0} \"{1}\" pid={2} preserveIdentity={3}",
+                        index,
+                        rec.VesselName ?? "(null)",
+                        rec.SpawnedVesselPersistentId,
+                        preserveIdentity));
+            }
+            else if (rec.SpawnAbandoned)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
+                        index,
+                        rec.VesselName ?? "(null)"));
             }
         }
 
@@ -1030,10 +1939,7 @@ namespace Parsek
                     point.altitude,
                     point.velocity.magnitude));
             if (vessel != null)
-            {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
-            }
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
 
             return vessel;
         }
@@ -1349,11 +2255,36 @@ namespace Parsek
             out OrbitSegment segment,
             out string skipReason)
         {
+            int stateVectorCachedIndex = -1;
+            return ResolveTrackingStationGhostSource(
+                rec,
+                isSuppressed,
+                false,
+                currentUT,
+                ref stateVectorCachedIndex,
+                out segment,
+                out _,
+                out skipReason);
+        }
+
+        internal static TrackingStationGhostSource ResolveTrackingStationGhostSource(
+            Recording rec,
+            bool isSuppressed,
+            bool realVesselExists,
+            double currentUT,
+            ref int stateVectorCachedIndex,
+            out OrbitSegment segment,
+            out TrajectoryPoint stateVectorPoint,
+            out string skipReason)
+        {
             return ResolveTrackingStationGhostSourceCore(
                 rec,
                 isSuppressed,
+                realVesselExists,
                 currentUT,
+                ref stateVectorCachedIndex,
                 out segment,
+                out stateVectorPoint,
                 out skipReason,
                 batch: null,
                 recordingIndex: -1,
@@ -1363,161 +2294,52 @@ namespace Parsek
         private static TrackingStationGhostSource ResolveTrackingStationGhostSourceCore(
             Recording rec,
             bool isSuppressed,
+            bool realVesselExists,
             double currentUT,
+            ref int stateVectorCachedIndex,
             out OrbitSegment segment,
+            out TrajectoryPoint stateVectorPoint,
             out string skipReason,
             TrackingStationGhostSourceBatch batch,
             int recordingIndex,
             string context)
         {
-            segment = default(OrbitSegment);
-            skipReason = null;
+            TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
+                rec,
+                isSuppressed,
+                IsTrackingStationRecordingMaterialized(rec, realVesselExists),
+                currentUT,
+                true,
+                logOperationName: null,
+                ref stateVectorCachedIndex,
+                out segment,
+                out stateVectorPoint,
+                out skipReason);
 
-            TrackingStationGhostSource ReturnDecision(
-                TrackingStationGhostSource source,
-                string reason,
-                string detail = null)
-            {
-                LogTrackingStationGhostSourceDecision(
-                    context,
-                    recordingIndex,
+            LogTrackingStationGhostSourceDecision(
+                context,
+                recordingIndex,
+                rec,
+                currentUT,
+                source,
+                skipReason,
+                BuildTrackingStationGhostSourceDetail(
                     rec,
                     currentUT,
                     source,
-                    reason,
-                    detail,
-                    batch);
-                return source;
-            }
-
-            if (rec == null)
-            {
-                skipReason = "null";
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "null recording");
-            }
-
-            if (rec.IsDebris)
-            {
-                skipReason = "debris";
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
-            }
-
-            if (isSuppressed)
-            {
-                skipReason = TrackingStationGhostSkipSuppressed;
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuppressed=True");
-            }
-
-            if (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0)
-            {
-                skipReason = TrackingStationGhostSkipAlreadySpawned;
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already materialized");
-            }
-
-            // Only chain tips with orbital terminal state get ghosts.
-            // Orbiting/Docked = in orbit. Null = still active or unfinished (show orbit if available).
-            // All other states (Landed, Destroyed, SubOrbital, Recovered, Boarded) = no orbit ghost.
-            var terminal = rec.TerminalStateValue;
-            if (terminal.HasValue
-                && terminal.Value != TerminalState.Orbiting
-                && terminal.Value != TerminalState.Docked)
-            {
-                skipReason = "terminal-" + terminal.Value;
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "terminal={0}", terminal.Value));
-            }
+                    segment,
+                    stateVectorPoint),
+                batch);
 
-            if (rec.HasOrbitSegments)
-            {
-                OrbitSegment? currentSegment =
-                    TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                if (currentSegment.HasValue)
-                {
-                    segment = currentSegment.Value;
-                    return ReturnDecision(
-                        TrackingStationGhostSource.Segment,
-                        skipReason,
-                        string.Format(ic,
-                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
-                            segment.bodyName ?? "(null)",
-                            segment.startUT,
-                            segment.endUT));
-                }
-            }
-
-            if (!HasTerminalOrbitData(rec))
-            {
-                skipReason = rec.HasOrbitSegments ? "no-current-segment" : "no-orbit-data";
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments));
-            }
-
-            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
-            if (currentUT < activationStartUT)
-            {
-                skipReason = "before-activation";
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
-            }
-
-            if (currentUT < rec.EndUT)
-            {
-                skipReason = "before-terminal-orbit";
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    string.Format(ic, "endUT={0:F1}", rec.EndUT));
-            }
-
-            if (!TryResolveGhostProtoOrbitSeed(
-                rec,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out string seedBodyName,
-                out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
-            {
-                skipReason = seedDiagnostics.FailureReason == TrackingStationGhostSkipEndpointConflict
-                    ? TrackingStationGhostSkipEndpointConflict
-                    : TrackingStationGhostSkipUnseedableTerminalOrbit;
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    string.Format(ic,
-                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
-                        rec.TerminalOrbitBody ?? "(null)",
-                        rec.EndUT,
-                        seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)"));
-            }
-
-            return ReturnDecision(
-                TrackingStationGhostSource.TerminalOrbit,
-                skipReason,
-                string.Format(ic,
-                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
-                    rec.TerminalOrbitBody ?? "(null)",
-                    rec.EndUT,
-                    seedBodyName ?? "(null)",
-                    seedDiagnostics.Source ?? "(none)",
-                    seedDiagnostics.EndpointBodyName ?? "(none)",
-                    seedDiagnostics.FallbackReason ?? "(none)"));
+            return source;
         }
 
         /// <summary>
         /// Pure: should a tracking station ghost ProtoVessel be created for this recording?
         /// Only recordings that are not currently hidden by an already-started child and that
-        /// have an active visible orbit segment or a reached terminal orbital endpoint qualify.
+        /// have an active visible orbit segment, state-vector fallback, or a reached terminal
+        /// orbital endpoint qualify.
         /// Returns a reason string for logging when skipped.
         /// </summary>
         internal static (bool shouldCreate, string skipReason) ShouldCreateTrackingStationGhost(
@@ -1569,28 +2391,38 @@ namespace Parsek
             var suppressed = FindTrackingStationSuppressedRecordingIds(committed, currentUT);
             AddActiveSessionSuppressedRecordingIds(suppressed, committed);
             CachedTrackingStationSuppressedIds = suppressed;
+            GhostPlaybackLogic.InvalidateVesselCache();
 
             int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;
             int skippedTerminal = 0, skippedBeforeActivation = 0;
             int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
             int skippedEndpointConflict = 0, skippedUnseedableTerminalOrbit = 0;
-            int sourceVisibleSegment = 0, sourceTerminalOrbit = 0;
+            int sourceVisibleSegment = 0, sourceTerminalOrbit = 0, sourceStateVector = 0;
             var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-startup");
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
+                bool realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
+                    ? cached
+                    : -1;
 
                 TrackingStationGhostSource source = ResolveTrackingStationGhostSourceCore(
                     rec,
                     isSuppressed,
+                    realVesselExists,
                     currentUT,
+                    ref cachedStateVectorIndex,
                     out OrbitSegment segment,
+                    out TrajectoryPoint stateVectorPoint,
                     out string skipReason,
                     sourceBatch,
                     i,
                     "tracking-station-startup");
+                trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {
                     if (skipReason == "debris") skippedDebris++;
@@ -1605,30 +2437,43 @@ namespace Parsek
                     continue;
                 }
 
-                // Use terminal orbit data if available; otherwise use the current orbit segment.
-                Vessel v = null;
                 if (source == TrackingStationGhostSource.TerminalOrbit)
-                {
                     sourceTerminalOrbit++;
-                    v = CreateGhostVesselForRecording(i, rec);
-                }
                 else if (source == TrackingStationGhostSource.Segment)
-                {
                     sourceVisibleSegment++;
-                    v = CreateGhostVesselFromSegment(i, rec, segment);
-                }
+                else if (source == TrackingStationGhostSource.StateVector)
+                    sourceStateVector++;
 
-                if (v != null) created++;
+                Vessel v = CreateGhostVesselFromSource(
+                    i,
+                    rec,
+                    source,
+                    segment,
+                    stateVectorPoint,
+                    currentUT);
+
+                if (v != null)
+                {
+                    created++;
+                    if (source == TrackingStationGhostSource.StateVector)
+                    {
+                        trackingStationStateVectorOrbitTrajectories[i] = rec;
+                    }
+                    else
+                    {
+                        trackingStationStateVectorOrbitTrajectories.Remove(i);
+                    }
+                }
             }
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "sources(visibleSegment={2} terminalOrbit={3}) " +
-                    "(skipped: debris={4} suppressed={5} spawned={6} terminal={7} beforeActivation={8} " +
-                    "beforeTerminalOrbit={9} noOrbit={10} endpointConflict={11} terminalUnseedable={12})",
+                    "sources(visibleSegment={2} terminalOrbit={3} stateVector={4}) " +
+                    "(skipped: debris={5} suppressed={6} spawned={7} terminal={8} beforeActivation={9} " +
+                    "beforeTerminalOrbit={10} noOrbit={11} endpointConflict={12} terminalUnseedable={13})",
                     created, committed.Count,
-                    sourceVisibleSegment, sourceTerminalOrbit,
+                    sourceVisibleSegment, sourceTerminalOrbit, sourceStateVector,
                     skippedDebris, skippedSuppressed, skippedSpawned, skippedTerminal,
                     skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit,
                     skippedEndpointConflict, skippedUnseedableTerminalOrbit));
@@ -1649,11 +2494,36 @@ namespace Parsek
         internal static string GetTrackingStationGhostRemovalReason(
             Recording rec, bool isSuppressed, bool hasOrbitBounds, double currentUT)
         {
+            return GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed,
+                false,
+                hasOrbitBounds,
+                false,
+                currentUT);
+        }
+
+        internal static string GetTrackingStationGhostRemovalReason(
+            Recording rec,
+            bool isSuppressed,
+            bool alreadyMaterialized,
+            bool hasOrbitBounds,
+            bool isStateVector,
+            double currentUT)
+        {
             if (rec == null)
                 return "tracking-station-expired";
 
             if (isSuppressed)
                 return "tracking-station-child-started";
+
+            if (alreadyMaterialized)
+                return "tracking-station-materialized-real-vessel";
+
+            if (isStateVector)
+                return currentUT > rec.EndUT
+                    ? "tracking-station-state-vector-expired"
+                    : null;
 
             if (!hasOrbitBounds)
                 return null;
@@ -1763,6 +2633,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Find the stable recording ID captured when a recording-index ghost was created.
+        /// Returns null if the vessel is not a recording-index ghost or the source
+        /// trajectory did not expose a recording ID.
+        /// </summary>
+        internal static string FindRecordingIdByVesselPid(uint vesselPid)
+        {
+            return vesselPidToRecordingId.TryGetValue(vesselPid, out string recordingId)
+                ? recordingId
+                : null;
+        }
+
+        /// <summary>
         /// Returns true if a ghost map ProtoVessel exists for the given recording index.
         /// Used by ParsekUI to suppress the green dot marker when the native KSP icon is active.
         /// </summary>
@@ -1780,6 +2662,55 @@ namespace Parsek
             if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel v))
                 return v.persistentId;
             return 0;
+        }
+
+        internal static bool TryGetCommittedRecordingById(
+            string recordingId,
+            out int recordingIndex,
+            out Recording recording)
+        {
+            return TryGetCommittedRecordingById(
+                RecordingStore.CommittedRecordings,
+                recordingId,
+                out recordingIndex,
+                out recording);
+        }
+
+        internal static bool TryGetCommittedRecordingById(
+            IReadOnlyList<Recording> committed,
+            string recordingId,
+            out int recordingIndex,
+            out Recording recording)
+        {
+            recordingIndex = -1;
+            recording = null;
+
+            if (committed == null || string.IsNullOrEmpty(recordingId))
+                return false;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording current = committed[i];
+                if (current == null
+                    || !string.Equals(current.RecordingId, recordingId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                recordingIndex = i;
+                recording = current;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static Recording GetCommittedRecordingByRawIndex(int recordingIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || recordingIndex < 0 || recordingIndex >= committed.Count)
+                return null;
+            return committed[recordingIndex];
         }
 
         /// <summary>
@@ -1894,11 +2825,14 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
+            trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationStateVectorCachedIndices.Clear();
         }
 
         /// <summary>
         /// Synchronous bookkeeping reset for the in-game test runner's between-run cleanup
-        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and both
+        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and
         /// recording-index maps in one shot without calling vessel.Die(), under the
         /// assumption that the caller has already invoked GhostPlaybackEngine.DestroyAllGhosts
         /// (or RemoveAllGhostVessels) so the Vessel-layer destruction ran first. This closes
@@ -1918,9 +2852,13 @@ namespace Parsek
             int chainCount = vesselsByChainPid.Count;
             int indexCount = vesselsByRecordingIndex.Count;
             int reverseCount = vesselPidToRecordingIndex.Count;
+            int reverseIdCount = vesselPidToRecordingId.Count;
+            int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
+            int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
-                + chainCount + indexCount + reverseCount;
+                + chainCount + indexCount + reverseCount + reverseIdCount
+                + tsStateVectorCount + tsStateVectorCacheCount;
 
             if (totalTracked == 0)
             {
@@ -1937,20 +2875,55 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
+            trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationStateVectorCachedIndices.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
                     "pids={1} suppressedIcons={2} orbitBounds={3} chainVessels={4} " +
-                    "indexVessels={5} reverseLookup={6}",
+                    "indexVessels={5} reverseLookup={6} reverseIdLookup={7} " +
+                    "tsStateVectors={8} tsStateVectorCache={9}",
                     reason ?? "(null)",
                     pidCount, suppressedIconCount, orbitBoundsCount,
-                    chainCount, indexCount, reverseCount));
+                    chainCount, indexCount, reverseCount, reverseIdCount,
+                    tsStateVectorCount, tsStateVectorCacheCount));
         }
 
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
+
+        private static void TrackRecordingGhostVessel(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            Vessel vessel)
+        {
+            if (vessel == null)
+                return;
+
+            vesselsByRecordingIndex[recordingIndex] = vessel;
+            vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+
+            string recordingId = traj?.RecordingId;
+            if (!string.IsNullOrEmpty(recordingId))
+                vesselPidToRecordingId[vessel.persistentId] = recordingId;
+            else
+                vesselPidToRecordingId.Remove(vessel.persistentId);
+        }
+
+        internal static void TrackRecordingGhostIdentityForTesting(
+            uint ghostPid,
+            int recordingIndex,
+            string recordingId)
+        {
+            vesselPidToRecordingIndex[ghostPid] = recordingIndex;
+            if (!string.IsNullOrEmpty(recordingId))
+                vesselPidToRecordingId[ghostPid] = recordingId;
+            else
+                vesselPidToRecordingId.Remove(ghostPid);
+        }
 
         /// <summary>
         /// Find a CelestialBody by name without LINQ allocation.

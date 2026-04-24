@@ -191,6 +191,133 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryRunTrackingStationSpawnHandoffForIndex_OnlyTouchesSelectedRecording()
+        {
+            var selected = MakeEligibleTrackingStationRecording(id: "selected", pid: 777);
+            var other = MakeEligibleTrackingStationRecording(id: "other", pid: 888);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+
+            bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { selected, other },
+                0,
+                selected.EndUT + 1);
+
+            Assert.True(handled);
+            Assert.True(selected.VesselSpawned);
+            Assert.Equal(777u, selected.SpawnedVesselPersistentId);
+            Assert.False(other.VesselSpawned);
+            Assert.Equal(0u, other.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TryRunTrackingStationSpawnHandoffForRecordingId_WhenRawIndexIsStale_UsesCurrentIndex()
+        {
+            var staleIndex = MakeEligibleTrackingStationRecording(id: "stale-index", pid: 111);
+            staleIndex.ExplicitEndUT = 5000;
+            var selected = MakeEligibleTrackingStationRecording(id: "selected-id", pid: 777);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+
+            bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForRecordingId(
+                new List<Recording> { staleIndex, selected },
+                selected.RecordingId,
+                selected.EndUT + 1);
+
+            Assert.True(handled);
+            Assert.False(staleIndex.VesselSpawned);
+            Assert.Equal(0u, staleIndex.SpawnedVesselPersistentId);
+            Assert.True(selected.VesselSpawned);
+            Assert.Equal(777u, selected.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void ShouldTransferTrackingStationNavigationTarget_MatchingGhostPid_ReturnsTrue()
+        {
+            bool shouldTransfer = GhostMapPresence.ShouldTransferTrackingStationNavigationTarget(
+                ghostPid: 777u,
+                currentTargetPid: 777u);
+
+            Assert.True(shouldTransfer);
+        }
+
+        [Fact]
+        public void ShouldTransferTrackingStationNavigationTarget_DifferentOrMissingTarget_ReturnsFalse()
+        {
+            Assert.False(GhostMapPresence.ShouldTransferTrackingStationNavigationTarget(
+                ghostPid: 777u,
+                currentTargetPid: 0u));
+            Assert.False(GhostMapPresence.ShouldTransferTrackingStationNavigationTarget(
+                ghostPid: 777u,
+                currentTargetPid: 888u));
+        }
+
+        [Fact]
+        public void ShouldTransferTrackingStationMapFocus_RequiresLiveGhostFocus()
+        {
+            Assert.True(GhostMapPresence.ShouldTransferTrackingStationMapFocus(
+                mapViewEnabled: true,
+                hasGhostMapObject: true,
+                mapCameraAlreadyFocusedGhost: true));
+
+            Assert.False(GhostMapPresence.ShouldTransferTrackingStationMapFocus(
+                mapViewEnabled: false,
+                hasGhostMapObject: true,
+                mapCameraAlreadyFocusedGhost: true));
+            Assert.False(GhostMapPresence.ShouldTransferTrackingStationMapFocus(
+                mapViewEnabled: true,
+                hasGhostMapObject: false,
+                mapCameraAlreadyFocusedGhost: true));
+            Assert.False(GhostMapPresence.ShouldTransferTrackingStationMapFocus(
+                mapViewEnabled: true,
+                hasGhostMapObject: true,
+                mapCameraAlreadyFocusedGhost: false));
+        }
+
+        [Fact]
+        public void IsTrackingStationMapFocusSceneActive_TrackingStationSceneCountsWithoutFlightMapView()
+        {
+            Assert.True(GhostMapPresence.IsTrackingStationMapFocusSceneActive(
+                mapViewEnabled: false,
+                isTrackingStationScene: true));
+            Assert.True(GhostMapPresence.IsTrackingStationMapFocusSceneActive(
+                mapViewEnabled: true,
+                isTrackingStationScene: false));
+            Assert.False(GhostMapPresence.IsTrackingStationMapFocusSceneActive(
+                mapViewEnabled: false,
+                isTrackingStationScene: false));
+        }
+
+        [Fact]
+        public void GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "lookup");
+            RecordingStore.AddCommittedInternal(rec);
+
+            Assert.Same(rec, GhostMapPresence.GetCommittedRecordingByRawIndex(0));
+            Assert.Null(GhostMapPresence.GetCommittedRecordingByRawIndex(-1));
+            Assert.Null(GhostMapPresence.GetCommittedRecordingByRawIndex(1));
+        }
+
+        [Fact]
+        public void RecordingGhostIdentityLookup_CapturesStableRecordingId()
+        {
+            GhostMapPresence.TrackRecordingGhostIdentityForTesting(
+                ghostPid: 9001u,
+                recordingIndex: 4,
+                recordingId: "rec-stable");
+
+            Assert.Equal(4, GhostMapPresence.FindRecordingIndexByVesselPid(9001u));
+            Assert.Equal("rec-stable", GhostMapPresence.FindRecordingIdByVesselPid(9001u));
+
+            GhostMapPresence.TrackRecordingGhostIdentityForTesting(
+                ghostPid: 9001u,
+                recordingIndex: 5,
+                recordingId: null);
+
+            Assert.Equal(5, GhostMapPresence.FindRecordingIndexByVesselPid(9001u));
+            Assert.Null(GhostMapPresence.FindRecordingIdByVesselPid(9001u));
+        }
+
+        [Fact]
         public void ShouldPreserveIdentityForTrackingStationSpawn_ActiveTipWithoutRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "tip", pid: 321);
@@ -269,6 +396,25 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_RealVesselAlreadyMaterialized_SkipsGhostCreation()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 1000, endUT = 2000, bodyName = "Mun", semiMajorAxis = 250000 }
+            };
+            RecordingStore.AddCommittedInternal(rec);
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostMapPresence.CurrentUTNow = () => 1500;
+
+            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+            Assert.Equal(0, created);
+            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
         }
     }
 }

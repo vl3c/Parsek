@@ -1,5 +1,9 @@
 # Incomplete-Ballistic Extrapolation
 
+**Status:** scene-exit implementation plan; superseded for broader finalization reliability by `docs/parsek-recording-finalization-design.md`.
+
+> Status note: this plan describes the scene-exit predicted-tail work that already exists in current code. Broader reliability work for crash, unload/delete, background, and vessel-lost paths is now specified in `docs/parsek-recording-finalization-design.md` with implementation phases in `docs/dev/plans/recording-finalization-reliability.md`. When these documents conflict, the newer finalization design wins. In particular, UI maneuver nodes are hypothetical planning tools and must not truncate the actual projected recording chain.
+
 ## Problem
 
 A player launches a crewed capsule on a suborbital arc and, mid-flight, decides to leave — to the Space Center, Tracking Station, or main menu. Today, the ghost replay of that flight freezes in mid-air at the moment the player exited: a plane at 3 km hangs motionless in the sky; a missile near apoapsis stops as if time stopped; a hyperbolic probe halts at the moment of departure instead of continuing toward its target. The player returns later, watches the ghost play back, and sees a broken illusion.

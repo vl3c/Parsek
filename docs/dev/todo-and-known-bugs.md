@@ -733,7 +733,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset
+## ~~551. Tracking Station should share Map View's ghost lifecycle policy instead of rebuilding an independent subset~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation, plus `logs/2026-04-23_1815_logs-package`.
 
@@ -741,14 +741,16 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Action plan:**
 
-1. Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".
-2. Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.
-3. Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.
-4. Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.
+1. ~~Extract a shared map-presence lifecycle that both Flight Map View and Tracking Station call for "which map/TS objects should exist now".~~
+2. ~~Make Tracking Station consume the same source-decision result as Map View: visible segment, terminal orbit, state-vector fallback, endpoint conflict reason, and materialized-real-vessel suppression.~~
+3. ~~Preserve scene-specific rendering/adapters, but keep chain dedupe, materialized-PID tracking, and update/remove decisions shared.~~
+4. ~~Add regressions for a recording that is correct in Map View and then enters Tracking Station with the same visible object set and suppression reasons.~~
 
-**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, new or expanded Tracking Station policy tests.
+**Fix:** Added `GhostMapPresence.ResolveMapPresenceGhostSource` as the shared source-decision path used by both `ParsekPlaybackPolicy` and the Tracking Station lifecycle. Tracking Station now follows the same visible-segment and state-vector policy as Map View, keeps terminal-orbit fallback behind endpoint-aligned seed checks, skips endpoint conflicts with the same reason, and removes/suppresses ghosts once a real vessel materializes.
 
-**Status:** TODO. High priority TS parity follow-up.
+**Files:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/ParsekPlaybackPolicy.cs`, `Source/Parsek.Tests/GhostMapPresenceTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with headless parity coverage in `GhostMapPresenceTests` and Tracking Station materialization coverage in `TrackingStationSpawnTests`.
 
 ---
 
@@ -763,6 +765,20 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/ParsekScenario.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3 with focused callback-before-event coverage, staleness eviction on lifecycle boundaries, and vessel-name-preferred pairing with WARN on ambiguous ties.
+
+---
+
+## ~~563. Tracking Station needs an in-scene Parsek control surface comparable to Map View~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** Map View and Flight/KSC scenes expose the Parsek button/window surface, while Tracking Station mostly exposes only stock map objects plus defensive ghost blocking. A player can inspect ghosts there but cannot conveniently toggle Parsek ghost visibility, open Recordings/Settings, see Parsek status, or understand why a TS object is ghost-only, materialized, suppressed, or blocked.
+
+**Fix:** Tracking Station now installs a Parsek toolbar button and draws a compact IMGUI control surface using the same opaque window styling as the existing scene UI. The panel exposes the sticky `Show ghosts in Tracking Station` toggle, shared Recordings and Settings windows, and status rows for committed recordings, current map ghosts, suppressed entries, and materialized vessels. The ghost toggle updates live settings when available, persists through `ParsekSettingsPersistence`, removes ghost ProtoVessels immediately when disabled, and forces the next lifecycle tick when changed.
+
+**Files:** `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek.Tests/TrackingStationControlSurfaceUITests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3 by `#563`. Runtime collection of Tracking Station scene smoke evidence remains tracked separately by `#554`.
 
 ---
 
@@ -808,7 +824,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+## ~~554. Tracking Station runtime coverage is missing from the collected in-game test package~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
 
@@ -823,7 +839,9 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
 
-**Status:** TODO. High priority validation gap before claiming full TS parity.
+**Fix:** Added deterministic `TrackingStation` in-game canaries in `RuntimeTests.cs`: scene entry verifies the Parsek/stock TS hosts, the synthetic orbital toggle canary forces show/hide/recreate without depending on save-local recordings, and the object-count canary validates the synthetic TS ghost object stays unique/resolvable without captured TS error spam. Added a manual-only materialized orbital Fly canary for the Learstar stale-selection class: it seeds a stale alternate selection, proves focusing a Parsek ghost clears the stale private stock selection, then focuses/flys a materialized orbital vessel and asserts the loaded FLIGHT vessel PID is the materialized one. `validate-release-bundle.py` now has a `release-tracking-station` profile requiring the batch-safe TS rows and documenting the optional Fly row when it was not captured.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 
@@ -887,6 +905,27 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Fix:** `GhostTrackingStationSelection.TryClearSelectedVessel(...)` now mirrors stock's previous-vessel deselection block (`orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, `DetachPatchedConicsSolver()`) directly on the previous selection before nulling the private field, so Fly/Delete/Recover/SetVessel blocks clear the latched focus without re-entering `SetVessel`. Cleanup exceptions are routed back through the existing `error` out-parameter so the caller still logs a targeted `[GhostMap]` WARN instead of corrupting the Tracking Station state.
 
 **Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~564. Tracking Station ghost objects need safe first-class interactions, not only Fly/Delete/Recover blocking~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** Ghost ProtoVessels in the Tracking Station only had the stock Fly/Delete/Recover buttons, all of which Parsek blocks for ghosts. There was no safe positive affordance to focus the camera on the ghost, set it as a target, inspect its owning recording, or materialize the recorded vessel when it was eligible to spawn.
+
+**Action plan:**
+
+1. Add a Parsek-owned selected-ghost action surface in the Tracking Station that exposes Focus, Target, Recording details, and Materialize.
+2. Key the selection by stable recording ID so raw index churn in `CommittedRecordings` does not move the panel off the ghost the player clicked.
+3. Keep stock Fly/Delete/Recover blocked for ghost-only objects and continue clearing private `SpaceTracking.selectedVessel` on every blocked path.
+4. Add tests for action-state decisions and for stale-selection clearing when a player alternates between stock asteroids/comets and Parsek ghosts.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Fix:** Added a Parsek-owned selected-ghost action surface in Tracking Station. Ghost `SetVessel`/Fly/Delete/Recover blocks now also record the Parsek ghost selection by stable recording ID, clear stock `selectedVessel`, and leave stock Fly/Delete/Recover disabled. The selected ghost panel refreshes action eligibility every GUI frame and exposes safe Focus, Target, owning Recording details, and a selected-recording-only Materialize action when the existing Tracking Station spawn eligibility says that recording is ready; when that ghost resolves, the nav target and map focus hand off to the materialized real vessel. Chain ghosts without a direct committed recording row show disabled recording/materialize states instead of falling through stock actions.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
