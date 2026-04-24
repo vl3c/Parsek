@@ -2,16 +2,21 @@
 
 Use career mode for all tests (resource tracking requires it).
 
+Targeted checklists:
+
+- Recording finalization cache: `docs/dev/manual-testing/test-recording-finalization-cache.md`
+
 ---
 
 ## Release Closeout Evidence
 
-For a release candidate or shipping build, keep at minimum these three
+For a release candidate or shipping build, keep at minimum these four
 timestamped bundles under `logs/`:
 
 - `YYYY-MM-DD_HHMM_release-auto-record`
 - `YYYY-MM-DD_HHMM_release-core-playback`
 - `YYYY-MM-DD_HHMM_release-scene-transitions`
+- `YYYY-MM-DD_HHMM_release-tracking-station`
 
 Each retained bundle must include:
 
@@ -67,6 +72,21 @@ Before capturing any release bundle, verify that the deployed
   - `RuntimeTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
 - Runner note: run these three rows individually from a disposable
   `PRELAUNCH` `FLIGHT` session
+
+### `release-tracking-station`
+
+- Manual scope: `Vessel Persistence` plus a Tracking Station visit after at
+  least one orbital recording is committed or materialized
+- Exported runtime evidence:
+  - `TrackingStationRuntimeTests.TrackingStationSceneEntry_HostIsActive`
+  - `TrackingStationRuntimeTests.TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates`
+  - `TrackingStationRuntimeTests.TrackingStationGhostObjects_SyntheticOrbit_ResolvableAndQuiet`
+- Runner note: run `Run All` or the `TrackingStation` category from the
+  Tracking Station scene. The optional materialized-vessel Fly canary,
+  `TrackingStationRuntimeTests.TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection`,
+  is manual-only because it first exercises the ghost-selection stale-clear path
+  and then drives stock Fly into `FLIGHT`; the bundle validator reports that row
+  separately when it was not captured.
 
 `validate-ksp-log` is part of the release gate, not an optional follow-up:
 

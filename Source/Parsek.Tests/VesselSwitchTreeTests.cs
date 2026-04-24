@@ -353,6 +353,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_MatchesTreeReloadedFromConfigNode()
+        {
+            // Regression for the v0.8.3 playtest bug: after Save → Load, the
+            // scene-enter restore lookup used to miss because VesselSpawned was
+            // not re-derived from the persisted spawnedPid. The full pipeline
+            // covered here (tree save → ConfigNode → tree load → lookup) is the
+            // realistic path that fires on every KSC → FLIGHT scene change.
+            var tree = new RecordingTree
+            {
+                Id = "tree_reload",
+                TreeName = "Reload Test",
+                RootRecordingId = "rec_reload",
+                ActiveRecordingId = "rec_reload"
+            };
+            tree.Recordings["rec_reload"] = new Recording
+            {
+                RecordingId = "rec_reload",
+                VesselName = "Crater Crawler",
+                VesselPersistentId = 4206290288u,
+                SpawnedVesselPersistentId = 4206290288u,
+                VesselSpawned = true,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 25.9,
+                TreeId = "tree_reload"
+            };
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            var reloaded = RecordingTree.Load(node);
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { reloaded },
+                activeVesselPid: 4206290288u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found,
+                "After Save → Load the restore-lookup must still match the spawned pid; " +
+                "if this fails, the VesselSpawned invariant is not being rebuilt on load.");
+            Assert.Same(reloaded, matchedTree);
+            Assert.Equal("rec_reload", matchedRecordingId);
+        }
+
+        [Fact]
         public void PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry()
         {
             var tree = MakeTree("rec_active", (20, "rec_tip"));
@@ -440,6 +484,48 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Equal(tree.Id, RecordingStore.CommittedTrees[0].Id);
             Assert.Equal(liveTree.Recordings.Count, RecordingStore.CommittedRecordings.Count);
+        }
+
+        [Fact]
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsAndKeepsLivePid()
+        {
+            // Regression for v0.8.3 post-fix playtest: after the detach-for-resume
+            // lands a committed tree back into the active slot, the target recording's
+            // prior-commit VesselSpawned / SpawnedVesselPersistentId must be cleared.
+            // Otherwise the merge dialog's CanPersistVessel → ShouldSpawnAtRecordingEnd
+            // chain sees "already spawned (VesselSpawned=true)" and defaults the leaf
+            // to ghost-only, which nulls the VesselSnapshot at commit time and breaks
+            // subsequent KSC spawns with "no vessel snapshot".
+            var tree = MakeTree("rec_resume");
+            tree.Id = "tree_clear_flags";
+            tree.RootRecordingId = "rec_resume";
+            tree.ActiveRecordingId = "rec_resume";
+
+            tree.Recordings["rec_resume"].TreeId = tree.Id;
+            tree.Recordings["rec_resume"].VesselPersistentId = 11111;
+            tree.Recordings["rec_resume"].VesselSpawned = true;
+            tree.Recordings["rec_resume"].SpawnedVesselPersistentId = 12345;
+            tree.Recordings["rec_resume"].TerminalStateValue = TerminalState.Landed;
+
+            AddTreeToCommittedStore(tree);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                activeVesselPid: 12345,
+                out RecordingTree liveTree,
+                out string matchedRecordingId,
+                out ParsekFlight.CommittedSpawnedVesselRestoreAction action);
+
+            Assert.True(taken);
+            Assert.Equal("rec_resume", matchedRecordingId);
+            Assert.Equal(
+                ParsekFlight.CommittedSpawnedVesselRestoreAction.ResumeActiveRecording,
+                action);
+
+            Recording resumed = liveTree.Recordings["rec_resume"];
+            Assert.False(resumed.VesselSpawned,
+                "VesselSpawned must reset on detach so CanPersistVessel returns true at re-commit.");
+            Assert.Equal(0u, resumed.SpawnedVesselPersistentId);
+            Assert.Equal(12345u, resumed.VesselPersistentId);
         }
 
         [Fact]

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using HarmonyLib;
+using KSP.UI.Screens;
 
 namespace Parsek
 {
@@ -31,6 +33,23 @@ namespace Parsek
             Segment = 1,
             TerminalOrbit = 2,
             StateVector = 3
+        }
+
+        internal struct TrackingStationSpawnHandoffState
+        {
+            internal readonly uint GhostPid;
+            internal readonly bool WasNavigationTarget;
+            internal readonly bool WasMapFocus;
+
+            internal TrackingStationSpawnHandoffState(
+                uint ghostPid,
+                bool wasNavigationTarget,
+                bool wasMapFocus)
+            {
+                GhostPid = ghostPid;
+                WasNavigationTarget = wasNavigationTarget;
+                WasMapFocus = wasMapFocus;
+            }
         }
 
         private const string Tag = "GhostMap";
@@ -202,6 +221,13 @@ namespace Parsek
 
         private static readonly Dictionary<int, int> trackingStationStateVectorCachedIndices =
             new Dictionary<int, int>();
+
+        /// <summary>
+        /// Stable reverse lookup: ghost vessel PID -> recording ID.
+        /// Selection actions use this instead of the raw index because the committed
+        /// list can be reordered while a Tracking Station ghost remains selected.
+        /// </summary>
+        private static readonly Dictionary<uint, string> vesselPidToRecordingId = new Dictionary<uint, string>();
 
         /// <summary>
         /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
@@ -559,6 +585,259 @@ namespace Parsek
             return wasTarget;
         }
 
+        internal static bool ShouldTransferTrackingStationNavigationTarget(
+            uint ghostPid,
+            uint currentTargetPid)
+        {
+            return ghostPid != 0
+                && currentTargetPid != 0
+                && ghostPid == currentTargetPid;
+        }
+
+        internal static bool ShouldTransferTrackingStationMapFocus(
+            bool mapViewEnabled,
+            bool hasGhostMapObject,
+            bool mapCameraAlreadyFocusedGhost)
+        {
+            return mapViewEnabled
+                && hasGhostMapObject
+                && mapCameraAlreadyFocusedGhost;
+        }
+
+        internal static bool IsTrackingStationMapFocusSceneActive(
+            bool mapViewEnabled,
+            bool isTrackingStationScene)
+        {
+            return mapViewEnabled || isTrackingStationScene;
+        }
+
+        private static TrackingStationSpawnHandoffState CaptureTrackingStationSpawnHandoffState(
+            int recordingIndex)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel ghostVessel)
+                || ghostVessel == null)
+            {
+                return default(TrackingStationSpawnHandoffState);
+            }
+
+            Vessel currentTargetVessel = FlightGlobals.fetch != null
+                && FlightGlobals.fetch.VesselTarget != null
+                    ? FlightGlobals.fetch.VesselTarget.GetVessel()
+                    : null;
+
+            bool wasNavigationTarget = ShouldTransferTrackingStationNavigationTarget(
+                ghostVessel.persistentId,
+                currentTargetVessel != null ? currentTargetVessel.persistentId : 0u);
+            bool wasMapFocus = ShouldTransferTrackingStationMapFocus(
+                IsTrackingStationMapFocusSceneActive(
+                    MapView.MapIsEnabled,
+                    HighLogic.LoadedScene == GameScenes.TRACKSTATION),
+                ghostVessel.mapObject != null,
+                PlanetariumCamera.fetch != null
+                    && ReferenceEquals(PlanetariumCamera.fetch.target, ghostVessel.mapObject));
+
+            return new TrackingStationSpawnHandoffState(
+                ghostVessel.persistentId,
+                wasNavigationTarget,
+                wasMapFocus);
+        }
+
+        private static void RestoreTrackingStationSpawnHandoffState(
+            uint spawnedPid,
+            TrackingStationSpawnHandoffState handoffState,
+            string reason,
+            bool reselectSpawnedVessel)
+        {
+            if (spawnedPid == 0
+                || (!reselectSpawnedVessel
+                    && !handoffState.WasNavigationTarget
+                    && !handoffState.WasMapFocus))
+            {
+                return;
+            }
+
+            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+            if (spawned == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore focus/target for ghostPid={0} spawnedPid={1} reason={2} (spawned vessel not found)",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+                return;
+            }
+
+            if (reselectSpawnedVessel)
+                RestoreTrackingStationSelectedVessel(spawned, reason);
+
+            if (handoffState.WasNavigationTarget && FlightGlobals.fetch != null)
+            {
+                FlightGlobals.fetch.SetVesselTarget(spawned);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored nav target from ghostPid={0} to spawnedPid={1} reason={2}",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+            }
+
+            if (!handoffState.WasMapFocus)
+                return;
+
+            if (IsTrackingStationMapFocusSceneActive(
+                    MapView.MapIsEnabled,
+                    HighLogic.LoadedScene == GameScenes.TRACKSTATION)
+                && PlanetariumCamera.fetch != null
+                && spawned.mapObject != null)
+            {
+                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} reason={2}",
+                        handoffState.GhostPid,
+                        spawnedPid,
+                        reason));
+                return;
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(ic,
+                    "Tracking-station handoff could not restore map focus for ghostPid={0} spawnedPid={1} reason={2} mapView={3} camera={4} mapObject={5}",
+                    handoffState.GhostPid,
+                    spawnedPid,
+                    reason,
+                    MapView.MapIsEnabled,
+                    PlanetariumCamera.fetch != null,
+                    spawned.mapObject != null));
+        }
+
+        internal static bool TrySelectTrackingStationVessel(
+            object trackingInstance,
+            object vesselSelection,
+            out string error)
+        {
+            error = null;
+
+            if (trackingInstance == null || vesselSelection == null)
+                return false;
+
+            try
+            {
+                MethodInfo setVesselMethod = FindTrackingStationSetVesselMethod(
+                    trackingInstance.GetType(),
+                    vesselSelection.GetType());
+                if (setVesselMethod != null)
+                {
+                    setVesselMethod.Invoke(trackingInstance, new[] { vesselSelection });
+                    return true;
+                }
+
+                FieldInfo selectedField = trackingInstance.GetType().GetField(
+                    "selectedVessel",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (selectedField == null)
+                {
+                    error = "selectedVessel field and SetVessel method not found";
+                    return false;
+                }
+
+                selectedField.SetValue(trackingInstance, vesselSelection);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.GetType().Name + ": " + ex.Message;
+                return false;
+            }
+        }
+
+        internal static bool IsTrackingStationRecordingAlreadyMaterialized(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            bool realVesselExists = false;
+            if (rec.VesselPersistentId != 0)
+            {
+                try
+                {
+                    realVesselExists = GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                }
+                catch (Exception)
+                {
+                    realVesselExists = false;
+                }
+            }
+
+            return ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
+        }
+
+        private static MethodInfo FindTrackingStationSetVesselMethod(
+            Type trackingType,
+            Type selectionType)
+        {
+            if (trackingType == null || selectionType == null)
+                return null;
+
+            MethodInfo[] methods = trackingType.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.Name != "SetVessel")
+                    continue;
+
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length != 1)
+                    continue;
+
+                if (parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                    return method;
+            }
+
+            return null;
+        }
+
+        private static void RestoreTrackingStationSelectedVessel(
+            Vessel spawned,
+            string reason)
+        {
+            if (spawned == null)
+                return;
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore selected vessel for spawnedPid={0} reason={1} (SpaceTracking instance not found)",
+                        spawned.persistentId,
+                        reason));
+                return;
+            }
+
+            if (TrySelectTrackingStationVessel(tracking, spawned, out string error))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff restored selected vessel to spawnedPid={0} reason={1}",
+                        spawned.persistentId,
+                        reason));
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff could not restore selected vessel for spawnedPid={0} reason={1}: {2}",
+                        spawned.persistentId,
+                        reason,
+                        error));
+            }
+        }
+
         /// <summary>
         /// Remove all ghost vessels (rewind or scene cleanup).
         /// </summary>
@@ -601,6 +880,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
 
@@ -639,10 +919,7 @@ namespace Parsek
             string logContext = string.Format(ic, "recording index={0}", recordingIndex);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
             if (vessel != null)
-            {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
-            }
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
 
             return vessel;
         }
@@ -672,8 +949,7 @@ namespace Parsek
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
             if (vessel != null)
             {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
                 ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
             }
 
@@ -703,6 +979,7 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
+            vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
             trackingStationStateVectorOrbitTrajectories.Remove(recordingIndex);
             trackingStationStateVectorCachedIndices.Remove(recordingIndex);
@@ -1468,63 +1745,134 @@ namespace Parsek
 
             for (int i = 0; i < eligibleIndices.Count; i++)
             {
-                int index = eligibleIndices[i];
-                Recording rec = committed[index];
-                bool realVesselExists = rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
-                bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
-                    rec,
-                    realVesselExists);
+                RunTrackingStationSpawnHandoffForEligibleIndex(
+                    committed,
+                    eligibleIndices[i],
+                    currentUT,
+                    chains);
+            }
+        }
 
-                if (alreadyMaterialized)
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
-                    RemoveAllGhostPresenceForIndex(
-                        index,
-                        rec.VesselPersistentId,
-                        "tracking-station-existing-real-vessel");
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff skipped duplicate spawn for #{0} \"{1}\" — real vessel pid={2} already exists",
-                            index,
-                            rec.VesselName ?? "(null)",
-                            rec.VesselPersistentId));
-                    continue;
-                }
+        internal static bool TryRunTrackingStationSpawnHandoffForIndex(
+            IReadOnlyList<Recording> committed,
+            int index,
+            double currentUT,
+            bool reselectSpawnedVessel = false)
+        {
+            if (committed == null || index < 0 || index >= committed.Count)
+                return false;
 
-                bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
-                    chains,
-                    rec,
-                    realVesselExists);
-                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
-                if (!rec.VesselSpawned)
-                    continue;
+            var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[index], currentUT, chains);
+            if (!needsSpawn)
+                return false;
 
+            GhostPlaybackLogic.InvalidateVesselCache();
+            RunTrackingStationSpawnHandoffForEligibleIndex(
+                committed,
+                index,
+                currentUT,
+                chains,
+                reselectSpawnedVessel);
+            return true;
+        }
+
+        internal static bool TryRunTrackingStationSpawnHandoffForRecordingId(
+            IReadOnlyList<Recording> committed,
+            string recordingId,
+            double currentUT,
+            bool reselectSpawnedVessel = false)
+        {
+            if (!TryGetCommittedRecordingById(
+                    committed,
+                    recordingId,
+                    out int index,
+                    out Recording _))
+            {
+                return false;
+            }
+
+            return TryRunTrackingStationSpawnHandoffForIndex(
+                committed,
+                index,
+                currentUT,
+                reselectSpawnedVessel);
+        }
+
+        private static void RunTrackingStationSpawnHandoffForEligibleIndex(
+            IReadOnlyList<Recording> committed,
+            int index,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            bool reselectSpawnedVessel = false)
+        {
+            Recording rec = committed[index];
+            TrackingStationSpawnHandoffState handoffState =
+                CaptureTrackingStationSpawnHandoffState(index);
+            bool realVesselExists = rec.VesselPersistentId != 0
+                && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+            bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
+                rec,
+                realVesselExists);
+
+            if (alreadyMaterialized)
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
                 RemoveAllGhostPresenceForIndex(
                     index,
                     rec.VesselPersistentId,
-                    "tracking-station-spawn-handoff");
+                    "tracking-station-existing-real-vessel");
+                RestoreTrackingStationSpawnHandoffState(
+                    rec.VesselPersistentId,
+                    handoffState,
+                    "tracking-station-existing-real-vessel",
+                    reselectSpawnedVessel);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff skipped duplicate spawn for #{0} \"{1}\" — real vessel pid={2} already exists",
+                        index,
+                        rec.VesselName ?? "(null)",
+                        rec.VesselPersistentId));
+                return;
+            }
 
-                if (rec.SpawnedVesselPersistentId != 0)
-                {
-                    GhostPlaybackLogic.InvalidateVesselCache();
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff spawned #{0} \"{1}\" pid={2} preserveIdentity={3}",
-                            index,
-                            rec.VesselName ?? "(null)",
-                            rec.SpawnedVesselPersistentId,
-                            preserveIdentity));
-                }
-                else if (rec.SpawnAbandoned)
-                {
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
-                            index,
-                            rec.VesselName ?? "(null)"));
-                }
+            bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
+                chains,
+                rec,
+                realVesselExists);
+            VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            if (!rec.VesselSpawned)
+                return;
+
+            RemoveAllGhostPresenceForIndex(
+                index,
+                rec.VesselPersistentId,
+                "tracking-station-spawn-handoff");
+
+            if (rec.SpawnedVesselPersistentId != 0)
+            {
+                GhostPlaybackLogic.InvalidateVesselCache();
+                RestoreTrackingStationSpawnHandoffState(
+                    rec.SpawnedVesselPersistentId,
+                    handoffState,
+                    "tracking-station-spawn-handoff",
+                    reselectSpawnedVessel);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff spawned #{0} \"{1}\" pid={2} preserveIdentity={3}",
+                        index,
+                        rec.VesselName ?? "(null)",
+                        rec.SpawnedVesselPersistentId,
+                        preserveIdentity));
+            }
+            else if (rec.SpawnAbandoned)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
+                        index,
+                        rec.VesselName ?? "(null)"));
             }
         }
 
@@ -1591,10 +1939,7 @@ namespace Parsek
                     point.altitude,
                     point.velocity.magnitude));
             if (vessel != null)
-            {
-                vesselsByRecordingIndex[recordingIndex] = vessel;
-                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
-            }
+                TrackRecordingGhostVessel(recordingIndex, traj, vessel);
 
             return vessel;
         }
@@ -2288,6 +2633,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Find the stable recording ID captured when a recording-index ghost was created.
+        /// Returns null if the vessel is not a recording-index ghost or the source
+        /// trajectory did not expose a recording ID.
+        /// </summary>
+        internal static string FindRecordingIdByVesselPid(uint vesselPid)
+        {
+            return vesselPidToRecordingId.TryGetValue(vesselPid, out string recordingId)
+                ? recordingId
+                : null;
+        }
+
+        /// <summary>
         /// Returns true if a ghost map ProtoVessel exists for the given recording index.
         /// Used by ParsekUI to suppress the green dot marker when the native KSP icon is active.
         /// </summary>
@@ -2305,6 +2662,55 @@ namespace Parsek
             if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel v))
                 return v.persistentId;
             return 0;
+        }
+
+        internal static bool TryGetCommittedRecordingById(
+            string recordingId,
+            out int recordingIndex,
+            out Recording recording)
+        {
+            return TryGetCommittedRecordingById(
+                RecordingStore.CommittedRecordings,
+                recordingId,
+                out recordingIndex,
+                out recording);
+        }
+
+        internal static bool TryGetCommittedRecordingById(
+            IReadOnlyList<Recording> committed,
+            string recordingId,
+            out int recordingIndex,
+            out Recording recording)
+        {
+            recordingIndex = -1;
+            recording = null;
+
+            if (committed == null || string.IsNullOrEmpty(recordingId))
+                return false;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording current = committed[i];
+                if (current == null
+                    || !string.Equals(current.RecordingId, recordingId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                recordingIndex = i;
+                recording = current;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static Recording GetCommittedRecordingByRawIndex(int recordingIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || recordingIndex < 0 || recordingIndex >= committed.Count)
+                return null;
+            return committed[recordingIndex];
         }
 
         /// <summary>
@@ -2419,13 +2825,14 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
         }
 
         /// <summary>
         /// Synchronous bookkeeping reset for the in-game test runner's between-run cleanup
-        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and both
+        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and
         /// recording-index maps in one shot without calling vessel.Die(), under the
         /// assumption that the caller has already invoked GhostPlaybackEngine.DestroyAllGhosts
         /// (or RemoveAllGhostVessels) so the Vessel-layer destruction ran first. This closes
@@ -2445,11 +2852,12 @@ namespace Parsek
             int chainCount = vesselsByChainPid.Count;
             int indexCount = vesselsByRecordingIndex.Count;
             int reverseCount = vesselPidToRecordingIndex.Count;
+            int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
-                + chainCount + indexCount + reverseCount
+                + chainCount + indexCount + reverseCount + reverseIdCount
                 + tsStateVectorCount + tsStateVectorCacheCount;
 
             if (totalTracked == 0)
@@ -2467,6 +2875,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
 
@@ -2474,16 +2883,47 @@ namespace Parsek
                 string.Format(ic,
                     "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
                     "pids={1} suppressedIcons={2} orbitBounds={3} chainVessels={4} " +
-                    "indexVessels={5} reverseLookup={6} tsStateVectors={7} tsStateVectorCache={8}",
+                    "indexVessels={5} reverseLookup={6} reverseIdLookup={7} " +
+                    "tsStateVectors={8} tsStateVectorCache={9}",
                     reason ?? "(null)",
                     pidCount, suppressedIconCount, orbitBoundsCount,
-                    chainCount, indexCount, reverseCount,
+                    chainCount, indexCount, reverseCount, reverseIdCount,
                     tsStateVectorCount, tsStateVectorCacheCount));
         }
 
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
+
+        private static void TrackRecordingGhostVessel(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            Vessel vessel)
+        {
+            if (vessel == null)
+                return;
+
+            vesselsByRecordingIndex[recordingIndex] = vessel;
+            vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+
+            string recordingId = traj?.RecordingId;
+            if (!string.IsNullOrEmpty(recordingId))
+                vesselPidToRecordingId[vessel.persistentId] = recordingId;
+            else
+                vesselPidToRecordingId.Remove(vessel.persistentId);
+        }
+
+        internal static void TrackRecordingGhostIdentityForTesting(
+            uint ghostPid,
+            int recordingIndex,
+            string recordingId)
+        {
+            vesselPidToRecordingIndex[ghostPid] = recordingIndex;
+            if (!string.IsNullOrEmpty(recordingId))
+                vesselPidToRecordingId[ghostPid] = recordingId;
+            else
+                vesselPidToRecordingId.Remove(ghostPid);
+        }
 
         /// <summary>
         /// Find a CelestialBody by name without LINQ allocation.

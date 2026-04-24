@@ -47,6 +47,36 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 # Known Bugs
 
+## ~~566. Post-switch attitude-only docking alignment could miss deliberate station rotation and replay RELATIVE docking geometry against the wrong frame~~
+
+**Source:** docking-alignment follow-up planned and implemented on 2026-04-24 after the broader `#546` post-switch watcher shipped. The remaining gap showed up in the capsule/station flow where the player switches to a nearby station, rotates it with SAS / reaction wheels to line up the docking port, switches back, and docks.
+
+**Concern:** `#546` fixed the general "first meaningful modification after switch" gap, but its trigger set still favored translation, engine/RCS activity, and authored vessel-state changes. Pure attitude alignment could stay below those seams and never start recording. Separately, the RELATIVE frame contract was inconsistent: offsets were stored as world-space deltas while playback multiplied rotation by the live anchor transform as if the stored rotation were anchor-local. That meant even newly recorded docking approaches could drift once the nearby vessel had been rotated in place.
+
+**Fix:** post-switch watching now tracks baseline world rotation and accepts a dedicated `AttitudeChange` trigger only after a sign-canonicalized `Quaternion.Angle` exceeds the 3 degree threshold and survives a short debounce, so focus switch alone stays ignored while deliberate alignment starts or promotes recording. Active sampling is now attitude-aware so wheel/SAS alignment emits points even when velocity/orbit barely change, the trigger-start path seeds baseline + current pose so the first few degrees are not lost, and recording format `v6` makes new RELATIVE sections truly anchor-local for both position and rotation. Legacy `v5`-and-older RELATIVE sections stay on the old playback path, and unrelated format normalization no longer silently upgrades old recordings onto the v6 contract.
+
+**Review follow-up (same PR):** dropped an unused `boundaryAnchor` parameter on `StartRecording` / `PromoteRecordingFromBackground` (baseline seeding runs through `SeedTrajectoryPoint` instead); collapsed the redundant version branch in `ResolveRelativePlaybackRotation` since both v5 and v6 reconstitute world rotation with the same `anchor * stored` formula (only the storage semantics differ); added a `ShouldSkipSeedDueToRelativeSection` guard so a baseline seed built from `v.srfRelRotation` can never be committed into an anchor-relative track section; and added diagnostic log lines when `OnPhysicsFrame` samples a packed vessel or when `ResolveActiveRecordingFormatVersion` has to fall back to the current format version.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/FlightRecorder.cs`, `Source/Parsek/TrajectoryMath.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek.Tests/PostSwitchAutoRecordTests.cs`, `Source/Parsek.Tests/AdaptiveSamplingTests.cs`, `Source/Parsek.Tests/RelativePlaybackTests.cs`, `Source/Parsek.Tests/FormatVersionTests.cs`, `docs/dev/plans/fix-post-switch-attitude-docking.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+## ~~567. Scene-enter auto-record never resumed on vessels with a committed recording~~
+
+Observed in the `2026-04-23_2200_playtest-post-v083` playtest: launch a vessel, commit the recording, exit to KSC, re-enter the same vessel via Tracking Station, drive it. Auto-record stayed `mode=none` for the entire session. The `FlightRecorder.OnVesselGoOffRails` handler early-returns when `IsRecording` is false, and the design spec (`recording-system-design.md` §4.5 "When the player returns to flight, vessels come off rails → new checkpoints captured → physics sampling resumes") expected the resume path to run here.
+
+Root cause: the existing `TryRestoreCommittedTreeForSpawnedActiveVessel` pipeline (triggered from `OnFlightReady`) does look up the committed tree by active vessel pid, but its filter in `TryFindCommittedTreeForSpawnedVessel` requires both `rec.VesselSpawned == true` AND `rec.SpawnedVesselPersistentId == activeVesselPid`. Only the pid is persisted; the flag was not re-derived from the pid on load, so after every save/load `VesselSpawned` dropped back to its default `false` and the filter silently skipped the match.
+
+Fix: both load paths (`RecordingTree.Load` and `ParsekScenario.OnLoad`'s tree-rec mutable-state restore) now set `rec.VesselSpawned = (spawnedPid != 0)` alongside `rec.SpawnedVesselPersistentId`. The invariant is straight from the existing `BuildSpawnedVesselPidSet(ERS)` / spawner `rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;` pattern; the fix brings the load side in line. Regression tests in `RecordingTreeTests.RecordingTree_SpawnedPid_RestoresVesselSpawnedFlagOnLoad` + `RecordingTree_NoSpawnedPid_LeavesVesselSpawnedFalseOnLoad` and `VesselSwitchTreeTests.TryFindCommittedTreeForSpawnedVessel_MatchesTreeReloadedFromConfigNode`.
+
+Related playtest observation (separate bug, not fixed here): the KSC-view adoption (`VesselSpawner.TryAdoptExistingSourceVesselForSpawn`) still treats the original on-pad launch vessel as the terminal real-spawn, so ghosts playing from launch → terminal vanish at end without a visible terminal-position vessel in KSC view. Once auto-record-on-resume starts producing new commits, the adopted vessel position drifts with the recording lineage and this surfaces less often, but a principled fix (move / re-spawn at terminal on commit; or render a persistent terminal indicator in KSC) is still open.
+
+Follow-up the same hour (`2026-04-23_2305_post-fix-regression`): once the restore path reliably fires, the detach-for-resume step in `TryTakeCommittedTreeForSpawnedVesselRestore` leaves the resumed recording carrying its prior-commit `VesselSpawned=true` / `SpawnedVesselPersistentId=<pid>`. The merge dialog's `CanPersistVessel` → `ShouldSpawnAtRecordingEnd` chain reads that as "already spawned, skip" and defaults the leaf to ghost-only at the next commit, which nulls the `VesselSnapshot` and makes subsequent KSC spawn attempts fail with `no vessel snapshot`. `TryTakeCommittedTreeForSpawnedVesselRestore` now clears `VesselSpawned` and `SpawnedVesselPersistentId` on the resumed recording immediately after detaching from committed storage so the re-commit re-evaluates persist eligibility from scratch; the KSC adoption path re-establishes the flags post-commit when the source vessel is still around. Regression in `VesselSwitchTreeTests.TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsOnResumedRecording`.
+
+UX polish (same branch): the FlightRecorder `StartRecording(isPromotion: true)` path suppresses the inner `Recording STARTED` screen toast, so scene-enter resume used to happen silently. `TryRestoreCommittedTreeForSpawnedActiveVessel` now surfaces `Recording STARTED (resume)` after a successful restore, matching the `(auto)` and `(auto - post switch)` messages on the other auto-record paths.
+
+Companion UX polish (2026-04-24): fresh auto-record starts that already post contextual screen messages now suppress the generic `Recording STARTED` toast. This covers pad/runway launch auto-record, post-switch first-modification auto-record, and deferred EVA-from-pad auto-record; chain continuations remain unchanged because their promotion path already suppresses the generic toast.
+
 ## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
@@ -372,6 +402,62 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 **Files:** `Source/Parsek/GameActions/RecalculationEngine.cs`, `Source/Parsek/GameActions/IResourceModule.cs`, `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek/GameActions/ScienceModule.cs`, `Source/Parsek/GameActions/ContractsModule.cs`, `Source/Parsek/GameActions/StrategiesModule.cs`, `Source/Parsek/ParsekLog.cs`, `Source/Parsek.Tests/RewindUtCutoffTests.cs`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `CHANGELOG.md`.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~568. Real-spawned vessel post-resume stands on its side when physics activates~~
+
+**Source:** filed on `bug/scene-enter-resume-recording` after `logs/2026-04-23_2333_spawn-orientation` and reproduced in `logs/2026-04-24_0004_orientation-regression`. The 2026-04-24 in-flight real-spawn logged `srfRel=-0.000111888832,-0.133055791,-0.000464609941,0.991108477` for an upright rover with about 15 degrees of yaw, then wrote `world=0.000474858942,-0.885830998,5.37633787E-05,-0.464007854` into the snapshot `rot` field. KSP immediately classified the spawned LANDED vessel through a non-active `0 -> ORBITING` transition, matching the observed "on its side" physics activation.
+
+**Root cause:** Parsek-authored ProtoVessel snapshots were treating `VESSEL.rot` as a Unity world-space transform rotation and pre-composing `body.bodyTransform.rotation * srfRelRotation` before `ProtoVessel.Load()`. The in-repo ProtoVessel decompilation note shows the opposite contract: `rot` is parsed into `ProtoVessel.rotation`, and `ProtoVessel.Load()` assigns that value directly to `vesselRef.srfRelRotation`. Writing the composed value double-applied the body frame when KSP loaded the real vessel.
+
+**Fix:** `VesselSpawner` now writes the sanitized recorded surface-relative quaternion directly to `VESSEL.rot` for all ProtoVessel spawn-node paths: normal snapshot respawns, `SpawnAtPosition`, EVA/breakup snapshot prep, chain-tip spawns through `VesselGhoster`, and flag ProtoVessel spawns. Live ghost `Transform.rotation` placement still uses `body.bodyTransform.rotation * srfRelRotation`; only ProtoVessel node authoring changed. `SpawnRotationInGameTests` now assert the surface-relative ProtoVessel invariant for Kerbin and Mun fixtures, null-body rotation prep, `SpawnAtPosition`, and snapshot override rotation rewrites.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/VesselGhoster.cs` (audited caller), `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectoryPoint.cs`, `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `AGENTS.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
+## ~~569. Time-jump chain-tip spawns can leave the materialized recording unmarked~~
+
+**Source:** spawn audit while validating #568 / PR #519. `TimeJumpManager.SpawnCrossedChainTips(...)` called `VesselGhoster.SpawnAtChainTip(...)` and removed the chain key after a non-zero spawned PID, but the time-jump caller did not mirror the normal Flight caller's `VesselSpawned=true` / `SpawnedVesselPersistentId=<pid>` update onto the tip recording.
+
+**Concern:** after a time jump materialized a crossed chain tip, Parsek metadata could still describe the tip as ghost-only/unspawned. Later spawn-death tracking, watch handoff, background-map checks, and spawn policy would have to rediscover the live vessel by adoption instead of following the spawned PID.
+
+**Fix:** `VesselGhoster` now marks the chain-tip recording spawned immediately after successful real-vessel materialization on the normal, blocked-retry, and trajectory-walkback chain-tip paths. `TimeJumpManager` now names its returned values as chain dictionary keys instead of spawned vessel PIDs, and the blocked-retry path no longer logs a successful spawn before checking for `pid=0`.
+
+**Files:** `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/TimeJumpManager.cs`, `Source/Parsek.Tests/VesselGhosterTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
+## ~~565. Continued scene-enter resume replay spawns a prior endpoint as an intermediate vessel~~
+
+**Source:** `logs/2026-04-24_1928_bug-559-intermediate-spawn-after-resume/KSP.log`. The player rewound `Crater Crawler` (`Timeline rewind button clicked` at line 8780, confirmed at line 8781), but KSP loaded `Butterfly Rover.craft` as the scene-entry active vessel at line 8988. During replay, #226's duplicate-source bypass then matched the non-target active Butterfly source PID at lines 9656-9657 and spawned the standalone Butterfly endpoint at line 9677. On the next replay, that old standalone Butterfly recording spawned again at UT 61.1 (`Vessel spawn for #0 (Butterfly Rover) pid=3394657290` at line 13067) before the continued Crater/Butterfly tree reached its final end around UT 115.8.
+
+**Root cause:** the replay duplicate-source exception was scoped only to `SceneEntryActiveVesselPid` / current active vessel PID, not to the recording the user actually rewound. That let any committed recording whose source PID matched the scene-entry active vessel spawn a duplicate, even when it was not the rewind target. After the player continued from that spawned endpoint, the older terminal recording also remained a normal spawnable timeline endpoint; `ResetAllPlaybackState()` cleared transient `VesselSpawned` / `SpawnedVesselPersistentId` on later rewinds, so the old endpoint could materialize again before the newer continuation reached its final spawn.
+
+**Fix:** launch-point rewind now arms a replay-target source PID, and `VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(...)` rejects #226 duplicate-source bypasses for non-target recordings while the rewind replay is active. When a newly committed tree continues a vessel that was previously materialized by an older recording, `RecordingStore` persists `terminalSpawnSupersededBy=<continuedRecordingId>` on the old endpoint; `GhostPlaybackLogic` and `TimelineBuilder` keep its ghost playback but suppress the terminal real-vessel spawn and spawn-row entry. The target scope intentionally survives committed-list reload during `ParsekScenario.OnLoad` and is cleared only by real commit/discard/clear paths; `ResetAllPlaybackState()` also repairs the already-polluted saved shape where the old endpoint was spawned a second time and no longer carries the PID that the continuation used.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/RecordingTree.cs`, `Source/Parsek/Recording.cs`, `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/TreeCommitTests.cs`, `Source/Parsek.Tests/ChainSpawnSuppressionTests.cs`, `Source/Parsek.Tests/TimelineBuilderTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
+## ~~566. Spawn audit follow-ups still left KSC and chain-tip materialization on older respawn paths~~
+
+**Source:** 2026-04-24 Parsek spawn audit across `VesselSpawner`, `ParsekFlight.SpawnTreeLeaves`, `ParsekKSC.TrySpawnAtRecordingEnd`, `VesselGhoster` chain-tip spawns, `GhostVisualBuilder` flag spawns, and the related design notes.
+
+**Concern:** even after the in-flight EVA / breakup stale-orbit fixes, several secondary materialization paths still diverged from the shared spawn contract. KSC materialization still prepared a raw snapshot override and called `RespawnVessel` directly, chain-tip blocked/walkback spawns still relied on the older mutate-then-respawn pattern, blocked-clear chain-tip rechecks only used the propagated position for collision testing instead of for the actual materialization state, and failed `ProtoVessel.Load()` on several spawn paths could leave orphaned `ProtoVessel` entries behind in `flightState.protoVessels`.
+
+**Fix:** failed `ProtoVessel.Load()` cleanup is now centralized in `VesselSpawner.CleanupFailedSpawnedProtoVessel(...)` and applied to normal respawns, `SpawnAtPosition`, and flag spawning. `ParsekFlight.SpawnTreeLeaves` now routes through `SpawnOrRecoverIfTooClose`, KSC materialization now prepares a private snapshot copy and uses the same endpoint/rotation/EVA-breakup spawn prep plus `SpawnAtPosition` / validated-respawn split as flight, and `VesselGhoster` now routes chain-tip normal spawns, blocked-clear spawns, and walkback spawns through explicit resolved spawn state. Chain-tip walkback now uses the subdivided walkback helper with interpolated trajectory points, while the older point walkback remains only as a body-resolution fallback.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/SpawnCollisionDetector.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/EndOfRecordingWalkbackTests.cs`, `docs/dev/todo-and-known-bugs.md`, `docs/dev/done/plans/eva-spawn-position-fix.md`, `docs/dev/done/todo-and-known-bugs-v2.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed in the `spawn-audit-fixes` worktree; full build/test verification remains blocked on the local .NET Framework 4.7.2 targeting pack / KSP dependency environment.
 
 ---
 
@@ -800,7 +886,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 ---
 
-## 554. Tracking Station runtime coverage is missing from the collected in-game test package
+## ~~554. Tracking Station runtime coverage is missing from the collected in-game test package~~
 
 **Source:** Tracking Station / Map Mode UI audit from the `#561` investigation. The collected package did not include expected TS scene rows such as `ParsekTrackingStationExists` or `ShowGhostsInTrackingStation_FlipRemovesAndRecreates`.
 
@@ -815,7 +901,9 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/*TrackingStation*`, `scripts/collect-logs.py`, `scripts/validate-release-bundle.py`, release validation docs.
 
-**Status:** TODO. High priority validation gap before claiming full TS parity.
+**Fix:** Added deterministic `TrackingStation` in-game canaries in `RuntimeTests.cs`: scene entry verifies the Parsek/stock TS hosts, the synthetic orbital toggle canary forces show/hide/recreate without depending on save-local recordings, and the object-count canary validates the synthetic TS ghost object stays unique/resolvable without captured TS error spam. Added a manual-only materialized orbital Fly canary for the Learstar stale-selection class: it seeds a stale alternate selection, proves focusing a Parsek ghost clears the stale private stock selection, then focuses/flys a materialized orbital vessel and asserts the loaded FLIGHT vessel PID is the materialized one. `validate-release-bundle.py` now has a `release-tracking-station` profile requiring the batch-safe TS rows and documenting the optional Fly row when it was not captured.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 
 ---
 
@@ -879,6 +967,27 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 **Fix:** `GhostTrackingStationSelection.TryClearSelectedVessel(...)` now mirrors stock's previous-vessel deselection block (`orbitRenderer.isFocused = false`, `orbitRenderer.drawIcons = DrawIcons.OBJ`, `DetachPatchedConicsSolver()`) directly on the previous selection before nulling the private field, so Fly/Delete/Recover/SetVessel blocks clear the latched focus without re-entering `SetVessel`. Cleanup exceptions are routed back through the existing `error` out-parameter so the caller still logs a targeted `[GhostMap]` WARN instead of corrupting the Tracking Station state.
 
 **Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`.
+
+**Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
+
+---
+
+## ~~564. Tracking Station ghost objects need safe first-class interactions, not only Fly/Delete/Recover blocking~~
+
+**Source:** Tracking Station / Map Mode UI audit from the `#561` investigation.
+
+**Concern:** Ghost ProtoVessels in the Tracking Station only had the stock Fly/Delete/Recover buttons, all of which Parsek blocks for ghosts. There was no safe positive affordance to focus the camera on the ghost, set it as a target, inspect its owning recording, or materialize the recorded vessel when it was eligible to spawn.
+
+**Action plan:**
+
+1. Add a Parsek-owned selected-ghost action surface in the Tracking Station that exposes Focus, Target, Recording details, and Materialize.
+2. Key the selection by stable recording ID so raw index churn in `CommittedRecordings` does not move the panel off the ghost the player clicked.
+3. Keep stock Fly/Delete/Recover blocked for ghost-only objects and continue clearing private `SpaceTracking.selectedVessel` on every blocked path.
+4. Add tests for action-state decisions and for stale-selection clearing when a player alternates between stock asteroids/comets and Parsek ghosts.
+
+**Files:** `Source/Parsek/Patches/GhostTrackingStationPatch.cs`, `Source/Parsek/ParsekTrackingStation.cs`, `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs`, `Source/Parsek.Tests/TrackingStationSpawnTests.cs`.
+
+**Fix:** Added a Parsek-owned selected-ghost action surface in Tracking Station. Ghost `SetVessel`/Fly/Delete/Recover blocks now also record the Parsek ghost selection by stable recording ID, clear stock `selectedVessel`, and leave stock Fly/Delete/Recover disabled. The selected ghost panel refreshes action eligibility every GUI frame and exposes safe Focus, Target, owning Recording details, and a selected-recording-only Materialize action when the existing Tracking Station spawn eligibility says that recording is ready; when that ghost resolves, the nav target and map focus hand off to the materialized real vessel. Chain ghosts without a direct committed recording row show disabled recording/materialize states instead of falling through stock actions.
 
 **Status:** CLOSED 2026-04-23. Fixed for v0.8.3.
 

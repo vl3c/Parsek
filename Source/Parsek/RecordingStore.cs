@@ -56,7 +56,8 @@ namespace Parsek
     {
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
-        public const int CurrentRecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
+        public const int RelativeLocalFrameFormatVersion = 6;
+        public const int CurrentRecordingFormatVersion = RelativeLocalFrameFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -81,6 +82,19 @@ namespace Parsek
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
         // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
+        // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
+
+        internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
+        {
+            return recordingFormatVersion >= RelativeLocalFrameFormatVersion;
+        }
+
+        internal static string DescribeRelativeFrameContract(int recordingFormatVersion)
+        {
+            return UsesRelativeLocalFrameContract(recordingFormatVersion)
+                ? "anchor-local"
+                : "legacy-world";
+        }
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -140,6 +154,12 @@ namespace Parsek
         // this, the existing real vessel is the player's reverted/active vessel, not
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
+
+        // During launch-point rewind, scope the #226 duplicate-source bypass to the
+        // recording whose rewind was actually requested. Other scene-entry vessels may
+        // also match committed recordings, but they are not the replay target.
+        internal static uint RewindReplayTargetSourcePid;
+        internal static string RewindReplayTargetRecordingId;
 
         // Rewind state is now encapsulated in RewindContext.
         // These delegate properties preserve API compatibility for callers
@@ -595,6 +615,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            ClearRewindReplayTargetScope();
             BumpStateVersion();
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
@@ -605,7 +626,29 @@ namespace Parsek
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             ClearCommitted();
+            ClearRewindReplayTargetScope();
             Log("[Parsek] All recordings cleared");
+        }
+
+        internal static void SetRewindReplayTargetScope(Recording owner)
+        {
+            // NOTE: This scope must survive the committed-list rebuild inside
+            // ParsekScenario.OnLoad; only real commit/discard/clear/reset paths
+            // should clear it, or #565's replay-target filter loses its owner.
+            RewindReplayTargetSourcePid = owner != null ? owner.VesselPersistentId : 0u;
+            RewindReplayTargetRecordingId = owner != null ? owner.RecordingId : null;
+            if (RewindReplayTargetSourcePid != 0)
+            {
+                ParsekLog.Verbose("Rewind",
+                    $"Rewind replay duplicate scope armed: rec={RewindReplayTargetRecordingId ?? "<null>"} " +
+                    $"sourcePid={RewindReplayTargetSourcePid.ToString(CultureInfo.InvariantCulture)}");
+            }
+        }
+
+        internal static void ClearRewindReplayTargetScope()
+        {
+            RewindReplayTargetSourcePid = 0;
+            RewindReplayTargetRecordingId = null;
         }
 
         /// <summary>
@@ -624,6 +667,7 @@ namespace Parsek
                 {
                     Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                     GameStateRecorder.PendingScienceSubjects.Clear();
+                    ClearRewindReplayTargetScope();
                     return;
                 }
             }
@@ -633,7 +677,9 @@ namespace Parsek
             PromoteNormalStagingRewindPoints(tree);
             AutoGroupTreeRecordings(tree);
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
+            MarkSupersededTerminalSpawnsForContinuedSources(tree);
             FinalizeTreeCommit(tree);
+            ClearRewindReplayTargetScope();
         }
 
         /// <summary>
@@ -1134,6 +1180,139 @@ namespace Parsek
         }
 
         /// <summary>
+        /// When a newly committed tree continues a vessel that was previously
+        /// materialized from another recording, the older recording is an intermediate
+        /// endpoint. Its ghost should still play, but its terminal real-vessel spawn
+        /// must be suppressed so the later continuation owns the final vessel spawn.
+        /// </summary>
+        internal static int MarkSupersededTerminalSpawnsForContinuedSources(
+            RecordingTree tree,
+            string logContext = "CommitTree")
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return 0;
+            if (committedRecordings == null || committedRecordings.Count == 0)
+                return 0;
+
+            double treeStartUT = GetTreeStartUT(tree);
+            int marked = 0;
+            foreach (Recording continued in tree.Recordings.Values)
+            {
+                if (continued == null || continued.VesselPersistentId == 0)
+                    continue;
+                if (string.IsNullOrEmpty(continued.RecordingId))
+                    continue;
+
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording prior = committedRecordings[i];
+                    if (prior == null || ReferenceEquals(prior, continued))
+                        continue;
+                    if (string.Equals(prior.RecordingId, continued.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (!string.IsNullOrEmpty(prior.TerminalSpawnSupersededByRecordingId))
+                        continue;
+                    if (!ShouldMarkSupersededTerminalSpawn(
+                            prior,
+                            continued,
+                            treeStartUT,
+                            out string matchReason))
+                        continue;
+
+                    prior.TerminalSpawnSupersededByRecordingId = continued.RecordingId;
+                    prior.FilesDirty = true;
+                    marked++;
+                    ParsekLog.Info("RecordingStore",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "{0}: terminal spawn for recording '{1}' vessel='{2}' " +
+                            "superseded by continuation '{3}' vesselPid={4} reason={5}",
+                            logContext ?? "MarkSupersededTerminalSpawns",
+                            prior.RecordingId ?? "<no-id>",
+                            prior.VesselName ?? "<unnamed>",
+                            continued.RecordingId,
+                            continued.VesselPersistentId,
+                            matchReason ?? "unknown"));
+                }
+            }
+
+            if (marked > 0)
+                BumpStateVersion();
+            return marked;
+        }
+
+        internal static int MarkSupersededTerminalSpawnsForCommittedContinuations(
+            string logContext = "CommittedContinuationRepair")
+        {
+            if (committedTrees == null || committedTrees.Count == 0)
+                return 0;
+
+            int marked = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+                marked += MarkSupersededTerminalSpawnsForContinuedSources(
+                    committedTrees[i],
+                    logContext);
+
+            return marked;
+        }
+
+        private static bool ShouldMarkSupersededTerminalSpawn(
+            Recording prior,
+            Recording continued,
+            double continuationTreeStartUT,
+            out string reason)
+        {
+            reason = null;
+            if (prior == null || continued == null)
+                return false;
+            if (continued.VesselPersistentId == 0)
+                return false;
+            if (prior.SpawnedVesselPersistentId == 0)
+                return false;
+            if (prior.EndUT > continued.EndUT + 1e-3)
+                return false;
+
+            if (prior.SpawnedVesselPersistentId == continued.VesselPersistentId)
+            {
+                reason = "spawned-pid-match";
+                return true;
+            }
+
+            if (string.Equals(prior.TreeId, continued.TreeId, StringComparison.Ordinal))
+                return false;
+            if (continued.TreeOrder <= 0)
+                return false;
+            if (double.IsNaN(continuationTreeStartUT))
+                return false;
+            if (continuationTreeStartUT > prior.EndUT + 1e-3)
+                return false;
+            if (prior.EndUT > continued.StartUT + 1e-3)
+                return false;
+            if (!string.Equals(prior.VesselName, continued.VesselName, StringComparison.Ordinal))
+                return false;
+
+            reason = "same-name-overlapping-continuation-tree";
+            return true;
+        }
+
+        private static double GetTreeStartUT(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return double.NaN;
+
+            double min = double.PositiveInfinity;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                double startUT = rec.StartUT;
+                if (startUT < min)
+                    min = startUT;
+            }
+
+            return double.IsPositiveInfinity(min) ? double.NaN : min;
+        }
+
+        /// <summary>
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
         /// captures baseline, and creates a milestone.
         /// </summary>
@@ -1275,6 +1454,7 @@ namespace Parsek
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            ClearRewindReplayTargetScope();
         }
 
         /// <summary>
@@ -2440,6 +2620,7 @@ namespace Parsek
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
+            ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
             GameStateRecorder.PendingScienceSubjects.Clear();
@@ -2812,6 +2993,8 @@ namespace Parsek
         /// </summary>
         internal static (int recordingCount, int treeCount) ResetAllPlaybackState()
         {
+            MarkSupersededTerminalSpawnsForCommittedContinuations("ResetAllPlaybackState");
+
             for (int i = 0; i < committedRecordings.Count; i++)
                 ResetRecordingPlaybackFields(committedRecordings[i]);
 
@@ -3270,6 +3453,7 @@ namespace Parsek
         private static void ResetRewindFlags()
         {
             RewindContext.EndRewind();
+            ClearRewindReplayTargetScope();
         }
 
         /// <summary>
@@ -3308,6 +3492,7 @@ namespace Parsek
             // The rewind save was captured at the same moment as PreLaunch values.
             RewindContext.BeginRewind(owner.StartUT, reserved,
                 owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
+            SetRewindReplayTargetScope(owner);
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
@@ -6077,7 +6262,10 @@ namespace Parsek
                 || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
                 return;
 
-            rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
+            // Legacy loop-interval migration only repairs the loop-timing semantic bump.
+            // Do not silently reinterpret older RELATIVE sections as the newer v6
+            // anchor-local contract just because the loop interval was normalized.
+            rec.RecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
         }
 
         /// <summary>

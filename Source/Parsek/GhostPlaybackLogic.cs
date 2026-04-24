@@ -3911,6 +3911,13 @@ namespace Parsek
             bool isChainLooping,
             RecordingTree treeContext)
         {
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+            {
+                return (false,
+                    "terminal spawn superseded by recording " +
+                    rec.TerminalSpawnSupersededByRecordingId);
+            }
+
             // Preserve the existing "already spawned" precedence, but make destroyed
             // recordings win over the generic missing-snapshot diagnostic.
             if (rec.VesselSpawned)
