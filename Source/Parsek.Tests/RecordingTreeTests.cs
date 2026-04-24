@@ -230,6 +230,79 @@ namespace Parsek.Tests
             Assert.Empty(restored.BranchPoints);
         }
 
+        // --- Scene-enter resume prerequisite: VesselSpawned must match spawnedPid after load ---
+
+        [Fact]
+        public void RecordingTree_SpawnedPid_RestoresVesselSpawnedFlagOnLoad()
+        {
+            // Regression: TryFindCommittedTreeForSpawnedVessel filters on both
+            // rec.VesselSpawned and rec.SpawnedVesselPersistentId. The field
+            // isn't persisted directly — it must be re-derived from the persisted
+            // spawnedPid on load so the scene-enter resume path matches after
+            // save/load. Without this, re-entering a vessel that already has a
+            // committed recording silently fails to auto-resume recording.
+            var tree = new RecordingTree
+            {
+                Id = "tree_spawn",
+                TreeName = "Spawn Test",
+                RootRecordingId = "rec_spawn",
+                ActiveRecordingId = "rec_spawn"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_spawn",
+                VesselName = "Crater Crawler",
+                VesselPersistentId = 4206290288u,
+                SpawnedVesselPersistentId = 4206290288u,
+                VesselSpawned = true,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 25.9,
+                TreeId = "tree_spawn"
+            };
+            tree.Recordings["rec_spawn"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var restoredRec = restored.Recordings["rec_spawn"];
+            Assert.Equal(4206290288u, restoredRec.SpawnedVesselPersistentId);
+            Assert.True(restoredRec.VesselSpawned,
+                "VesselSpawned should be re-derived from non-zero spawnedPid on load " +
+                "so the scene-enter resume filter in TryFindCommittedTreeForSpawnedVessel matches.");
+        }
+
+        [Fact]
+        public void RecordingTree_NoSpawnedPid_LeavesVesselSpawnedFalseOnLoad()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_unspawned",
+                TreeName = "Unspawned",
+                RootRecordingId = "rec_u",
+                ActiveRecordingId = "rec_u"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_u",
+                VesselName = "Never Spawned",
+                VesselPersistentId = 99u,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 1.0,
+                TreeId = "tree_unspawned"
+            };
+            tree.Recordings["rec_u"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var restoredRec = restored.Recordings["rec_u"];
+            Assert.Equal(0u, restoredRec.SpawnedVesselPersistentId);
+            Assert.False(restoredRec.VesselSpawned,
+                "VesselSpawned should stay false when spawnedPid is absent on load.");
+        }
+
         // --- Recording tree with undock branch ---
 
         [Fact]

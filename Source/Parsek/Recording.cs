@@ -262,6 +262,7 @@ namespace Parsek
         public bool VesselSpawned;              // True after deferred RespawnVessel has fired
 
         public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
+        public string TerminalSpawnSupersededByRecordingId; // Later continuation owns the real terminal spawn
         public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
         public int CollisionBlockCount;         // Consecutive collision-blocked frames (give up after MaxCollisionBlocks)
         public bool SpawnAbandoned;              // True after collision/death limit reached — prevents vessel-gone check from resetting (transient)
@@ -518,6 +519,7 @@ namespace Parsek
             EndCrew = source.EndCrew;
             DockTargetVesselPid = source.DockTargetVesselPid;
             CrewEndStatesResolved = source.CrewEndStatesResolved;
+            TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
@@ -617,6 +619,7 @@ namespace Parsek
                 : null;
             clone.VesselSpawned = source.VesselSpawned;
             clone.SpawnedVesselPersistentId = source.SpawnedVesselPersistentId;
+            clone.TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
             clone.SpawnAttempts = source.SpawnAttempts;
             clone.CollisionBlockCount = source.CollisionBlockCount;
             clone.SpawnAbandoned = source.SpawnAbandoned;

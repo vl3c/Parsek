@@ -2182,8 +2182,22 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '{activeTree.TreeName}' " +
                 $"for vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}");
+            // Surface a screen message mirroring the launch and post-switch auto-record
+            // paths. OnFlightReady fires before KSP's ScreenMessages UI queue is ready
+            // to display messages; calling ScreenMessage directly here gets the toast
+            // swallowed by the scene-load transition. Defer to a coroutine that waits
+            // a short duration so the UI has settled — the launch path's (auto) toast
+            // works because it posts from OnVesselSituationChange after physics starts,
+            // well after scene-load.
+            StartCoroutine(DeferredResumeScreenMessage());
             ParsekLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
+        }
+
+        private System.Collections.IEnumerator DeferredResumeScreenMessage()
+        {
+            yield return new WaitForSeconds(0.5f);
+            ScreenMessage("Recording STARTED (resume)", 4f);
         }
 
         private bool ResumeCommittedActiveRecording(string recordingId, Vessel activeVessel)
@@ -7992,6 +8006,36 @@ namespace Parsek
                     $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
                     $"(id={committedTree.Id}) but could not detach it from committed storage");
                 return false;
+            }
+
+            // The recording we're about to resume carries VesselSpawned=true and a
+            // non-zero SpawnedVesselPersistentId from its prior commit (set by the KSC
+            // adoption path). While the tree was committed, those flags correctly meant
+            // "a real vessel already represents this recording". Now the tree is live
+            // again and will be re-committed at next scene exit; the merge dialog's
+            // CanPersistVessel → ShouldSpawnAtRecordingEnd chain reads VesselSpawned
+            // as "already spawned, don't persist again" and defaults the leaf to
+            // ghost-only, which nulls the VesselSnapshot at commit time. Subsequent
+            // KSC spawns then skip with "no vessel snapshot". Clearing the flags here
+            // lets the next commit re-evaluate spawn eligibility from scratch. Before
+            // clearing the spawned PID, promote the matched live vessel PID into the
+            // recording's normal VesselPersistentId so later finalization/snapshot code
+            // tracks the vessel the player just entered, not the original source PID.
+            if (committedTree.Recordings != null
+                && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
+                && resumedRec != null
+                && (resumedRec.VesselSpawned || resumedRec.SpawnedVesselPersistentId != 0))
+            {
+                uint priorSpawnedPid = resumedRec.SpawnedVesselPersistentId;
+                uint priorVesselPid = resumedRec.VesselPersistentId;
+                resumedRec.VesselPersistentId = activeVesselPid;
+                resumedRec.VesselSpawned = false;
+                resumedRec.SpawnedVesselPersistentId = 0;
+                ParsekLog.Info("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on " +
+                    $"resumed recording '{targetRecordingId}' (wasSpawnedPid={priorSpawnedPid}, " +
+                    $"vesselPid={priorVesselPid}->{activeVesselPid}) so the next commit re-evaluates " +
+                    $"persist eligibility instead of defaulting to ghost-only");
             }
 
             tree = committedTree;

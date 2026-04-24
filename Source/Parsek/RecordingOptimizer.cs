@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -1234,10 +1235,17 @@ namespace Parsek
                 out double terminalLat, out double terminalLon, out double terminalAlt,
                 out Quaternion terminalRotation, out bool hasTerminalRotation))
             {
+                ParsekLog.Verbose("Optimizer",
+                    $"TailMatchesTerminalSurfaceState: no terminal surface reference " +
+                    $"for rec '{rec?.RecordingId ?? "(null)"}'");
                 return false;
             }
 
             bool sawTailPoint = false;
+            int tailPointCount = 0;
+            int firstFailIdx = -1;
+            string firstFailReason = null;
+            double firstFailUT = double.NaN;
             for (int i = 0; i < rec.Points.Count; i++)
             {
                 TrajectoryPoint pt = rec.Points[i];
@@ -1245,9 +1253,25 @@ namespace Parsek
                     continue;
 
                 sawTailPoint = true;
+                tailPointCount++;
                 if (!SurfacePointMatchesTerminal(pt, terminalBody, terminalLat, terminalLon,
-                    terminalAlt, terminalRotation, hasTerminalRotation))
+                    terminalAlt, terminalRotation, hasTerminalRotation,
+                    out string failReason))
                 {
+                    if (firstFailIdx < 0)
+                    {
+                        firstFailIdx = i;
+                        firstFailReason = failReason;
+                        firstFailUT = pt.ut;
+                    }
+                    // Keep iterating to diagnose the whole tail in a single skip log,
+                    // but early-return here once we have the first fail — the public
+                    // caller only needs the bool. Counting stops at the first fail to
+                    // avoid misleading per-point logs on a tail that diverges a lot.
+                    ParsekLog.Verbose("Optimizer",
+                        $"TailMatchesTerminalSurfaceState: rec '{rec.RecordingId}' " +
+                        $"point #{i} (ut={pt.ut.ToString("F2", CultureInfo.InvariantCulture)}) " +
+                        $"diverges: {failReason} (tail scanned so far: {tailPointCount})");
                     return false;
                 }
             }
@@ -1316,37 +1340,76 @@ namespace Parsek
             return true;
         }
 
+        // Tolerance for "tail still matches terminal surface state" checks. A landed
+        // vessel at rest has non-trivial jitter in position and rotation — floating
+        // point drift, repeated pack/unpack transitions, on-rails terrain snapping,
+        // and time-warp re-anchoring can shift the sampled lat/lon/alt by a few
+        // meters across a 15-minute idle tail even though the vessel is "at rest"
+        // from the player's POV. The previous 1e-6° / 0.25 m / 0.5° tolerances
+        // were tight enough to still fail on every real playtest recording. The
+        // current values are sized to absorb normal idle drift while still rejecting
+        // actual movement: a driving rover covers >1e-4° per second and >1 m altitude
+        // when it goes over a bump, so a 10+ second buffer of real movement is well
+        // over these thresholds. The post-trim divergence between the ghost's last
+        // playback position and the captured TerminalPosition is bounded by these
+        // tolerances and is small enough that the visual jump at ghost end is not
+        // noticeable.
+        internal const double TailPositionLatLonEpsilonDeg = 1e-4;  // ~11 m at Kerbin's equator
+        internal const double TailAltitudeEpsilonMeters = 5.0;
+        internal const float TailRotationEpsilonDegrees = 5.0f;
+
         private static bool SurfacePointMatchesTerminal(TrajectoryPoint pt,
             string terminalBody, double terminalLat, double terminalLon, double terminalAlt,
-            Quaternion terminalRotation, bool hasTerminalRotation)
+            Quaternion terminalRotation, bool hasTerminalRotation,
+            out string failReason)
         {
+            failReason = null;
             string pointBody = pt.bodyName;
             if (!string.IsNullOrEmpty(terminalBody) || !string.IsNullOrEmpty(pointBody))
             {
                 if ((terminalBody ?? string.Empty) != (pointBody ?? string.Empty))
+                {
+                    failReason = $"body mismatch (point='{pointBody ?? "null"}' vs terminal='{terminalBody ?? "null"}')";
                     return false;
+                }
             }
 
-            if (pt.latitude != terminalLat)
+            double latDelta = pt.latitude - terminalLat;
+            if (System.Math.Abs(latDelta) > TailPositionLatLonEpsilonDeg)
+            {
+                failReason = $"lat delta {latDelta.ToString("R", CultureInfo.InvariantCulture)} > eps {TailPositionLatLonEpsilonDeg.ToString("R", CultureInfo.InvariantCulture)}";
                 return false;
+            }
 
-            if (pt.longitude != terminalLon)
+            double lonDelta = pt.longitude - terminalLon;
+            if (System.Math.Abs(lonDelta) > TailPositionLatLonEpsilonDeg)
+            {
+                failReason = $"lon delta {lonDelta.ToString("R", CultureInfo.InvariantCulture)} > eps {TailPositionLatLonEpsilonDeg.ToString("R", CultureInfo.InvariantCulture)}";
                 return false;
+            }
 
-            if (pt.altitude != terminalAlt)
+            double altDelta = pt.altitude - terminalAlt;
+            if (System.Math.Abs(altDelta) > TailAltitudeEpsilonMeters)
+            {
+                failReason = $"alt delta {altDelta.ToString("F3", CultureInfo.InvariantCulture)}m > eps {TailAltitudeEpsilonMeters.ToString("F3", CultureInfo.InvariantCulture)}m";
                 return false;
+            }
 
             bool pointHasRotation = HasMeaningfulRotation(pt.rotation);
             if (hasTerminalRotation || pointHasRotation)
             {
                 if (!(hasTerminalRotation && pointHasRotation))
-                    return false;
-
-                if (pt.rotation.x != terminalRotation.x
-                    || pt.rotation.y != terminalRotation.y
-                    || pt.rotation.z != terminalRotation.z
-                    || pt.rotation.w != terminalRotation.w)
                 {
+                    failReason = $"rotation presence mismatch (pt.has={pointHasRotation} terminal.has={hasTerminalRotation})";
+                    return false;
+                }
+
+                Quaternion pointRot = TrajectoryMath.SanitizeQuaternion(pt.rotation);
+                Quaternion terminalRot = TrajectoryMath.SanitizeQuaternion(terminalRotation);
+                float rotAngle = Quaternion.Angle(pointRot, terminalRot);
+                if (rotAngle > TailRotationEpsilonDegrees)
+                {
+                    failReason = $"rot angle {rotAngle.ToString("F2", CultureInfo.InvariantCulture)}° > eps {TailRotationEpsilonDegrees.ToString("F2", CultureInfo.InvariantCulture)}°";
                     return false;
                 }
             }
@@ -1473,6 +1536,18 @@ namespace Parsek
 
             RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
 
+            // Clamp ExplicitEndUT to the new trajectory bounds. Without this, the
+            // Recording.EndUT getter falls back to the old finalize-time
+            // ExplicitEndUT (set by the recorder when scene exit fires), so rec.EndUT
+            // stays at the original value even though the trim physically removed all
+            // points, sections, and events past trimUT. That's what the player sees
+            // as "trim not applied": the Recordings table keeps showing the full
+            // pre-trim duration and ghost playback treats the recording as lasting
+            // until the stale ExplicitEndUT. Setting ExplicitEndUT = NaN lets the
+            // getter use the now-authoritative actual-trajectory bounds (max of last
+            // Points[].ut, last TrackSection endUT, last OrbitSegment endUT).
+            rec.ExplicitEndUT = double.NaN;
+
             // Strip events past the new EndUT (they're inert during playback but
             // waste memory and disk space in serialized sidecar files)
             double newEndUT = rec.EndUT;
@@ -1488,8 +1563,11 @@ namespace Parsek
             int removedPoints = originalPointCount - rec.Points.Count;
             ParsekLog.Info("Optimizer",
                 $"TrimBoringTail: trimmed '{rec.VesselName}' ({rec.RecordingId}) " +
-                $"from endUT={originalEndUT:F1} to {rec.EndUT:F1} " +
-                $"(removed {removedSeconds:F0}s, {removedPoints} points)");
+                $"from endUT={originalEndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"to {rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"(removed {removedSeconds.ToString("F1", CultureInfo.InvariantCulture)}s, {removedPoints} points; " +
+                $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)})");
             return true;
         }
 

@@ -127,6 +127,23 @@ namespace Parsek.Tests
             Assert.Contains(result, e => e.Type == TimelineEntryType.VesselSpawn);
         }
 
+        [Fact]
+        public void TerminalSpawnSuperseded_SuppressesVesselSpawnEntry()
+        {
+            var rec = MakeRecording("Butterfly Rover", 100, 200,
+                terminal: TerminalState.Landed);
+            rec.TerminalSpawnSupersededByRecordingId = "continued-butterfly";
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                _ => true);
+
+            Assert.Contains(result, e => e.Type == TimelineEntryType.RecordingStart);
+            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.VesselSpawn);
+        }
+
         // ================================================================
         // 5. UT sort order across sources
         // ================================================================

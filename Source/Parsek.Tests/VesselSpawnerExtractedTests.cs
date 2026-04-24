@@ -141,6 +141,34 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_RewindScopeRejectsNonTargetActiveSource()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 777u,
+                activeVesselPid: 777u,
+                replayTargetSourcePid: 123u);
+
+            Assert.False(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("ShouldAllowExistingSourceDuplicate=false")
+                && l.Contains("outside rewind replay target sourcePid=123"));
+        }
+
+        [Fact]
+        public void ShouldAllowExistingSourceDuplicateForReplay_RewindScopeAllowsTargetActiveSource()
+        {
+            bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid: 777u,
+                sceneEntryActiveVesselPid: 777u,
+                activeVesselPid: 777u,
+                replayTargetSourcePid: 777u);
+
+            Assert.True(result);
+        }
+
         // Follow-up to PR #505 review: the two bypass helpers used to return
         // true silently, so #226 replay diagnostics were opaque in KSP.log.
         // Each true branch now emits a Verbose Spawner line identifying

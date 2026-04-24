@@ -247,14 +247,14 @@ namespace Parsek
                 ApplyEpochShifts(capturedStates, targetUT);
 
                 // Step 4: Process crossed chain tips — spawn real vessels
-                var spawnedPids = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+                var spawnedChainKeys = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
 
                 // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
-                // no longer mutates the dict directly)
+                // returns chain keys and no longer mutates the dict directly)
                 if (chains != null)
                 {
-                    for (int i = 0; i < spawnedPids.Count; i++)
-                        chains.Remove(spawnedPids[i]);
+                    for (int i = 0; i < spawnedChainKeys.Count; i++)
+                        chains.Remove(spawnedChainKeys[i]);
                 }
 
                 // Step 5: Game actions recalculation
@@ -267,7 +267,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
-                        spawnedPids.Count, remainingGhosts));
+                        spawnedChainKeys.Count, remainingGhosts));
             }
             finally
             {
@@ -487,9 +487,9 @@ namespace Parsek
 
         /// <summary>
         /// Spawns real vessels for all chain tips crossed during a time jump.
-        /// Returns the list of spawned vessel PIDs (caller is responsible for
-        /// removing them from the chains dictionary). Does NOT mutate the input
-        /// chains dict (#79).
+        /// Returns the original-vessel PID keys for successfully spawned chains
+        /// (caller is responsible for removing them from the chains dictionary).
+        /// Does NOT mutate the input chains dict (#79).
         /// </summary>
         internal static List<uint> SpawnCrossedChainTips(
             Dictionary<uint, GhostChain> chains,
@@ -497,7 +497,7 @@ namespace Parsek
             double t0, double targetUT)
         {
             var crossed = FindCrossedChainTips(chains, t0, targetUT);
-            var spawnedPids = new List<uint>();
+            var spawnedChainKeys = new List<uint>();
 
             foreach (GhostChain chain in crossed)
             {
@@ -515,7 +515,7 @@ namespace Parsek
                     uint spawnedPid = ghoster.SpawnAtChainTip(chain);
                     if (spawnedPid != 0)
                     {
-                        spawnedPids.Add(chain.OriginalVesselPid);
+                        spawnedChainKeys.Add(chain.OriginalVesselPid);
                         ParsekLog.Info(Tag,
                             string.Format(ic,
                                 "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
@@ -538,7 +538,7 @@ namespace Parsek
                 }
             }
 
-            return spawnedPids;
+            return spawnedChainKeys;
         }
 
         /// <summary>
