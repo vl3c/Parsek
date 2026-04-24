@@ -37,6 +37,8 @@ namespace Parsek
         public double NewExplicitEndUT;
         public double TerminalUT;
         public TerminalState? TerminalState;
+        // Segment counts are populated only for Applied results; rejected results
+        // leave them at 0 so callers can log the status without branching.
         public int AppendedSegmentCount;
         public int RemovedPredictedSegmentCount;
 
@@ -291,28 +293,36 @@ namespace Parsek
             List<OrbitSegment> retainedSegments)
         {
             TerminalState terminalState = cache.TerminalState.Value;
+            ClearTerminalOrbit(recording);
+
             if (terminalState == TerminalState.Landed || terminalState == TerminalState.Splashed)
             {
-                recording.TerminalPosition = cache.TerminalPosition;
-                recording.TerrainHeightAtEnd = cache.TerrainHeightAtEnd.HasValue
-                    ? cache.TerrainHeightAtEnd.Value
-                    : double.NaN;
+                if (cache.TerminalPosition.HasValue)
+                {
+                    recording.TerminalPosition = cache.TerminalPosition;
+                    recording.TerrainHeightAtEnd = cache.TerrainHeightAtEnd.HasValue
+                        ? cache.TerrainHeightAtEnd.Value
+                        : double.NaN;
+                }
+                else if (!CanPreserveSurfaceMetadata(recording, cache, terminalState))
+                {
+                    recording.TerminalPosition = null;
+                    recording.TerrainHeightAtEnd = double.NaN;
+                }
+
+                return;
             }
-            else
-            {
-                recording.TerminalPosition = null;
-                recording.TerrainHeightAtEnd = double.NaN;
-            }
+
+            recording.TerminalPosition = null;
+            recording.TerrainHeightAtEnd = double.NaN;
 
             if (terminalState != TerminalState.Orbiting
                 && terminalState != TerminalState.SubOrbital
                 && terminalState != TerminalState.Docked)
             {
-                ClearTerminalOrbit(recording);
                 return;
             }
 
-            ClearTerminalOrbit(recording);
             if (cache.TerminalOrbit.HasValue)
             {
                 StampTerminalOrbit(recording, cache.TerminalOrbit.Value);
@@ -328,6 +338,35 @@ namespace Parsek
                     return;
                 }
             }
+        }
+
+        private static bool CanPreserveSurfaceMetadata(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            TerminalState terminalState)
+        {
+            if (!recording.TerminalPosition.HasValue)
+                return false;
+
+            SurfacePosition existing = recording.TerminalPosition.Value;
+            SurfaceSituation expectedSituation = terminalState == TerminalState.Splashed
+                ? SurfaceSituation.Splashed
+                : SurfaceSituation.Landed;
+            if (existing.situation != expectedSituation)
+                return false;
+            if (string.IsNullOrEmpty(existing.body))
+                return false;
+
+            // A cache without TerminalBodyName can only prove identity through
+            // RecordingId/PID plus matching surface state, so preserve the pair
+            // rather than mixing partial cache metadata into the surface tuple.
+            if (!string.IsNullOrEmpty(cache.TerminalBodyName)
+                && !string.Equals(existing.body, cache.TerminalBodyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static void StampTerminalOrbit(

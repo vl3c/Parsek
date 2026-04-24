@@ -79,6 +79,7 @@ Tests:
 - reject stale/terminal-before-last-sample
 - reject mismatched recording id or PID
 - preserve existing authored points and non-predicted orbit segments
+- preserve surface metadata when a surface cache has no position, and stamp orbit metadata for each orbital terminal state
 - mark dirty on successful apply
 - log assertion for each rejection class
 
