@@ -417,7 +417,7 @@ namespace Parsek.Tests
                 _ => { call++; return call <= 1; });
 
             Assert.True(result.found);
-            double t = 1.0 / n;
+            float t = 1f / n;
             double expectedAlt = 80.0 + (70.0 - 80.0) * t;
             Assert.Equal(expectedAlt, result.alt, 10);
         }
@@ -426,6 +426,7 @@ namespace Parsek.Tests
         public void WalkbackSubdividedDetailed_InterpolatesUtVelocityAndRotation()
         {
             double latDelta = MetersToLatDegrees(6.0, KerbinRadius);
+            var yaw90 = new Quaternion(0f, 0.70710677f, 0f, 0.70710677f);
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint
@@ -445,7 +446,7 @@ namespace Parsek.Tests
                     longitude = 0.0,
                     altitude = 80.0,
                     bodyName = "Kerbin",
-                    rotation = Quaternion.Euler(0f, 90f, 0f),
+                    rotation = yaw90,
                     velocity = new Vector3(8f, 0f, 0f),
                 },
             };
@@ -465,8 +466,10 @@ namespace Parsek.Tests
             float t = 1f / n;
             Assert.Equal(104.0 + (100.0 - 104.0) * t, result.point.ut, 10);
             Assert.Equal((double)(8f + (0f - 8f) * t), (double)result.point.velocity.x, 5);
-            Assert.True(Quaternion.Angle(Quaternion.identity, result.point.rotation) > 0.1f);
-            Assert.True(Quaternion.Angle(Quaternion.Euler(0f, 90f, 0f), result.point.rotation) > 0.1f);
+            Assert.True(result.point.rotation.y > 0.001f);
+            Assert.True(result.point.rotation.y < yaw90.y - 0.001f);
+            Assert.True(result.point.rotation.w < 0.999f);
+            Assert.True(result.point.rotation.w > yaw90.w + 0.001f);
         }
 
         [Fact]
