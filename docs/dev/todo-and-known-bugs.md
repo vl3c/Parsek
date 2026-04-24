@@ -399,6 +399,20 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 ---
 
+## ~~558. Real-spawned vessel post-resume stands on its side when physics activates~~
+
+**Source:** filed on `bug/scene-enter-resume-recording` after `logs/2026-04-23_2333_spawn-orientation` and reproduced in `logs/2026-04-24_0004_orientation-regression`. The 2026-04-24 in-flight real-spawn logged `srfRel=-0.000111888832,-0.133055791,-0.000464609941,0.991108477` for an upright rover with about 15 degrees of yaw, then wrote `world=0.000474858942,-0.885830998,5.37633787E-05,-0.464007854` into the snapshot `rot` field. KSP immediately classified the spawned LANDED vessel through a non-active `0 -> ORBITING` transition, matching the observed "on its side" physics activation.
+
+**Root cause:** Parsek-authored ProtoVessel snapshots were treating `VESSEL.rot` as a Unity world-space transform rotation and pre-composing `body.bodyTransform.rotation * srfRelRotation` before `ProtoVessel.Load()`. The in-repo ProtoVessel decompilation note shows the opposite contract: `rot` is parsed into `ProtoVessel.rotation`, and `ProtoVessel.Load()` assigns that value directly to `vesselRef.srfRelRotation`. Writing the composed value double-applied the body frame when KSP loaded the real vessel.
+
+**Fix:** `VesselSpawner` now writes the sanitized recorded surface-relative quaternion directly to `VESSEL.rot` for all ProtoVessel spawn-node paths: normal snapshot respawns, `SpawnAtPosition`, EVA/breakup snapshot prep, chain-tip spawns through `VesselGhoster`, and flag ProtoVessel spawns. Live ghost `Transform.rotation` placement still uses `body.bodyTransform.rotation * srfRelRotation`; only ProtoVessel node authoring changed. `SpawnRotationInGameTests` now assert the surface-relative ProtoVessel invariant for Kerbin and Mun fixtures, null-body rotation prep, `SpawnAtPosition`, and snapshot override rotation rewrites.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/VesselGhoster.cs` (audited caller), `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectoryPoint.cs`, `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs`, `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs`, `AGENTS.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.8.3.
+
+---
+
 ## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
 
 **Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.

@@ -536,38 +536,36 @@ namespace Parsek
 
         /// <summary>
         /// Real-vessel spawn consumes format-v0 surface-relative recording data. `VESSEL.rot`
-        /// must be written in world space before ProtoVessel.Load(), so reconstruct explicitly
-        /// instead of relying on stock spawn-side interpretation.
+        /// is ProtoVessel.rotation and KSP loads it into vesselRef.srfRelRotation, so keep
+        /// it in the recorded surface-relative frame. Do not compose bodyTransform here;
+        /// that conversion is only for assigning live Transform.rotation.
         /// </summary>
-        internal static Quaternion ComputeWorldSpawnRotationFromSurfaceRelative(
-            Quaternion bodyRotation,
+        internal static Quaternion ComputeProtoVesselSpawnRotationFromSurfaceRelative(
             Quaternion surfaceRelativeRotation)
         {
-            Quaternion sanitizedBodyRotation = TrajectoryMath.SanitizeQuaternion(bodyRotation);
-            Quaternion sanitizedSurfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
-            return TrajectoryMath.SanitizeQuaternion(
-                sanitizedBodyRotation * sanitizedSurfaceRelativeRotation);
+            return TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
         }
 
-        internal static Quaternion ApplyWorldSpawnRotationToNode(
+        internal static Quaternion ApplyProtoVesselSpawnRotationToNode(
             ConfigNode vesselNode,
             string bodyName,
-            Quaternion bodyRotation,
+            Quaternion? bodyRotation,
             Quaternion surfaceRelativeRotation,
             string context)
         {
-            Quaternion worldRotation = ComputeWorldSpawnRotationFromSurfaceRelative(
-                bodyRotation, surfaceRelativeRotation);
-            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(worldRotation), true);
+            Quaternion protoVesselRotation =
+                ComputeProtoVesselSpawnRotationFromSurfaceRelative(surfaceRelativeRotation);
+            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(protoVesselRotation), true);
 
             ParsekLog.Verbose("Spawner",
                 $"Spawn rotation prep ({context}): body={bodyName ?? "?"} " +
-                "frame=surface-relative(format-v0) -> world via " +
-                "body.bodyTransform.rotation * srfRelRotation " +
+                "frame=surface-relative(format-v0) -> ProtoVessel.rot " +
+                "(KSP loads as vessel.srfRelRotation; no body multiply) " +
                 $"srfRel={KSPUtil.WriteQuaternion(surfaceRelativeRotation)} " +
-                $"world={KSPUtil.WriteQuaternion(worldRotation)}");
+                $"bodyRot={(bodyRotation.HasValue ? KSPUtil.WriteQuaternion(bodyRotation.Value) : "(unavailable)")} " +
+                $"rot={KSPUtil.WriteQuaternion(protoVesselRotation)}");
 
-            return worldRotation;
+            return protoVesselRotation;
         }
 
         internal static bool TryApplySpawnRotationFromSurfaceRelative(
@@ -580,18 +578,10 @@ namespace Parsek
             if (vesselNode == null || !surfaceRelativeRotation.HasValue)
                 return false;
 
-            if (!bodyRotation.HasValue)
-            {
-                ParsekLog.Warn("Spawner",
-                    $"Spawn rotation prep skipped ({context}): missing body/bodyTransform " +
-                    $"for format-v0 surface-relative rotation (body={bodyName ?? "?"})");
-                return false;
-            }
-
-            ApplyWorldSpawnRotationToNode(
+            ApplyProtoVesselSpawnRotationToNode(
                 vesselNode,
                 bodyName,
-                bodyRotation.Value,
+                bodyRotation,
                 surfaceRelativeRotation.Value,
                 context);
             return true;
@@ -671,12 +661,12 @@ namespace Parsek
             Recording rec,
             TrajectoryPoint? fallbackPoint,
             out string bodyName,
-            out Quaternion bodyRotation,
+            out Quaternion? bodyRotation,
             out Quaternion surfaceRelativeRotation,
             out string source)
         {
             bodyName = null;
-            bodyRotation = Quaternion.identity;
+            bodyRotation = null;
             surfaceRelativeRotation = Quaternion.identity;
             source = null;
 
@@ -686,16 +676,13 @@ namespace Parsek
                 return false;
             }
 
-            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
-            if (body == null || body.bodyTransform == null)
+            if (TryResolveBodyByName(bodyName, out CelestialBody body)
+                && body != null
+                && body.bodyTransform != null)
             {
-                ParsekLog.Warn("Spawner",
-                    $"Spawn rotation prep skipped: body '{bodyName ?? "?"}' unavailable " +
-                    $"for {source}");
-                return false;
+                bodyRotation = body.bodyTransform.rotation;
             }
 
-            bodyRotation = body.bodyTransform.rotation;
             return true;
         }
 
@@ -708,7 +695,7 @@ namespace Parsek
             if (!TryResolvePreferredSpawnRotation(
                 rec, fallbackPoint,
                 out string bodyName,
-                out Quaternion bodyRotation,
+                out Quaternion? bodyRotation,
                 out Quaternion surfaceRelativeRotation,
                 out string source))
             {
@@ -778,7 +765,7 @@ namespace Parsek
                 $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
 
             // Optional rotation override: recorded trajectory points store surface-relative
-            // rotation (format-v0 contract), so reconstruct world-space VESSEL.rot explicitly.
+            // rotation (format-v0 contract), and ProtoVessel.rot consumes that same frame.
             if (surfaceRelativeRotation.HasValue)
             {
                 TryApplySpawnRotationFromSurfaceRelative(
@@ -1079,7 +1066,7 @@ namespace Parsek
                 if (TryResolvePreferredSpawnRotation(
                     rec, lastPt,
                     out string evaRotationBodyName,
-                    out Quaternion evaBodyRotation,
+                    out Quaternion? evaBodyRotation,
                     out Quaternion evaSurfaceRelativeRotation,
                     out string evaRotationSource))
                 {
@@ -1107,7 +1094,7 @@ namespace Parsek
                     && TryResolvePreferredSpawnRotation(
                         rec, lastPt,
                         out string breakupRotationBodyName,
-                        out Quaternion breakupBodyRotation,
+                        out Quaternion? breakupBodyRotation,
                         out Quaternion breakupSurfaceRelativeRotation,
                         out string breakupRotationSource))
                 {
@@ -1136,7 +1123,7 @@ namespace Parsek
                 if (TryResolvePreferredSpawnRotation(
                     rec, lastPt,
                     out string surfaceRotationBodyName,
-                    out Quaternion surfaceBodyRotation,
+                    out Quaternion? surfaceBodyRotation,
                     out Quaternion surfaceRelativeRotation,
                     out string surfaceRotationSource))
                 {
@@ -1194,15 +1181,15 @@ namespace Parsek
             //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
             //   walked endpoint so the kerbal stays where recorded.
             // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
-            //   Rotation is preserved via the same surface-relative -> world helper used by
-            //   snapshot-prep fallbacks.
+            //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
+            //   used by snapshot-prep fallbacks.
             //
             // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
             // paths remain as defense-in-depth for the RespawnVessel fallback below: if
             // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
             // endpoint pose. For breakup-continuous surface/state-vector spawns that now
-            // includes the reconstructed world rot, so the degraded fallback does not
-            // regress to writing raw format-v0 surface-relative quaternions.
+            // includes the surface-relative ProtoVessel.rot rewrite, so the degraded
+            // fallback keeps the same KSP load-frame contract.
             bool routeThroughSpawnAtPosition =
                 rec.TerminalStateValue == TerminalState.Orbiting
                 || rec.TerminalStateValue == TerminalState.Docked

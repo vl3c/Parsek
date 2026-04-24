@@ -1272,7 +1272,7 @@ namespace Parsek
                     if (VesselSpawner.TryResolvePreferredSpawnRotation(
                         rec, lastPt,
                         out string rotationBodyName,
-                        out Quaternion rotationBodyRotation,
+                        out Quaternion? rotationBodyRotation,
                         out Quaternion surfaceRelativeRotation,
                         out string rotationSource))
                     {
