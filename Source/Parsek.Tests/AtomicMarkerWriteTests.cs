@@ -73,11 +73,17 @@ namespace Parsek.Tests
 
             RewindInvoker.FlightReadyProbeOverrideForTesting = () => false;
             Action deferred = null;
-            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = a => deferred = a;
+            string deferredTempPath = null;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = (a, path) =>
+            {
+                deferred = a;
+                deferredTempPath = path;
+            };
 
             RewindInvoker.ConsumePostLoad();
 
             Assert.NotNull(deferred);
+            Assert.Null(deferredTempPath); // test context staged null tempPath
             Assert.True(RewindInvokeContext.Pending, "context must survive deferral so onFlightReady can consume it");
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
@@ -104,7 +110,7 @@ namespace Parsek.Tests
 
             RewindInvoker.FlightReadyProbeOverrideForTesting = () => true;
             bool deferCalled = false;
-            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = a => deferCalled = true;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = (a, path) => deferCalled = true;
 
             // ConsumePostLoad will try to actually Strip + SetActiveVessel,
             // which touches FlightGlobals in a way that won't work headless.

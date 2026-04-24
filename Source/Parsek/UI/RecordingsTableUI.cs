@@ -1701,9 +1701,24 @@ namespace Parsek
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren)
         {
-            // Skip hidden groups when hide is active
+            // Compute this tree's unfinished-flight members up front so the
+            // nested virtual subgroup can be rendered even when the mission
+            // group itself is hidden. Unfinished Flights is a system group
+            // (design §7.30) and must remain visible regardless of parent
+            // hide state — without this, hiding the auto-generated mission
+            // group silently made unresolved re-fly opportunities disappear.
+            var nestedUnfinished = CollectUnfinishedFlightsForTreeGroup(groupName);
+            bool hasNestedUnfinished = nestedUnfinished != null && nestedUnfinished.Count > 0;
+
+            // Skip hidden groups when hide is active — but still render the
+            // nested Unfinished Flights subgroup if any, as an escape hatch.
             if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(groupName))
+            {
+                if (hasNestedUnfinished
+                    && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                    return true;
                 return false;
+            }
 
             // Collect unique descendant recordings for aggregate controls
             var descendants = new HashSet<int>();
@@ -2148,12 +2163,11 @@ namespace Parsek
             // render the virtual group as an indented sub-entry. This replaces
             // the pre-2026-04-24 design where the virtual group sat at root
             // level, detached from the mission it belongs to.
-            var nestedUnfinished = CollectUnfinishedFlightsForTreeGroup(groupName);
-            if (nestedUnfinished != null && nestedUnfinished.Count > 0)
-            {
-                if (DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
-                    return true;
-            }
+            // `nestedUnfinished` was already computed at the top of
+            // DrawGroupTree so the hide-escape path can use it too.
+            if (hasNestedUnfinished
+                && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                return true;
 
             return false;
         }

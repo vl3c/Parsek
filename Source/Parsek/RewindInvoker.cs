@@ -338,7 +338,7 @@ namespace Parsek
         // onFlightReady subscription so headless tests can exercise both the
         // direct and the deferred Strip-Activate-Marker paths.
         internal static Func<bool> FlightReadyProbeOverrideForTesting;
-        internal static Action<Action> DeferUntilFlightReadyOverrideForTesting;
+        internal static Action<Action, string> DeferUntilFlightReadyOverrideForTesting;
 
         internal static void ConsumePostLoad()
         {
@@ -414,8 +414,15 @@ namespace Parsek
                     $"ConsumePostLoad deferred to onFlightReady: sess={sessionId} " +
                     $"rp={rp.RewindPointId} slot={slotIdx} " +
                     "(FlightGlobals.Vessels not yet populated after async scene load)");
-                DeferUntilFlightReady(() =>
-                    RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath));
+                // Pass tempPath separately so the timeout branch in
+                // `WaitForFlightReadyAndInvoke` can delete the root-level
+                // Parsek_Rewind_*.sfs copy without reaching the action's
+                // finally block. Otherwise a catastrophic flight-scene load
+                // that never fires onFlightReady would leak the temp file
+                // and leave RewindInvokeContext half-cleared.
+                DeferUntilFlightReady(
+                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath),
+                    tempPath);
             }
         }
 
@@ -520,11 +527,11 @@ namespace Parsek
             }
         }
 
-        private static void DeferUntilFlightReady(Action action)
+        private static void DeferUntilFlightReady(Action action, string tempPath)
         {
             if (DeferUntilFlightReadyOverrideForTesting != null)
             {
-                DeferUntilFlightReadyOverrideForTesting(action);
+                DeferUntilFlightReadyOverrideForTesting(action, tempPath);
                 return;
             }
 
@@ -548,14 +555,20 @@ namespace Parsek
                 {
                     ParsekLog.Error(InvokeTag,
                         $"Inline fallback handler threw: {ex.Message}");
+                    // The action owns its own finally-block cleanup; if it
+                    // threw before reaching that block, we still need to
+                    // drop the temp file to meet the ConsumePostLoad cleanup
+                    // contract.
+                    TryDeleteTemp(tempPath);
+                    RewindInvokeContext.Clear();
                 }
                 return;
             }
 
-            scenario.StartCoroutine(WaitForFlightReadyAndInvoke(action));
+            scenario.StartCoroutine(WaitForFlightReadyAndInvoke(action, tempPath));
         }
 
-        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(Action action)
+        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(Action action, string tempPath)
         {
             // Bound the wait so a scene-load that never finishes (catastrophic
             // failure) doesn't leak the coroutine. 300 frames at 60 fps is 5 s,
@@ -572,6 +585,12 @@ namespace Parsek
             {
                 ParsekLog.Error(InvokeTag,
                     $"Deferred flight-ready wait timed out after {MaxFrames} frames — rewind aborted");
+                // The action's own finally block never runs on timeout, so
+                // the temp quicksave (Parsek_Rewind_*.sfs at save root) would
+                // be orphaned — user-visible clutter and a violation of the
+                // ConsumePostLoad cleanup contract. Delete it explicitly
+                // before clearing the context.
+                TryDeleteTemp(tempPath);
                 RewindInvokeContext.Clear();
                 yield break;
             }
@@ -586,6 +605,11 @@ namespace Parsek
             {
                 ParsekLog.Error(InvokeTag,
                     $"Deferred flight-ready handler threw: {ex.Message}");
+                // If the action threw before reaching its own finally block
+                // (e.g., crashed in Strip before the try/finally opened),
+                // the temp quicksave is still ours to clean up.
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
             }
         }
 
