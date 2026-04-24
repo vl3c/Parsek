@@ -6504,6 +6504,8 @@ namespace Parsek.InGameTests
 
         // ─────────────────────────────────────────────────────────────
         // Recording finalization cache runtime canaries
+        // PIDs 910000–910099 are reserved for this category to avoid
+        // collisions with other runtime tests (which use 900000-series).
         // ─────────────────────────────────────────────────────────────
 
         [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
@@ -6528,22 +6530,31 @@ namespace Parsek.InGameTests
                     terminalUT: 180.0,
                     SegmentRuntimeFinalization(100.0, 180.0)));
 
-            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
-                rec,
-                vesselPid,
-                endUT: 130.0,
-                consumerPath: "runtime-background-destroyed",
-                allowStale: true,
-                requireDestroyedTerminal: false,
-                out RecordingFinalizationCacheApplyResult result);
+            var logLines = new List<string>();
+            using (CaptureRuntimeFinalizationLogs(logLines))
+            {
+                bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                    rec,
+                    vesselPid,
+                    endUT: 130.0,
+                    consumerPath: "runtime-background-destroyed",
+                    allowStale: true,
+                    requireDestroyedTerminal: false,
+                    out RecordingFinalizationCacheApplyResult result);
 
-            InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
-            InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
-            InGameAssert.ApproxEqual(130.0, rec.ExplicitEndUT);
-            InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
-            InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
-                "Appended cache tail must stay marked predicted");
-            InGameAssert.ApproxEqual(130.0, rec.OrbitSegments[0].endUT);
+                InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
+                InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
+                InGameAssert.ApproxEqual(130.0, rec.ExplicitEndUT);
+                InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
+                InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
+                    "Appended cache tail must stay marked predicted");
+                InGameAssert.ApproxEqual(130.0, rec.OrbitSegments[0].endUT);
+                AssertRuntimeFinalizationLog(
+                    logLines,
+                    "[Parsek][INFO][BgRecorder]",
+                    "Finalization source=cache",
+                    "consumer=runtime-background-destroyed");
+            }
         }
 
         [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
@@ -6566,20 +6577,29 @@ namespace Parsek.InGameTests
             cache.TerminalOrbit = RuntimeTerminalOrbit("Kerbin", 700000.0);
             bgRecorder.AdoptFinalizationCacheForTesting(vesselPid, rec.RecordingId, cache);
 
-            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
-                rec,
-                vesselPid,
-                endUT: 150.0,
-                consumerPath: "runtime-background-orbiting",
-                allowStale: true,
-                requireDestroyedTerminal: false,
-                out RecordingFinalizationCacheApplyResult result);
+            var logLines = new List<string>();
+            using (CaptureRuntimeFinalizationLogs(logLines))
+            {
+                bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                    rec,
+                    vesselPid,
+                    endUT: 150.0,
+                    consumerPath: "runtime-background-orbiting",
+                    allowStale: true,
+                    requireDestroyedTerminal: false,
+                    out RecordingFinalizationCacheApplyResult result);
 
-            InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
-            InGameAssert.AreEqual(TerminalState.Orbiting, rec.TerminalStateValue.Value);
-            InGameAssert.ApproxEqual(150.0, rec.ExplicitEndUT);
-            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody);
-            InGameAssert.AreEqual(0, rec.OrbitSegments.Count);
+                InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
+                InGameAssert.AreEqual(TerminalState.Orbiting, rec.TerminalStateValue.Value);
+                InGameAssert.ApproxEqual(150.0, rec.ExplicitEndUT);
+                InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody);
+                InGameAssert.AreEqual(0, rec.OrbitSegments.Count);
+                AssertRuntimeFinalizationLog(
+                    logLines,
+                    "[Parsek][INFO][BgRecorder]",
+                    "Finalization source=cache",
+                    "terminal=Orbiting");
+            }
         }
 
         [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
@@ -6617,55 +6637,79 @@ namespace Parsek.InGameTests
                 SegmentRuntimeFinalization(100.0, 155.0));
             cache.Owner = FinalizationCacheOwner.ActiveRecorder;
 
-            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
-                tree,
-                commitUT: 120.0,
-                isSceneExit: false,
-                resolveFinalizationCache: recording =>
-                    recording.RecordingId == rec.RecordingId ? cache : null);
+            var logLines = new List<string>();
+            using (CaptureRuntimeFinalizationLogs(logLines))
+            {
+                ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                    tree,
+                    commitUT: 120.0,
+                    isSceneExit: false,
+                    resolveFinalizationCache: recording =>
+                        recording.RecordingId == rec.RecordingId ? cache : null);
 
-            InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
-            InGameAssert.ApproxEqual(155.0, rec.ExplicitEndUT);
-            InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
-            InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
-                "Active crash fallback should preserve the cached synthetic tail");
+                InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
+                InGameAssert.ApproxEqual(155.0, rec.ExplicitEndUT);
+                InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
+                InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
+                    "Active crash fallback should preserve the cached synthetic tail");
+                AssertRuntimeFinalizationLog(
+                    logLines,
+                    "[Parsek][INFO][Flight]",
+                    "Finalization source=cache",
+                    "consumer=FinalizeIndividualRecording");
+            }
         }
 
-        [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
-            Description = "Failed terminal refresh preserves the previous cache and advances refresh cadence")]
-        public void RecordingFinalization_FailedRefresh_PreservesPreviousCacheCadence()
+        private static System.IDisposable CaptureRuntimeFinalizationLogs(List<string> sink)
         {
-            RecordingFinalizationCache previous = MakeRuntimeFinalizationCache(
-                "runtime-preserve-cache",
-                910004u,
-                TerminalState.Destroyed,
-                terminalUT: 180.0,
-                SegmentRuntimeFinalization(100.0, 180.0));
-            RecordingFinalizationCache failed = new RecordingFinalizationCache
+            return new RuntimeFinalizationLogScope(sink);
+        }
+
+        private static void AssertRuntimeFinalizationLog(
+            List<string> logLines,
+            params string[] requiredSubstrings)
+        {
+            for (int i = 0; i < logLines.Count; i++)
             {
-                RecordingId = previous.RecordingId,
-                VesselPersistentId = previous.VesselPersistentId,
-                Owner = FinalizationCacheOwner.BackgroundLoaded,
-                Status = FinalizationCacheStatus.Failed,
-                DeclineReason = "runtime-forced-refresh-failed",
-                TerminalUT = double.NaN
-            };
+                bool match = true;
+                for (int s = 0; s < requiredSubstrings.Length; s++)
+                {
+                    if (!logLines[i].Contains(requiredSubstrings[s]))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return;
+            }
 
-            bool preserved =
-                RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
-                    previous,
-                    failed,
-                    observedUT: 175.0,
-                    reason: "runtime-preserve-cache",
-                    observedDigest: "Kerbin|sit=FLYING|atmo=True|thrust=False");
+            InGameAssert.Fail(
+                "Expected a log line containing: " + string.Join(" + ", requiredSubstrings) +
+                ". Captured " + logLines.Count + " lines.");
+        }
 
-            InGameAssert.IsTrue(preserved,
-                "A failed forced refresh must preserve the previous applicable cache");
-            InGameAssert.AreEqual(FinalizationCacheStatus.Stale, previous.Status);
-            InGameAssert.ApproxEqual(175.0, previous.CachedAtUT);
-            InGameAssert.ApproxEqual(175.0, previous.LastObservedUT);
-            InGameAssert.ApproxEqual(180.0, previous.TerminalUT);
-            InGameAssert.AreEqual(TerminalState.Destroyed, previous.TerminalState.Value);
+        private sealed class RuntimeFinalizationLogScope : System.IDisposable
+        {
+            private readonly System.Action<string> previousSink;
+            private readonly bool? previousVerbose;
+            private readonly bool previousSuppress;
+
+            internal RuntimeFinalizationLogScope(List<string> sink)
+            {
+                previousSink = ParsekLog.TestSinkForTesting;
+                previousVerbose = ParsekLog.VerboseOverrideForTesting;
+                previousSuppress = ParsekLog.SuppressLogging;
+                ParsekLog.SuppressLogging = false;
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestSinkForTesting = line => sink.Add(line);
+            }
+
+            public void Dispose()
+            {
+                ParsekLog.TestSinkForTesting = previousSink;
+                ParsekLog.VerboseOverrideForTesting = previousVerbose;
+                ParsekLog.SuppressLogging = previousSuppress;
+            }
         }
 
         private static RecordingTree MakeRuntimeFinalizationTree(

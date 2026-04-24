@@ -109,7 +109,7 @@ All notable changes to Parsek are documented here.
 - Added headless coverage for recording-finalization cache refresh cadence, live-vessel surface/extrapolated/atmospheric-fallback producers, background on-rails cache production and cleanup, active-to-background cache adoption, and UI maneuver-node fallback behavior.
 - Added headless scene-exit fallback coverage for live-finalizer precedence, missing-vessel cache application on leaf and active non-leaf recordings, stable-cache override guards, and background cache lookup by recording id.
 - Added headless premature-end coverage for background cache application, deletion-UT trimming, confirmed-destruction cache guards, stable-cache missing-vessel classification, and non-scene active crash fallback.
-- Added FLIGHT runtime canaries for recording-finalization cache application, deletion-UT trimming, stable background cache application, active crash fallback, and failed-refresh cache preservation.
+- Added FLIGHT runtime canaries for recording-finalization cache application, deletion-UT trimming, stable background cache application, and active crash fallback, with log-line assertions on the consumer accept signatures.
 - Added headless spawn-path audit coverage for `VesselSpawner` route selection and prepared-snapshot validation, plus subdivided walkback interpolation of UT, velocity, and rotation for blocked chain-tip recovery.
 
 ### Documentation

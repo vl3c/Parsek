@@ -10,7 +10,7 @@ Use this checklist after the recording-finalization cache phases land. Run it fr
 4. Expected result: all tests pass.
 5. Export results from the runner.
 
-These canaries are synthetic but run inside the live KSP runtime. They pin the cache applier, deletion-UT trimming, stable background cache application, non-scene active crash fallback, and failed-refresh cache preservation. The gameplay canaries below are still required for real vessel unload/delete evidence.
+These canaries are synthetic but run inside the live KSP runtime. They pin the cache applier, deletion-UT trimming, stable background cache application, and non-scene active crash fallback (failed-refresh cache preservation is covered by the headless xUnit suite, which also asserts log content). The gameplay canaries below are still required for real vessel unload/delete evidence.
 
 ## Gameplay Canaries
 
@@ -31,16 +31,17 @@ Expected:
 
 ### Stable Background Orbiter
 
-1. Put a vessel with at least two controllable pieces in stable orbit.
-2. Split the craft and focus one controllable vessel.
-3. Leave the sibling coasting unfocused in stable orbit.
-4. End the flight or return to the Space Center.
+1. Build a craft with a probe core (or second command pod) docked to the main command module via a decoupler. Both pieces must be independently controllable (probe core needs SAS + power).
+2. Launch and circularize at ~80 km Kerbin orbit; start recording before launch.
+3. Decouple the probe-core / second pod and switch focus to the main command module.
+4. Wait at least 10 real-time seconds with the sibling coasting (this lets the 5 s background-cache refresh cadence land at least one Fresh sample).
+5. Return to the Space Center.
 
 Expected:
 
 - The background sibling finalizes as `Orbiting`, not `Destroyed`.
 - The recording keeps terminal orbit metadata for the correct body.
-- Logs show `[FinalizerCache]` cache application or a live stable terminal path, with no degraded inference warning.
+- Logs show `[Parsek][INFO][FinalizerCache] Refresh accepted ... terminal=Orbiting` for the sibling at least twice during the wait, then a `Finalization source=cache ... terminal=Orbiting` (or live stable terminal stamp) at scene exit. No `inferred` line for the sibling recording.
 
 ### Scene Exit Mid-Burn
 
@@ -55,26 +56,28 @@ Expected:
 
 ### Planned Maneuver Node
 
-1. In orbit, add a stock maneuver node that would change the future orbit.
+1. In orbit, add a stock maneuver node whose burn vector would meaningfully change the orbit (e.g., a 200 m/s prograde burn).
 2. Do not execute the burn.
 3. End the recording or exit the scene.
 
 Expected:
 
-- Finalization follows the actual current vessel state, not the hypothetical node.
-- Logs may report a maneuver-node boundary, followed by fallback to current-state propagation.
+- Finalization discards the stock patched-conic tail (which would have followed the hypothetical post-burn trajectory) and falls back to extrapolator-driven propagation of the current vessel state.
+- `KSP.log` contains `[Parsek][INFO][PatchedSnapshot] ... maneuver-node boundary detected ... discarding stock patched-conic tail and falling back to current-state propagation` for the active recording.
+- The terminal orbit metadata reflects the pre-burn state, not the planned post-burn state.
 
 ### Focused Crash
 
-1. Record a focused reentry or descent that crashes.
-2. Let the stock crash/destruction flow complete.
+1. Record a focused reentry or descent that crashes (recommended: deorbit a probe with no parachute and let it impact terrain).
+2. Let the stock crash/destruction flow complete (wait for the destruction confirmation deferred check, ~1 s after impact).
 3. Reach the post-destruction pending-tree flow.
 
 Expected:
 
 - The active recording finalizes as `Destroyed`.
 - The endpoint includes the cached synthetic tail instead of only stale last-sample inference.
-- Logs show `[FinalizerCache] Apply accepted` before any non-scene destroyed fallback.
+- `KSP.log` contains `[Parsek][INFO][BgRecorder] Finalization source=cache consumer=DeferredDestructionCheck ... terminal=Destroyed` for the destroyed vessel, followed by `PersistFinalizedRecording` for the same recording.
+- No `marking Destroyed` warning for that recording (that's the no-cache fallback path).
 
 ## Log Sweep
 
@@ -86,17 +89,24 @@ python scripts/collect-logs.py recording-finalization-cache
 
 Check `KSP.log` for:
 
-- `[FinalizerCache]`
-- `[PatchedSnapshot]`
-- `[Extrapolator]`
-- `[BgRecorder]`
+- `[FinalizerCache]` — refresh accept/decline + apply accept/reject
+- `[PatchedSnapshot]` — patched-conic + maneuver-node boundary
+- `[Extrapolator]` — ballistic extrapolation fallback
+- `[BgRecorder]` — background apply + sidecar persistence
 
-Unexpected degraded paths to investigate:
+Healthy patterns (these should appear):
 
-- `Apply rejected` immediately followed by a destroyed fallback.
-- `Refresh failed; preserving previous cache` every frame instead of at cadence.
-- `inferred` terminal state for a recording that should have had a cache.
-- missing sidecar persistence after a background terminal path.
+- `[Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=... rec=... terminal=...` — periodic cache refresh, roughly every 5 s per dynamic vessel.
+- `[Parsek][INFO][FinalizerCache] Apply accepted: consumer=... rec=... terminal=...` — scene-exit consumer landed the cached tail.
+- `[Parsek][INFO][BgRecorder] Finalization source=cache consumer=... terminal=...` — background-end consumer landed the cached tail.
+
+Degraded patterns to investigate:
+
+- `[Parsek][WARN][FinalizerCache] Apply rejected: ... reason=...` immediately followed by an `inferred` line for the same recording (cache present but the applier refused it).
+- `[Parsek][WARN][FinalizerCache] Refresh failed; preserving previous cache` more than once per vessel per minute (refresh path is permanently broken, not just transiently slow).
+- `[Parsek][INFO][Flight] FinalizeTreeRecordings: ... inferred ... from trajectory` for a recording that should have had a cache (cache resolver missed the lookup).
+- `[Parsek][WARN][Flight] Finalization source=cache applied stale cache ...` more than once per scene exit (refresh cadence is not keeping up).
+- Missing `PersistFinalizedRecording` line after a background terminal path.
 
 ## Calibration
 
