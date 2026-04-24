@@ -419,11 +419,12 @@ namespace Parsek
                 bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
                     tipRecording,
                     !string.IsNullOrEmpty(tipRecording.EvaCrewName));
-                double spawnLat;
-                double spawnLon;
-                double spawnAlt;
+                double spawnLat = 0.0;
+                double spawnLon = 0.0;
+                double spawnAlt = 0.0;
                 Vector3d spawnVelocity;
                 Orbit orbitOverride = null;
+                bool haveResolvedSpawnPosition = false;
 
                 if (useRecordedTerminalOrbit
                     && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
@@ -441,6 +442,7 @@ namespace Parsek
                     spawnAlt = orbitAlt;
                     spawnVelocity = orbitalSpawnVelocity;
                     orbitOverride = orbitalSpawnOrbit;
+                    haveResolvedSpawnPosition = true;
                 }
                 else
                 {
@@ -449,6 +451,7 @@ namespace Parsek
                         spawnLat = spawnBody.GetLatitude(propagatedPos);
                         spawnLon = spawnBody.GetLongitude(propagatedPos);
                         spawnAlt = spawnBody.GetAltitude(propagatedPos);
+                        haveResolvedSpawnPosition = true;
                     }
                     else if (tipPoint.HasValue)
                     {
@@ -459,6 +462,7 @@ namespace Parsek
                             out spawnLat,
                             out spawnLon,
                             out spawnAlt);
+                        haveResolvedSpawnPosition = true;
                         ParsekLog.Warn(Tag,
                             string.Format(ic,
                                 "blocked chain tip '{0}': propagated position unavailable — using endpoint spawn state",
@@ -473,18 +477,34 @@ namespace Parsek
                         : Vector3d.zero;
                 }
 
-                spawnedPid = SpawnChainTipWithResolvedState(
-                    tipRecording,
-                    vesselSnapshot,
-                    string.Format(ic, "blocked chain tip '{0}'", tipId),
-                    currentUT,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    spawnVelocity,
-                    tipPoint,
-                    spawnBody,
-                    orbitOverride);
+                if (haveResolvedSpawnPosition)
+                {
+                    spawnedPid = SpawnChainTipWithResolvedState(
+                        tipRecording,
+                        vesselSnapshot,
+                        string.Format(ic, "blocked chain tip '{0}'", tipId),
+                        currentUT,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        spawnVelocity,
+                        tipPoint,
+                        spawnBody,
+                        orbitOverride);
+                }
+                else
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "blocked chain tip '{0}': propagated position and endpoint spawn state unavailable — falling back to validated snapshot respawn",
+                            tipId));
+                    spawnedPid = VesselSpawner.RespawnValidatedRecording(
+                        tipRecording,
+                        string.Format(ic, "blocked chain tip '{0}'", tipId),
+                        preserveIdentity: true,
+                        currentUT: currentUT,
+                        allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                }
             }
             else
             {

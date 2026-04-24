@@ -464,7 +464,7 @@ namespace Parsek.Tests
             Assert.True(result.found);
             float t = 1f / n;
             Assert.Equal(104.0 + (100.0 - 104.0) * t, result.point.ut, 10);
-            Assert.Equal(8f + (0f - 8f) * t, result.point.velocity.x, 5);
+            Assert.Equal((double)(8f + (0f - 8f) * t), (double)result.point.velocity.x, 5);
             Assert.True(Quaternion.Angle(Quaternion.identity, result.point.rotation) > 0.1f);
             Assert.True(Quaternion.Angle(Quaternion.Euler(0f, 90f, 0f), result.point.rotation) > 0.1f);
         }
