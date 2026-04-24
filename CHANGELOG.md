@@ -90,6 +90,7 @@ All notable changes to Parsek are documented here.
 - `#550` Added headless source-vessel materialization guard coverage for adoption, no-mutation and replay-bypass cases, validated-spawn short-circuiting before snapshot validation, chain-tip adoption before collision/snapshot work, KSC spawn adoption, time-jump chain-tip bypass preservation, and committed-tree restore matching of adopted source vessels.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 - `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
+- Added headless coverage for the recording-finalization cache applier, including identity mismatches, stale-cache rejection, terminal-UT rollback rejection, predicted-tail trimming, authored-data preservation, and terminal metadata stamping.
 
 ### Documentation
 
