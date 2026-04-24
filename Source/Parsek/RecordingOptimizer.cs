@@ -1243,9 +1243,6 @@ namespace Parsek
 
             bool sawTailPoint = false;
             int tailPointCount = 0;
-            int firstFailIdx = -1;
-            string firstFailReason = null;
-            double firstFailUT = double.NaN;
             for (int i = 0; i < rec.Points.Count; i++)
             {
                 TrajectoryPoint pt = rec.Points[i];
@@ -1258,16 +1255,8 @@ namespace Parsek
                     terminalAlt, terminalRotation, hasTerminalRotation,
                     out string failReason))
                 {
-                    if (firstFailIdx < 0)
-                    {
-                        firstFailIdx = i;
-                        firstFailReason = failReason;
-                        firstFailUT = pt.ut;
-                    }
-                    // Keep iterating to diagnose the whole tail in a single skip log,
-                    // but early-return here once we have the first fail — the public
-                    // caller only needs the bool. Counting stops at the first fail to
-                    // avoid misleading per-point logs on a tail that diverges a lot.
+                    // Return on the first mismatch; the caller only needs a bool and
+                    // the verbose log below already captures the failing point.
                     ParsekLog.Verbose("Optimizer",
                         $"TailMatchesTerminalSurfaceState: rec '{rec.RecordingId}' " +
                         $"point #{i} (ut={pt.ut.ToString("F2", CultureInfo.InvariantCulture)}) " +

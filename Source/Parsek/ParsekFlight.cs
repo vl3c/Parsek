@@ -8018,9 +8018,11 @@ namespace Parsek
             // ghost-only, which nulls the VesselSnapshot at commit time. Subsequent
             // KSC spawns then skip with "no vessel snapshot". Clearing the flags here
             // lets the next commit re-evaluate spawn eligibility from scratch. Before
-            // clearing the spawned PID, promote the matched live vessel PID into the
-            // recording's normal VesselPersistentId so later finalization/snapshot code
-            // tracks the vessel the player just entered, not the original source PID.
+            // clearing the spawned PID, intentionally promote the matched live vessel PID
+            // into the recording's normal VesselPersistentId. Downstream tree-finalization,
+            // snapshot refresh, and rollout-adoption paths key off VesselPersistentId and
+            // must follow the vessel the player actually re-entered here, not the older
+            // source PID that originally produced the committed recording.
             if (committedTree.Recordings != null
                 && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null
