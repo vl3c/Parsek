@@ -1043,32 +1043,24 @@ namespace Parsek
                 rec.ExplicitEndUT = endUT;
             }
 
-            // Capture the finalization cache before OnVesselRemovedFromBackground
-            // clears it, so TryApplyFinalizationCacheForBackgroundEnd below can still
-            // reach a cached terminal tail.
-            RecordingFinalizationCache preservedCache;
-            bool hadPreservedCache = finalizationCaches.TryGetValue(vesselPid, out preservedCache);
+            RecordingFinalizationCache cacheForApply = null;
+            finalizationCaches.TryGetValue(vesselPid, out cacheForApply);
 
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid);
 
-            if (hadPreservedCache && preservedCache != null)
-                finalizationCaches[vesselPid] = preservedCache;
-
             RecordingFinalizationCacheApplyResult cacheResult;
             bool cacheApplied = rec != null
                 && TryApplyFinalizationCacheForBackgroundEnd(
                     rec,
+                    cacheForApply,
                     vesselPid,
                     endUT,
                     "EndDebrisRecording",
                     allowStale: true,
                     requireDestroyedTerminal: false,
                     out cacheResult);
-
-            if (hadPreservedCache)
-                finalizationCaches.Remove(vesselPid);
 
             if (rec != null && !cacheApplied && !rec.TerminalStateValue.HasValue)
             {
@@ -1597,7 +1589,13 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
-            finalizationCaches.Remove(pid);
+            // Keep the finalization cache until DeferredDestructionCheck confirms
+            // whether this was true destruction or a false unload signal.
+        }
+
+        internal void ForgetFinalizationCache(uint vesselPid)
+        {
+            finalizationCaches.Remove(vesselPid);
         }
 
         /// <summary>
@@ -1614,6 +1612,9 @@ namespace Parsek
         /// pass wrote those empty recordings over the in-memory data. Persisting at
         /// flush time closes the window between "data exists in memory" and "data
         /// exists on disk" (bug #280).
+        /// DeferredDestructionCheck calls this directly for the same invariant:
+        /// terminal sidecars must match in-memory state before later scene or merge
+        /// transitions.
         /// </summary>
         internal static void PersistFinalizedRecording(Recording rec, string context)
         {
@@ -1819,6 +1820,31 @@ namespace Parsek
                 cache = CopyAndAlignFinalizationCacheIdentity(pidLookup, recording);
             }
 
+            return TryApplyFinalizationCacheForBackgroundEnd(
+                recording,
+                cache,
+                vesselPid,
+                endUT,
+                consumerPath,
+                allowStale,
+                requireDestroyedTerminal,
+                out result);
+        }
+
+        internal bool TryApplyFinalizationCacheForBackgroundEnd(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool allowStale,
+            bool requireDestroyedTerminal,
+            out RecordingFinalizationCacheApplyResult result)
+        {
+            result = default(RecordingFinalizationCacheApplyResult);
+            if (recording == null)
+                return false;
+
             if (cache == null)
             {
                 ParsekLog.Verbose("FinalizerCache",
@@ -1827,17 +1853,19 @@ namespace Parsek
                 return false;
             }
 
-            if (requireDestroyedTerminal && cache.TerminalState != TerminalState.Destroyed)
-            {
-                ParsekLog.Warn("FinalizerCache",
-                    $"Background apply skipped: consumer={consumerPath ?? "(null)"} " +
-                    $"rec={recording.DebugName} pid={vesselPid} reason=non-destroyed-cache " +
-                    $"terminal={cache.TerminalState?.ToString() ?? "(null)"}");
-                return false;
-            }
-
             RecordingFinalizationCache scopedCache =
                 ScopeFinalizationCacheToBackgroundEnd(cache, endUT);
+            ApplyFinalizationCacheIdentity(scopedCache, recording);
+
+            if (requireDestroyedTerminal && scopedCache.TerminalState != TerminalState.Destroyed)
+            {
+                ParsekLog.Verbose("FinalizerCache",
+                    $"Background apply skipped: consumer={consumerPath ?? "(null)"} " +
+                    $"rec={recording.DebugName} pid={vesselPid} reason=non-destroyed-cache " +
+                    $"terminal={scopedCache.TerminalState?.ToString() ?? "(null)"} " +
+                    "using live destruction fallback");
+                return false;
+            }
 
             var options = new RecordingFinalizationCacheApplyOptions
             {
@@ -1867,6 +1895,19 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        private static void ApplyFinalizationCacheIdentity(
+            RecordingFinalizationCache cache,
+            Recording recording)
+        {
+            if (cache == null || recording == null)
+                return;
+
+            if (string.IsNullOrEmpty(cache.RecordingId))
+                cache.RecordingId = recording.RecordingId;
+            if (cache.VesselPersistentId == 0)
+                cache.VesselPersistentId = recording.VesselPersistentId;
         }
 
         internal static RecordingFinalizationCache ScopeFinalizationCacheToBackgroundEndForTesting(

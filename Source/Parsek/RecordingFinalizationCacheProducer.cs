@@ -329,6 +329,9 @@ namespace Parsek
             string reason,
             string observedDigest)
         {
+            // Producer failures that escape TryBuild* are expected to flow through
+            // Fail(). Empty is only the pre-population state inside a single
+            // producer call and should not reach this preservation seam.
             if (!IsPotentiallyApplicableCache(previous)
                 || failedRefresh == null
                 || failedRefresh.Status != FinalizationCacheStatus.Failed)

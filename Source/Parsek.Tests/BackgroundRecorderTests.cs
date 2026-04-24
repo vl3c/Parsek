@@ -279,6 +279,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ForgetFinalizationCache_RemovesDeferredDestructionCache()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", new RecordingFinalizationCache
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 100u,
+                Owner = FinalizationCacheOwner.BackgroundOnRails,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Destroyed,
+                TerminalUT = 200.0
+            });
+
+            Assert.True(bgRecorder.HasFinalizationCache(100));
+
+            bgRecorder.ForgetFinalizationCache(100);
+
+            Assert.False(bgRecorder.HasFinalizationCache(100));
+        }
+
+        [Fact]
         public void GetFinalizationCacheForRecording_ResolvesByRecordingIdWhenPidUnknown()
         {
             var tree = MakeTree((100, "rec_bg1"));
@@ -448,6 +470,7 @@ namespace Parsek.Tests
             bgRecorder.CheckDebrisTTL(130.0);
 
             Assert.False(tree.BackgroundMap.ContainsKey(100));
+            Assert.False(bgRecorder.HasFinalizationCache(100));
             Assert.Equal(0, bgRecorder.DebrisTTLCount);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(130.0, rec.ExplicitEndUT);
@@ -490,6 +513,7 @@ namespace Parsek.Tests
 
             bgRecorder.CheckDebrisTTL(130.0);
 
+            Assert.False(bgRecorder.HasFinalizationCache(100));
             Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
             Assert.Equal(130.0, rec.ExplicitEndUT);
             Assert.Empty(rec.OrbitSegments);

@@ -572,6 +572,13 @@ namespace Parsek
             public SurfacePosition surfacePosition;
         }
 
+        internal enum DeferredDestructionOutcome
+        {
+            ConfirmedDestroyed = 0,
+            DockingInProgress = 1,
+            FalseDestroyReattach = 2
+        }
+
         // Diagnostic logging guards (log once per state transition, not per frame)
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
@@ -4134,8 +4141,54 @@ namespace Parsek
             HashSet<uint> dockingInProgress,
             bool vesselStillExists)
         {
-            if (dockingInProgress.Contains(vesselPid)) return false;
-            return !vesselStillExists;
+            return ClassifyDeferredDestruction(vesselPid, dockingInProgress, vesselStillExists)
+                == DeferredDestructionOutcome.ConfirmedDestroyed;
+        }
+
+        internal static DeferredDestructionOutcome ClassifyDeferredDestruction(
+            uint vesselPid,
+            HashSet<uint> dockingInProgress,
+            bool vesselStillExists)
+        {
+            if (dockingInProgress != null && dockingInProgress.Contains(vesselPid))
+                return DeferredDestructionOutcome.DockingInProgress;
+            return vesselStillExists
+                ? DeferredDestructionOutcome.FalseDestroyReattach
+                : DeferredDestructionOutcome.ConfirmedDestroyed;
+        }
+
+        internal static bool ShouldReattachBackgroundRecorderAfterDeferredDestruction(
+            DeferredDestructionOutcome outcome)
+        {
+            return outcome == DeferredDestructionOutcome.FalseDestroyReattach;
+        }
+
+        internal static bool TryHandleDeferredDestructionAbort(
+            uint vesselPid,
+            DeferredDestructionOutcome outcome,
+            Action<uint> reattachBackgroundRecorder,
+            Action<string> debugLog,
+            Action<string> infoLog)
+        {
+            if (outcome == DeferredDestructionOutcome.ConfirmedDestroyed)
+                return false;
+
+            if (ShouldReattachBackgroundRecorderAfterDeferredDestruction(outcome))
+            {
+                debugLog?.Invoke(
+                    $"DeferredDestructionCheck: pid={vesselPid} still exists — vessel unloaded, not destroyed");
+                reattachBackgroundRecorder?.Invoke(vesselPid);
+                infoLog?.Invoke(
+                    $"DeferredDestructionCheck: reattached background recorder state for " +
+                    $"pid={vesselPid} after false destruction signal");
+            }
+            else
+            {
+                debugLog?.Invoke(
+                    $"DeferredDestructionCheck: pid={vesselPid} now in dockingInProgress — aborting");
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -4289,20 +4342,17 @@ namespace Parsek
 
             // Use pure decision method to determine if vessel is truly destroyed
             bool vesselStillExists = FlightRecorder.FindVesselByPid(pending.vesselPid) != null;
-            if (!IsTrulyDestroyed(pending.vesselPid, dockingInProgress, vesselStillExists))
+            DeferredDestructionOutcome destructionOutcome = ClassifyDeferredDestruction(
+                pending.vesselPid,
+                dockingInProgress,
+                vesselStillExists);
+            if (TryHandleDeferredDestructionAbort(
+                    pending.vesselPid,
+                    destructionOutcome,
+                    pid => backgroundRecorder?.OnVesselBackgrounded(pid),
+                    Log,
+                    message => ParsekLog.Info("Flight", message)))
             {
-                if (dockingInProgress.Contains(pending.vesselPid))
-                {
-                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} now in dockingInProgress — aborting");
-                }
-                else
-                {
-                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} still exists — vessel unloaded, not destroyed");
-                    backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid);
-                    ParsekLog.Info("Flight",
-                        $"DeferredDestructionCheck: reattached background recorder state for " +
-                        $"pid={pending.vesselPid} after false destruction signal");
-                }
                 yield break;
             }
 
@@ -4364,6 +4414,7 @@ namespace Parsek
             BackgroundRecorder.PersistFinalizedRecording(
                 rec,
                 $"DeferredDestructionCheck pid={pending.vesselPid}");
+            backgroundRecorder?.ForgetFinalizationCache(pending.vesselPid);
 
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -706,32 +705,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DeferredDestructionCheck_FalseDestroy_ReattachesBackgroundRecorderState()
+        public void TryHandleDeferredDestructionAbort_FalseDestroyReattachesBackgroundRecorder()
         {
-            string source = File.ReadAllText(LocateParsekFlightSource());
-            int methodStart = source.IndexOf(
-                "IEnumerator DeferredDestructionCheck(PendingDestruction pending)",
-                StringComparison.Ordinal);
-            Assert.True(methodStart >= 0, "DeferredDestructionCheck not found.");
+            var docking = new HashSet<uint>();
 
-            int falseDestroyLog = source.IndexOf(
-                "still exists — vessel unloaded, not destroyed",
-                methodStart,
-                StringComparison.Ordinal);
-            int reattach = source.IndexOf(
-                "backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid)",
-                methodStart,
-                StringComparison.Ordinal);
-            int firstYieldBreakAfterFalseDestroy = source.IndexOf(
-                "yield break;",
-                falseDestroyLog,
-                StringComparison.Ordinal);
+            ParsekFlight.DeferredDestructionOutcome falseDestroy =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.FalseDestroyReattach, falseDestroy);
+            Assert.True(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(falseDestroy));
 
-            Assert.True(falseDestroyLog >= 0, "False-destroy abort branch not found.");
-            Assert.True(reattach > falseDestroyLog,
-                "False-destroy abort must reattach BackgroundRecorder state.");
-            Assert.True(firstYieldBreakAfterFalseDestroy > reattach,
-                "Reattach must happen before the false-destroy branch exits.");
+            uint reattachedPid = 0;
+            var debugLines = new List<string>();
+            var infoLines = new List<string>();
+            bool handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: falseDestroy,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(100u, reattachedPid);
+            Assert.Contains(debugLines, l => l.Contains("still exists"));
+            Assert.Contains(infoLines, l => l.Contains("reattached background recorder state"));
+
+            docking.Add(100u);
+            ParsekFlight.DeferredDestructionOutcome dockingAbort =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.DockingInProgress, dockingAbort);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(dockingAbort));
+
+            reattachedPid = 0;
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: dockingAbort,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(0u, reattachedPid);
+
+            docking.Clear();
+            ParsekFlight.DeferredDestructionOutcome confirmed =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: false);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.ConfirmedDestroyed, confirmed);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(confirmed));
+
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: confirmed,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.False(handled);
         }
 
         [Fact]
@@ -1532,21 +1569,6 @@ namespace Parsek.Tests
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
-        }
-
-        private static string LocateParsekFlightSource()
-        {
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
-            {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
-                if (File.Exists(candidate)) return candidate;
-                dir = Path.GetDirectoryName(dir);
-            }
-
-            return Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
         private static RecordingFinalizationCache MakeDestroyedCache(
