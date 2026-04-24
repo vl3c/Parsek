@@ -324,7 +324,8 @@ namespace Parsek
                     EffectiveState.ComputeERS(),
                     EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
-                    GameStateStore.IsEventVisibleToCurrentTimeline);
+                    GameStateStore.IsEventVisibleToCurrentTimeline,
+                    GetCurrentGameMode());
                 timelineDirty = false;
                 filterDirty = true;
 
@@ -395,6 +396,19 @@ namespace Parsek
                 "Timeline window");
 
             GUI.DragWindow();
+        }
+
+        private static Game.Modes? GetCurrentGameMode()
+        {
+            try
+            {
+                var currentGame = HighLogic.CurrentGame;
+                if (currentGame != null)
+                    return currentGame.Mode;
+            }
+            catch (NullReferenceException) { }
+
+            return null;
         }
 
         private void DrawFilterBar()
@@ -1094,13 +1108,9 @@ namespace Parsek
 
         private void DrawResourceBudget()
         {
-            // Hide budget entirely in sandbox mode
-            try
-            {
-                if (HighLogic.CurrentGame?.Mode == Game.Modes.SANDBOX)
-                    return;
-            }
-            catch { }
+            Game.Modes? currentMode = GetCurrentGameMode();
+            if (currentMode == Game.Modes.SANDBOX)
+                return;
 
             var budget = parentUI.GetCachedBudget();
 
@@ -1112,9 +1122,7 @@ namespace Parsek
             GUILayout.Label("Resources", parentUI.GetSectionHeaderStyle());
 
             bool anyOverCommitted = false;
-            bool isScienceMode = false;
-            try { isScienceMode = HighLogic.CurrentGame?.Mode == Game.Modes.SCIENCE_SANDBOX; }
-            catch { }
+            bool isScienceMode = currentMode == Game.Modes.SCIENCE_SANDBOX;
 
             if (!isScienceMode && budget.reservedFunds > 0)
             {

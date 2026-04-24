@@ -937,7 +937,7 @@ namespace Parsek.InGameTests
         public KspApiSanityTests(InGameTestRunner runner) { this.runner = runner; }
 
         [InGameTest(Category = "KspApiSanity",
-            Description = "body.bodyTransform.rotation is stable across 3 frames (co-rotating frame assumption)")]
+            Description = "body.bodyTransform.rotation is stable across 3 frames for live transform reconstruction")]
         public IEnumerator BodyTransformRotationStable()
         {
             var kerbin = FlightGlobals.GetBodyByName("Kerbin");
@@ -950,7 +950,8 @@ namespace Parsek.InGameTests
             yield return null;
             Quaternion rot2 = kerbin.bodyTransform.rotation;
 
-            // Rotation should be essentially identical across frames (no planetary spin in world frame)
+            // Rotation should be essentially identical across frames for live transform
+            // reconstruction. ProtoVessel.rot still stores vessel.srfRelRotation directly.
             float delta01 = Quaternion.Angle(rot0, rot1);
             float delta12 = Quaternion.Angle(rot1, rot2);
 

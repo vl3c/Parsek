@@ -417,9 +417,105 @@ namespace Parsek.Tests
                 _ => { call++; return call <= 1; });
 
             Assert.True(result.found);
-            double t = 1.0 / n;
+            float t = 1f / n;
             double expectedAlt = 80.0 + (70.0 - 80.0) * t;
             Assert.Equal(expectedAlt, result.alt, 10);
+        }
+
+        [Fact]
+        public void WalkbackSubdividedDetailed_InterpolatesUtVelocityAndRotation()
+        {
+            double latDelta = MetersToLatDegrees(6.0, KerbinRadius);
+            var yaw90 = new Quaternion(0f, 0.70710677f, 0f, 0.70710677f);
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0,
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 70.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 104.0,
+                    latitude = latDelta,
+                    longitude = 0.0,
+                    altitude = 80.0,
+                    bodyName = "Kerbin",
+                    rotation = yaw90,
+                    velocity = new Vector3(8f, 0f, 0f),
+                },
+            };
+
+            double actualD = SpawnCollisionDetector.SurfaceDistance(0.0, 0.0, latDelta, 0.0, KerbinRadius);
+            int n = Math.Max(1, (int)Math.Ceiling(actualD / 1.5));
+
+            int call = 0;
+            var result = SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed(
+                points,
+                KerbinRadius,
+                1.5f,
+                PosClosure,
+                _ => { call++; return call <= 1; });
+
+            Assert.True(result.found);
+            float t = 1f / n;
+            Assert.Equal(104.0 + (100.0 - 104.0) * t, result.point.ut, 10);
+            Assert.Equal((double)(8f + (0f - 8f) * t), (double)result.point.velocity.x, 5);
+            Assert.True(result.point.rotation.y > 0.001f);
+            Assert.True(result.point.rotation.y < yaw90.y - 0.001f);
+            Assert.True(result.point.rotation.w < 0.999f);
+            Assert.True(result.point.rotation.w > yaw90.w + 0.001f);
+        }
+
+        [Fact]
+        public void WalkbackSubdividedDetailed_BodyTransition_LogsTieBreakChoice()
+        {
+            double latDelta = MetersToLatDegrees(6.0, KerbinRadius);
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0,
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 70.0,
+                    bodyName = "Mun",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 104.0,
+                    latitude = latDelta,
+                    longitude = 0.0,
+                    altitude = 80.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                },
+            };
+
+            int call = 0;
+            var result = SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed(
+                points,
+                KerbinRadius,
+                1.5f,
+                PosClosure,
+                _ => { call++; return call <= 1; });
+
+            Assert.True(result.found);
+            Assert.Equal("Kerbin", result.point.bodyName);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SpawnCollision]") &&
+                l.Contains("body transition") &&
+                l.Contains("later='Kerbin'") &&
+                l.Contains("earlier='Mun'") &&
+                l.Contains("using 'Kerbin'"));
         }
 
         // ─────────────────────────────────────────────────────────────

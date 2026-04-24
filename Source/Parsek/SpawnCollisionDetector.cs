@@ -359,11 +359,12 @@ namespace Parsek
         /// trajectories ≤ 1 km end-to-end) the flat approximation is accurate to well under 1% —
         /// more than precise enough for step-count sizing on a 1.5 m granularity.
         ///
-        /// Unlike the point-granularity <see cref="WalkbackAlongTrajectory"/> (used by
-        /// VesselGhoster for chain-tip spawns), this variant subdivides between points so a
-        /// walkback on a fast-moving trajectory advances in 1-2 m increments rather than
-        /// potentially skipping 10-50 m per step. Used by VesselSpawner for end-of-recording
-        /// spawns where an EVA kerbal's endpoint may be inside a loaded vessel's bounding box.
+        /// Unlike the older point-granularity <see cref="WalkbackAlongTrajectory"/>, this
+        /// variant subdivides between points so a walkback on a fast-moving trajectory advances
+        /// in 1-2 m increments rather than potentially skipping 10-50 m per step. Used by
+        /// VesselSpawner for end-of-recording spawns and now by VesselGhoster for primary
+        /// chain-tip walkback, with the point-granularity helper retained only as a fallback
+        /// when body resolution is unavailable.
         /// </summary>
         /// <param name="points">Trajectory points to walk backward through.</param>
         /// <param name="bodyRadius">Body radius in metres (for <see cref="SurfaceDistance"/>).</param>
@@ -388,10 +389,30 @@ namespace Parsek
                 Func<double, double, double, Vector3d> latLonAltToWorldPos,
                 Func<Vector3d, bool> isOverlapping)
         {
+            var result = WalkbackAlongTrajectorySubdividedDetailed(
+                points,
+                bodyRadius,
+                stepMeters,
+                latLonAltToWorldPos,
+                isOverlapping);
+
+            return result.found
+                ? (true, result.point.latitude, result.point.longitude, result.point.altitude, result.worldPos)
+                : (false, 0, 0, 0, Vector3d.zero);
+        }
+
+        internal static (bool found, TrajectoryPoint point, Vector3d worldPos)
+            WalkbackAlongTrajectorySubdividedDetailed(
+                List<TrajectoryPoint> points,
+                double bodyRadius,
+                float stepMeters,
+                Func<double, double, double, Vector3d> latLonAltToWorldPos,
+                Func<Vector3d, bool> isOverlapping)
+        {
             if (points == null || points.Count == 0)
             {
                 ParsekLog.Verbose(Tag, "WalkbackSubdivided: null or empty trajectory — returning (false, …)");
-                return (false, 0, 0, 0, Vector3d.zero);
+                return (false, default, Vector3d.zero);
             }
 
             if (stepMeters <= 0f)
@@ -414,7 +435,7 @@ namespace Parsek
                     string.Format(IC,
                         "WalkbackSubdivided: last point clear at index {0} (UT={1})",
                         last, lastPt.ut.ToString("F2", IC)));
-                return (true, lastPt.latitude, lastPt.longitude, lastPt.altitude, lastWorldPos);
+                return (true, lastPt, lastWorldPos);
             }
 
             ParsekLog.Verbose(Tag,
@@ -461,13 +482,16 @@ namespace Parsek
 
                     if (!overlaps)
                     {
+                        TrajectoryPoint interpolatedPoint = InterpolateTrajectoryPoint(segEnd, segStart, (float)t);
                         ParsekLog.Info(Tag,
                             string.Format(IC,
                                 "WalkbackSubdivided: cleared at segment [{0}↔{1}] step {2}/{3} lat={4} lon={5} alt={6} (total sub-steps checked={7})",
                                 i - 1, i, k, n,
-                                lat.ToString("F6", IC), lon.ToString("F6", IC),
-                                alt.ToString("F1", IC), totalSubStepsChecked));
-                        return (true, lat, lon, alt, worldPos);
+                                interpolatedPoint.latitude.ToString("F6", IC),
+                                interpolatedPoint.longitude.ToString("F6", IC),
+                                interpolatedPoint.altitude.ToString("F1", IC),
+                                totalSubStepsChecked));
+                        return (true, interpolatedPoint, worldPos);
                     }
 
                     // Rate-limit per-sub-step overlap log spam: 1 in 10 candidates
@@ -485,7 +509,114 @@ namespace Parsek
                 string.Format(IC,
                     "WalkbackSubdivided: entire trajectory overlaps after {0} sub-steps — returning (false, …) (walkback exhausted)",
                     totalSubStepsChecked));
-            return (false, 0, 0, 0, Vector3d.zero);
+            return (false, default, Vector3d.zero);
+        }
+
+        private static TrajectoryPoint InterpolateTrajectoryPoint(
+            TrajectoryPoint later,
+            TrajectoryPoint earlier,
+            float t)
+        {
+            t = Clamp01Managed(t);
+
+            string bodyName;
+            if (string.Equals(later.bodyName, earlier.bodyName, StringComparison.Ordinal))
+            {
+                bodyName = later.bodyName;
+            }
+            else if (t < 0.5f)
+            {
+                bodyName = string.IsNullOrEmpty(later.bodyName) ? earlier.bodyName : later.bodyName;
+            }
+            else
+            {
+                bodyName = string.IsNullOrEmpty(earlier.bodyName) ? later.bodyName : earlier.bodyName;
+            }
+
+            if (!string.Equals(later.bodyName, earlier.bodyName, StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "WalkbackSubdivided: body transition later='{0}' earlier='{1}' t={2:F2} -> using '{3}'",
+                        string.IsNullOrEmpty(later.bodyName) ? "(none)" : later.bodyName,
+                        string.IsNullOrEmpty(earlier.bodyName) ? "(none)" : earlier.bodyName,
+                        t,
+                        string.IsNullOrEmpty(bodyName) ? "(none)" : bodyName));
+            }
+
+            return new TrajectoryPoint
+            {
+                ut = later.ut + (earlier.ut - later.ut) * t,
+                latitude = later.latitude + (earlier.latitude - later.latitude) * t,
+                longitude = later.longitude + (earlier.longitude - later.longitude) * t,
+                altitude = later.altitude + (earlier.altitude - later.altitude) * t,
+                rotation = SlerpQuaternionManaged(later.rotation, earlier.rotation, t),
+                velocity = new Vector3(
+                    LerpFloat(later.velocity.x, earlier.velocity.x, t),
+                    LerpFloat(later.velocity.y, earlier.velocity.y, t),
+                    LerpFloat(later.velocity.z, earlier.velocity.z, t)),
+                bodyName = bodyName,
+                funds = later.funds + (earlier.funds - later.funds) * t,
+                science = later.science + (earlier.science - later.science) * t,
+                reputation = later.reputation + (earlier.reputation - later.reputation) * t,
+            };
+        }
+
+        private static float Clamp01Managed(float value)
+        {
+            if (float.IsNaN(value) || value <= 0f)
+                return 0f;
+            if (value >= 1f)
+                return 1f;
+            return value;
+        }
+
+        private static float LerpFloat(float a, float b, float t)
+        {
+            return a + (b - a) * t;
+        }
+
+        private static Quaternion SlerpQuaternionManaged(Quaternion from, Quaternion to, float t)
+        {
+            from = TrajectoryMath.SanitizeQuaternion(from);
+            to = TrajectoryMath.SanitizeQuaternion(to);
+
+            double dot =
+                (from.x * to.x) +
+                (from.y * to.y) +
+                (from.z * to.z) +
+                (from.w * to.w);
+
+            if (dot < 0.0)
+            {
+                to = new Quaternion(-to.x, -to.y, -to.z, -to.w);
+                dot = -dot;
+            }
+
+            if (dot > 0.9995)
+            {
+                return TrajectoryMath.SanitizeQuaternion(new Quaternion(
+                    LerpFloat(from.x, to.x, t),
+                    LerpFloat(from.y, to.y, t),
+                    LerpFloat(from.z, to.z, t),
+                    LerpFloat(from.w, to.w, t)));
+            }
+
+            dot = Math.Max(-1.0, Math.Min(1.0, dot));
+            double theta0 = Math.Acos(dot);
+            double sinTheta0 = Math.Sin(theta0);
+            if (Math.Abs(sinTheta0) < 1e-8)
+                return from;
+
+            double theta = theta0 * t;
+            double scaleFrom = Math.Sin(theta0 - theta) / sinTheta0;
+            double scaleTo = Math.Sin(theta) / sinTheta0;
+
+            return TrajectoryMath.SanitizeQuaternion(new Quaternion(
+                (float)((scaleFrom * from.x) + (scaleTo * to.x)),
+                (float)((scaleFrom * from.y) + (scaleTo * to.y)),
+                (float)((scaleFrom * from.z) + (scaleTo * to.z)),
+                (float)((scaleFrom * from.w) + (scaleTo * to.w))));
         }
 
         /// <summary>
