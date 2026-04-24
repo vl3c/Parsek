@@ -120,7 +120,7 @@ Tasks:
    - active vessel may use node-free stock conic data
    - background loaded/on-rails paths may use current orbit and `BallisticExtrapolator`
 5. Add aggregate/rate-limited refresh logs.
-6. Delete or gate `PatchedConicSnapshotResult.StoppedBeforeManeuver` after node-free capture lands, then update all callers and tests so a UI maneuver node can never become a terminal boundary.
+6. Retire `PatchedConicSnapshotResult.StoppedBeforeManeuver` after node-free capture lands, then update all callers and tests so a UI maneuver node can never become a terminal boundary. Phase 2 renames the flag to `EncounteredManeuverNode` and makes the finalizer discard node-contaminated stock tails before falling back to current-state propagation.
 
 Maneuver-node rule:
 

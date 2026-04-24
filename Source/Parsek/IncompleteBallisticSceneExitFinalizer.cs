@@ -23,6 +23,7 @@ namespace Parsek
         public ConfigNode ghostVisualSnapshot;
         public SurfacePosition? terminalPosition;
         public double? terrainHeightAtEnd;
+        public RecordingFinalizationTerminalOrbit? terminalOrbit;
     }
 
     internal static class IncompleteBallisticSceneExitFinalizer
@@ -173,14 +174,13 @@ namespace Parsek
                     result.ghostVisualSnapshot = snapshotNode.CreateCopy();
                 }
 
-                if (snapshot.StoppedBeforeManeuver && appendedSegments.Count > 0)
+                if (snapshot.EncounteredManeuverNode && appendedSegments.Count > 0)
                 {
-                    OrbitSegment terminalSegment = appendedSegments[appendedSegments.Count - 1];
-                    StampTerminalOrbitFromSegment(recording, terminalSegment);
-                    result.appendedOrbitSegments = appendedSegments;
-                    result.terminalState = TerminalState.Orbiting;
-                    result.terminalUT = terminalSegment.endUT;
-                    return true;
+                    ParsekLog.Info("PatchedSnapshot",
+                        $"TryFinalizeRecording: maneuver-node boundary detected for '{recording.RecordingId}'; " +
+                        "discarding stock patched-conic tail and falling back to current-state propagation");
+                    appendedSegments.Clear();
+                    result.patchedSegmentCount = 0;
                 }
 
                 if (TryShortCircuitSolverPredictedImpact(
@@ -233,7 +233,8 @@ namespace Parsek
                 result.terminalUT = extrapolated.terminalUT;
 
                 if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
-                    StampTerminalOrbitFromSegment(recording, appendedSegments[appendedSegments.Count - 1]);
+                    result.terminalOrbit =
+                        RecordingFinalizationTerminalOrbit.FromSegment(appendedSegments[appendedSegments.Count - 1]);
 
                 bool applied = appendedSegments.Count > 0
                     || (!double.IsNaN(result.terminalUT)
@@ -271,6 +272,15 @@ namespace Parsek
                 $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
                 $"({diagnostic}) — skipping default scene-exit extrapolation");
             return true;
+        }
+
+        internal static bool TryBuildDefaultFinalizationResult(
+            Recording recording,
+            Vessel vessel,
+            double commitUT,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            return TryFinalizeRecording(recording, vessel, commitUT, out result);
         }
 
         private static string TryDescribeHeadlessFlightGlobalsFailure(Exception ex)
@@ -706,14 +716,24 @@ namespace Parsek
             if (recording == null || string.IsNullOrEmpty(segment.bodyName))
                 return;
 
-            recording.TerminalOrbitInclination = segment.inclination;
-            recording.TerminalOrbitEccentricity = segment.eccentricity;
-            recording.TerminalOrbitSemiMajorAxis = segment.semiMajorAxis;
-            recording.TerminalOrbitLAN = segment.longitudeOfAscendingNode;
-            recording.TerminalOrbitArgumentOfPeriapsis = segment.argumentOfPeriapsis;
-            recording.TerminalOrbitMeanAnomalyAtEpoch = segment.meanAnomalyAtEpoch;
-            recording.TerminalOrbitEpoch = segment.epoch;
-            recording.TerminalOrbitBody = segment.bodyName;
+            StampTerminalOrbit(recording, RecordingFinalizationTerminalOrbit.FromSegment(segment));
+        }
+
+        private static void StampTerminalOrbit(
+            Recording recording,
+            RecordingFinalizationTerminalOrbit terminalOrbit)
+        {
+            if (recording == null || string.IsNullOrEmpty(terminalOrbit.bodyName))
+                return;
+
+            recording.TerminalOrbitInclination = terminalOrbit.inclination;
+            recording.TerminalOrbitEccentricity = terminalOrbit.eccentricity;
+            recording.TerminalOrbitSemiMajorAxis = terminalOrbit.semiMajorAxis;
+            recording.TerminalOrbitLAN = terminalOrbit.longitudeOfAscendingNode;
+            recording.TerminalOrbitArgumentOfPeriapsis = terminalOrbit.argumentOfPeriapsis;
+            recording.TerminalOrbitMeanAnomalyAtEpoch = terminalOrbit.meanAnomalyAtEpoch;
+            recording.TerminalOrbitEpoch = terminalOrbit.epoch;
+            recording.TerminalOrbitBody = terminalOrbit.bodyName;
         }
 
         private static void Apply(
@@ -729,6 +749,8 @@ namespace Parsek
 
             recording.TerminalStateValue = result.terminalState.Value;
             recording.ExplicitEndUT = result.terminalUT;
+            if (result.terminalOrbit.HasValue)
+                StampTerminalOrbit(recording, result.terminalOrbit.Value);
 
             bool ghostOnlySnapshot = result.vesselSnapshot == null && result.ghostVisualSnapshot != null;
             if (result.vesselSnapshot != null)

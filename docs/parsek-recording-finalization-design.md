@@ -31,7 +31,7 @@ The reliability gaps are about timing and ownership:
 | Background vessel destroyed | `BackgroundRecorder.OnBackgroundVesselWillDestroy` flushes track sections and persists the sidecar. | No finalization tail; terminal data depends on whatever was already sampled. |
 | Debris TTL or out-of-bubble end | `EndDebrisRecording` sets `ExplicitEndUT` and either destroyed or situation-derived terminal state. | No predicted continuation to the KSP deletion/destruction endpoint. |
 | Focus switch / backgrounding | The active recorder transitions to background or promotes another tree member. | A recording that later becomes unreachable still depends on scene-exit or destruction-time inference. |
-| UI maneuver node present | `PatchedConicSnapshot` currently records a segment ending in `Maneuver`, marks `StoppedBeforeManeuver`, and the finalizer treats that as an orbiting terminus. | Planned UI burns are hypothetical and must not truncate the real projected coast. |
+| UI maneuver node present | Prior code recorded a segment ending in `Maneuver`, marked `StoppedBeforeManeuver`, and treated that as an orbiting terminus; Phase 2 retires that terminal behavior by falling back to current-state propagation when a UI node is detected. | Planned UI burns are hypothetical and must not truncate the real projected coast. |
 
 The design target is to keep the existing finalizer and extrapolator, but make their output available before the live vessel disappears.
 
@@ -216,7 +216,7 @@ Implementation may use one of these strategies, in order of preference after cod
 2. Temporarily suppress maneuver-node influence, refresh the solver, capture the real coast chain, and restore the player's solver/node state in `finally`.
 3. Bypass stock patched-conic capture for node-contaminated chains and use the current orbit state plus Parsek's own conic/ballistic propagation.
 
-The current `StoppedBeforeManeuver` behavior is not acceptable as the final design. It turns a hypothetical node into a real terminal boundary.
+The old `StoppedBeforeManeuver` behavior is not acceptable as the final design. It turned a hypothetical node into a real terminal boundary; Phase 2 replaces that with `EncounteredManeuverNode` detection and current-state propagation fallback.
 
 ### Active Recorder Refresh
 

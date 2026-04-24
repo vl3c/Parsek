@@ -104,6 +104,158 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RefreshOnRailsFinalizationCacheForTesting_CachesStableOrbit()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 50.0,
+                endUT = 100.0,
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+                eccentricity = 0.01,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 50.0
+            });
+
+            bool refreshed = bgRecorder.RefreshOnRailsFinalizationCacheForTesting(
+                100,
+                currentUT: 120.0,
+                force: true);
+
+            Assert.True(refreshed);
+            Assert.True(bgRecorder.HasFinalizationCache(100));
+            RecordingFinalizationCache cache = bgRecorder.GetFinalizationCacheForTesting(100);
+            Assert.Equal("rec_bg1", cache.RecordingId);
+            Assert.Equal(FinalizationCacheOwner.BackgroundOnRails, cache.Owner);
+            Assert.Equal(TerminalState.Orbiting, cache.TerminalState);
+            Assert.Equal("Mun", cache.TerminalOrbit.Value.bodyName);
+        }
+
+        [Fact]
+        public void RefreshOnRailsFinalizationCacheForTesting_TouchesStableCacheWhenDigestUnchanged()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 50.0,
+                endUT = 100.0,
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+                eccentricity = 0.01,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 50.0
+            });
+
+            bool firstRefresh = bgRecorder.RefreshOnRailsFinalizationCacheForTesting(
+                100,
+                currentUT: 120.0,
+                force: true);
+            bool rebuilt = bgRecorder.RefreshOnRailsFinalizationCacheForTesting(
+                100,
+                currentUT: 140.0,
+                force: false);
+
+            RecordingFinalizationCache cache = bgRecorder.GetFinalizationCacheForTesting(100);
+            Assert.True(firstRefresh);
+            Assert.False(rebuilt);
+            Assert.Equal(140.0, cache.TerminalUT);
+            Assert.Equal(140.0, cache.LastObservedUT);
+            Assert.Equal("test_on_rails", cache.RefreshReason);
+        }
+
+        [Fact]
+        public void TryTouchSkippedFinalizationCache_PeriodicRequired_DoesNotAdvanceCacheCadence()
+        {
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 100u,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Landed,
+                CachedAtUT = 120.0,
+                TerminalUT = 120.0,
+                LastObservedUT = 120.0,
+                TailStartsAtUT = 120.0
+            };
+
+            bool touched = BackgroundRecorder.TryTouchSkippedFinalizationCache(
+                cache,
+                currentUT: 124.0,
+                reason: "background_periodic",
+                currentDigest: "Kerbin|sit=LANDED|atmo=False|thrust=False",
+                requiresPeriodicRefresh: true);
+
+            Assert.False(touched);
+            Assert.Equal(120.0, cache.CachedAtUT);
+            Assert.Equal(120.0, cache.TerminalUT);
+            Assert.Equal(120.0, cache.LastObservedUT);
+        }
+
+        [Fact]
+        public void TryTouchSkippedFinalizationCache_StableBackgroundOrbit_AdvancesObservedTerminal()
+        {
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 100u,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Orbiting,
+                CachedAtUT = 120.0,
+                TerminalUT = 120.0,
+                LastObservedUT = 120.0,
+                TailStartsAtUT = 120.0
+            };
+
+            bool touched = BackgroundRecorder.TryTouchSkippedFinalizationCache(
+                cache,
+                currentUT: 140.0,
+                reason: "background_periodic",
+                currentDigest: "Kerbin|sit=ORBITING|atmo=False|thrust=False",
+                requiresPeriodicRefresh: false);
+
+            Assert.True(touched);
+            Assert.Equal(140.0, cache.CachedAtUT);
+            Assert.Equal(140.0, cache.TerminalUT);
+            Assert.Equal(140.0, cache.LastObservedUT);
+        }
+
+        [Fact]
+        public void AdoptFinalizationCacheForTesting_TransfersActiveCacheOwnership()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            var inherited = new RecordingFinalizationCache
+            {
+                RecordingId = "pending-active",
+                VesselPersistentId = 999u,
+                Owner = FinalizationCacheOwner.ActiveRecorder,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Destroyed,
+                TerminalUT = 250.0
+            };
+
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", inherited);
+
+            RecordingFinalizationCache cache = bgRecorder.GetFinalizationCacheForTesting(100);
+            Assert.NotNull(cache);
+            Assert.Equal("rec_bg1", cache.RecordingId);
+            Assert.Equal(100u, cache.VesselPersistentId);
+            Assert.Equal(FinalizationCacheOwner.BackgroundOnRails, cache.Owner);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+        }
+
+        [Fact]
         public void Constructor_EmptyBackgroundMap_CreatesNoStates()
         {
             var tree = MakeTree(); // no background vessels

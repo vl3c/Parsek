@@ -62,6 +62,7 @@ namespace Parsek
         public Vessel.Situations LastSituation;
         public bool LastWasInAtmosphere;
         public bool LastHadMeaningfulThrust;
+        public string LastObservedOrbitDigest;
 
         public double TailStartsAtUT = double.NaN;
         public double TerminalUT = double.NaN;
