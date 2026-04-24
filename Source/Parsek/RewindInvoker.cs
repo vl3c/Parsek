@@ -334,6 +334,12 @@ namespace Parsek
         /// of success/failure.
         /// </para>
         /// </summary>
+        // Test seams: override FlightGlobals-vessel readiness and the
+        // onFlightReady subscription so headless tests can exercise both the
+        // direct and the deferred Strip-Activate-Marker paths.
+        internal static Func<bool> FlightReadyProbeOverrideForTesting;
+        internal static Action<Action> DeferUntilFlightReadyOverrideForTesting;
+
         internal static void ConsumePostLoad()
         {
             if (!RewindInvokeContext.Pending)
@@ -351,37 +357,77 @@ namespace Parsek
                 $"ConsumePostLoad begin: sess={sessionId} rp={rp?.RewindPointId ?? "<null>"} " +
                 $"slot={slotIdx}");
 
-            try
+            if (rp == null || selected == null)
             {
-                if (rp == null || selected == null)
+                ParsekLog.Error(InvokeTag,
+                    "ConsumePostLoad: context missing rp or slot — aborting");
+                ShowUserError("Rewind failed: invocation context corrupted");
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+                return;
+            }
+
+            // Step 1: reconcile. Runs now — it only touches scenario state and
+            // does not depend on FlightGlobals.Vessels being populated.
+            if (hasBundle)
+            {
+                try
+                {
+                    ReconciliationBundle.Restore(bundle);
+                }
+                catch (Exception ex)
                 {
                     ParsekLog.Error(InvokeTag,
-                        "ConsumePostLoad: context missing rp or slot — aborting");
-                    ShowUserError("Rewind failed: invocation context corrupted");
+                        $"Invocation failed: reconciliation restore threw: {ex.Message}");
+                    ShowUserError($"Rewind failed: reconcile error ({ex.Message})");
+                    TryDeleteTemp(tempPath);
+                    RewindInvokeContext.Clear();
                     return;
                 }
+            }
+            else
+            {
+                ParsekLog.Warn(InvokeTag,
+                    "ConsumePostLoad: no captured bundle — skipping reconciliation");
+            }
 
-                // Step 1: reconcile (restore pre-load in-memory state over the .sfs-loaded state).
-                if (hasBundle)
-                {
-                    try
-                    {
-                        ReconciliationBundle.Restore(bundle);
-                    }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Error(InvokeTag,
-                            $"Invocation failed: reconciliation restore threw: {ex.Message}");
-                        ShowUserError($"Rewind failed: reconcile error ({ex.Message})");
-                        return;
-                    }
-                }
-                else
-                {
-                    ParsekLog.Warn(InvokeTag,
-                        "ConsumePostLoad: no captured bundle — skipping reconciliation");
-                }
+            // Steps 2-5: Strip + Activate + AtomicMarkerWrite + LedgerRecalc.
+            // These need FlightGlobals.Vessels populated. During an async
+            // SPACECENTER→FLIGHT scene change, ParsekScenario.OnLoad (and
+            // thus ConsumePostLoad) fires before KSP has loaded the save's
+            // vessels into FlightGlobals — Strip would find zero candidates
+            // and the invocation would bail with
+            // "Activate failed: selected vessel not present on reload".
+            // Defer to GameEvents.onFlightReady (or run now if the scene
+            // never unloaded — e.g. synchronous reload tests). The atomic
+            // invariant (§2.5: no yield / no await between CheckpointA and
+            // CheckpointB) still holds because Strip + Activate +
+            // AtomicMarkerWrite still run as one synchronous block when the
+            // callback fires.
+            if (IsFlightReady())
+            {
+                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath);
+            }
+            else
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"ConsumePostLoad deferred to onFlightReady: sess={sessionId} " +
+                    $"rp={rp.RewindPointId} slot={slotIdx} " +
+                    "(FlightGlobals.Vessels not yet populated after async scene load)");
+                DeferUntilFlightReady(() =>
+                    RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath));
+            }
+        }
 
+        private static void RunStripActivateMarker(
+            RewindPoint rp,
+            ChildSlot selected,
+            string sessionId,
+            int slotIdx,
+            string tempPath)
+        {
+            try
+            {
                 // Step 2: post-load strip (§6.4 step 4).
                 PostLoadStripResult stripResult;
                 try
@@ -454,6 +500,69 @@ namespace Parsek
                 // in the save root is user-visible clutter.
                 TryDeleteTemp(tempPath);
                 RewindInvokeContext.Clear();
+            }
+        }
+
+        private static bool IsFlightReady()
+        {
+            if (FlightReadyProbeOverrideForTesting != null)
+                return FlightReadyProbeOverrideForTesting();
+
+            try
+            {
+                if (!FlightGlobals.ready) return false;
+                var vessels = FlightGlobals.Vessels;
+                return vessels != null && vessels.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static Action pendingFlightReadyAction;
+        private static bool pendingFlightReadySubscribed;
+
+        private static void DeferUntilFlightReady(Action action)
+        {
+            if (DeferUntilFlightReadyOverrideForTesting != null)
+            {
+                DeferUntilFlightReadyOverrideForTesting(action);
+                return;
+            }
+
+            // One-shot onFlightReady subscription. The static handler
+            // unregisters itself before invoking the cached action so a
+            // subsequent scene reload does not re-fire a stale callback.
+            pendingFlightReadyAction = action;
+            if (!pendingFlightReadySubscribed)
+            {
+                GameEvents.onFlightReady.Add(OnFlightReadyForDeferredInvoke);
+                pendingFlightReadySubscribed = true;
+            }
+        }
+
+        private static void OnFlightReadyForDeferredInvoke()
+        {
+            try
+            {
+                GameEvents.onFlightReady.Remove(OnFlightReadyForDeferredInvoke);
+            }
+            catch { }
+            pendingFlightReadySubscribed = false;
+
+            Action action = pendingFlightReadyAction;
+            pendingFlightReadyAction = null;
+            if (action == null) return;
+
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Deferred onFlightReady handler threw: {ex.Message}");
             }
         }
 

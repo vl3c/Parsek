@@ -42,6 +42,77 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RewindInvoker.CheckpointHookForTesting = null;
+            RewindInvoker.FlightReadyProbeOverrideForTesting = null;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = null;
+            RewindInvokeContext.Clear();
+        }
+
+        [Fact]
+        public void ConsumePostLoad_FlightNotReady_DefersStripToOnFlightReady()
+        {
+            // Regression for the post-2026-04-25 playtest log:
+            //   SPACECENTER→FLIGHT is an async scene change; OnLoad (and thus
+            //   ConsumePostLoad) fires before KSP populates FlightGlobals.Vessels.
+            //   Running Strip synchronously at that point finds zero candidates
+            //   and the invocation bails with
+            //   "Activate failed: selected vessel not present on reload".
+            // The fix defers Strip+Activate+AtomicMarkerWrite to onFlightReady.
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Stage the context so ConsumePostLoad actually enters its body.
+            // No bundle, no temp path — reconcile is skipped (logged as Warn)
+            // and deferral decision runs.
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess_defer";
+            RewindInvokeContext.RewindPoint = rp;
+            RewindInvokeContext.Selected = slot;
+            RewindInvokeContext.CapturedBundle = default(ReconciliationBundle);
+            RewindInvokeContext.HasCapturedBundle = false;
+            RewindInvokeContext.TempQuicksavePath = null;
+
+            RewindInvoker.FlightReadyProbeOverrideForTesting = () => false;
+            Action deferred = null;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = a => deferred = a;
+
+            RewindInvoker.ConsumePostLoad();
+
+            Assert.NotNull(deferred);
+            Assert.True(RewindInvokeContext.Pending, "context must survive deferral so onFlightReady can consume it");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ConsumePostLoad deferred to onFlightReady")
+                && l.Contains("sess_defer"));
+        }
+
+        [Fact]
+        public void ConsumePostLoad_FlightReady_RunsStripSynchronously()
+        {
+            // When FlightGlobals is populated (synchronous reload, or deferred
+            // callback already firing), Strip runs immediately without
+            // going through the deferred callback seam.
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess_sync";
+            RewindInvokeContext.RewindPoint = rp;
+            RewindInvokeContext.Selected = slot;
+            RewindInvokeContext.CapturedBundle = default(ReconciliationBundle);
+            RewindInvokeContext.HasCapturedBundle = false;
+            RewindInvokeContext.TempQuicksavePath = null;
+
+            RewindInvoker.FlightReadyProbeOverrideForTesting = () => true;
+            bool deferCalled = false;
+            RewindInvoker.DeferUntilFlightReadyOverrideForTesting = a => deferCalled = true;
+
+            // ConsumePostLoad will try to actually Strip + SetActiveVessel,
+            // which touches FlightGlobals in a way that won't work headless.
+            // We only assert that the deferral seam was NOT invoked; exceptions
+            // from later steps are expected and tolerated.
+            try { RewindInvoker.ConsumePostLoad(); } catch { }
+
+            Assert.False(deferCalled, "Flight-ready path must not take the deferral seam.");
         }
 
         private static ParsekScenario MakeScenario()
