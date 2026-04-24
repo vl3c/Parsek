@@ -37,6 +37,20 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 # Known Bugs
 
+## ~~566. Post-switch attitude-only docking alignment could miss deliberate station rotation and replay RELATIVE docking geometry against the wrong frame~~
+
+**Source:** docking-alignment follow-up planned and implemented on 2026-04-24 after the broader `#546` post-switch watcher shipped. The remaining gap showed up in the capsule/station flow where the player switches to a nearby station, rotates it with SAS / reaction wheels to line up the docking port, switches back, and docks.
+
+**Concern:** `#546` fixed the general "first meaningful modification after switch" gap, but its trigger set still favored translation, engine/RCS activity, and authored vessel-state changes. Pure attitude alignment could stay below those seams and never start recording. Separately, the RELATIVE frame contract was inconsistent: offsets were stored as world-space deltas while playback multiplied rotation by the live anchor transform as if the stored rotation were anchor-local. That meant even newly recorded docking approaches could drift once the nearby vessel had been rotated in place.
+
+**Fix:** post-switch watching now tracks baseline world rotation and accepts a dedicated `AttitudeChange` trigger only after a sign-canonicalized `Quaternion.Angle` exceeds the 3 degree threshold and survives a short debounce, so focus switch alone stays ignored while deliberate alignment starts or promotes recording. Active sampling is now attitude-aware so wheel/SAS alignment emits points even when velocity/orbit barely change, the trigger-start path seeds baseline + current pose so the first few degrees are not lost, and recording format `v6` makes new RELATIVE sections truly anchor-local for both position and rotation. Legacy `v5`-and-older RELATIVE sections stay on the old playback path, and unrelated format normalization no longer silently upgrades old recordings onto the v6 contract.
+
+**Review follow-up (same PR):** dropped an unused `boundaryAnchor` parameter on `StartRecording` / `PromoteRecordingFromBackground` (baseline seeding runs through `SeedTrajectoryPoint` instead); collapsed the redundant version branch in `ResolveRelativePlaybackRotation` since both v5 and v6 reconstitute world rotation with the same `anchor * stored` formula (only the storage semantics differ); added a `ShouldSkipSeedDueToRelativeSection` guard so a baseline seed built from `v.srfRelRotation` can never be committed into an anchor-relative track section; and added diagnostic log lines when `OnPhysicsFrame` samples a packed vessel or when `ResolveActiveRecordingFormatVersion` has to fall back to the current format version.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/FlightRecorder.cs`, `Source/Parsek/TrajectoryMath.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek.Tests/PostSwitchAutoRecordTests.cs`, `Source/Parsek.Tests/AdaptiveSamplingTests.cs`, `Source/Parsek.Tests/RelativePlaybackTests.cs`, `Source/Parsek.Tests/FormatVersionTests.cs`, `docs/dev/plans/fix-post-switch-attitude-docking.md`, `.claude/CLAUDE.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
 ## ~~567. Scene-enter auto-record never resumed on vessels with a committed recording~~
 
 Observed in the `2026-04-23_2200_playtest-post-v083` playtest: launch a vessel, commit the recording, exit to KSC, re-enter the same vessel via Tracking Station, drive it. Auto-record stayed `mode=none` for the entire session. The `FlightRecorder.OnVesselGoOffRails` handler early-returns when `IsRecording` is false, and the design spec (`recording-system-design.md` §4.5 "When the player returns to flight, vessels come off rails → new checkpoints captured → physics sampling resumes") expected the resume path to run here.

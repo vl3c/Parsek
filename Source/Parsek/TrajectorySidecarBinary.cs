@@ -38,7 +38,8 @@ namespace Parsek
         private const int SparsePointBinaryVersion = 3;
         private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
-        private const int CurrentBinaryVersion = PredictedOrbitSegmentBinaryVersion;
+        private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
+        private const int CurrentBinaryVersion = RelativeLocalFrameBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -126,6 +127,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= PredictedOrbitSegmentBinaryVersion
+                    ? PredictedOrbitSegmentBinaryVersion
                 : rec.RecordingFormatVersion >= LoopIntervalBinaryVersion
                     ? LoopIntervalBinaryVersion
                 : rec.RecordingFormatVersion >= SparsePointBinaryVersion
@@ -332,6 +335,7 @@ namespace Parsek
             return version == LegacyBinaryVersion
                 || version == SparsePointBinaryVersion
                 || version == LoopIntervalBinaryVersion
+                || version == PredictedOrbitSegmentBinaryVersion
                 || version == CurrentBinaryVersion;
         }
 

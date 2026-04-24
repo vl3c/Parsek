@@ -712,6 +712,29 @@ namespace Parsek
             return new Quaternion(q.x / magnitude, q.y / magnitude, q.z / magnitude, q.w / magnitude);
         }
 
+        /// <summary>
+        /// Canonicalizes quaternions for angle comparisons so sign-equivalent values
+        /// (q and -q) compare as the same physical rotation.
+        /// </summary>
+        internal static Quaternion NormalizeQuaternionForComparison(Quaternion q)
+        {
+            Quaternion normalized = PureNormalize(SanitizeQuaternion(q));
+            return normalized.w < 0f
+                ? new Quaternion(-normalized.x, -normalized.y, -normalized.z, -normalized.w)
+                : normalized;
+        }
+
+        /// <summary>
+        /// Returns the physical angle between two rotations in degrees after sanitizing
+        /// and canonicalizing sign-equivalent quaternions.
+        /// </summary>
+        internal static float ComputeQuaternionAngleDegrees(Quaternion from, Quaternion to)
+        {
+            return Quaternion.Angle(
+                NormalizeQuaternionForComparison(from),
+                NormalizeQuaternionForComparison(to));
+        }
+
         /// <summary>Spin threshold in rad/s (matches PersistentRotation's threshold).</summary>
         internal const float SpinThreshold = 0.05f;
 
@@ -884,10 +907,7 @@ namespace Parsek
 
         /// <summary>
         /// Computes the position offset from an anchor vessel to the focused vessel
-        /// in world-space coordinates. Both positions come from
-        /// body.GetWorldSurfacePosition(lat, lon, alt), so the offset is stable
-        /// within a physics frame (FloatingOrigin shifts cancel because both
-        /// positions shift equally).
+        /// in world-space coordinates for legacy v5-and-older RELATIVE sections.
         ///
         /// The returned (dx, dy, dz) vector is stored in the TrajectoryPoint's
         /// latitude/longitude/altitude fields when recording in RELATIVE frame.
@@ -899,12 +919,103 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes world position from anchor position and relative offset.
-        /// Pure static for testability.
+        /// Computes world position from anchor position and a legacy world-space
+        /// relative offset. Pure static for testability.
         /// </summary>
         internal static Vector3d ApplyRelativeOffset(Vector3d anchorWorldPos, double dx, double dy, double dz)
         {
             return new Vector3d(anchorWorldPos.x + dx, anchorWorldPos.y + dy, anchorWorldPos.z + dz);
+        }
+
+        /// <summary>
+        /// Computes the anchor-local offset used by format-v6 RELATIVE sections.
+        /// Pure static method for testability.
+        /// </summary>
+        internal static Vector3d ComputeRelativeLocalOffset(
+            Vector3d focusedPosition,
+            Vector3d anchorPosition,
+            Quaternion anchorWorldRotation)
+        {
+            Vector3 worldOffset = (Vector3)(focusedPosition - anchorPosition);
+            Quaternion inverseAnchor = PureInverse(PureNormalize(anchorWorldRotation));
+            Vector3 localOffset = PureRotateVector(inverseAnchor, worldOffset);
+            return new Vector3d(localOffset.x, localOffset.y, localOffset.z);
+        }
+
+        /// <summary>
+        /// Computes world position from anchor position and a format-v6 anchor-local
+        /// offset. Pure static for testability.
+        /// </summary>
+        internal static Vector3d ApplyRelativeLocalOffset(
+            Vector3d anchorWorldPos,
+            Quaternion anchorWorldRotation,
+            double dx,
+            double dy,
+            double dz)
+        {
+            Vector3 localOffset = new Vector3((float)dx, (float)dy, (float)dz);
+            Vector3 worldOffset = PureRotateVector(
+                PureNormalize(anchorWorldRotation),
+                localOffset);
+            return anchorWorldPos + (Vector3d)worldOffset;
+        }
+
+        /// <summary>
+        /// Computes the anchor-local rotation used by format-v6 RELATIVE sections.
+        /// Pure static method for testability.
+        /// </summary>
+        internal static Quaternion ComputeRelativeLocalRotation(
+            Quaternion focusWorldRotation,
+            Quaternion anchorWorldRotation)
+        {
+            Quaternion anchorInverse = PureInverse(PureNormalize(anchorWorldRotation));
+            return SanitizeQuaternion(PureMultiply(anchorInverse, focusWorldRotation));
+        }
+
+        /// <summary>
+        /// Reconstructs world rotation from a format-v6 anchor-local RELATIVE rotation.
+        /// Pure static for testability.
+        /// </summary>
+        internal static Quaternion ApplyRelativeLocalRotation(
+            Quaternion anchorWorldRotation,
+            Quaternion relativeLocalRotation)
+        {
+            return SanitizeQuaternion(
+                PureMultiply(PureNormalize(anchorWorldRotation), relativeLocalRotation));
+        }
+
+        /// <summary>
+        /// Resolves a RELATIVE-frame position to world space using the version-specific
+        /// contract for the recording being played back.
+        /// </summary>
+        internal static Vector3d ResolveRelativePlaybackPosition(
+            Vector3d anchorWorldPos,
+            Quaternion anchorWorldRotation,
+            double dx,
+            double dy,
+            double dz,
+            int recordingFormatVersion)
+        {
+            return RecordingStore.UsesRelativeLocalFrameContract(recordingFormatVersion)
+                ? ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz)
+                : ApplyRelativeOffset(anchorWorldPos, dx, dy, dz);
+        }
+
+        /// <summary>
+        /// Resolves a RELATIVE-frame rotation to world space.
+        /// Legacy v5-and-older RELATIVE sections stored <c>v.srfRelRotation</c> as the
+        /// "relative" slot; v6 RELATIVE sections store <c>Inverse(anchor) * focus</c>.
+        /// Both contracts reconstitute with the same <c>anchor * stored</c> formula —
+        /// the semantic difference lives at sample time, not playback time — so this
+        /// resolver takes no format-version parameter and is shared across v5 and v6.
+        /// </summary>
+        internal static Quaternion ResolveRelativePlaybackRotation(
+            Quaternion anchorWorldRotation,
+            Quaternion storedRelativeRotation)
+        {
+            return ApplyRelativeLocalRotation(
+                anchorWorldRotation,
+                SanitizeQuaternion(storedRelativeRotation));
         }
 
         /// <summary>

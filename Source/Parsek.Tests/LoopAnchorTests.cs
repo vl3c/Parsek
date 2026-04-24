@@ -158,7 +158,7 @@ namespace Parsek.Tests
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal(70.0, loaded.LoopIntervalSeconds);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
             Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenarioPositive'"));
         }
 
@@ -326,7 +326,7 @@ namespace Parsek.Tests
                 Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
                     loaded, precPath, vesselPath, ghostPath));
                 Assert.Equal(80.0, loaded.LoopIntervalSeconds);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
                 Assert.Contains(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreeSidecar'"));
             }
             finally
@@ -393,13 +393,13 @@ namespace Parsek.Tests
                 Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
                     loaded, precPath, vesselPath, ghostPath));
                 Assert.Equal(110.0, loaded.LoopIntervalSeconds);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
                 Assert.Contains(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreePositiveSidecar'"));
 
                 var roundTripNode = new ConfigNode("RECORDING");
                 RecordingTree.SaveRecordingInto(roundTripNode, loaded);
                 Assert.Equal(
-                    RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                    RecordingStore.LaunchToLaunchLoopIntervalFormatVersion.ToString(CultureInfo.InvariantCulture),
                     roundTripNode.GetValue("recordingFormatVersion"));
 
                 Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
@@ -411,7 +411,7 @@ namespace Parsek.Tests
                 Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
                     reloaded, precPath, vesselPath, ghostPath));
                 Assert.Equal(110.0, reloaded.LoopIntervalSeconds);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, reloaded.RecordingFormatVersion);
+                Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, reloaded.RecordingFormatVersion);
                 Assert.DoesNotContain(logLines, line => line.Contains("migrated recording 'LegacyTreePositiveSidecar'"));
             }
             finally
@@ -485,7 +485,7 @@ namespace Parsek.Tests
                 // Explicit bounds make EffectiveLoopDuration available at tree-load time,
                 // so the migration fires immediately and is NOT deferred.
                 Assert.Equal(110.0, loaded.LoopIntervalSeconds);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
                 Assert.Contains(logLines, line => line.Contains("RecordingTree: migrated recording 'LegacyTreeExplicit'"));
                 Assert.DoesNotContain(logLines, line => line.Contains("deferred migration"));
 
@@ -499,7 +499,7 @@ namespace Parsek.Tests
                     loaded, precPath, vesselPath, ghostPath));
 
                 Assert.Equal(110.0, loaded.LoopIntervalSeconds);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
                 Assert.DoesNotContain(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreeExplicit'"));
             }
             finally
