@@ -618,6 +618,9 @@ namespace Parsek
 
         internal static void SetRewindReplayTargetScope(Recording owner)
         {
+            // NOTE: This scope must survive the committed-list rebuild inside
+            // ParsekScenario.OnLoad; only real commit/discard/clear/reset paths
+            // should clear it, or #565's replay-target filter loses its owner.
             RewindReplayTargetSourcePid = owner != null ? owner.VesselPersistentId : 0u;
             RewindReplayTargetRecordingId = owner != null ? owner.RecordingId : null;
             if (RewindReplayTargetSourcePid != 0)
