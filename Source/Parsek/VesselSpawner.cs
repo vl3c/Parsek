@@ -788,8 +788,10 @@ namespace Parsek
                 $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", CultureInfo.InvariantCulture)}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
                 $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
 
-            // Optional rotation override: recorded trajectory points store surface-relative
-            // rotation (format-v0 contract), and ProtoVessel.rot consumes that same frame.
+            // Optional rotation override: callers hand ProtoVessel.rot a surface-relative
+            // rotation. Absolute/surface trajectory points already store that frame; v6
+            // RELATIVE section rotations are anchor-local and must be converted before
+            // reaching this spawn path.
             if (surfaceRelativeRotation.HasValue)
             {
                 TryApplySpawnRotationFromSurfaceRelative(

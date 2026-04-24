@@ -73,6 +73,84 @@ namespace Parsek.Tests
             Assert.Equal(focus.z, reconstructed.z, 10);
         }
 
+        [Fact]
+        public void ApplyRelativeLocalOffset_RoundTrip_WithComputeRelativeLocalOffset()
+        {
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            var anchor = new Vector3d(600000, 50, 600000);
+            var focus = new Vector3d(600000, 50, 600100);
+
+            var offset = TrajectoryMath.ComputeRelativeLocalOffset(focus, anchor, anchorRotation);
+            var reconstructed = TrajectoryMath.ApplyRelativeLocalOffset(
+                anchor,
+                anchorRotation,
+                offset.x,
+                offset.y,
+                offset.z);
+
+            Assert.Equal(focus.x, reconstructed.x, 4);
+            Assert.Equal(focus.y, reconstructed.y, 4);
+            Assert.Equal(focus.z, reconstructed.z, 4);
+        }
+
+        [Fact]
+        public void ApplyRelativeLocalRotation_RoundTrip_WithComputeRelativeLocalRotation()
+        {
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            Quaternion localRotation = TrajectoryMath.PureAngleAxis(45f, Vector3.forward);
+            Quaternion focusWorldRotation = TrajectoryMath.PureMultiply(anchorRotation, localRotation);
+
+            Quaternion storedLocalRotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                focusWorldRotation,
+                anchorRotation);
+            Quaternion reconstructedWorldRotation = TrajectoryMath.ApplyRelativeLocalRotation(
+                anchorRotation,
+                storedLocalRotation);
+
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(
+                    focusWorldRotation,
+                    reconstructedWorldRotation) < 0.001f);
+        }
+
+        [Fact]
+        public void ResolveRelativePlaybackPosition_V5_UsesLegacyWorldOffsetPath()
+        {
+            var anchor = new Vector3d(100, 200, 300);
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(180f, Vector3.up);
+
+            var result = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchor,
+                anchorRotation,
+                dx: 10,
+                dy: 0,
+                dz: 0,
+                recordingFormatVersion: RecordingStore.PredictedOrbitSegmentFormatVersion);
+
+            Assert.Equal(110.0, result.x, 10);
+            Assert.Equal(200.0, result.y, 10);
+            Assert.Equal(300.0, result.z, 10);
+        }
+
+        [Fact]
+        public void ResolveRelativePlaybackPosition_V6_UsesAnchorLocalOffsetPath()
+        {
+            var anchor = new Vector3d(100, 200, 300);
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(180f, Vector3.up);
+
+            var result = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchor,
+                anchorRotation,
+                dx: 10,
+                dy: 0,
+                dz: 0,
+                recordingFormatVersion: RecordingStore.RelativeLocalFrameFormatVersion);
+
+            Assert.Equal(90.0, result.x, 5);
+            Assert.Equal(200.0, result.y, 5);
+            Assert.Equal(300.0, result.z, 5);
+        }
+
         #endregion
 
         #region FindTrackSectionForUT -- section lookup

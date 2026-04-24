@@ -353,6 +353,7 @@ namespace Parsek
             (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
         private const double snapshotRefreshIntervalUT = 10.0;
         private const float snapshotPerfLogThresholdMs = 25.0f;
+        private const float attitudeSampleThresholdDegrees = 1.0f;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
@@ -362,6 +363,8 @@ namespace Parsek
         internal const float AnimateHeatMediumFallbackThreshold = 0.35f; // hysteresis: fall from Medium at 0.35, rise at 0.40
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
+        private Quaternion lastRecordedWorldRotation = Quaternion.identity;
+        private bool hasLastRecordedWorldRotation;
 
         /// <summary>
         /// UT of the most recently sampled trajectory point. <c>double.NaN</c>
@@ -4302,6 +4305,8 @@ namespace Parsek
             SegmentEvents.Clear();
             ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
             PrepareQuickloadResumeStateIfNeeded();
+            MaybeUpgradeActiveRecordingRelativeContract(
+                isPromotion ? "resume-or-promotion" : "fresh-start");
 
             LogVisualRecordingCoverage(v);
 
@@ -4469,6 +4474,8 @@ namespace Parsek
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+            lastRecordedWorldRotation = Quaternion.identity;
+            hasLastRecordedWorldRotation = false;
             LastRecordedAltitude = double.NaN;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
@@ -5358,19 +5365,36 @@ namespace Parsek
 
             UpdateAnchorDetection(v);
 
-            // Krakensbane-corrected true velocity
-            Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+            double currentUT = Planetarium.GetUniversalTime();
+            Vector3 currentVelocity = SampleCurrentVelocity(v);
+            Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+            bool motionTriggered = TrajectoryMath.ShouldRecordPoint(
+                currentVelocity,
+                lastRecordedVelocity,
+                currentUT,
+                lastRecordedUT,
+                minSampleInterval,
+                maxSampleInterval,
+                velocityDirThreshold,
+                speedChangeThreshold);
+            bool attitudeTriggered = ShouldRecordAttitudePoint(
+                currentWorldRotation,
+                lastRecordedWorldRotation,
+                currentUT,
+                lastRecordedUT,
+                hasLastRecordedWorldRotation,
+                minSampleInterval,
+                attitudeSampleThresholdDegrees);
 
-            if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
-                Planetarium.GetUniversalTime(), lastRecordedUT,
-                minSampleInterval, maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+            if (!motionTriggered && !attitudeTriggered)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
-                    $"Sample skipped at ut={Planetarium.GetUniversalTime():F2}; waiting for threshold trigger", 2.0);
+                    $"Sample skipped at ut={currentUT:F2}; waiting for motion/attitude trigger",
+                    2.0);
                 return;
             }
 
-            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
+            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT);
 
             ApplyRelativeOffset(ref point, v);
             CommitRecordedPoint(point, v);
@@ -5441,8 +5465,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// In RELATIVE mode, rewrites the trajectory point's lat/lon/alt as a (dx, dy, dz)
-        /// offset from the anchor vessel. If the anchor is no longer loaded, force-exits
+        /// In RELATIVE mode, rewrites the trajectory point using the version-specific
+        /// RELATIVE-frame contract. If the anchor is no longer loaded, force-exits
         /// RELATIVE mode and starts a new ABSOLUTE TrackSection.
         /// </summary>
         private void ApplyRelativeOffset(ref TrajectoryPoint point, Vessel v)
@@ -5453,22 +5477,39 @@ namespace Parsek
             Vessel anchor = FindVesselByPid(currentAnchorPid);
             if (anchor != null)
             {
-                // Compute offset in world-space. Both positions come from
-                // GetWorldSurfacePosition, so FloatingOrigin shifts cancel
-                // (both shift equally within the physics bubble).
-                Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
-                    v.latitude, v.longitude, v.altitude);
-                Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
-                    anchor.latitude, anchor.longitude, anchor.altitude);
-                Vector3d offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+                int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
+                bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
+                    recordingFormatVersion);
+                Vector3d offset;
+                if (useLocalContract)
+                {
+                    offset = TrajectoryMath.ComputeRelativeLocalOffset(
+                        v.GetWorldPos3D(),
+                        anchor.GetWorldPos3D(),
+                        anchor.transform.rotation);
+                    point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                        v.transform.rotation,
+                        anchor.transform.rotation);
+                }
+                else
+                {
+                    Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
+                        v.latitude, v.longitude, v.altitude);
+                    Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
+                        anchor.latitude, anchor.longitude, anchor.altitude);
+                    offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+                }
+
                 point.latitude = offset.x;   // dx
                 point.longitude = offset.y;  // dy
                 point.altitude = offset.z;   // dz
                 // bodyName stays the same — both vessels are on the same body
 
                 ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
-                    $"RELATIVE sample: dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m", 2.0);
+                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                    $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m",
+                    2.0);
             }
             else
             {
@@ -5513,6 +5554,10 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+            lastRecordedWorldRotation = v != null
+                ? TrajectoryMath.SanitizeQuaternion(v.transform.rotation)
+                : Quaternion.identity;
+            hasLastRecordedWorldRotation = v != null;
             LastRecordedAltitude = point.altitude;
 
             // Dual-write: flat Points list + current TrackSection
@@ -5675,15 +5720,47 @@ namespace Parsek
             return removed;
         }
 
+        internal static Vector3 SampleCurrentVelocity(Vessel v)
+        {
+            if (v == null)
+                return Vector3.zero;
+
+            return v.packed
+                ? (Vector3)v.obt_velocity
+                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+        }
+
+        internal static bool ShouldRecordAttitudePoint(
+            Quaternion currentWorldRotation,
+            Quaternion lastWorldRotation,
+            double currentUT,
+            double lastRecordedUT,
+            bool hasLastWorldRotation,
+            float minInterval,
+            float rotationThresholdDegrees)
+        {
+            if (!hasLastWorldRotation || lastRecordedUT < 0)
+                return false;
+
+            double elapsed = currentUT - lastRecordedUT;
+            if (elapsed < 0 || elapsed < minInterval)
+                return false;
+
+            return TrajectoryMath.ComputeQuaternionAngleDegrees(
+                currentWorldRotation,
+                lastWorldRotation) >= rotationThresholdDegrees;
+        }
+
         /// <summary>
         /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
-        /// Extracted to deduplicate the identical construction in OnPhysicsFrame and SamplePosition.
+        /// Extracted to deduplicate the identical construction in OnPhysicsFrame, SamplePosition,
+        /// and post-switch baseline seeding.
         /// </summary>
-        private static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity)
+        internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
             return new TrajectoryPoint
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 latitude = v.latitude,
                 longitude = v.longitude,
                 altitude = v.altitude,
@@ -5708,30 +5785,93 @@ namespace Parsek
                 return;
             }
 
-            Vector3 currentVelocity = v.packed
-                ? (Vector3)v.obt_velocity
-                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+            Vector3 currentVelocity = SampleCurrentVelocity(v);
+            TrajectoryPoint point = BuildTrajectoryPoint(
+                v,
+                currentVelocity,
+                Planetarium.GetUniversalTime());
+            ApplyRelativeOffset(ref point, v);
 
-            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
-
-            // Guard: detect time regression (quickload/revert during recording)
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
-            {
-                TrimRecordingToUT(point.ut);
-            }
-
-            Recording.Add(point);
-            lastRecordedUT = point.ut;
-            lastRecordedVelocity = point.velocity;
-            LastRecordedAltitude = point.altitude;
+            CommitRecordedPoint(point, v);
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
+        }
 
-            // Dual-write: flat Points list + current TrackSection
-            if (trackSectionActive && currentTrackSection.frames != null)
+        internal void SeedTrajectoryPoint(TrajectoryPoint point, Vessel v, string reason)
+        {
+            if (v == null)
             {
-                currentTrackSection.frames.Add(point);
-                UpdateTrackSectionAltitude((float)point.altitude);
+                ParsekLog.VerboseRateLimited("Recorder", "seed-null-vessel",
+                    "SeedTrajectoryPoint called with null vessel");
+                return;
             }
+
+            CommitRecordedPoint(point, v);
+            ParsekLog.Verbose("Recorder",
+                $"Seed point committed: reason={reason} UT={point.ut:F2}");
+        }
+
+        private int ResolveActiveRecordingFormatVersion()
+        {
+            if (ActiveTree != null
+                && ActiveTree.Recordings != null
+                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out Recording activeRec)
+                && activeRec != null)
+            {
+                return activeRec.RecordingFormatVersion;
+            }
+
+            return RecordingStore.CurrentRecordingFormatVersion;
+        }
+
+        private static bool HasRelativeTrackSections(Recording rec)
+        {
+            if (rec?.TrackSections == null)
+                return false;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void MaybeUpgradeActiveRecordingRelativeContract(string reason)
+        {
+            if (ActiveTree == null
+                || ActiveTree.Recordings == null
+                || string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                || !ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out Recording activeRec)
+                || activeRec == null)
+            {
+                return;
+            }
+
+            if (activeRec.RecordingFormatVersion >= RecordingStore.CurrentRecordingFormatVersion
+                || activeRec.RecordingFormatVersion != RecordingStore.PredictedOrbitSegmentFormatVersion)
+            {
+                return;
+            }
+
+            if (HasRelativeTrackSections(activeRec))
+            {
+                ParsekLog.Info("Recorder",
+                    $"Relative contract preserved: recording={activeRec.RecordingId} " +
+                    $"version={activeRec.RecordingFormatVersion} " +
+                    $"contract={RecordingStore.DescribeRelativeFrameContract(activeRec.RecordingFormatVersion)} " +
+                    $"reason={reason} existingRelativeSections=true");
+                return;
+            }
+
+            int previousVersion = activeRec.RecordingFormatVersion;
+            activeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            ParsekLog.Info("Recorder",
+                $"Relative contract upgraded: recording={activeRec.RecordingId} " +
+                $"version={previousVersion}->{activeRec.RecordingFormatVersion} " +
+                $"contract={RecordingStore.DescribeRelativeFrameContract(activeRec.RecordingFormatVersion)} " +
+                $"reason={reason}");
         }
 
         /// <summary>

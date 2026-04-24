@@ -403,8 +403,8 @@ namespace Parsek.Tests
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, legacy.RecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, legacy.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[RecordingStore]") &&

@@ -428,6 +428,54 @@ namespace Parsek.Tests
             Assert.True(result);
         }
 
+        [Fact]
+        public void AttitudeSampling_AboveThreshold_Records()
+        {
+            bool result = FlightRecorder.ShouldRecordAttitudePoint(
+                TrajectoryMath.PureAngleAxis(2f, Vector3.up),
+                Quaternion.identity,
+                currentUT: 100.25,
+                lastRecordedUT: 100,
+                hasLastWorldRotation: true,
+                minInterval: 0.2f,
+                rotationThresholdDegrees: 1f);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void AttitudeSampling_BelowThreshold_Skips()
+        {
+            bool result = FlightRecorder.ShouldRecordAttitudePoint(
+                TrajectoryMath.PureAngleAxis(0.5f, Vector3.up),
+                Quaternion.identity,
+                currentUT: 100.25,
+                lastRecordedUT: 100,
+                hasLastWorldRotation: true,
+                minInterval: 0.2f,
+                rotationThresholdDegrees: 1f);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void AttitudeSampling_SignEquivalentQuaternion_DoesNotFalseTrigger()
+        {
+            Quaternion q = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f).normalized;
+            Quaternion negQ = new Quaternion(-q.x, -q.y, -q.z, -q.w);
+
+            bool result = FlightRecorder.ShouldRecordAttitudePoint(
+                negQ,
+                q,
+                currentUT: 100.25,
+                lastRecordedUT: 100,
+                hasLastWorldRotation: true,
+                minInterval: 0.2f,
+                rotationThresholdDegrees: 1f);
+
+            Assert.False(result);
+        }
+
         // --- FindFirstMovingPoint tests ---
 
         private static List<TrajectoryPoint> MakePoints(params (double alt, float speed)[] specs)
