@@ -89,8 +89,31 @@ namespace Parsek
             uint sceneEntryActiveVesselPid,
             uint activeVesselPid)
         {
+            return ShouldAllowExistingSourceDuplicateForReplay(
+                sourcePid,
+                sceneEntryActiveVesselPid,
+                activeVesselPid,
+                replayTargetSourcePid: 0);
+        }
+
+        internal static bool ShouldAllowExistingSourceDuplicateForReplay(
+            uint sourcePid,
+            uint sceneEntryActiveVesselPid,
+            uint activeVesselPid,
+            uint replayTargetSourcePid)
+        {
             if (sourcePid == 0)
                 return false;
+
+            if (replayTargetSourcePid != 0 && sourcePid != replayTargetSourcePid)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldAllowExistingSourceDuplicate=false sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"outside rewind replay target sourcePid={replayTargetSourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)}, " +
+                    $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)})");
+                return false;
+            }
 
             // #226 replay/revert duplicate-spawn exception: when the recorded
             // source vessel matches the scene-entry active vessel or the
@@ -137,7 +160,8 @@ namespace Parsek
             bool allow = ShouldAllowExistingSourceDuplicateForReplay(
                 sourcePid,
                 RecordingStore.SceneEntryActiveVesselPid,
-                activeVesselPid);
+                activeVesselPid,
+                RecordingStore.RewindReplayTargetSourcePid);
             if (allow)
             {
                 ParsekLog.Verbose("Spawner",

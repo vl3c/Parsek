@@ -364,6 +364,118 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_MarksPriorSpawnEndpointSupersededByContinuation()
+        {
+            var prior = MakeRecording("old-butterfly", null,
+                vesselName: "Butterfly Rover",
+                pid: 22060629,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.ExplicitStartUT = 18.0;
+            prior.ExplicitEndUT = 61.0;
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 1215753389u;
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "Butterfly Rover");
+
+            var tree = MakeSimpleTree("continued_tree");
+            var continued = tree.Recordings["root"];
+            continued.RecordingId = "continued-butterfly";
+            continued.VesselName = "Butterfly Rover";
+            continued.VesselPersistentId = 1215753389u;
+            continued.TerminalStateValue = TerminalState.Landed;
+            continued.VesselSnapshot = MakeMinimalSnapshot();
+            continued.ExplicitStartUT = 97.0;
+            continued.ExplicitEndUT = 116.0;
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal("continued-butterfly",
+                prior.TerminalSpawnSupersededByRecordingId);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                prior, isActiveChainMember: false, isChainLooping: false);
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal spawn superseded", reason);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_MarksPollutedSameNameEndpointSupersededBeforePidReset()
+        {
+            var prior = MakeRecording("old-butterfly", null,
+                vesselName: "Butterfly Rover",
+                pid: 22060629,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.ExplicitStartUT = 18.0;
+            prior.ExplicitEndUT = 61.0;
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 3394657290u;
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "Butterfly Rover");
+
+            var tree = new RecordingTree
+            {
+                Id = "continued-tree",
+                TreeName = "Crater Crawler",
+                RootRecordingId = "crater-root",
+                ActiveRecordingId = "continued-butterfly"
+            };
+            var root = MakeRecording("crater-root", tree.Id,
+                vesselName: "Crater Crawler",
+                pid: 4056933280u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            root.TreeOrder = 0;
+            root.ExplicitStartUT = 8.0;
+            root.ExplicitEndUT = 116.0;
+
+            var continued = MakeRecording("continued-butterfly", tree.Id,
+                vesselName: "Butterfly Rover",
+                pid: 1215753389u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            continued.TreeOrder = 1;
+            continued.ExplicitStartUT = 97.0;
+            continued.ExplicitEndUT = 116.0;
+            continued.VesselSpawned = true;
+            continued.SpawnedVesselPersistentId = 1215753389u;
+
+            tree.Recordings[root.RecordingId] = root;
+            tree.Recordings[continued.RecordingId] = continued;
+            RecordingStore.AddCommittedInternal(root);
+            RecordingStore.AddCommittedInternal(continued);
+            RecordingStore.AddCommittedTreeInternal(tree);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.Equal("continued-butterfly",
+                prior.TerminalSpawnSupersededByRecordingId);
+            Assert.Equal(0u, prior.SpawnedVesselPersistentId);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                prior, isActiveChainMember: false, isChainLooping: false);
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal spawn superseded", reason);
+        }
+
+        [Fact]
+        public void RewindReplayTargetScope_SurvivesCommittedListReload()
+        {
+            var rewindTarget = MakeRecording("rewind-target", null, pid: 123u);
+
+            RecordingStore.SetRewindReplayTargetScope(rewindTarget);
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.ClearCommittedTreesInternal();
+
+            Assert.Equal(123u, RecordingStore.RewindReplayTargetSourcePid);
+            Assert.Equal("rewind-target", RecordingStore.RewindReplayTargetRecordingId);
+
+            RecordingStore.ClearCommitted();
+
+            Assert.Equal(0u, RecordingStore.RewindReplayTargetSourcePid);
+            Assert.Null(RecordingStore.RewindReplayTargetRecordingId);
+        }
+
+        [Fact]
         public void CommitTree_DestroyedChildUnderRewindPoint_PromotesToCommittedProvisional()
         {
             var tree = MakeTreeWithBranch("rewind_tree");
@@ -514,6 +626,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("r1", "t1");
             rec.SpawnedVesselPersistentId = 42;
+            rec.TerminalSpawnSupersededByRecordingId = "continued-tip";
             rec.VesselDestroyed = true;
             rec.LastAppliedResourceIndex = 7;
             rec.Points.Add(new TrajectoryPoint
@@ -531,6 +644,7 @@ namespace Parsek.Tests
             RecordingTree.SaveRecordingInto(node, rec);
 
             Assert.Equal("42", node.GetValue("spawnedPid"));
+            Assert.Equal("continued-tip", node.GetValue("terminalSpawnSupersededBy"));
             Assert.Equal("True", node.GetValue("vesselDestroyed"));
 
             Assert.Equal("7", node.GetValue("lastResIdx"));
@@ -545,6 +659,7 @@ namespace Parsek.Tests
             node.AddValue("vesselName", "Test");
             node.AddValue("vesselPersistentId", "100");
             node.AddValue("spawnedPid", "42");
+            node.AddValue("terminalSpawnSupersededBy", "continued-tip");
             node.AddValue("vesselDestroyed", "True");
 
             node.AddValue("lastResIdx", "7");
@@ -557,6 +672,7 @@ namespace Parsek.Tests
             RecordingTree.LoadRecordingFrom(node, rec);
 
             Assert.Equal(42u, rec.SpawnedVesselPersistentId);
+            Assert.Equal("continued-tip", rec.TerminalSpawnSupersededByRecordingId);
             Assert.True(rec.VesselDestroyed);
             Assert.Equal(7, rec.LastAppliedResourceIndex);
         }

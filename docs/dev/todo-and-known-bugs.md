@@ -407,6 +407,20 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 ---
 
+## ~~565. Continued scene-enter resume replay spawns a prior endpoint as an intermediate vessel~~
+
+**Source:** `logs/2026-04-24_1928_bug-559-intermediate-spawn-after-resume/KSP.log`. The player rewound `Crater Crawler` (`Timeline rewind button clicked` at line 8780, confirmed at line 8781), but KSP loaded `Butterfly Rover.craft` as the scene-entry active vessel at line 8988. During replay, #226's duplicate-source bypass then matched the non-target active Butterfly source PID at lines 9656-9657 and spawned the standalone Butterfly endpoint at line 9677. On the next replay, that old standalone Butterfly recording spawned again at UT 61.1 (`Vessel spawn for #0 (Butterfly Rover) pid=3394657290` at line 13067) before the continued Crater/Butterfly tree reached its final end around UT 115.8.
+
+**Root cause:** the replay duplicate-source exception was scoped only to `SceneEntryActiveVesselPid` / current active vessel PID, not to the recording the user actually rewound. That let any committed recording whose source PID matched the scene-entry active vessel spawn a duplicate, even when it was not the rewind target. After the player continued from that spawned endpoint, the older terminal recording also remained a normal spawnable timeline endpoint; `ResetAllPlaybackState()` cleared transient `VesselSpawned` / `SpawnedVesselPersistentId` on later rewinds, so the old endpoint could materialize again before the newer continuation reached its final spawn.
+
+**Fix:** launch-point rewind now arms a replay-target source PID, and `VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(...)` rejects #226 duplicate-source bypasses for non-target recordings while the rewind replay is active. When a newly committed tree continues a vessel that was previously materialized by an older recording, `RecordingStore` persists `terminalSpawnSupersededBy=<continuedRecordingId>` on the old endpoint; `GhostPlaybackLogic` and `TimelineBuilder` keep its ghost playback but suppress the terminal real-vessel spawn and spawn-row entry. The target scope intentionally survives committed-list reload during `ParsekScenario.OnLoad` and is cleared only by real commit/discard/clear paths; `ResetAllPlaybackState()` also repairs the already-polluted saved shape where the old endpoint was spawned a second time and no longer carries the PID that the continuation used.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/RecordingTree.cs`, `Source/Parsek/Recording.cs`, `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/Timeline/TimelineBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/TreeCommitTests.cs`, `Source/Parsek.Tests/ChainSpawnSuppressionTests.cs`, `Source/Parsek.Tests/TimelineBuilderTests.cs`, `CHANGELOG.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
+
+---
+
 ## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
 
 **Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.
