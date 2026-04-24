@@ -264,6 +264,37 @@ namespace Parsek
                     $"with {snapshot.FailureReason}; falling back to live orbit state");
             }
 
+            // Early ascent / transient patched-conic failures (`MissingPatchBody`,
+            // `PatchLimitUnavailable`, `UpdateFailed`) mean the vessel is alive
+            // but its patched-conic chain isn't fully populated yet — e.g. a
+            // freshly-launched rocket in its first 30 s where KSP has not yet
+            // computed a full coast chain. The live-orbit fallback via
+            // `vessel.orbit.getPositionAtUT(commitUT)` returns origin-adjacent
+            // coordinates for those vessels, so the sub-surface guard in
+            // `BallisticExtrapolator.Extrapolate` misfires and classifies a
+            // perfectly healthy ascending rocket as `Destroyed`. That terminal
+            // then gets cached by the finalization cache producer (refresh
+            // accepted: terminal=Destroyed) and risks poisoning every live
+            // recording within the first few seconds of flight.
+            //
+            // Only `NullSolver` (vessel has no patched-conic solver at all) or
+            // `None` (snapshot succeeded) are safe to extrapolate from:
+            // NullSolver is the destroyed-vessel fingerprint the sub-surface
+            // guard was designed for, and None means we have real segments.
+            // Everything else: bail out without touching the recording; the
+            // next refresh (or scene-exit finalizer) will try again once the
+            // patched-conic chain is valid.
+            if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None
+                && snapshot.FailureReason != PatchedConicSnapshotFailureReason.NullSolver
+                && appendedSegments.Count == 0)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"TryFinalizeRecording: skipping live-orbit fallback for '{recordingId}' " +
+                    $"because patched-conic failure {snapshot.FailureReason} " +
+                    "indicates transient early-ascent state, not a destroyed vessel");
+                return false;
+            }
+
             if (snapshot.EncounteredManeuverNode && appendedSegments.Count > 0)
             {
                 ParsekLog.Info("PatchedSnapshot",

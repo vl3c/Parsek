@@ -924,6 +924,126 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_MissingPatchBody_SkipsLiveOrbitFallback()
+        {
+            // Regression for the post-merge cache-producer poison: an early-
+            // ascent rocket has an incomplete patched-conic chain (a patch
+            // with no reference body → MissingPatchBody). The live-orbit
+            // fallback for such a vessel returns origin-adjacent coordinates
+            // (alt ≈ -body.Radius), which used to trip the sub-surface guard
+            // and classify the LIVE rocket as `Destroyed`. The cache producer
+            // then cached that Destroyed verdict and poisoned every live
+            // recording in its first 30 s of flight. The shared finalizer now
+            // bails out when the snapshot failed with anything other than
+            // None or NullSolver; only NullSolver is a destroyed-vessel
+            // fingerprint.
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-missing-patch-body",
+                ExplicitEndUT = 10.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.MissingPatchBody,
+                Segments = new List<OrbitSegment>() // no partial segments
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            bool liveStateSampled = false;
+            bool extrapolated = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    liveStateSampled = true;
+                    startState = default(BallisticStateVector);
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolated = true;
+                    return default(ExtrapolationResult);
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.False(liveStateSampled, "Live-orbit fallback must not run when patched-conic failure indicates transient early-ascent state.");
+            Assert.False(extrapolated, "Extrapolator must not run for transient patched-conic failures.");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("skipping live-orbit fallback")
+                && l.Contains("MissingPatchBody"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_StillRunsLiveOrbitFallback()
+        {
+            // The NullSolver fingerprint means KSP has torn down the vessel's
+            // orbit solver, which only happens for destroyed vessels. The
+            // shared finalizer must still fall back to the live-orbit path in
+            // this case so the sub-surface guard can classify the recording
+            // as Destroyed.
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver",
+                ExplicitEndUT = 500.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            bool liveStateSampled = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    liveStateSampled = true;
+                    // Mirror the destroyed-vessel fingerprint: position collapsed to origin.
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(5.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(startState, extrapolationBodies),
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.True(liveStateSampled);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+        }
+
+        [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
         {
             var rec = new Recording
