@@ -40,9 +40,12 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
+
 - Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.
-- Boring-end trim now uses the trimmed endpoint for playback and displayed duration instead of keeping the later scene-exit time.
-- Boring-end trim now ignores normal landed idle jitter more reliably, so parked vessels are less likely to keep a long dead tail.
+
+- Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
+- Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.
 - Returning to a vessel that already has a committed recording now auto-resumes recording after save/load. The resumed recording can be committed as a real-spawned vessel again instead of falling back to ghost-only.
 - `#521` Career State now keeps its cached view model until the next visible timeline boundary instead of rebuilding on every sub-frame `Planetarium` UT tick while the window is open. That removes the main-window flicker during Parsek UI interactions without leaving the banner or pending/current rows stale.
@@ -103,7 +106,7 @@ All notable changes to Parsek are documented here.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 - `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
 - Added headless coverage for the recording-finalization cache applier, including identity mismatches, stale-cache rejection, terminal-UT rollback rejection, predicted-tail trimming, authored-data preservation, surface metadata preservation, and terminal orbit stamping.
-- Added headless coverage for recording-finalization cache refresh cadence, atmospheric deletion terminals, background on-rails cache production, active-to-background cache adoption, and UI maneuver-node fallback behavior.
+- Added headless coverage for recording-finalization cache refresh cadence, live-vessel surface/extrapolated/atmospheric-fallback producers, background on-rails cache production and cleanup, active-to-background cache adoption, and UI maneuver-node fallback behavior.
 - Added headless scene-exit fallback coverage for live-finalizer precedence, missing-vessel cache application on leaf and active non-leaf recordings, stable-cache override guards, and background cache lookup by recording id.
 - Added headless premature-end coverage for background cache application, deletion-UT trimming, confirmed-destruction cache guards, stable-cache missing-vessel classification, and non-scene active crash fallback.
 - Added headless spawn-path audit coverage for `VesselSpawner` route selection and prepared-snapshot validation, plus subdivided walkback interpolation of UT, velocity, and rotation for blocked chain-tip recovery.

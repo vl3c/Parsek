@@ -699,6 +699,106 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-maneuver-discard",
+                ExplicitEndUT = 100.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                EncounteredManeuverNode = true,
+                CapturedPatchCount = 1,
+                Segments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        startUT = 100.0,
+                        endUT = 150.0,
+                        semiMajorAxis = 250000.0,
+                        eccentricity = 0.01,
+                        inclination = 2.0
+                    }
+                }
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Mun"] = new ExtrapolationBody
+                {
+                    Name = "Mun",
+                    GravitationalParameter = 6.5138398e10,
+                    Radius = 200000.0
+                },
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            bool sampledLiveState = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    sampledLiveState = true;
+                    startState = new BallisticStateVector
+                    {
+                        ut = 120.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(700000.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 2200.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    Assert.Equal("Kerbin", startState.bodyName);
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 240.0,
+                        terminalBodyName = "Kerbin",
+                        segments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                bodyName = "Kerbin",
+                                startUT = 120.0,
+                                endUT = 240.0,
+                                semiMajorAxis = 650000.0,
+                                eccentricity = 0.2,
+                                inclination = 1.0
+                            }
+                        }
+                    };
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.True(sampledLiveState);
+            Assert.Equal(0, result.patchedSegmentCount);
+            Assert.Equal(1, result.extrapolatedSegmentCount);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(240.0, result.terminalUT);
+            Assert.Single(result.appendedOrbitSegments);
+            Assert.Equal("Kerbin", result.appendedOrbitSegments[0].bodyName);
+            Assert.DoesNotContain(result.appendedOrbitSegments, segment => segment.bodyName == "Mun");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][PatchedSnapshot]") &&
+                l.Contains("scene-exit-maneuver-discard") &&
+                l.Contains("maneuver-node boundary detected") &&
+                l.Contains("discarding stock patched-conic tail"));
+        }
+
+        [Fact]
         public void TryBuildStartStateFromSegment_CopiesOrbitalFrameRotation()
         {
             var frozenRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);

@@ -71,6 +71,7 @@ namespace Parsek
             None,
             EngineActivity,
             SustainedRcsActivity,
+            AttitudeChange,
             CrewChange,
             ResourceChange,
             PartStateChange,
@@ -116,7 +117,10 @@ namespace Parsek
             public double ComparisonsReadyUt;
             public double NextManifestEvaluationUt;
             public Vector3d BaselineWorldPosition;
+            public Quaternion BaselineWorldRotation;
+            public TrajectoryPoint? BaselineSeedPoint;
             public PostSwitchOrbitSnapshot BaselineOrbit;
+            public double AttitudeThresholdExceededAtUt = double.NaN;
             public Dictionary<string, ResourceAmount> BaselineResources;
             public Dictionary<string, InventoryItem> BaselineInventory;
             public Dictionary<string, int> BaselineCrew;
@@ -200,6 +204,8 @@ namespace Parsek
         private const double PostSwitchOrbitSemiMajorAxisThresholdMeters = 5.0;
         private const double PostSwitchOrbitEccentricityThreshold = 1e-6;
         private const double PostSwitchOrbitAngleThresholdDegrees = 0.01;
+        private const float PostSwitchAttitudeChangeThresholdDegrees = 3f;
+        private const double PostSwitchAttitudeChangeDebounceSeconds = 0.2;
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
@@ -318,6 +324,7 @@ namespace Parsek
             public double relDx, relDy, relDz;    // interpolated offset (meters)
             public Quaternion relativeRot;         // interpolated relative rotation
             public string relativeBodyName;        // body name for altitude computation
+            public int relativeRecordingFormatVersion;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1068,10 +1075,17 @@ namespace Parsek
                         if (anchor != null)
                         {
                             Vector3d anchorPos = anchor.GetWorldPos3D();
-                            Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, e.relDx, e.relDy, e.relDz);
+                            Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                                anchorPos,
+                                anchor.transform.rotation,
+                                e.relDx,
+                                e.relDy,
+                                e.relDz,
+                                e.relativeRecordingFormatVersion);
                             e.ghost.transform.position = ghostPos;
-                            // Rotation: apply anchor's current rotation * relative rotation
-                            e.ghost.transform.rotation = anchor.transform.rotation * e.relativeRot;
+                            e.ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                                anchor.transform.rotation,
+                                e.relativeRot);
                         }
                         else
                         {
@@ -2094,7 +2108,9 @@ namespace Parsek
         /// Creates a new FlightRecorder for the promoted vessel, starts recording with
         /// isPromotion=true, updates activeTree state.
         /// </summary>
-        void PromoteRecordingFromBackground(string backgroundRecordingId, Vessel newVessel)
+        void PromoteRecordingFromBackground(
+            string backgroundRecordingId,
+            Vessel newVessel)
         {
             if (activeTree == null || newVessel == null) return;
 
@@ -4668,6 +4684,34 @@ namespace Parsek
                 || speedMetersPerSecond >= PostSwitchLandedMotionSpeedThreshold;
         }
 
+        internal static float ComputePostSwitchAttitudeDeltaDegrees(
+            Quaternion baselineWorldRotation,
+            Quaternion currentWorldRotation)
+        {
+            return Quaternion.Angle(
+                TrajectoryMath.NormalizeQuaternionForComparison(baselineWorldRotation),
+                TrajectoryMath.NormalizeQuaternionForComparison(currentWorldRotation));
+        }
+
+        internal static bool HasMeaningfulAttitudeChange(
+            uint armedVesselPid,
+            uint activeVesselPid,
+            bool hasBaselineRotation,
+            Quaternion baselineWorldRotation,
+            Quaternion currentWorldRotation,
+            float thresholdDegrees = PostSwitchAttitudeChangeThresholdDegrees)
+        {
+            if (!hasBaselineRotation || armedVesselPid == 0 || activeVesselPid == 0
+                || armedVesselPid != activeVesselPid)
+            {
+                return false;
+            }
+
+            return ComputePostSwitchAttitudeDeltaDegrees(
+                baselineWorldRotation,
+                currentWorldRotation) >= thresholdDegrees;
+        }
+
         internal static bool HasMeaningfulOrbitChange(
             PostSwitchOrbitSnapshot baseline,
             PostSwitchOrbitSnapshot current)
@@ -4766,6 +4810,7 @@ namespace Parsek
         internal static PostSwitchAutoRecordTrigger EvaluatePostSwitchAutoRecordTrigger(
             bool engineTriggered,
             bool rcsTriggered,
+            bool attitudeChanged,
             bool crewChanged,
             bool resourceChanged,
             bool partStateChanged,
@@ -4776,6 +4821,8 @@ namespace Parsek
                 return PostSwitchAutoRecordTrigger.EngineActivity;
             if (rcsTriggered)
                 return PostSwitchAutoRecordTrigger.SustainedRcsActivity;
+            if (attitudeChanged)
+                return PostSwitchAutoRecordTrigger.AttitudeChange;
             if (crewChanged)
                 return PostSwitchAutoRecordTrigger.CrewChange;
             if (resourceChanged)
@@ -4945,6 +4992,12 @@ namespace Parsek
                     : currentUT;
             state.NextManifestEvaluationUt = currentUT;
             state.BaselineWorldPosition = v.GetWorldPos3D();
+            state.BaselineWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+            state.BaselineSeedPoint = FlightRecorder.BuildTrajectoryPoint(
+                v,
+                FlightRecorder.SampleCurrentVelocity(v),
+                currentUT);
+            state.AttitudeThresholdExceededAtUt = double.NaN;
             state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
             state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
             state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
@@ -5160,6 +5213,49 @@ namespace Parsek
                 rcsTriggered = rcsEvents.Count > 0;
             }
 
+            Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+            float attitudeDeltaDegrees = ComputePostSwitchAttitudeDeltaDegrees(
+                state.BaselineWorldRotation,
+                currentWorldRotation);
+            bool attitudeChanged = HasMeaningfulAttitudeChange(
+                state.VesselPid,
+                v.persistentId,
+                state.BaselineCaptured,
+                state.BaselineWorldRotation,
+                currentWorldRotation);
+            if (!attitudeChanged)
+            {
+                if (!double.IsNaN(state.AttitudeThresholdExceededAtUt))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"Post-switch attitude trigger ignored: pid={state.VesselPid} " +
+                        $"angle={attitudeDeltaDegrees:F2} threshold={PostSwitchAttitudeChangeThresholdDegrees:F2} " +
+                        $"reason=debounce-reset");
+                    state.AttitudeThresholdExceededAtUt = double.NaN;
+                }
+            }
+            else if (double.IsNaN(state.AttitudeThresholdExceededAtUt))
+            {
+                state.AttitudeThresholdExceededAtUt = currentUT;
+                attitudeChanged = false;
+                ParsekLog.Verbose("Flight",
+                    $"Post-switch attitude trigger pending: pid={state.VesselPid} " +
+                    $"angle={attitudeDeltaDegrees:F2} threshold={PostSwitchAttitudeChangeThresholdDegrees:F2} " +
+                    $"debounce={PostSwitchAttitudeChangeDebounceSeconds:F2}s");
+            }
+            else if (currentUT - state.AttitudeThresholdExceededAtUt
+                < PostSwitchAttitudeChangeDebounceSeconds)
+            {
+                attitudeChanged = false;
+            }
+            else
+            {
+                ParsekLog.Info("Flight",
+                    $"Post-switch attitude trigger accepted: pid={state.VesselPid} " +
+                    $"angle={attitudeDeltaDegrees:F2} threshold={PostSwitchAttitudeChangeThresholdDegrees:F2} " +
+                    $"debounce={currentUT - state.AttitudeThresholdExceededAtUt:F2}s");
+            }
+
             bool crewChanged = false;
             bool resourceChanged = false;
             bool partStateChanged = false;
@@ -5199,6 +5295,7 @@ namespace Parsek
             return EvaluatePostSwitchAutoRecordTrigger(
                 engineTriggered,
                 rcsTriggered,
+                attitudeChanged,
                 crewChanged,
                 resourceChanged,
                 partStateChanged,
@@ -5250,6 +5347,25 @@ namespace Parsek
             }
         }
 
+        private void SeedPostSwitchAlignmentWindow(Vessel v, PostSwitchAutoRecordState state)
+        {
+            if (v == null || state == null || recorder == null || !recorder.IsRecording)
+                return;
+
+            if (state.BaselineSeedPoint.HasValue)
+            {
+                recorder.SeedTrajectoryPoint(
+                    state.BaselineSeedPoint.Value,
+                    v,
+                    "post-switch attitude baseline");
+            }
+
+            recorder.SamplePosition(v);
+            ParsekLog.Verbose("Flight",
+                $"Post-switch alignment window seeded: pid={state.VesselPid} " +
+                $"baselineUT={state.BaselineCapturedUt:F2} currentUT={Planetarium.GetUniversalTime():F2}");
+        }
+
         private bool TryStartPostSwitchAutoRecord(
             Vessel v,
             PostSwitchAutoRecordState state,
@@ -5299,6 +5415,9 @@ namespace Parsek
 
             if (!IsRecording)
                 return false;
+
+            if (trigger == PostSwitchAutoRecordTrigger.AttitudeChange)
+                SeedPostSwitchAlignmentWindow(v, state);
 
             DisarmPostSwitchAutoRecord($"recording started via {trigger}");
             return true;
@@ -12399,11 +12518,23 @@ namespace Parsek
             var sectionFrames = (sectionIdx >= 0 && traj.TrackSections[sectionIdx].frames != null)
                 ? traj.TrackSections[sectionIdx].frames
                 : traj.Points;
+            long relKey = ((long)index << 32) | anchorVesselId;
+            if (loggedRelativeStart.Add(relKey))
+            {
+                string sectionUt = sectionIdx >= 0
+                    ? $"[{traj.TrackSections[sectionIdx].startUT:F1},{traj.TrackSections[sectionIdx].endUT:F1}]"
+                    : "[fallback]";
+                ParsekLog.Info("Playback",
+                    $"RELATIVE playback started: recording #{index} \"{traj.VesselName}\" " +
+                    $"anchorPid={anchorVesselId} contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
+                    $"version={traj.RecordingFormatVersion} sectionUT={sectionUt}");
+            }
 
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
             InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
-                ut, anchorVesselId, ShouldAutoActivateGhost(state), out interpResult);
+                ut, anchorVesselId, traj.RecordingFormatVersion,
+                ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -13225,7 +13356,11 @@ namespace Parsek
                             ? section.anchorVesselId
                             : traj.LoopAnchorVesselId;
                         if (anchorPid != 0 && TryResolveRelativeWorldPosition(
-                                section.frames ?? traj.Points, playbackUT, anchorPid, out worldPos))
+                                section.frames ?? traj.Points,
+                                playbackUT,
+                                anchorPid,
+                                traj.RecordingFormatVersion,
+                                out worldPos))
                         {
                             return true;
                         }
@@ -13374,7 +13509,11 @@ namespace Parsek
         }
 
         bool TryResolveRelativeWorldPosition(
-            List<TrajectoryPoint> frames, double targetUT, uint anchorVesselId, out Vector3d worldPos)
+            List<TrajectoryPoint> frames,
+            double targetUT,
+            uint anchorVesselId,
+            int recordingFormatVersion,
+            out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
             if (frames == null || frames.Count == 0)
@@ -13383,7 +13522,7 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, out worldPos);
+                    anchorVesselId, recordingFormatVersion, out worldPos);
             }
 
             int cachedIndex = 0;
@@ -13391,14 +13530,14 @@ namespace Parsek
             if (indexBefore < 0)
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, out worldPos);
+                    anchorVesselId, recordingFormatVersion, out worldPos);
             if (indexBefore >= frames.Count - 1)
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[frames.Count - 1].latitude,
                     frames[frames.Count - 1].longitude,
                     frames[frames.Count - 1].altitude,
-                    anchorVesselId, out worldPos);
+                    anchorVesselId, recordingFormatVersion, out worldPos);
             }
 
             TrajectoryPoint before = frames[indexBefore];
@@ -13408,7 +13547,7 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     before.latitude, before.longitude, before.altitude,
-                    anchorVesselId, out worldPos);
+                    anchorVesselId, recordingFormatVersion, out worldPos);
             }
 
             float t = (float)((targetUT - before.ut) / segmentDuration);
@@ -13417,11 +13556,22 @@ namespace Parsek
             double dx = before.latitude + (after.latitude - before.latitude) * t;
             double dy = before.longitude + (after.longitude - before.longitude) * t;
             double dz = before.altitude + (after.altitude - before.altitude) * t;
-            return TryResolveRelativeOffsetWorldPosition(dx, dy, dz, anchorVesselId, out worldPos);
+            return TryResolveRelativeOffsetWorldPosition(
+                dx,
+                dy,
+                dz,
+                anchorVesselId,
+                recordingFormatVersion,
+                out worldPos);
         }
 
         bool TryResolveRelativeOffsetWorldPosition(
-            double dx, double dy, double dz, uint anchorVesselId, out Vector3d worldPos)
+            double dx,
+            double dy,
+            double dz,
+            uint anchorVesselId,
+            int recordingFormatVersion,
+            out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
             Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
@@ -13429,7 +13579,13 @@ namespace Parsek
                 return false;
 
             Vector3d anchorPos = anchor.GetWorldPos3D();
-            worldPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+            worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchorPos,
+                anchor.transform.rotation,
+                dx,
+                dy,
+                dz,
+                recordingFormatVersion);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPos;
             return true;
@@ -13476,11 +13632,14 @@ namespace Parsek
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
                             $"\"{rec.VesselName}\" anchorPid={rec.LoopAnchorVesselId} " +
+                            $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                            $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
                     InterpolateAndPositionRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
-                        rec.LoopAnchorVesselId, allowActivation, out interpResult);
+                        rec.LoopAnchorVesselId, rec.RecordingFormatVersion,
+                        allowActivation, out interpResult);
                     return;
                 }
             }
@@ -13493,8 +13652,8 @@ namespace Parsek
 
         /// <summary>
         /// Positions a ghost using RELATIVE reference frame data.
-        /// Ghost position = anchor vessel's current world position + stored offset.
-        /// Falls back to body-fixed absolute positioning if anchor not found.
+        /// Ghost position/rotation resolve through the recording's versioned RELATIVE
+        /// contract (legacy world-offset v5-and-older, anchor-local v6+).
         /// </summary>
         void InterpolateAndPositionRelative(
             GameObject ghost,
@@ -13502,6 +13661,7 @@ namespace Parsek
             ref int cachedIndex,
             double targetUT,
             uint anchorVesselId,
+            int recordingFormatVersion,
             bool allowActivation,
             out InterpolationResult interpResult)
         {
@@ -13517,7 +13677,12 @@ namespace Parsek
             if (indexBefore < 0)
             {
                 // Before first frame — position at first frame's offset
-                PositionGhostRelativeAt(ghost, frames[0], anchorVesselId, allowActivation);
+                PositionGhostRelativeAt(
+                    ghost,
+                    frames[0],
+                    anchorVesselId,
+                    recordingFormatVersion,
+                    allowActivation);
                 interpResult = new InterpolationResult(frames[0].velocity, frames[0].bodyName, 0);
                 return;
             }
@@ -13528,7 +13693,12 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
-                PositionGhostRelativeAt(ghost, before, anchorVesselId, allowActivation);
+                PositionGhostRelativeAt(
+                    ghost,
+                    before,
+                    anchorVesselId,
+                    recordingFormatVersion,
+                    allowActivation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, 0);
                 return;
             }
@@ -13541,7 +13711,7 @@ namespace Parsek
             double dy = before.longitude + (after.longitude - before.longitude) * t;
             double dz = before.altitude + (after.altitude - before.altitude) * t;
 
-            // Interpolate rotation (stored as relative rotation)
+            // Interpolate rotation in the recording's stored RELATIVE frame.
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
             interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
@@ -13555,7 +13725,13 @@ namespace Parsek
             {
                 // Primary path: ghost position = anchor world position + interpolated offset
                 Vector3d anchorPos = anchor.GetWorldPos3D();
-                Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+                Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchorPos,
+                    anchor.transform.rotation,
+                    dx,
+                    dy,
+                    dz,
+                    recordingFormatVersion);
 
                 if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
                 {
@@ -13564,10 +13740,15 @@ namespace Parsek
                 }
 
                 ghost.transform.position = ghostPos;
-                ghost.transform.rotation = anchor.transform.rotation * interpolatedRot;
+                ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                    anchor.transform.rotation,
+                    interpolatedRot);
 
                 ParsekLog.VerboseRateLimited("Flight", "relative-offset-applied",
-                    $"RELATIVE playback: dx={dx:F2} dy={dy:F2} dz={dz:F2} |offset|={System.Math.Sqrt(dx*dx+dy*dy+dz*dz):F2}m anchor={anchorVesselId}", 2.0);
+                    $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                    $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
+                    $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId}",
+                    2.0);
 
                 // Compute altitude for InterpolationResult
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
@@ -13582,6 +13763,7 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = interpolatedRot,
                     relativeBodyName = bodyName,
+                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body, // for fallback in LateUpdate
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude
                 });
@@ -13612,7 +13794,11 @@ namespace Parsek
         /// Positions a ghost at a single RELATIVE frame point (no interpolation).
         /// Used for edge cases (before first frame, zero-duration segments).
         /// </summary>
-        void PositionGhostRelativeAt(GameObject ghost, TrajectoryPoint point, uint anchorVesselId,
+        void PositionGhostRelativeAt(
+            GameObject ghost,
+            TrajectoryPoint point,
+            uint anchorVesselId,
+            int recordingFormatVersion,
             bool allowActivation)
         {
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
@@ -13627,9 +13813,17 @@ namespace Parsek
             if (anchor != null)
             {
                 Vector3d anchorPos = anchor.GetWorldPos3D();
-                Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+                Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchorPos,
+                    anchor.transform.rotation,
+                    dx,
+                    dy,
+                    dz,
+                    recordingFormatVersion);
                 ghost.transform.position = ghostPos;
-                ghost.transform.rotation = anchor.transform.rotation * sanitized;
+                ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                    anchor.transform.rotation,
+                    sanitized);
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 ghostPosEntries.Add(new GhostPosEntry
@@ -13640,6 +13834,7 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = sanitized,
                     relativeBodyName = bodyName,
+                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz
                 });

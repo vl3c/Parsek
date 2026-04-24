@@ -63,7 +63,9 @@ When investigating KSP API behavior, search the web and read other open-source K
 - Surface-relative capture: `srfRelRotation = Inverse(body.bodyTransform.rotation) * v.transform.rotation`
 - Live `Transform.rotation` playback/ghost placement: `worldRot = body.bodyTransform.rotation * srfRelRotation`
 - ProtoVessel snapshots: `VESSEL.rot` is parsed as `ProtoVessel.rotation` and `ProtoVessel.Load()` assigns it to `vesselRef.srfRelRotation`, so Parsek-authored ProtoVessel nodes must write the raw recorded `srfRelRotation`, not `body.bodyTransform.rotation * srfRelRotation`.
-- All recording rotation is unconditionally surface-relative since format v0. Orbital rotation needs inertial-frame + `Planetarium.Rotation` snapshot (future work).
+- Absolute / surface trajectory points still store surface-relative rotation (`v.srfRelRotation`).
+- Format-v6 `ReferenceFrame.Relative` track sections store anchor-local world rotation: `Inverse(anchor.rotation) * focusWorldRotation`, and playback resolves with `anchor.rotation * localRot`.
+- Legacy v5-and-older `ReferenceFrame.Relative` sections keep the older contract and must replay through the legacy path only; do not auto-reinterpret old RELATIVE payloads as v6 anchor-local data.
 
 **Krakensbane-corrected velocity**: `(Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity())`
 

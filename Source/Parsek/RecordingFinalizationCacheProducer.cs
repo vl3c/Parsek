@@ -5,10 +5,55 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal struct RecordingFinalizationOrbitView
+    {
+        public string ReferenceBodyName;
+        public bool ReferenceBodyHasAtmosphere;
+        public double ReferenceBodyAtmosphereDepth;
+        public double Inclination;
+        public double Eccentricity;
+        public double SemiMajorAxis;
+        public double LongitudeOfAscendingNode;
+        public double ArgumentOfPeriapsis;
+        public double MeanAnomalyAtEpoch;
+        public double Epoch;
+        public double PeriapsisAltitude;
+    }
+
+    internal interface IRecordingFinalizationVesselView
+    {
+        uint PersistentId { get; }
+        Vessel.Situations Situation { get; }
+        string BodyName { get; }
+        bool IsInAtmosphere { get; }
+        bool IsPacked { get; }
+        bool IsLoaded { get; }
+        double Latitude { get; }
+        double Longitude { get; }
+        double Altitude { get; }
+        double HeightFromTerrain { get; }
+        Quaternion SurfaceRelativeRotation { get; }
+        Vessel RawVessel { get; }
+        bool TryGetOrbit(out RecordingFinalizationOrbitView orbit);
+    }
+
     internal static class RecordingFinalizationCacheProducer
     {
         internal const double DefaultRefreshIntervalUT = 5.0;
         private const float MeaningfulThrottleThreshold = 0.01f;
+
+        internal delegate bool TryBuildDefaultFinalizationResultDelegate(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            out IncompleteBallisticFinalizationResult result);
+
+        internal static TryBuildDefaultFinalizationResultDelegate TryBuildDefaultFinalizationResultOverrideForTesting;
+
+        internal static void ResetForTesting()
+        {
+            TryBuildDefaultFinalizationResultOverrideForTesting = null;
+        }
 
         internal static bool ShouldRefresh(
             double lastRefreshUT,
@@ -41,6 +86,25 @@ namespace Parsek
             bool hasMeaningfulThrust,
             out RecordingFinalizationCache cache)
         {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel != null ? new VesselFinalizationView(vessel) : null,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            out RecordingFinalizationCache cache)
+        {
             string recordingId = recording?.RecordingId;
             uint vesselPid = ResolveVesselPid(recording, vessel);
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
@@ -53,7 +117,8 @@ namespace Parsek
             if (TryBuildSurfaceTerminalCache(cache, vessel, refreshUT))
                 return true;
 
-            if (vessel.orbit == null || vessel.orbit.referenceBody == null)
+            RecordingFinalizationOrbitView orbit;
+            if (!vessel.TryGetOrbit(out orbit))
             {
                 if (cache.LastWasInAtmosphere)
                     return PopulateAtmosphericDeletionCache(cache, refreshUT);
@@ -61,30 +126,29 @@ namespace Parsek
                 return Fail(cache, "vessel-orbit-null");
             }
 
-            CelestialBody body = vessel.orbit.referenceBody;
-            double cutoffAltitude = body.atmosphere && body.atmosphereDepth > 0.0
-                ? body.atmosphereDepth
+            double cutoffAltitude = orbit.ReferenceBodyHasAtmosphere && orbit.ReferenceBodyAtmosphereDepth > 0.0
+                ? orbit.ReferenceBodyAtmosphereDepth
                 : 0.0;
 
             if (!BallisticExtrapolator.ShouldExtrapolate(
-                    vessel.situation,
-                    vessel.orbit.eccentricity,
-                    vessel.orbit.PeA,
+                    vessel.Situation,
+                    orbit.Eccentricity,
+                    orbit.PeriapsisAltitude,
                     cutoffAltitude))
             {
-                return PopulateStableOrbitCache(cache, BuildOrbitSegmentFromVessel(vessel, refreshUT), refreshUT,
-                    RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
+                return PopulateStableOrbitCache(cache, BuildOrbitSegmentFromVessel(vessel, orbit, refreshUT), refreshUT,
+                    DetermineObservedTerminalState(vessel));
             }
 
             Recording context = recording ?? BuildContextRecording(recordingId, vesselPid, refreshUT);
             IncompleteBallisticFinalizationResult result;
-            if (!IncompleteBallisticSceneExitFinalizer.TryBuildDefaultFinalizationResult(
+            if (!TryBuildDefaultFinalizationResult(
                     context,
-                    vessel,
+                    vessel.RawVessel,
                     refreshUT,
                     out result))
             {
-                if (cache.LastWasInAtmosphere && (vessel.packed || !vessel.loaded))
+                if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
                     return PopulateAtmosphericDeletionCache(cache, refreshUT);
 
                 return Fail(cache, "default-finalizer-declined");
@@ -116,19 +180,7 @@ namespace Parsek
                     RecordingFinalizationTerminalOrbit.FromSegment(cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
             }
 
-            ParsekLog.VerboseRateLimited("FinalizerCache", $"refresh.{cache.VesselPersistentId}",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Refresh accepted: owner={0} rec={1} pid={2} reason={3} terminal={4} terminalUT={5:F3} segments={6}",
-                    cache.Owner,
-                    cache.RecordingId ?? "(pending)",
-                    cache.VesselPersistentId,
-                    cache.RefreshReason ?? "(none)",
-                    cache.TerminalState,
-                    cache.TerminalUT,
-                    cache.PredictedSegments.Count),
-                5.0);
-            return true;
+            return Accept(cache);
         }
 
         internal static bool TryBuildFromStableOrbitSegment(
@@ -141,12 +193,12 @@ namespace Parsek
             out RecordingFinalizationCache cache)
         {
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
             if (string.IsNullOrEmpty(segment.bodyName) || !IsFinite(segment.semiMajorAxis))
                 return Fail(cache, "orbit-segment-invalid");
 
             cache.LastObservedBodyName = segment.bodyName;
             cache.LastSituation = Vessel.Situations.ORBITING;
-            cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
             return PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting);
         }
 
@@ -332,35 +384,33 @@ namespace Parsek
 
         private static void PopulateObservedVesselState(
             RecordingFinalizationCache cache,
-            Vessel vessel,
+            IRecordingFinalizationVesselView vessel,
             double refreshUT,
             bool hasMeaningfulThrust)
         {
             cache.VesselPersistentId = cache.VesselPersistentId != 0
                 ? cache.VesselPersistentId
-                : vessel.persistentId;
+                : vessel.PersistentId;
             cache.LastObservedUT = refreshUT;
-            cache.LastObservedBodyName = vessel.mainBody?.name
-                ?? vessel.orbit?.referenceBody?.name
-                ?? "(unknown-body)";
-            cache.LastSituation = vessel.situation;
-            cache.LastWasInAtmosphere = IsInAtmosphere(vessel);
+            cache.LastObservedBodyName = vessel.BodyName ?? "(unknown-body)";
+            cache.LastSituation = vessel.Situation;
+            cache.LastWasInAtmosphere = vessel.IsInAtmosphere;
             cache.LastHadMeaningfulThrust = hasMeaningfulThrust;
             cache.LastObservedOrbitDigest = BuildVesselDigest(vessel, hasMeaningfulThrust);
         }
 
         private static bool TryBuildSurfaceTerminalCache(
             RecordingFinalizationCache cache,
-            Vessel vessel,
+            IRecordingFinalizationVesselView vessel,
             double refreshUT)
         {
-            if (!IsSurfaceTerminalSituation(vessel.situation))
+            if (!IsSurfaceTerminalSituation(vessel.Situation))
             {
                 return false;
             }
 
             cache.Status = FinalizationCacheStatus.Fresh;
-            cache.TerminalState = vessel.situation == Vessel.Situations.SPLASHED
+            cache.TerminalState = vessel.Situation == Vessel.Situations.SPLASHED
                 ? TerminalState.Splashed
                 : TerminalState.Landed;
             cache.TerminalUT = refreshUT;
@@ -368,18 +418,18 @@ namespace Parsek
             cache.TerminalPosition = new SurfacePosition
             {
                 body = cache.LastObservedBodyName,
-                latitude = vessel.latitude,
-                longitude = vessel.longitude,
-                altitude = vessel.altitude,
-                rotation = vessel.srfRelRotation,
+                latitude = vessel.Latitude,
+                longitude = vessel.Longitude,
+                altitude = vessel.Altitude,
+                rotation = vessel.SurfaceRelativeRotation,
                 rotationRecorded = true,
-                situation = vessel.situation == Vessel.Situations.SPLASHED
+                situation = vessel.Situation == Vessel.Situations.SPLASHED
                     ? SurfaceSituation.Splashed
                     : SurfaceSituation.Landed
             };
-            cache.TerrainHeightAtEnd = vessel.heightFromTerrain;
+            cache.TerrainHeightAtEnd = vessel.HeightFromTerrain;
             cache.TailStartsAtUT = refreshUT;
-            return true;
+            return Accept(cache);
         }
 
         private static bool PopulateStableOrbitCache(
@@ -395,7 +445,7 @@ namespace Parsek
             cache.TerminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(segment);
             cache.TailStartsAtUT = refreshUT;
             cache.PredictedSegments = new List<OrbitSegment>();
-            return true;
+            return Accept(cache);
         }
 
         private static bool PopulateAtmosphericDeletionCache(
@@ -408,6 +458,23 @@ namespace Parsek
             cache.TerminalBodyName = cache.LastObservedBodyName;
             cache.TailStartsAtUT = terminalUT;
             cache.PredictedSegments = new List<OrbitSegment>();
+            return Accept(cache);
+        }
+
+        private static bool Accept(RecordingFinalizationCache cache)
+        {
+            ParsekLog.VerboseRateLimited("FinalizerCache", $"refresh.{cache.VesselPersistentId}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh accepted: owner={0} rec={1} pid={2} reason={3} terminal={4} terminalUT={5:F3} segments={6}",
+                    cache.Owner,
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    cache.RefreshReason ?? "(none)",
+                    cache.TerminalState,
+                    cache.TerminalUT,
+                    cache.PredictedSegments?.Count ?? 0),
+                5.0);
             return true;
         }
 
@@ -434,6 +501,13 @@ namespace Parsek
             return vessel != null ? vessel.persistentId : 0;
         }
 
+        private static uint ResolveVesselPid(Recording recording, IRecordingFinalizationVesselView vessel)
+        {
+            if (recording != null && recording.VesselPersistentId != 0)
+                return recording.VesselPersistentId;
+            return vessel != null ? vessel.PersistentId : 0;
+        }
+
         private static Recording BuildContextRecording(string recordingId, uint vesselPid, double endUT)
         {
             return new Recording
@@ -444,23 +518,80 @@ namespace Parsek
             };
         }
 
-        private static OrbitSegment BuildOrbitSegmentFromVessel(Vessel vessel, double startUT)
+        private static OrbitSegment BuildOrbitSegmentFromVessel(
+            IRecordingFinalizationVesselView vessel,
+            RecordingFinalizationOrbitView orbit,
+            double startUT)
         {
-            Orbit orbit = vessel.orbit;
             return new OrbitSegment
             {
                 startUT = startUT,
                 endUT = startUT,
-                inclination = orbit.inclination,
-                eccentricity = orbit.eccentricity,
-                semiMajorAxis = orbit.semiMajorAxis,
-                longitudeOfAscendingNode = orbit.LAN,
-                argumentOfPeriapsis = orbit.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = orbit.meanAnomalyAtEpoch,
-                epoch = orbit.epoch,
-                bodyName = orbit.referenceBody?.name ?? vessel.mainBody?.name ?? "(unknown-body)",
+                inclination = orbit.Inclination,
+                eccentricity = orbit.Eccentricity,
+                semiMajorAxis = orbit.SemiMajorAxis,
+                longitudeOfAscendingNode = orbit.LongitudeOfAscendingNode,
+                argumentOfPeriapsis = orbit.ArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = orbit.MeanAnomalyAtEpoch,
+                epoch = orbit.Epoch,
+                bodyName = orbit.ReferenceBodyName ?? vessel.BodyName ?? "(unknown-body)",
                 isPredicted = true
             };
+        }
+
+        private static bool TryBuildDefaultFinalizationResult(
+            Recording context,
+            Vessel vessel,
+            double refreshUT,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            if (TryBuildDefaultFinalizationResultOverrideForTesting != null)
+                return TryBuildDefaultFinalizationResultOverrideForTesting(context, vessel, refreshUT, out result);
+
+            if (vessel == null)
+            {
+                result = default(IncompleteBallisticFinalizationResult);
+                return false;
+            }
+
+            return IncompleteBallisticSceneExitFinalizer.TryBuildDefaultFinalizationResult(
+                context,
+                vessel,
+                refreshUT,
+                out result);
+        }
+
+        private static TerminalState DetermineObservedTerminalState(IRecordingFinalizationVesselView vessel)
+        {
+            if (vessel?.RawVessel != null)
+                return RecordingTree.DetermineTerminalState((int)vessel.Situation, vessel.RawVessel);
+
+            if (vessel == null)
+                return TerminalState.Orbiting;
+
+            switch (vessel.Situation)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.PRELAUNCH:
+                    return TerminalState.Landed;
+                case Vessel.Situations.SPLASHED:
+                    return TerminalState.Splashed;
+                case Vessel.Situations.SUB_ORBITAL:
+                    return TerminalState.SubOrbital;
+                case Vessel.Situations.DOCKED:
+                    return TerminalState.Docked;
+                case Vessel.Situations.ORBITING:
+                default:
+                    return TerminalState.Orbiting;
+            }
+        }
+
+        private static string BuildVesselDigest(IRecordingFinalizationVesselView vessel, bool hasMeaningfulThrust)
+        {
+            if (vessel == null)
+                return "(null)";
+
+            return BuildStateDigest(vessel.BodyName, vessel.Situation, vessel.IsInAtmosphere, hasMeaningfulThrust);
         }
 
         private static List<OrbitSegment> ClonePredictedSegments(IList<OrbitSegment> source)
@@ -513,6 +644,56 @@ namespace Parsek
         private static bool IsFinite(double value)
         {
             return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private sealed class VesselFinalizationView : IRecordingFinalizationVesselView
+        {
+            private readonly Vessel vessel;
+
+            internal VesselFinalizationView(Vessel vessel)
+            {
+                this.vessel = vessel;
+            }
+
+            public uint PersistentId => vessel.persistentId;
+            public Vessel.Situations Situation => vessel.situation;
+            public string BodyName => vessel.mainBody?.name
+                ?? vessel.orbit?.referenceBody?.name
+                ?? "(unknown-body)";
+            public bool IsInAtmosphere => RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            public bool IsPacked => vessel.packed;
+            public bool IsLoaded => vessel.loaded;
+            public double Latitude => vessel.latitude;
+            public double Longitude => vessel.longitude;
+            public double Altitude => vessel.altitude;
+            public double HeightFromTerrain => vessel.heightFromTerrain;
+            public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
+            public Vessel RawVessel => vessel;
+
+            public bool TryGetOrbit(out RecordingFinalizationOrbitView orbit)
+            {
+                orbit = default(RecordingFinalizationOrbitView);
+                Orbit source = vessel.orbit;
+                CelestialBody referenceBody = source?.referenceBody;
+                if (source == null || referenceBody == null)
+                    return false;
+
+                orbit = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = referenceBody.name,
+                    ReferenceBodyHasAtmosphere = referenceBody.atmosphere,
+                    ReferenceBodyAtmosphereDepth = referenceBody.atmosphereDepth,
+                    Inclination = source.inclination,
+                    Eccentricity = source.eccentricity,
+                    SemiMajorAxis = source.semiMajorAxis,
+                    LongitudeOfAscendingNode = source.LAN,
+                    ArgumentOfPeriapsis = source.argumentOfPeriapsis,
+                    MeanAnomalyAtEpoch = source.meanAnomalyAtEpoch,
+                    Epoch = source.epoch,
+                    PeriapsisAltitude = source.PeA
+                };
+                return true;
+            }
         }
     }
 }
