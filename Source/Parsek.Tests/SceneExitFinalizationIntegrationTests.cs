@@ -654,6 +654,124 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeTreeRecordingsAfterFlush_NonSceneActiveCrash_AppliesCacheBeforeDestroyedFallback()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-active-crash-cache",
+                TreeName = "Active Crash Cache Tree",
+                ActiveRecordingId = "active-crash-cache"
+            };
+            var active = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Active Crash Cached",
+                VesselPersistentId = 100,
+                ChildBranchPointId = null,
+                ExplicitEndUT = 100.0
+            };
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[active.RecordingId] = active;
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                active.RecordingId,
+                active.VesselPersistentId,
+                terminalUT: 150.0);
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 120.0,
+                isSceneExit: false,
+                resolveFinalizationCache: recording =>
+                    recording.RecordingId == active.RecordingId ? cache : null);
+
+            Assert.Equal(TerminalState.Destroyed, active.TerminalStateValue);
+            Assert.Equal(150.0, active.ExplicitEndUT);
+            Assert.Single(active.OrbitSegments);
+            Assert.True(active.OrbitSegments[0].isPredicted);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][FinalizerCache]") &&
+                l.Contains("Apply accepted") &&
+                l.Contains("consumer=FinalizeIndividualRecording") &&
+                l.Contains("Active Crash Cached"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("marking Destroyed") && l.Contains("active-crash-cache"));
+        }
+
+        [Fact]
+        public void TryHandleDeferredDestructionAbort_FalseDestroyReattachesBackgroundRecorder()
+        {
+            var docking = new HashSet<uint>();
+
+            ParsekFlight.DeferredDestructionOutcome falseDestroy =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.FalseDestroyReattach, falseDestroy);
+            Assert.True(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(falseDestroy));
+
+            uint reattachedPid = 0;
+            var debugLines = new List<string>();
+            var infoLines = new List<string>();
+            bool handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: falseDestroy,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(100u, reattachedPid);
+            Assert.Contains(debugLines, l => l.Contains("still exists"));
+            Assert.Contains(infoLines, l => l.Contains("reattached background recorder state"));
+
+            docking.Add(100u);
+            ParsekFlight.DeferredDestructionOutcome dockingAbort =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.DockingInProgress, dockingAbort);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(dockingAbort));
+
+            reattachedPid = 0;
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: dockingAbort,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(0u, reattachedPid);
+
+            docking.Clear();
+            ParsekFlight.DeferredDestructionOutcome confirmed =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: false);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.ConfirmedDestroyed, confirmed);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(confirmed));
+
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: confirmed,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.False(handled);
+        }
+
+        [Fact]
         public void TryShortCircuitSolverPredictedImpact_AirlessBodyImpact_ReturnsDestroyedTerminalUt()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>

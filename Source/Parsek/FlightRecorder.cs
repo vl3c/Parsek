@@ -6498,6 +6498,7 @@ namespace Parsek
                 return false;
             }
 
+            RecordingFinalizationCache previous = FinalizationCache;
             Recording context = BuildFinalizationCacheContext(ut);
             RecordingFinalizationCache refreshed;
             bool success = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
@@ -6509,6 +6510,18 @@ namespace Parsek
                 hasMeaningfulThrust,
                 out refreshed);
 
+            if (!success
+                && RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
+                    previous,
+                    refreshed,
+                    ut,
+                    reason,
+                    currentDigest))
+            {
+                FinalizationCache = previous;
+                lastFinalizationCacheRefreshUT = ut;
+                return false;
+            }
             FinalizationCache = refreshed;
             lastFinalizationCacheRefreshUT = ut;
             return success;

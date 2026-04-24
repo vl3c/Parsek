@@ -74,6 +74,7 @@ All notable changes to Parsek are documented here.
 - `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 - `#523` Strategy lifecycle SPACECENTER canaries now hydrate `Administration.Instance` by creating a hidden stock Administration canvas, re-check that hydration after warmup, and keep Activate/Deactivate assertions in the same frame as the stock strategy calls. This closes both the plain-KSC singleton timeout and the latest KSC batch race where the first canary observed `Activate()` succeed but `IsActive` had flipped false after a yield while the next canary timed out on a null `Administration.Instance` after hidden-canvas teardown.
 - Scene-exit tree finalization now consumes recording-finalization caches before trajectory inference, preserving live-finalizer precedence while giving missing active and background vessels their cached synthetic terminal tails; rejected caches still fall through to inference and stale cache consumption now warns in logs.
+- Background premature-end finalization now consumes recording-finalization caches for debris TTL, out-of-bubble/missing-vessel endings, and confirmed background destruction, capping destroyed predictions at the actual deletion UT before persisting the sidecar.
 
 ### Tests
 
@@ -107,6 +108,7 @@ All notable changes to Parsek are documented here.
 - Added headless coverage for the recording-finalization cache applier, including identity mismatches, stale-cache rejection, terminal-UT rollback rejection, predicted-tail trimming, authored-data preservation, surface metadata preservation, and terminal orbit stamping.
 - Added headless coverage for recording-finalization cache refresh cadence, live-vessel surface/extrapolated/atmospheric-fallback producers, background on-rails cache production and cleanup, active-to-background cache adoption, and UI maneuver-node fallback behavior.
 - Added headless scene-exit fallback coverage for live-finalizer precedence, missing-vessel cache application on leaf and active non-leaf recordings, stable-cache override guards, and background cache lookup by recording id.
+- Added headless premature-end coverage for background cache application, deletion-UT trimming, confirmed-destruction cache guards, stable-cache missing-vessel classification, and non-scene active crash fallback.
 - Added headless spawn-path audit coverage for `VesselSpawner` route selection and prepared-snapshot validation, plus subdivided walkback interpolation of UT, velocity, and rotation for blocked chain-tip recovery.
 
 ### Documentation
