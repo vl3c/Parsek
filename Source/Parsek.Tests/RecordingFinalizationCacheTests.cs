@@ -522,6 +522,47 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", rec.EndpointBodyName);
         }
 
+        [Fact]
+        public void TryPreservePreviousCacheAfterFailedRefresh_MarksPreviousStale()
+        {
+            var previous = MakeCache(
+                "rec-preserve",
+                42u,
+                TerminalState.Destroyed,
+                180.0,
+                Segment(100.0, 180.0));
+            var failed = new RecordingFinalizationCache
+            {
+                RecordingId = "rec-preserve",
+                VesselPersistentId = 42u,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Failed,
+                DeclineReason = "default-finalizer-declined",
+                TerminalUT = double.NaN
+            };
+
+            bool preserved =
+                RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
+                    previous,
+                    failed,
+                    observedUT: 175.0,
+                    reason: "unit-terminal-refresh",
+                    observedDigest: "Kerbin|sit=FLYING|atmo=True|thrust=False");
+
+            Assert.True(preserved);
+            Assert.Equal(FinalizationCacheStatus.Stale, previous.Status);
+            Assert.Equal(175.0, previous.CachedAtUT);
+            Assert.Equal(175.0, previous.LastObservedUT);
+            Assert.Equal(180.0, previous.TerminalUT);
+            Assert.Equal(TerminalState.Destroyed, previous.TerminalState);
+            Assert.Equal("unit-terminal-refresh", previous.RefreshReason);
+            Assert.Equal("default-finalizer-declined", previous.DeclineReason);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][FinalizerCache]")
+                && line.Contains("preserving previous cache")
+                && line.Contains("rec-preserve"));
+        }
+
         private static Recording MakeRecording(string id, uint vesselPid, params double[] pointUTs)
         {
             var rec = new Recording

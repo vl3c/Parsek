@@ -253,6 +253,7 @@ namespace Parsek.Tests
             Assert.Equal(100u, cache.VesselPersistentId);
             Assert.Equal(FinalizationCacheOwner.BackgroundOnRails, cache.Owner);
             Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Null(tree.Recordings["rec_bg1"].TerminalStateValue);
         }
 
         [Fact]
@@ -343,6 +344,128 @@ namespace Parsek.Tests
             Assert.Equal(180.0, rec.ExplicitEndUT);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.True(rec.OrbitSegments.Exists(s => s.isPredicted && s.endUT == 180.0));
+        }
+
+        [Fact]
+        public void ScopeFinalizationCacheToBackgroundEnd_DestroyedCapsAtDeletionUT()
+        {
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 180.0,
+                Segment(100.0, 180.0));
+
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(
+                    cache,
+                    endUT: 130.0);
+
+            Assert.Equal(130.0, scoped.TerminalUT);
+            Assert.Equal(180.0, cache.TerminalUT);
+            Assert.Single(scoped.PredictedSegments);
+            Assert.Single(cache.PredictedSegments);
+            Assert.NotSame(cache.PredictedSegments, scoped.PredictedSegments);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_RejectsNonDestroyedCacheForConfirmedDestroy()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Orbiting, terminalUT: 120.0));
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                100u,
+                endUT: 130.0,
+                consumerPath: "unit-confirmed-destroy",
+                allowStale: true,
+                requireDestroyedTerminal: true,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.False(applied);
+            Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void CheckDebrisTTL_MissingVessel_AppliesCacheBeforeDestroyedFallback()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache(
+                    "rec_bg1",
+                    100u,
+                    TerminalState.Destroyed,
+                    terminalUT: 180.0,
+                    Segment(100.0, 180.0)));
+            bgRecorder.InjectDebrisTTLForTesting(100, 500.0);
+
+            bgRecorder.CheckDebrisTTL(130.0);
+
+            Assert.False(tree.BackgroundMap.ContainsKey(100));
+            Assert.Equal(0, bgRecorder.DebrisTTLCount);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(130.0, rec.ExplicitEndUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.True(rec.OrbitSegments[0].isPredicted);
+            Assert.Equal(100.0, rec.OrbitSegments[0].startUT);
+            Assert.Equal(130.0, rec.OrbitSegments[0].endUT);
+        }
+
+        [Fact]
+        public void CheckDebrisTTL_MissingVessel_UsesStableCacheInsteadOfDestroyedFallback()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 90000.0,
+                bodyName = "Kerbin"
+            });
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Orbiting,
+                terminalUT: 120.0);
+            cache.TerminalOrbit = new RecordingFinalizationTerminalOrbit
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 120.0
+            };
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", cache);
+            bgRecorder.InjectDebrisTTLForTesting(100, 500.0);
+
+            bgRecorder.CheckDebrisTTL(130.0);
+
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+            Assert.Equal(130.0, rec.ExplicitEndUT);
+            Assert.Empty(rec.OrbitSegments);
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
         }
 
         [Fact]
@@ -1622,6 +1745,63 @@ namespace Parsek.Tests
                 ParsekLog.ResetTestOverrides();
                 ParsekLog.SuppressLogging = true;
             }
+        }
+
+        private static RecordingFinalizationCache MakeFinalizationCache(
+            string recordingId,
+            uint vesselPid,
+            TerminalState terminalState,
+            double terminalUT,
+            params OrbitSegment[] predictedSegments)
+        {
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = recordingId,
+                VesselPersistentId = vesselPid,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                CachedAtUT = terminalUT - 5.0,
+                RefreshReason = "unit-test",
+                LastObservedUT = terminalUT - 5.0,
+                LastObservedBodyName = "Kerbin",
+                LastSituation = terminalState == TerminalState.Orbiting
+                    ? Vessel.Situations.ORBITING
+                    : Vessel.Situations.FLYING,
+                LastWasInAtmosphere = terminalState == TerminalState.Destroyed,
+                TailStartsAtUT = predictedSegments != null && predictedSegments.Length > 0
+                    ? predictedSegments[0].startUT
+                    : terminalUT,
+                TerminalUT = terminalUT,
+                TerminalState = terminalState,
+                TerminalBodyName = "Kerbin",
+                PredictedSegments = new List<OrbitSegment>()
+            };
+
+            if (predictedSegments != null)
+            {
+                for (int i = 0; i < predictedSegments.Length; i++)
+                    cache.PredictedSegments.Add(predictedSegments[i]);
+            }
+
+            return cache;
+        }
+
+        private static OrbitSegment Segment(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.1,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = startUT,
+                isPredicted = true
+            };
         }
 
         #endregion

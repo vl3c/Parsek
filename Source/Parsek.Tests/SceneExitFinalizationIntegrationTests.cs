@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -542,6 +543,86 @@ namespace Parsek.Tests
                 l.Contains("Background Cached"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("inferred") && l.Contains("bg-cache-consumer"));
+        }
+
+        [Fact]
+        public void FinalizeTreeRecordingsAfterFlush_NonSceneActiveCrash_AppliesCacheBeforeDestroyedFallback()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-active-crash-cache",
+                TreeName = "Active Crash Cache Tree",
+                ActiveRecordingId = "active-crash-cache"
+            };
+            var active = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Active Crash Cached",
+                VesselPersistentId = 100,
+                ChildBranchPointId = null,
+                ExplicitEndUT = 100.0
+            };
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[active.RecordingId] = active;
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                active.RecordingId,
+                active.VesselPersistentId,
+                terminalUT: 150.0);
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 120.0,
+                isSceneExit: false,
+                resolveFinalizationCache: recording =>
+                    recording.RecordingId == active.RecordingId ? cache : null);
+
+            Assert.Equal(TerminalState.Destroyed, active.TerminalStateValue);
+            Assert.Equal(150.0, active.ExplicitEndUT);
+            Assert.Single(active.OrbitSegments);
+            Assert.True(active.OrbitSegments[0].isPredicted);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][FinalizerCache]") &&
+                l.Contains("Apply accepted") &&
+                l.Contains("consumer=FinalizeIndividualRecording") &&
+                l.Contains("Active Crash Cached"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("marking Destroyed") && l.Contains("active-crash-cache"));
+        }
+
+        [Fact]
+        public void DeferredDestructionCheck_FalseDestroy_ReattachesBackgroundRecorderState()
+        {
+            string source = File.ReadAllText(LocateParsekFlightSource());
+            int methodStart = source.IndexOf(
+                "IEnumerator DeferredDestructionCheck(PendingDestruction pending)",
+                StringComparison.Ordinal);
+            Assert.True(methodStart >= 0, "DeferredDestructionCheck not found.");
+
+            int falseDestroyLog = source.IndexOf(
+                "still exists — vessel unloaded, not destroyed",
+                methodStart,
+                StringComparison.Ordinal);
+            int reattach = source.IndexOf(
+                "backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid)",
+                methodStart,
+                StringComparison.Ordinal);
+            int firstYieldBreakAfterFalseDestroy = source.IndexOf(
+                "yield break;",
+                falseDestroyLog,
+                StringComparison.Ordinal);
+
+            Assert.True(falseDestroyLog >= 0, "False-destroy abort branch not found.");
+            Assert.True(reattach > falseDestroyLog,
+                "False-destroy abort must reattach BackgroundRecorder state.");
+            Assert.True(firstYieldBreakAfterFalseDestroy > reattach,
+                "Reattach must happen before the false-destroy branch exits.");
         }
 
         [Fact]
@@ -1242,6 +1323,21 @@ namespace Parsek.Tests
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
+        }
+
+        private static string LocateParsekFlightSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
         private static RecordingFinalizationCache MakeDestroyedCache(

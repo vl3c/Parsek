@@ -261,6 +261,52 @@ namespace Parsek
             return true;
         }
 
+        internal static bool IsPotentiallyApplicableCache(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && (cache.Status == FinalizationCacheStatus.Fresh
+                    || cache.Status == FinalizationCacheStatus.Stale)
+                && cache.TerminalState.HasValue
+                && IsFinite(cache.TerminalUT);
+        }
+
+        internal static bool TryPreservePreviousCacheAfterFailedRefresh(
+            RecordingFinalizationCache previous,
+            RecordingFinalizationCache failedRefresh,
+            double observedUT,
+            string reason,
+            string observedDigest)
+        {
+            if (!IsPotentiallyApplicableCache(previous)
+                || failedRefresh == null
+                || failedRefresh.Status != FinalizationCacheStatus.Failed)
+            {
+                return false;
+            }
+
+            previous.Status = FinalizationCacheStatus.Stale;
+            previous.CachedAtUT = observedUT;
+            previous.CachedAtRealtime = SafeRealtime();
+            previous.LastObservedUT = observedUT;
+            previous.RefreshReason = reason;
+            previous.DeclineReason = failedRefresh.DeclineReason;
+            if (!string.IsNullOrEmpty(observedDigest))
+                previous.LastObservedOrbitDigest = observedDigest;
+
+            ParsekLog.Warn("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh failed; preserving previous cache: owner={0} rec={1} pid={2} " +
+                    "reason={3} terminal={4} terminalUT={5:F3}",
+                    previous.Owner,
+                    previous.RecordingId ?? "(pending)",
+                    previous.VesselPersistentId,
+                    failedRefresh.DeclineReason ?? "(none)",
+                    previous.TerminalState?.ToString() ?? "(null)",
+                    previous.TerminalUT));
+            return true;
+        }
+
         private static RecordingFinalizationCache CreateBase(
             string recordingId,
             uint vesselPid,

@@ -4262,9 +4262,17 @@ namespace Parsek
             if (!IsTrulyDestroyed(pending.vesselPid, dockingInProgress, vesselStillExists))
             {
                 if (dockingInProgress.Contains(pending.vesselPid))
+                {
                     Log($"DeferredDestructionCheck: pid={pending.vesselPid} now in dockingInProgress — aborting");
+                }
                 else
+                {
                     Log($"DeferredDestructionCheck: pid={pending.vesselPid} still exists — vessel unloaded, not destroyed");
+                    backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid);
+                    ParsekLog.Info("Flight",
+                        $"DeferredDestructionCheck: reattached background recorder state for " +
+                        $"pid={pending.vesselPid} after false destruction signal");
+                }
                 yield break;
             }
 
@@ -4303,11 +4311,29 @@ namespace Parsek
                 }
             }
 
-            if (!isPhantomCrash)
+            bool cacheApplied = false;
+            if (!isPhantomCrash && backgroundRecorder != null)
+            {
+                RecordingFinalizationCacheApplyResult cacheResult;
+                cacheApplied = backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                    rec,
+                    pending.vesselPid,
+                    pending.capturedUT,
+                    "DeferredDestructionCheck",
+                    allowStale: true,
+                    requireDestroyedTerminal: true,
+                    out cacheResult);
+            }
+
+            if (!isPhantomCrash && !cacheApplied)
                 ApplyTerminalDestruction(pending, rec);
 
             packStates.Remove(pending.vesselPid);
             activeTree.BackgroundMap.Remove(pending.vesselPid);
+
+            BackgroundRecorder.PersistFinalizedRecording(
+                rec,
+                $"DeferredDestructionCheck pid={pending.vesselPid}");
 
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
