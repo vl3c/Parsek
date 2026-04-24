@@ -255,6 +255,27 @@ namespace Parsek.Tests
             Assert.Equal("", reason);
         }
 
+        [Fact]
+        public void TerminalSpawnSuperseded_SpawnSuppressed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "old-endpoint",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalSpawnSupersededByRecordingId = "continued-tip",
+                VesselSpawned = false,
+                VesselDestroyed = false,
+                SpawnedVesselPersistentId = 0,
+                LoopPlayback = false
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal spawn superseded by recording continued-tip", reason);
+        }
+
         #endregion
     }
 }

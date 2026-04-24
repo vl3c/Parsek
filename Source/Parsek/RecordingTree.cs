@@ -608,6 +608,8 @@ namespace Parsek
             // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
             if (rec.SpawnedVesselPersistentId != 0)
                 recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+                recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
@@ -1032,6 +1034,7 @@ namespace Parsek
                 if (bool.TryParse(destroyedStr, out destroyed))
                     rec.VesselDestroyed = destroyed;
             }
+            rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
             string resIdxStr = recNode.GetValue("lastResIdx");
             if (resIdxStr != null)
             {

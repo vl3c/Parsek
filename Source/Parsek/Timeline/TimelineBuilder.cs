@@ -227,10 +227,12 @@ namespace Parsek
                 // is visual-only; the vessel still spawns at ghost-end in-world, so
                 // the timeline must still show it.
                 bool suppressTreeSpawn = hasSamePidContinuation || (isTreeChild && !isTreeLeaf);
+                bool suppressSupersededSpawn =
+                    !string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId);
                 if (isMidChain) midChainSkipped++;
                 else if (isDestroyedTerminal) destroyedSkipped++;
 
-                if (!isMidChain && !isDestroyedTerminal && !suppressTreeSpawn)
+                if (!isMidChain && !isDestroyedTerminal && !suppressTreeSpawn && !suppressSupersededSpawn)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
