@@ -487,7 +487,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsOnResumedRecording()
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsAndKeepsLivePid()
         {
             // Regression for v0.8.3 post-fix playtest: after the detach-for-resume
             // lands a committed tree back into the active slot, the target recording's
@@ -502,7 +502,7 @@ namespace Parsek.Tests
             tree.ActiveRecordingId = "rec_resume";
 
             tree.Recordings["rec_resume"].TreeId = tree.Id;
-            tree.Recordings["rec_resume"].VesselPersistentId = 12345;
+            tree.Recordings["rec_resume"].VesselPersistentId = 11111;
             tree.Recordings["rec_resume"].VesselSpawned = true;
             tree.Recordings["rec_resume"].SpawnedVesselPersistentId = 12345;
             tree.Recordings["rec_resume"].TerminalStateValue = TerminalState.Landed;
@@ -525,6 +525,7 @@ namespace Parsek.Tests
             Assert.False(resumed.VesselSpawned,
                 "VesselSpawned must reset on detach so CanPersistVessel returns true at re-commit.");
             Assert.Equal(0u, resumed.SpawnedVesselPersistentId);
+            Assert.Equal(12345u, resumed.VesselPersistentId);
         }
 
         [Fact]

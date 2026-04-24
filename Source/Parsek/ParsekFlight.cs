@@ -8017,21 +8017,25 @@ namespace Parsek
             // as "already spawned, don't persist again" and defaults the leaf to
             // ghost-only, which nulls the VesselSnapshot at commit time. Subsequent
             // KSC spawns then skip with "no vessel snapshot". Clearing the flags here
-            // lets the next commit re-evaluate spawn eligibility from scratch; the KSC
-            // adoption path will re-establish VesselSpawned=true after the commit if
-            // the source vessel still exists.
+            // lets the next commit re-evaluate spawn eligibility from scratch. Before
+            // clearing the spawned PID, promote the matched live vessel PID into the
+            // recording's normal VesselPersistentId so later finalization/snapshot code
+            // tracks the vessel the player just entered, not the original source PID.
             if (committedTree.Recordings != null
                 && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null
                 && (resumedRec.VesselSpawned || resumedRec.SpawnedVesselPersistentId != 0))
             {
                 uint priorSpawnedPid = resumedRec.SpawnedVesselPersistentId;
+                uint priorVesselPid = resumedRec.VesselPersistentId;
+                resumedRec.VesselPersistentId = activeVesselPid;
                 resumedRec.VesselSpawned = false;
                 resumedRec.SpawnedVesselPersistentId = 0;
                 ParsekLog.Info("Flight",
                     $"TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on " +
-                    $"resumed recording '{targetRecordingId}' (wasSpawnedPid={priorSpawnedPid}) so the " +
-                    $"next commit re-evaluates persist eligibility instead of defaulting to ghost-only");
+                    $"resumed recording '{targetRecordingId}' (wasSpawnedPid={priorSpawnedPid}, " +
+                    $"vesselPid={priorVesselPid}->{activeVesselPid}) so the next commit re-evaluates " +
+                    $"persist eligibility instead of defaulting to ghost-only");
             }
 
             tree = committedTree;
