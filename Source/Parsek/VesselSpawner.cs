@@ -496,13 +496,31 @@ namespace Parsek
             string logTag,
             string logContext)
         {
+            CleanupFailedSpawnedProtoVessel(
+                pv,
+                logTag,
+                logContext,
+                HighLogic.CurrentGame?.flightState?.protoVessels,
+                proto =>
+                {
+                    if (proto?.vesselRef != null)
+                        proto.vesselRef.Die();
+                });
+        }
+
+        internal static void CleanupFailedSpawnedProtoVessel(
+            ProtoVessel pv,
+            string logTag,
+            string logContext,
+            IList<ProtoVessel> protoVessels,
+            Action<ProtoVessel> destroyPartialVessel)
+        {
             if (pv == null)
                 return;
 
             try
             {
-                if (pv.vesselRef != null)
-                    pv.vesselRef.Die();
+                destroyPartialVessel?.Invoke(pv);
             }
             catch (Exception ex)
             {
@@ -513,7 +531,7 @@ namespace Parsek
 
             try
             {
-                HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+                protoVessels?.Remove(pv);
             }
             catch (Exception ex)
             {
@@ -767,6 +785,61 @@ namespace Parsek
                 bodyRotation,
                 surfaceRelativeRotation,
                 $"{context}, source={source}");
+        }
+
+        internal static void ApplyResolvedSpawnStateToSnapshot(
+            ConfigNode spawnSnapshot,
+            Recording rec,
+            TrajectoryPoint? rotationPoint,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            int index,
+            string logContext,
+            bool allowPreferredRotation = true,
+            bool stripEvaLadder = true)
+        {
+            if (spawnSnapshot == null)
+                return;
+
+            string snapshotLabel = !string.IsNullOrEmpty(logContext)
+                ? logContext
+                : rec?.VesselName ?? "(unknown)";
+            string vesselName = rec?.VesselName ?? snapshotLabel;
+            if (allowPreferredRotation
+                && TryResolvePreferredSpawnRotation(
+                    rec,
+                    rotationPoint,
+                    out string rotationBodyName,
+                    out Quaternion? rotationBodyRotation,
+                    out Quaternion surfaceRelativeRotation,
+                    out string rotationSource))
+            {
+                OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    snapshotLabel,
+                    rotationBodyName,
+                    rotationBodyRotation,
+                    surfaceRelativeRotation,
+                    rotationSource);
+            }
+            else
+            {
+                OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    snapshotLabel);
+            }
+
+            if (stripEvaLadder && !string.IsNullOrEmpty(rec?.EvaCrewName))
+                StripEvaLadderState(spawnSnapshot, index, vesselName);
         }
 
         internal static CelestialBody ResolveSpawnRotationBody(
@@ -1125,26 +1198,15 @@ namespace Parsek
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
             if (isEva && rec.VesselSnapshot != null)
             {
-                if (TryResolvePreferredSpawnRotation(
-                    rec, lastPt,
-                    out string evaRotationBodyName,
-                    out Quaternion? evaBodyRotation,
-                    out Quaternion evaSurfaceRelativeRotation,
-                    out string evaRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        evaRotationBodyName,
-                        evaBodyRotation,
-                        evaSurfaceRelativeRotation,
-                        evaRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
-                StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName);
             }
 
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
@@ -1152,26 +1214,17 @@ namespace Parsek
             // endpoint. Same pattern as EVA fix above. (#224)
             if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
             {
-                if (!useRecordedTerminalOrbit
-                    && TryResolvePreferredSpawnRotation(
-                        rec, lastPt,
-                        out string breakupRotationBodyName,
-                        out Quaternion? breakupBodyRotation,
-                        out Quaternion breakupSurfaceRelativeRotation,
-                        out string breakupRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        breakupRotationBodyName,
-                        breakupBodyRotation,
-                        breakupSurfaceRelativeRotation,
-                        breakupRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    allowPreferredRotation: !useRecordedTerminalOrbit,
+                    stripEvaLadder: false);
             }
 
             // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
@@ -1180,27 +1233,18 @@ namespace Parsek
             // uses the raw snapshot. Override position and rotation so the vessel spawns
             // in its near-landing orientation, not the mid-flight descent pose. (#231)
             if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
-                && (rec.TerminalStateValue == TerminalState.Landed || rec.TerminalStateValue == TerminalState.Splashed))
+                && IsSurfaceTerminal(rec.TerminalStateValue))
             {
-                if (TryResolvePreferredSpawnRotation(
-                    rec, lastPt,
-                    out string surfaceRotationBodyName,
-                    out Quaternion? surfaceBodyRotation,
-                    out Quaternion surfaceRelativeRotation,
-                    out string surfaceRotationSource))
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName,
-                        surfaceRotationBodyName,
-                        surfaceBodyRotation,
-                        surfaceRelativeRotation,
-                        surfaceRotationSource);
-                }
-                else
-                {
-                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                        index, rec.VesselName);
-                }
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    stripEvaLadder: false);
             }
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.

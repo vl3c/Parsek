@@ -1234,8 +1234,8 @@ namespace Parsek
                 ParsekLog.Info("KSCSpawn",
                     $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
 
-                // KSC spawn works from a private snapshot copy so the recording's stored
-                // snapshot stays untouched if the materialization falls back or aborts.
+                // Keep a private working snapshot for the entire KSC spawn flow so route
+                // selection, fallback repairs, and aborts never mutate the stored recording.
                 ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();
 
                 // Bug #167: apply crew swap directly on the KSC spawn snapshot because
@@ -1314,106 +1314,42 @@ namespace Parsek
 
                     if (isEva)
                     {
-                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                            spawnSnapshot,
                             rec,
                             lastPt,
-                            out string evaRotationBodyName,
-                            out Quaternion? evaBodyRotation,
-                            out Quaternion evaSurfaceRelativeRotation,
-                            out string evaRotationSource))
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName,
-                                evaRotationBodyName,
-                                evaBodyRotation,
-                                evaSurfaceRelativeRotation,
-                                evaRotationSource);
-                        }
-                        else
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName);
-                        }
-
-                        VesselSpawner.StripEvaLadderState(spawnSnapshot, recIdx, rec.VesselName);
+                            spawnLat,
+                            spawnLon,
+                            spawnAlt,
+                            recIdx,
+                            rec.VesselName);
                     }
                     else if (isBreakupContinuous)
                     {
-                        if (!useRecordedTerminalOrbit
-                            && VesselSpawner.TryResolvePreferredSpawnRotation(
-                                rec,
-                                lastPt,
-                                out string breakupRotationBodyName,
-                                out Quaternion? breakupBodyRotation,
-                                out Quaternion breakupSurfaceRelativeRotation,
-                                out string breakupRotationSource))
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName,
-                                breakupRotationBodyName,
-                                breakupBodyRotation,
-                                breakupSurfaceRelativeRotation,
-                                breakupRotationSource);
-                        }
-                        else
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName);
-                        }
-                    }
-                    else if (rec.TerminalStateValue == TerminalState.Landed
-                        || rec.TerminalStateValue == TerminalState.Splashed)
-                    {
-                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                            spawnSnapshot,
                             rec,
                             lastPt,
-                            out string surfaceRotationBodyName,
-                            out Quaternion? surfaceBodyRotation,
-                            out Quaternion surfaceRelativeRotation,
-                            out string surfaceRotationSource))
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName,
-                                surfaceRotationBodyName,
-                                surfaceBodyRotation,
-                                surfaceRelativeRotation,
-                                surfaceRotationSource);
-                        }
-                        else
-                        {
-                            VesselSpawner.OverrideSnapshotPosition(
-                                spawnSnapshot,
-                                spawnLat,
-                                spawnLon,
-                                spawnAlt,
-                                recIdx,
-                                rec.VesselName);
-                        }
+                            spawnLat,
+                            spawnLon,
+                            spawnAlt,
+                            recIdx,
+                            rec.VesselName,
+                            allowPreferredRotation: !useRecordedTerminalOrbit,
+                            stripEvaLadder: false);
+                    }
+                    else if (VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
+                    {
+                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                            spawnSnapshot,
+                            rec,
+                            lastPt,
+                            spawnLat,
+                            spawnLon,
+                            spawnAlt,
+                            recIdx,
+                            rec.VesselName,
+                            stripEvaLadder: false);
                     }
                 }
 

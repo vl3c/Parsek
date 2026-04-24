@@ -622,13 +622,14 @@ namespace Parsek
                 return 0;
 
             ConfigNode spawnSnapshot = vesselSnapshot.CreateCopy();
-            ApplyResolvedSpawnStateToSnapshot(
+            VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
                 spawnSnapshot,
                 tipRecording,
                 rotationPoint,
                 spawnLat,
                 spawnLon,
                 spawnAlt,
+                -1,
                 logContext);
 
             if (TerrainCorrector.ShouldCorrectTerrain(
@@ -688,55 +689,9 @@ namespace Parsek
             if (validatedSpawnSnapshot == null)
                 return 0;
 
+            // The snapshot has already been route-specifically overridden and validated above,
+            // so the fallback only needs raw materialization here rather than another wrapper.
             return VesselSpawner.RespawnVessel(validatedSpawnSnapshot, preserveIdentity: true);
-        }
-
-        private static void ApplyResolvedSpawnStateToSnapshot(
-            ConfigNode spawnSnapshot,
-            Recording tipRecording,
-            TrajectoryPoint? rotationPoint,
-            double spawnLat,
-            double spawnLon,
-            double spawnAlt,
-            string logContext)
-        {
-            if (spawnSnapshot == null)
-                return;
-
-            if (rotationPoint.HasValue
-                && VesselSpawner.TryResolvePreferredSpawnRotation(
-                    tipRecording,
-                    rotationPoint,
-                    out string rotationBodyName,
-                    out Quaternion? rotationBodyRotation,
-                    out Quaternion surfaceRelativeRotation,
-                    out string rotationSource))
-            {
-                VesselSpawner.OverrideSnapshotPosition(
-                    spawnSnapshot,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    -1,
-                    logContext ?? tipRecording?.VesselName,
-                    rotationBodyName,
-                    rotationBodyRotation,
-                    surfaceRelativeRotation,
-                    rotationSource);
-            }
-            else
-            {
-                VesselSpawner.OverrideSnapshotPosition(
-                    spawnSnapshot,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    -1,
-                    logContext ?? tipRecording?.VesselName);
-            }
-
-            if (!string.IsNullOrEmpty(tipRecording?.EvaCrewName))
-                VesselSpawner.StripEvaLadderState(spawnSnapshot, -1, tipRecording.VesselName);
         }
 
         /// <summary>
@@ -824,6 +779,7 @@ namespace Parsek
                 ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
                 : null;
             CelestialBody walkbackBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, lastPoint);
+            CelestialBody walkbackSpawnBody = walkbackBody;
             TrajectoryPoint walkPt;
 
             if (walkbackBody != null)
@@ -906,6 +862,8 @@ namespace Parsek
                 walkPt.velocity.x,
                 walkPt.velocity.y,
                 walkPt.velocity.z);
+            if (walkbackSpawnBody == null)
+                walkbackSpawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, walkPt);
             uint walkbackPid = SpawnChainTipWithResolvedState(
                 tipRecording,
                 vesselSnapshot,
@@ -916,7 +874,7 @@ namespace Parsek
                 walkPt.altitude,
                 spawnVelocity,
                 walkPt,
-                VesselSpawner.ResolveSpawnRotationBody(tipRecording, walkPt));
+                walkbackSpawnBody);
             if (walkbackPid != 0)
             {
                 MarkChainTipRecordingSpawned(
