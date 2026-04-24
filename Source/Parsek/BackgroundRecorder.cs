@@ -1630,6 +1630,11 @@ namespace Parsek
                 var state = kvp.Value;
                 if (state.hasOpenOrbitSegment)
                 {
+                    RefreshOnRailsFinalizationCache(
+                        state,
+                        commitUT,
+                        "background_commit_on_rails",
+                        force: true);
                     CloseOrbitSegment(state, commitUT);
                 }
             }
@@ -1638,7 +1643,37 @@ namespace Parsek
             foreach (var kvp in loadedStates)
             {
                 var state = kvp.Value;
-                CloseBackgroundTrackSection(state, commitUT);
+                Vessel v = FlightRecorder.FindVesselByPid(state.vesselPid);
+                RecordingFinalizationCache previous = null;
+                finalizationCaches.TryGetValue(state.vesselPid, out previous);
+                if (v != null)
+                {
+                    RefreshFinalizationCacheForVessel(
+                        v,
+                        state.recordingId,
+                        FinalizationCacheOwner.BackgroundLoaded,
+                        "background_commit_loaded",
+                        force: true);
+                }
+                else
+                {
+                    if (previous != null)
+                    {
+                        TryTouchSkippedFinalizationCache(
+                            previous,
+                            commitUT,
+                            "background_commit_missing_vessel",
+                            previous.LastObservedOrbitDigest,
+                            requiresPeriodicRefresh: false);
+                    }
+                }
+
+                double closeUT = ResolveBackgroundCommitTrackCloseUT(
+                    state,
+                    commitUT,
+                    v,
+                    previous);
+                CloseBackgroundTrackSection(state, closeUT);
 
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
@@ -1673,6 +1708,69 @@ namespace Parsek
 
             ParsekLog.Info("BgRecorder", $"FinalizeAllForCommit complete at UT={commitUT:F1} " +
                 $"({onRailsStates.Count} on-rails, {loadedStates.Count} loaded)");
+        }
+
+        private static double ResolveBackgroundCommitTrackCloseUT(
+            BackgroundVesselState state,
+            double commitUT,
+            Vessel vessel,
+            RecordingFinalizationCache cache)
+        {
+            if (vessel != null || state == null || !IsPotentiallyApplicableFinalizationCache(cache))
+                return commitUT;
+
+            if (!IsFiniteUT(state.lastRecordedUT) || state.lastRecordedUT < 0.0)
+                return commitUT;
+
+            if (!IsFiniteUT(commitUT) || state.lastRecordedUT <= commitUT)
+                return state.lastRecordedUT;
+
+            return commitUT;
+        }
+
+        private static bool IsPotentiallyApplicableFinalizationCache(
+            RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && (cache.Status == FinalizationCacheStatus.Fresh
+                    || cache.Status == FinalizationCacheStatus.Stale)
+                && cache.TerminalState.HasValue
+                && IsFiniteUT(cache.TerminalUT);
+        }
+
+        private static bool IsFiniteUT(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        internal RecordingFinalizationCache GetFinalizationCacheForRecording(Recording recording)
+        {
+            if (recording == null)
+                return null;
+
+            RecordingFinalizationCache cache;
+            if (recording.VesselPersistentId != 0
+                && finalizationCaches.TryGetValue(recording.VesselPersistentId, out cache))
+            {
+                return CopyAndAlignFinalizationCacheIdentity(cache, recording);
+            }
+
+            if (!string.IsNullOrEmpty(recording.RecordingId))
+            {
+                // RecordingId fallback is only for transitional PID-less recordings at
+                // scene-exit commit time; typical tree sizes keep this linear scan small.
+                foreach (var kvp in finalizationCaches)
+                {
+                    cache = kvp.Value;
+                    if (cache != null
+                        && string.Equals(cache.RecordingId, recording.RecordingId, StringComparison.Ordinal))
+                    {
+                        return CopyAndAlignFinalizationCacheIdentity(cache, recording);
+                    }
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -3609,6 +3707,59 @@ namespace Parsek
                 $"Inherited active cache for background pid={vesselPid} rec={recordingId ?? "(null)"} " +
                 $"owner={inheritedCache.Owner} status={inheritedCache.Status} " +
                 $"terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
+        }
+
+        private static RecordingFinalizationCache CopyAndAlignFinalizationCacheIdentity(
+            RecordingFinalizationCache cache,
+            Recording recording)
+        {
+            if (cache == null)
+                return null;
+
+            RecordingFinalizationCache aligned = CopyFinalizationCache(cache);
+            if (recording == null)
+                return aligned;
+
+            if (string.IsNullOrEmpty(aligned.RecordingId))
+                aligned.RecordingId = recording.RecordingId;
+            if (aligned.VesselPersistentId == 0)
+                aligned.VesselPersistentId = recording.VesselPersistentId;
+
+            return aligned;
+        }
+
+        private static RecordingFinalizationCache CopyFinalizationCache(RecordingFinalizationCache source)
+        {
+            if (source == null)
+                return null;
+
+            return new RecordingFinalizationCache
+            {
+                RecordingId = source.RecordingId,
+                VesselPersistentId = source.VesselPersistentId,
+                Owner = source.Owner,
+                Status = source.Status,
+                CachedAtUT = source.CachedAtUT,
+                CachedAtRealtime = source.CachedAtRealtime,
+                RefreshReason = source.RefreshReason,
+                DeclineReason = source.DeclineReason,
+                LastObservedUT = source.LastObservedUT,
+                LastObservedBodyName = source.LastObservedBodyName,
+                LastSituation = source.LastSituation,
+                LastWasInAtmosphere = source.LastWasInAtmosphere,
+                LastHadMeaningfulThrust = source.LastHadMeaningfulThrust,
+                LastObservedOrbitDigest = source.LastObservedOrbitDigest,
+                TailStartsAtUT = source.TailStartsAtUT,
+                TerminalUT = source.TerminalUT,
+                TerminalState = source.TerminalState,
+                TerminalBodyName = source.TerminalBodyName,
+                TerminalOrbit = source.TerminalOrbit,
+                TerminalPosition = source.TerminalPosition,
+                TerrainHeightAtEnd = source.TerrainHeightAtEnd,
+                PredictedSegments = source.PredictedSegments != null
+                    ? new List<OrbitSegment>(source.PredictedSegments)
+                    : new List<OrbitSegment>()
+            };
         }
 
         private bool RefreshFinalizationCacheForVessel(
