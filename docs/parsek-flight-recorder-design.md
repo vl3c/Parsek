@@ -32,6 +32,8 @@ This document specifies the full architecture of Parsek's flight recorder system
 - Recording file format
 - Error recovery and backward compatibility
 
+Terminal-state and synthetic-tail reliability across scene exit, vessel unload/delete, crash, and background recording end paths is specified in [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md). That companion document supersedes older scene-exit-only assumptions whenever a recording can end before a live vessel is available for finalization.
+
 ---
 
 ## 2. Design Philosophy
@@ -217,6 +219,8 @@ Recording
 ```
 
 **VesselSnapshot explained:** A snapshot is a KSP `ConfigNode` produced by `vessel.BackupVessel()`. It contains the complete serialized vessel state: the entire part tree with every module's persistent data, crew assignments, resource levels, orbital elements, vessel situation, action group states, and discovery info. Snapshots are captured at two points: (1) at recording commit time (stored on the Recording), and (2) at ghost conversion time (captured from the live vessel before despawn). For chain-tip spawning, the snapshot from the tip Recording is used — for a chain bare-S -> S+A -> S+A+B, the S+A+B snapshot comes from R2's Recording of the merged vessel at its endpoint.
+
+**Finalization note:** `TerminalStateValue`, `ExplicitEndUT`, terminal orbit/surface metadata, and predicted `OrbitSegment` tails must be finalized consistently even if KSP destroys or unloads the vessel before scene exit. The reliability contract and cache design are documented in [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md).
 
 **BranchPoint** — a DAG node where the tree branches or merges. This is the TreeEvent of the design model.
 
