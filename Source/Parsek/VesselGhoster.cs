@@ -220,32 +220,81 @@ namespace Parsek
                 return 0;
             }
 
-            // Terrain correction for surface terminal state
-            if (tipRecording != null &&
-                TerrainCorrector.ShouldCorrectTerrain(
-                    tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
-            {
-                ApplyTerrainCorrection(tipRecording, vesselSnapshot);
-            }
-
             TrajectoryPoint? tipPoint = tipRecording != null && tipRecording.Points != null && tipRecording.Points.Count > 0
                 ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
                 : null;
-            VesselSpawner.TryApplyPreferredSpawnRotation(
-                vesselSnapshot, tipRecording, tipPoint, "Chain tip spawn");
+            double spawnUT = Planetarium.GetUniversalTime();
+            uint spawnedPid;
+            if (tipPoint.HasValue)
+            {
+                double spawnLat, spawnLon, spawnAlt;
+                VesselSpawner.ResolveSpawnPosition(
+                    tipRecording,
+                    -1,
+                    tipPoint.Value,
+                    out spawnLat,
+                    out spawnLon,
+                    out spawnAlt);
 
-            // Spawn with PID preservation for chain continuity
-            uint spawnedPid = VesselSpawner.RespawnValidatedRecording(
-                tipRecording,
-                string.Format(ic, "chain tip '{0}'", tipId),
-                preserveIdentity: true,
-                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
+                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
+                    tipRecording,
+                    !string.IsNullOrEmpty(tipRecording.EvaCrewName));
+                Vector3d spawnVelocity;
+                Orbit orbitOverride = null;
+                if (useRecordedTerminalOrbit
+                    && spawnBody != null
+                    && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                        tipRecording,
+                        spawnBody,
+                        spawnUT,
+                        out double orbitLat,
+                        out double orbitLon,
+                        out double orbitAlt,
+                        out Vector3d orbitalSpawnVelocity,
+                        out Orbit orbitalSpawnOrbit))
+                {
+                    spawnLat = orbitLat;
+                    spawnLon = orbitLon;
+                    spawnAlt = orbitAlt;
+                    spawnVelocity = orbitalSpawnVelocity;
+                    orbitOverride = orbitalSpawnOrbit;
+                }
+                else
+                {
+                    spawnVelocity = new Vector3d(
+                        tipPoint.Value.velocity.x,
+                        tipPoint.Value.velocity.y,
+                        tipPoint.Value.velocity.z);
+                }
+
+                spawnedPid = SpawnChainTipWithResolvedState(
+                    tipRecording,
+                    vesselSnapshot,
+                    string.Format(ic, "chain tip '{0}'", tipId),
+                    spawnUT,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    spawnVelocity,
+                    tipPoint,
+                    spawnBody,
+                    orbitOverride);
+            }
+            else
+            {
+                spawnedPid = VesselSpawner.RespawnValidatedRecording(
+                    tipRecording,
+                    string.Format(ic, "chain tip '{0}'", tipId),
+                    preserveIdentity: true,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+            }
 
             if (spawnedPid == 0)
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "SpawnAtChainTip: RespawnVessel returned pid=0 for tip '{0}' — spawn failed",
+                        "SpawnAtChainTip: spawn path returned pid=0 for tip '{0}' — spawn failed",
                         tipId));
                 return 0;
             }
@@ -360,32 +409,102 @@ namespace Parsek
                     "Spawn cleared: vessel={0} — overlap resolved after {1}s",
                     tipRecording.VesselName ?? "(unknown)", clearDuration.ToString("F1", ic)));
 
-            // Terrain correction for surface spawns
-            if (TerrainCorrector.ShouldCorrectTerrain(
-                    tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
-            {
-                ApplyTerrainCorrection(tipRecording, vesselSnapshot);
-            }
-
             TrajectoryPoint? tipPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
                 ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
                 : null;
-            VesselSpawner.TryApplyPreferredSpawnRotation(
-                vesselSnapshot, tipRecording, tipPoint, "Blocked chain tip spawn");
+            uint spawnedPid;
+            CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
+            if (spawnBody != null)
+            {
+                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
+                    tipRecording,
+                    !string.IsNullOrEmpty(tipRecording.EvaCrewName));
+                double spawnLat;
+                double spawnLon;
+                double spawnAlt;
+                Vector3d spawnVelocity;
+                Orbit orbitOverride = null;
 
-            // Spawn with PID preservation
-            uint spawnedPid = VesselSpawner.RespawnValidatedRecording(
-                tipRecording,
-                string.Format(ic, "blocked chain tip '{0}'", tipId),
-                preserveIdentity: true,
-                currentUT: currentUT,
-                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                if (useRecordedTerminalOrbit
+                    && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                        tipRecording,
+                        spawnBody,
+                        currentUT,
+                        out double orbitLat,
+                        out double orbitLon,
+                        out double orbitAlt,
+                        out Vector3d orbitalSpawnVelocity,
+                        out Orbit orbitalSpawnOrbit))
+                {
+                    spawnLat = orbitLat;
+                    spawnLon = orbitLon;
+                    spawnAlt = orbitAlt;
+                    spawnVelocity = orbitalSpawnVelocity;
+                    orbitOverride = orbitalSpawnOrbit;
+                }
+                else
+                {
+                    if (propagatedPos.sqrMagnitude > 0.0 && !double.IsNaN(propagatedPos.x))
+                    {
+                        spawnLat = spawnBody.GetLatitude(propagatedPos);
+                        spawnLon = spawnBody.GetLongitude(propagatedPos);
+                        spawnAlt = spawnBody.GetAltitude(propagatedPos);
+                    }
+                    else if (tipPoint.HasValue)
+                    {
+                        VesselSpawner.ResolveSpawnPosition(
+                            tipRecording,
+                            -1,
+                            tipPoint.Value,
+                            out spawnLat,
+                            out spawnLon,
+                            out spawnAlt);
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "blocked chain tip '{0}': propagated position unavailable — using endpoint spawn state",
+                                tipId));
+                    }
+
+                    spawnVelocity = tipPoint.HasValue
+                        ? new Vector3d(
+                            tipPoint.Value.velocity.x,
+                            tipPoint.Value.velocity.y,
+                            tipPoint.Value.velocity.z)
+                        : Vector3d.zero;
+                }
+
+                spawnedPid = SpawnChainTipWithResolvedState(
+                    tipRecording,
+                    vesselSnapshot,
+                    string.Format(ic, "blocked chain tip '{0}'", tipId),
+                    currentUT,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    spawnVelocity,
+                    tipPoint,
+                    spawnBody,
+                    orbitOverride);
+            }
+            else
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "blocked chain tip '{0}': could not resolve spawn body for propagated state — falling back to validated snapshot respawn",
+                        tipId));
+                spawnedPid = VesselSpawner.RespawnValidatedRecording(
+                    tipRecording,
+                    string.Format(ic, "blocked chain tip '{0}'", tipId),
+                    preserveIdentity: true,
+                    currentUT: currentUT,
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+            }
 
             if (spawnedPid == 0)
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "TrySpawnBlockedChain: RespawnVessel returned pid=0 for tip '{0}' — spawn failed",
+                        "TrySpawnBlockedChain: spawn path returned pid=0 for tip '{0}' — spawn failed",
                         tipId));
                 return 0;
             }
@@ -464,6 +583,140 @@ namespace Parsek
                     adoptedPid,
                     tipRecording.VesselName ?? "(unknown)"));
             return adoptedPid;
+        }
+
+        private uint SpawnChainTipWithResolvedState(
+            Recording tipRecording,
+            ConfigNode vesselSnapshot,
+            string logContext,
+            double spawnUT,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            Vector3d spawnVelocity,
+            TrajectoryPoint? rotationPoint,
+            CelestialBody body,
+            Orbit orbitOverride = null)
+        {
+            if (tipRecording == null || vesselSnapshot == null)
+                return 0;
+
+            ConfigNode spawnSnapshot = vesselSnapshot.CreateCopy();
+            ApplyResolvedSpawnStateToSnapshot(
+                spawnSnapshot,
+                tipRecording,
+                rotationPoint,
+                spawnLat,
+                spawnLon,
+                spawnAlt,
+                logContext);
+
+            if (TerrainCorrector.ShouldCorrectTerrain(
+                    tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
+            {
+                ApplyTerrainCorrection(tipRecording, spawnSnapshot);
+            }
+
+            if (VesselSpawner.ShouldRouteThroughSpawnAtPosition(tipRecording))
+            {
+                if (body != null)
+                {
+                    Quaternion? surfaceRelativeRotationArg = null;
+                    if (VesselSpawner.TryGetPreferredSpawnRotationFrame(
+                        tipRecording, rotationPoint,
+                        out _,
+                        out Quaternion preferredSurfaceRelativeRotation,
+                        out _))
+                    {
+                        surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
+                    }
+
+                    uint spawnedPid = VesselSpawner.SpawnAtPosition(
+                        spawnSnapshot,
+                        body,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        spawnVelocity,
+                        spawnUT,
+                        preserveIdentity: true,
+                        terminalState: tipRecording.TerminalStateValue,
+                        surfaceRelativeRotation: surfaceRelativeRotationArg,
+                        orbitOverride: orbitOverride);
+                    if (spawnedPid != 0)
+                        return spawnedPid;
+
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "{0}: SpawnAtPosition returned pid=0 — falling back to validated snapshot respawn",
+                            logContext));
+                }
+                else
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "{0}: spawn body unavailable — falling back to validated snapshot respawn",
+                            logContext));
+                }
+            }
+
+            ConfigNode validatedSpawnSnapshot = VesselSpawner.BuildValidatedRespawnSnapshot(
+                spawnSnapshot,
+                tipRecording,
+                spawnUT,
+                logContext);
+            if (validatedSpawnSnapshot == null)
+                return 0;
+
+            return VesselSpawner.RespawnVessel(validatedSpawnSnapshot, preserveIdentity: true);
+        }
+
+        private static void ApplyResolvedSpawnStateToSnapshot(
+            ConfigNode spawnSnapshot,
+            Recording tipRecording,
+            TrajectoryPoint? rotationPoint,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            string logContext)
+        {
+            if (spawnSnapshot == null)
+                return;
+
+            if (rotationPoint.HasValue
+                && VesselSpawner.TryResolvePreferredSpawnRotation(
+                    tipRecording,
+                    rotationPoint,
+                    out string rotationBodyName,
+                    out Quaternion? rotationBodyRotation,
+                    out Quaternion surfaceRelativeRotation,
+                    out string rotationSource))
+            {
+                VesselSpawner.OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    -1,
+                    logContext ?? tipRecording?.VesselName,
+                    rotationBodyName,
+                    rotationBodyRotation,
+                    surfaceRelativeRotation,
+                    rotationSource);
+            }
+            else
+            {
+                VesselSpawner.OverrideSnapshotPosition(
+                    spawnSnapshot,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    -1,
+                    logContext ?? tipRecording?.VesselName);
+            }
+
+            if (!string.IsNullOrEmpty(tipRecording?.EvaCrewName))
+                VesselSpawner.StripEvaLadderState(spawnSnapshot, -1, tipRecording.VesselName);
         }
 
         /// <summary>
@@ -547,74 +800,113 @@ namespace Parsek
             string blockerName,
             bool allowExistingSourceDuplicate)
         {
-            int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
-                tipRecording.Points,
-                spawnBounds,
-                SpawnCollisionPadding,
-                pt =>
-                {
-                    string bodyName = pt.bodyName;
-                    if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
-                    CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
-                    return body != null
-                        ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
-                        : Vector3d.zero;
-                },
-                pos =>
-                {
-                    var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        pos, spawnBounds, SpawnCollisionPadding);
-                    return ov;
-                });
+            TrajectoryPoint? lastPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
+                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
+                : null;
+            CelestialBody walkbackBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, lastPoint);
+            TrajectoryPoint walkPt;
 
-            if (validIdx >= 0)
+            if (walkbackBody != null)
             {
+                var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed(
+                    tipRecording.Points,
+                    walkbackBody.Radius,
+                    SpawnCollisionDetector.DefaultWalkbackStepMeters,
+                    (lat, lon, alt) => walkbackBody.GetWorldSurfacePosition(lat, lon, alt),
+                    pos =>
+                    {
+                        var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                            pos, spawnBounds, SpawnCollisionPadding);
+                        return ov;
+                    });
+
+                if (!walkResult.found)
+                {
+                    chain.WalkbackExhausted = true;
+                    ParsekLog.Warn("SpawnCollision",
+                        string.Format(ic,
+                            "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
+                            "Manual placement required. Walkback will not re-scan.",
+                            tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
+                    return 0;
+                }
+
+                walkPt = walkResult.point;
                 ParsekLog.Info("SpawnCollision",
                     string.Format(ic,
-                        "Trajectory walkback: vessel={0} — found valid position {1} frames back at UT={2}",
-                        tipRecording.VesselName ?? "(unknown)", tipRecording.Points.Count - 1 - validIdx,
-                        tipRecording.Points[validIdx].ut.ToString("F1", ic)));
-
-                // Update snapshot position to walkback point coordinates
-                var walkPt = tipRecording.Points[validIdx];
-                vesselSnapshot.SetValue("lat", walkPt.latitude.ToString("R", ic));
-                vesselSnapshot.SetValue("lon", walkPt.longitude.ToString("R", ic));
-                vesselSnapshot.SetValue("alt", walkPt.altitude.ToString("R", ic));
-
-                // Spawn at walkback position
-                if (TerrainCorrector.ShouldCorrectTerrain(
-                        tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
-                    ApplyTerrainCorrection(tipRecording, vesselSnapshot);
-
-                VesselSpawner.TryApplyPreferredSpawnRotation(
-                    vesselSnapshot, tipRecording, walkPt, "Chain tip walkback spawn");
-
-                uint walkbackPid = VesselSpawner.RespawnValidatedRecording(
-                    tipRecording,
-                    string.Format(ic, "walkback chain tip '{0}'", tipRecording.RecordingId ?? tipRecording.VesselName),
-                    preserveIdentity: true,
-                    currentUT: tipRecording.Points[validIdx].ut,
-                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
-                if (walkbackPid != 0)
-                {
-                    MarkChainTipRecordingSpawned(
-                        tipRecording,
-                        walkbackPid,
-                        string.Format(ic, "walkback chain tip '{0}'",
-                            tipRecording.RecordingId ?? tipRecording.VesselName));
-                    chain.SpawnBlocked = false;
-                    CleanupGhostedVessel(chain.OriginalVesselPid);
-                    return walkbackPid;
-                }
+                        "Trajectory walkback: vessel={0} — found clear sub-step at UT={1} lat={2} lon={3} alt={4}",
+                        tipRecording.VesselName ?? "(unknown)",
+                        walkPt.ut.ToString("F1", ic),
+                        walkPt.latitude.ToString("F6", ic),
+                        walkPt.longitude.ToString("F6", ic),
+                        walkPt.altitude.ToString("F1", ic)));
             }
             else
             {
-                chain.WalkbackExhausted = true;
+                int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                    tipRecording.Points,
+                    spawnBounds,
+                    SpawnCollisionPadding,
+                    pt =>
+                    {
+                        string bodyName = pt.bodyName;
+                        if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                        CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                        return body != null
+                            ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                            : Vector3d.zero;
+                    },
+                    pos =>
+                    {
+                        var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                            pos, spawnBounds, SpawnCollisionPadding);
+                        return ov;
+                    });
+
+                if (validIdx < 0)
+                {
+                    chain.WalkbackExhausted = true;
+                    ParsekLog.Warn("SpawnCollision",
+                        string.Format(ic,
+                            "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
+                            "Manual placement required. Walkback will not re-scan.",
+                            tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
+                    return 0;
+                }
+
+                walkPt = tipRecording.Points[validIdx];
                 ParsekLog.Warn("SpawnCollision",
                     string.Format(ic,
-                        "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
-                        "Manual placement required. Walkback will not re-scan.",
-                        tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
+                        "Trajectory walkback: vessel={0} — body resolution unavailable, falling back to point walkback at UT={1}",
+                        tipRecording.VesselName ?? "(unknown)",
+                        walkPt.ut.ToString("F1", ic)));
+            }
+
+            Vector3d spawnVelocity = new Vector3d(
+                walkPt.velocity.x,
+                walkPt.velocity.y,
+                walkPt.velocity.z);
+            uint walkbackPid = SpawnChainTipWithResolvedState(
+                tipRecording,
+                vesselSnapshot,
+                string.Format(ic, "walkback chain tip '{0}'", tipRecording.RecordingId ?? tipRecording.VesselName),
+                Planetarium.GetUniversalTime(),
+                walkPt.latitude,
+                walkPt.longitude,
+                walkPt.altitude,
+                spawnVelocity,
+                walkPt,
+                VesselSpawner.ResolveSpawnRotationBody(tipRecording, walkPt));
+            if (walkbackPid != 0)
+            {
+                MarkChainTipRecordingSpawned(
+                    tipRecording,
+                    walkbackPid,
+                    string.Format(ic, "walkback chain tip '{0}'",
+                        tipRecording.RecordingId ?? tipRecording.VesselName));
+                chain.SpawnBlocked = false;
+                CleanupGhostedVessel(chain.OriginalVesselPid);
+                return walkbackPid;
             }
 
             return 0;

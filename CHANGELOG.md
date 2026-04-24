@@ -63,6 +63,7 @@ All notable changes to Parsek are documented here.
 - `#558` Real-vessel spawn now writes format-v0 surface-relative recording rotation directly to `VESSEL.rot` before `ProtoVessel.Load()`, matching KSP's `ProtoVessel.rotation -> vesselRef.srfRelRotation` contract. `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns no longer pre-compose `body.bodyTransform.rotation * srfRelRotation`, preventing landed surface respawns from loading with a double-applied body rotation.
 - `#559` Time jumps that cross ghost chain tips now keep the materialized tip recording attached to the spawned vessel PID, so later spawn tracking and watch handoff follow the real vessel instead of rediscovering it.
 - `#565` Continued scene-enter resume replays no longer materialize an older endpoint as an intermediate rover before the continued recording reaches its final spawn.
+- Spawn-path audit follow-ups now route the remaining KSC end-of-recording and chain-tip normal/blocked/walkback materialization paths through the shared resolved-state spawn flow, including subdivided walkback interpolation for blocked chain tips. Failed respawns and flag spawns also clean up any transient `ProtoVessel` inserted before `ProtoVessel.Load()` aborts, and scene-load tree-leaf spawns now use the same shared materialization helper.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
 - `#504` Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
 - `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
@@ -97,12 +98,14 @@ All notable changes to Parsek are documented here.
 - `#550` Added headless source-vessel materialization guard coverage for adoption, no-mutation and replay-bypass cases, validated-spawn short-circuiting before snapshot validation, chain-tip adoption before collision/snapshot work, KSC spawn adoption, time-jump chain-tip bypass preservation, and committed-tree restore matching of adopted source vessels.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
 - `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
+- Added headless spawn-path audit coverage for `VesselSpawner` route selection and prepared-snapshot validation, plus subdivided walkback interpolation of UT, velocity, and rotation for blocked chain-tip recovery.
 
 ### Documentation
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
 - `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
+- Updated the spawn audit design note and todo docs to mark the KSC, chain-tip, tree-leaf, and orphan-`ProtoVessel` follow-ups closed.
 
 ## 0.8.3
 

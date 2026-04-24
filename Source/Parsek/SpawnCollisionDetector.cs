@@ -359,11 +359,12 @@ namespace Parsek
         /// trajectories ≤ 1 km end-to-end) the flat approximation is accurate to well under 1% —
         /// more than precise enough for step-count sizing on a 1.5 m granularity.
         ///
-        /// Unlike the point-granularity <see cref="WalkbackAlongTrajectory"/> (used by
-        /// VesselGhoster for chain-tip spawns), this variant subdivides between points so a
-        /// walkback on a fast-moving trajectory advances in 1-2 m increments rather than
-        /// potentially skipping 10-50 m per step. Used by VesselSpawner for end-of-recording
-        /// spawns where an EVA kerbal's endpoint may be inside a loaded vessel's bounding box.
+        /// Unlike the older point-granularity <see cref="WalkbackAlongTrajectory"/>, this
+        /// variant subdivides between points so a walkback on a fast-moving trajectory advances
+        /// in 1-2 m increments rather than potentially skipping 10-50 m per step. Used by
+        /// VesselSpawner for end-of-recording spawns and now by VesselGhoster for primary
+        /// chain-tip walkback, with the point-granularity helper retained only as a fallback
+        /// when body resolution is unavailable.
         /// </summary>
         /// <param name="points">Trajectory points to walk backward through.</param>
         /// <param name="bodyRadius">Body radius in metres (for <see cref="SurfaceDistance"/>).</param>
@@ -388,10 +389,30 @@ namespace Parsek
                 Func<double, double, double, Vector3d> latLonAltToWorldPos,
                 Func<Vector3d, bool> isOverlapping)
         {
+            var result = WalkbackAlongTrajectorySubdividedDetailed(
+                points,
+                bodyRadius,
+                stepMeters,
+                latLonAltToWorldPos,
+                isOverlapping);
+
+            return result.found
+                ? (true, result.point.latitude, result.point.longitude, result.point.altitude, result.worldPos)
+                : (false, 0, 0, 0, Vector3d.zero);
+        }
+
+        internal static (bool found, TrajectoryPoint point, Vector3d worldPos)
+            WalkbackAlongTrajectorySubdividedDetailed(
+                List<TrajectoryPoint> points,
+                double bodyRadius,
+                float stepMeters,
+                Func<double, double, double, Vector3d> latLonAltToWorldPos,
+                Func<Vector3d, bool> isOverlapping)
+        {
             if (points == null || points.Count == 0)
             {
                 ParsekLog.Verbose(Tag, "WalkbackSubdivided: null or empty trajectory — returning (false, …)");
-                return (false, 0, 0, 0, Vector3d.zero);
+                return (false, default, Vector3d.zero);
             }
 
             if (stepMeters <= 0f)
@@ -414,7 +435,7 @@ namespace Parsek
                     string.Format(IC,
                         "WalkbackSubdivided: last point clear at index {0} (UT={1})",
                         last, lastPt.ut.ToString("F2", IC)));
-                return (true, lastPt.latitude, lastPt.longitude, lastPt.altitude, lastWorldPos);
+                return (true, lastPt, lastWorldPos);
             }
 
             ParsekLog.Verbose(Tag,
@@ -461,13 +482,16 @@ namespace Parsek
 
                     if (!overlaps)
                     {
+                        TrajectoryPoint interpolatedPoint = InterpolateTrajectoryPoint(segEnd, segStart, (float)t);
                         ParsekLog.Info(Tag,
                             string.Format(IC,
                                 "WalkbackSubdivided: cleared at segment [{0}↔{1}] step {2}/{3} lat={4} lon={5} alt={6} (total sub-steps checked={7})",
                                 i - 1, i, k, n,
-                                lat.ToString("F6", IC), lon.ToString("F6", IC),
-                                alt.ToString("F1", IC), totalSubStepsChecked));
-                        return (true, lat, lon, alt, worldPos);
+                                interpolatedPoint.latitude.ToString("F6", IC),
+                                interpolatedPoint.longitude.ToString("F6", IC),
+                                interpolatedPoint.altitude.ToString("F1", IC),
+                                totalSubStepsChecked));
+                        return (true, interpolatedPoint, worldPos);
                     }
 
                     // Rate-limit per-sub-step overlap log spam: 1 in 10 candidates
@@ -485,7 +509,43 @@ namespace Parsek
                 string.Format(IC,
                     "WalkbackSubdivided: entire trajectory overlaps after {0} sub-steps — returning (false, …) (walkback exhausted)",
                     totalSubStepsChecked));
-            return (false, 0, 0, 0, Vector3d.zero);
+            return (false, default, Vector3d.zero);
+        }
+
+        private static TrajectoryPoint InterpolateTrajectoryPoint(
+            TrajectoryPoint later,
+            TrajectoryPoint earlier,
+            float t)
+        {
+            t = Mathf.Clamp01(t);
+
+            string bodyName;
+            if (string.Equals(later.bodyName, earlier.bodyName, StringComparison.Ordinal))
+            {
+                bodyName = later.bodyName;
+            }
+            else if (t < 0.5f)
+            {
+                bodyName = string.IsNullOrEmpty(later.bodyName) ? earlier.bodyName : later.bodyName;
+            }
+            else
+            {
+                bodyName = string.IsNullOrEmpty(earlier.bodyName) ? later.bodyName : earlier.bodyName;
+            }
+
+            return new TrajectoryPoint
+            {
+                ut = later.ut + (earlier.ut - later.ut) * t,
+                latitude = later.latitude + (earlier.latitude - later.latitude) * t,
+                longitude = later.longitude + (earlier.longitude - later.longitude) * t,
+                altitude = later.altitude + (earlier.altitude - later.altitude) * t,
+                rotation = TrajectoryMath.SanitizeQuaternion(Quaternion.Slerp(later.rotation, earlier.rotation, t)),
+                velocity = Vector3.Lerp(later.velocity, earlier.velocity, t),
+                bodyName = bodyName,
+                funds = later.funds + (earlier.funds - later.funds) * t,
+                science = later.science + (earlier.science - later.science) * t,
+                reputation = later.reputation + (earlier.reputation - later.reputation) * t,
+            };
         }
 
         /// <summary>

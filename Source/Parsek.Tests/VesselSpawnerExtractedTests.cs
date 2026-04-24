@@ -252,6 +252,66 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Spawn path routing
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_EvaRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                EvaCrewName = "Val",
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.True(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_BreakupRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.True(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void ShouldRouteThroughSpawnAtPosition_PlainLandedVessel_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            Assert.False(VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_PreparedSnapshotNull_Rejects()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Prepared Snapshot",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            ConfigNode snapshot = VesselSpawner.BuildValidatedRespawnSnapshot(
+                (ConfigNode)null,
+                rec,
+                42.0,
+                "unit-test prepared snapshot");
+
+            Assert.Null(snapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("missing prepared snapshot"));
+        }
+
+        #endregion
+
         #region DetermineSituation
 
         [Fact]
