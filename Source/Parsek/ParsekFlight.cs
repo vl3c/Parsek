@@ -9345,6 +9345,13 @@ namespace Parsek
                     // Route scene-load leaf spawns through the shared end-of-recording helper
                     // so EVA/orbital paths rebuild endpoint-aligned ORBIT data the same way
                     // the in-flight spawn path does.
+                    if (leaf.SpawnAttempts > 0)
+                    {
+                        ParsekLog.Verbose("Flight",
+                            $"SpawnTreeLeaves: leaf '{leaf.VesselName}' entering shared spawn path " +
+                            $"with prior attempts={leaf.SpawnAttempts} (shared helper caps retries at 3)");
+                    }
+
                     VesselSpawner.SpawnOrRecoverIfTooClose(leaf, -1);
                     if (leaf.SpawnedVesselPersistentId != 0)
                     {

@@ -533,6 +533,17 @@ namespace Parsek
                 bodyName = string.IsNullOrEmpty(earlier.bodyName) ? later.bodyName : earlier.bodyName;
             }
 
+            if (!string.Equals(later.bodyName, earlier.bodyName, StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "WalkbackSubdivided: body transition later='{0}' earlier='{1}' t={2:F2} -> using '{3}'",
+                        string.IsNullOrEmpty(later.bodyName) ? "(none)" : later.bodyName,
+                        string.IsNullOrEmpty(earlier.bodyName) ? "(none)" : earlier.bodyName,
+                        t,
+                        string.IsNullOrEmpty(bodyName) ? "(none)" : bodyName));
+            }
+
             return new TrajectoryPoint
             {
                 ut = later.ut + (earlier.ut - later.ut) * t,
