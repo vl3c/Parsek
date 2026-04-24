@@ -256,6 +256,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetFinalizationCacheForRecording_ResolvesByRecordingIdWhenPidUnknown()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", new RecordingFinalizationCache
+            {
+                RecordingId = "old-active",
+                VesselPersistentId = 999u,
+                Owner = FinalizationCacheOwner.ActiveRecorder,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Orbiting,
+                TerminalUT = 250.0
+            });
+
+            var recording = new Recording
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 0
+            };
+
+            RecordingFinalizationCache cache =
+                bgRecorder.GetFinalizationCacheForRecording(recording);
+
+            Assert.NotNull(cache);
+            Assert.Equal("rec_bg1", cache.RecordingId);
+            Assert.Equal(100u, cache.VesselPersistentId);
+            Assert.Equal(TerminalState.Orbiting, cache.TerminalState);
+        }
+
+        [Fact]
+        public void FinalizeAllForCommit_MissingLoadedVessel_KeepsCacheApplicableFromLastSample()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                100,
+                "rec_bg1",
+                SegmentEnvironment.Atmospheric,
+                ut: 100.0,
+                initialPoint: new TrajectoryPoint
+                {
+                    ut = 100.0,
+                    altitude = 5000.0,
+                    bodyName = "Kerbin"
+                });
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 100u,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Destroyed,
+                TerminalUT = 180.0,
+                TailStartsAtUT = 100.0
+            };
+            cache.PredictedSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 180.0,
+                semiMajorAxis = 700000.0,
+                isPredicted = true
+            });
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", cache);
+
+            bgRecorder.FinalizeAllForCommit(commitUT: 200.0);
+
+            Recording rec = tree.Recordings["rec_bg1"];
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(100.0, rec.TrackSections[0].endUT);
+            RecordingFinalizationCache resolved =
+                bgRecorder.GetFinalizationCacheForRecording(rec);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                resolved,
+                new RecordingFinalizationCacheApplyOptions
+                {
+                    ConsumerPath = "test_missing_loaded_commit",
+                    AllowStale = true
+                },
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(180.0, rec.ExplicitEndUT);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.True(rec.OrbitSegments.Exists(s => s.isPredicted && s.endUT == 180.0));
+        }
+
+        [Fact]
         public void Constructor_EmptyBackgroundMap_CreatesNoStates()
         {
             var tree = MakeTree(); // no background vessels

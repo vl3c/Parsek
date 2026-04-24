@@ -1626,6 +1626,11 @@ namespace Parsek
                 var state = kvp.Value;
                 if (state.hasOpenOrbitSegment)
                 {
+                    RefreshOnRailsFinalizationCache(
+                        state,
+                        commitUT,
+                        "background_commit_on_rails",
+                        force: true);
                     CloseOrbitSegment(state, commitUT);
                 }
             }
@@ -1634,7 +1639,37 @@ namespace Parsek
             foreach (var kvp in loadedStates)
             {
                 var state = kvp.Value;
-                CloseBackgroundTrackSection(state, commitUT);
+                Vessel v = FlightRecorder.FindVesselByPid(state.vesselPid);
+                RecordingFinalizationCache previous = null;
+                finalizationCaches.TryGetValue(state.vesselPid, out previous);
+                if (v != null)
+                {
+                    RefreshFinalizationCacheForVessel(
+                        v,
+                        state.recordingId,
+                        FinalizationCacheOwner.BackgroundLoaded,
+                        "background_commit_loaded",
+                        force: true);
+                }
+                else
+                {
+                    if (previous != null)
+                    {
+                        TryTouchSkippedFinalizationCache(
+                            previous,
+                            commitUT,
+                            "background_commit_missing_vessel",
+                            previous.LastObservedOrbitDigest,
+                            requiresPeriodicRefresh: false);
+                    }
+                }
+
+                double closeUT = ResolveBackgroundCommitTrackCloseUT(
+                    state,
+                    commitUT,
+                    v,
+                    previous);
+                CloseBackgroundTrackSection(state, closeUT);
 
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
@@ -1669,6 +1704,69 @@ namespace Parsek
 
             ParsekLog.Info("BgRecorder", $"FinalizeAllForCommit complete at UT={commitUT:F1} " +
                 $"({onRailsStates.Count} on-rails, {loadedStates.Count} loaded)");
+        }
+
+        private static double ResolveBackgroundCommitTrackCloseUT(
+            BackgroundVesselState state,
+            double commitUT,
+            Vessel vessel,
+            RecordingFinalizationCache cache)
+        {
+            if (vessel != null || state == null || !IsPotentiallyApplicableFinalizationCache(cache))
+                return commitUT;
+
+            if (!IsFiniteUT(state.lastRecordedUT) || state.lastRecordedUT < 0.0)
+                return commitUT;
+
+            if (!IsFiniteUT(commitUT) || state.lastRecordedUT <= commitUT)
+                return state.lastRecordedUT;
+
+            return commitUT;
+        }
+
+        private static bool IsPotentiallyApplicableFinalizationCache(
+            RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && (cache.Status == FinalizationCacheStatus.Fresh
+                    || cache.Status == FinalizationCacheStatus.Stale)
+                && cache.TerminalState.HasValue
+                && IsFiniteUT(cache.TerminalUT);
+        }
+
+        private static bool IsFiniteUT(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        internal RecordingFinalizationCache GetFinalizationCacheForRecording(Recording recording)
+        {
+            if (recording == null)
+                return null;
+
+            RecordingFinalizationCache cache;
+            if (recording.VesselPersistentId != 0
+                && finalizationCaches.TryGetValue(recording.VesselPersistentId, out cache))
+            {
+                AlignFinalizationCacheIdentity(cache, recording);
+                return cache;
+            }
+
+            if (!string.IsNullOrEmpty(recording.RecordingId))
+            {
+                foreach (var kvp in finalizationCaches)
+                {
+                    cache = kvp.Value;
+                    if (cache != null
+                        && string.Equals(cache.RecordingId, recording.RecordingId, StringComparison.Ordinal))
+                    {
+                        AlignFinalizationCacheIdentity(cache, recording);
+                        return cache;
+                    }
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -3605,6 +3703,19 @@ namespace Parsek
             ParsekLog.Verbose("FinalizerCache",
                 $"Inherited active cache for background pid={vesselPid} rec={recordingId ?? "(null)"} " +
                 $"status={inheritedCache.Status} terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
+        }
+
+        private static void AlignFinalizationCacheIdentity(
+            RecordingFinalizationCache cache,
+            Recording recording)
+        {
+            if (cache == null || recording == null)
+                return;
+
+            if (string.IsNullOrEmpty(cache.RecordingId))
+                cache.RecordingId = recording.RecordingId;
+            if (cache.VesselPersistentId == 0)
+                cache.VesselPersistentId = recording.VesselPersistentId;
         }
 
         private bool RefreshFinalizationCacheForVessel(

@@ -8369,6 +8369,19 @@ namespace Parsek
             if (backgroundRecorder != null)
                 backgroundRecorder.FinalizeAllForCommit(commitUT);
 
+            FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT,
+                isSceneExit,
+                rec => ResolveFinalizationCacheForRecording(tree, rec));
+        }
+
+        internal static void FinalizeTreeRecordingsAfterFlush(
+            RecordingTree tree,
+            double commitUT,
+            bool isSceneExit,
+            Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null)
+        {
             var sceneExitLifetimeExtendedIds = isSceneExit
                 ? new HashSet<string>(StringComparer.Ordinal)
                 : null;
@@ -8376,7 +8389,11 @@ namespace Parsek
             // 3. Process each recording in the tree
             foreach (var kvp in tree.Recordings)
             {
-                if (FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit)
+                RecordingFinalizationCache finalizationCache =
+                    resolveFinalizationCache != null
+                        ? resolveFinalizationCache(kvp.Value)
+                        : null;
+                if (FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit, finalizationCache)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(kvp.Value?.RecordingId))
                 {
@@ -8388,7 +8405,21 @@ namespace Parsek
             // In tree mode, the active recording may have debris branches (non-leaf)
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
-            if (EnsureActiveRecordingTerminalState(tree, isSceneExit, commitUT)
+            RecordingFinalizationCache activeFinalizationCache = null;
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording activeForCache))
+            {
+                activeFinalizationCache =
+                    resolveFinalizationCache != null
+                        ? resolveFinalizationCache(activeForCache)
+                        : null;
+            }
+
+            if (EnsureActiveRecordingTerminalState(
+                    tree,
+                    isSceneExit,
+                    commitUT,
+                    activeFinalizationCache)
                 && sceneExitLifetimeExtendedIds != null
                 && !string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
@@ -8409,6 +8440,120 @@ namespace Parsek
                 $"(resource accounting via ledger; no tree-level delta captured).");
         }
 
+        private RecordingFinalizationCache ResolveFinalizationCacheForRecording(
+            RecordingTree tree,
+            Recording recording)
+        {
+            if (recording == null)
+                return null;
+
+            RecordingFinalizationCache cache = null;
+            if (recorder != null
+                && IsActiveRecorderCacheCandidate(tree, recording, recorder))
+            {
+                cache = recorder.GetFinalizationCacheForRecording(recording);
+                if (CacheIdentityMatchesRecording(recording, cache))
+                    return cache;
+            }
+
+            if (backgroundRecorder != null)
+            {
+                cache = backgroundRecorder.GetFinalizationCacheForRecording(recording);
+                if (CacheIdentityMatchesRecording(recording, cache))
+                    return cache;
+            }
+
+            return null;
+        }
+
+        private static bool IsActiveRecorderCacheCandidate(
+            RecordingTree tree,
+            Recording recording,
+            FlightRecorder activeRecorder)
+        {
+            if (recording == null || activeRecorder == null)
+                return false;
+
+            if (tree != null
+                && !string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && string.Equals(
+                    tree.ActiveRecordingId,
+                    recording.RecordingId,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return recording.VesselPersistentId != 0
+                && recording.VesselPersistentId == activeRecorder.RecordingVesselId;
+        }
+
+        private static bool CacheIdentityMatchesRecording(
+            Recording recording,
+            RecordingFinalizationCache cache)
+        {
+            if (recording == null || cache == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(recording.RecordingId)
+                && !string.IsNullOrEmpty(cache.RecordingId)
+                && !string.Equals(
+                    recording.RecordingId,
+                    cache.RecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return recording.VesselPersistentId == 0
+                || cache.VesselPersistentId == 0
+                || recording.VesselPersistentId == cache.VesselPersistentId;
+        }
+
+        internal static bool ShouldAttemptFinalizationCacheFallback(
+            RecordingFinalizationCache cache,
+            bool vesselMissing)
+        {
+            return cache != null && vesselMissing;
+        }
+
+        private static bool TryApplyFinalizationCacheFallback(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            string consumerPath,
+            bool allowStale,
+            out RecordingFinalizationCacheApplyResult result)
+        {
+            var options = new RecordingFinalizationCacheApplyOptions
+            {
+                ConsumerPath = consumerPath,
+                AllowStale = allowStale
+            };
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                recording,
+                cache,
+                options,
+                out result);
+
+            if (applied)
+            {
+                ParsekLog.Info("Flight",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Finalization source=cache consumer={0} rec={1} terminal={2} " +
+                        "terminalUT={3:F3} appendedSegments={4} staleAllowed={5}",
+                        consumerPath ?? "(null)",
+                        recording?.DebugName ?? "(null)",
+                        result.TerminalState?.ToString() ?? "(null)",
+                        result.TerminalUT,
+                        result.AppendedSegmentCount,
+                        allowStale));
+            }
+
+            return applied;
+        }
+
         /// <summary>
         /// Sets terminal state on the active recording even if it is a non-leaf node.
         /// FinalizeIndividualRecording skips non-leaves, but the active recording needs
@@ -8419,7 +8564,8 @@ namespace Parsek
         internal static bool EnsureActiveRecordingTerminalState(
             RecordingTree tree,
             bool isSceneExit = false,
-            double commitUT = double.NaN)
+            double commitUT = double.NaN,
+            RecordingFinalizationCache finalizationCache = null)
         {
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
                 return false;
@@ -8495,6 +8641,18 @@ namespace Parsek
                     $"FinalizeTreeRecordings: set terminalState=" +
                     $"{activeRec.TerminalStateValue} on active recording " +
                     $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+                return false;
+            }
+
+            if (!activeRec.TerminalStateValue.HasValue
+                && ShouldAttemptFinalizationCacheFallback(finalizationCache, v == null)
+                && TryApplyFinalizationCacheFallback(
+                    activeRec,
+                    finalizationCache,
+                    "EnsureActiveRecordingTerminalState",
+                    allowStale: v == null,
+                    out _))
+            {
                 return false;
             }
 
@@ -8583,7 +8741,11 @@ namespace Parsek
                 "FinalizeTreeRecordings: re-snapshotted active effective leaf");
         }
 
-        internal static bool FinalizeIndividualRecording(Recording rec, double commitUT, bool isSceneExit)
+        internal static bool FinalizeIndividualRecording(
+            Recording rec,
+            double commitUT,
+            bool isSceneExit,
+            RecordingFinalizationCache finalizationCache = null)
         {
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
@@ -8613,6 +8775,8 @@ namespace Parsek
             bool sceneExitLifetimeExtended = false;
             bool sceneExitSuppliedSnapshots = false;
             bool sceneExitSuppliedTerminalOrbit = false;
+            bool cacheFinalizationApplied = false;
+            bool cacheSuppliedTerminalOrbit = false;
 
             if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
                 ParsekLog.Verbose("Flight",
@@ -8657,6 +8821,22 @@ namespace Parsek
                                 rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
                         }
                     }
+                }
+                else if (ShouldAttemptFinalizationCacheFallback(
+                    finalizationCache,
+                    vesselMissing: true)
+                    && TryApplyFinalizationCacheFallback(
+                        rec,
+                        finalizationCache,
+                        "FinalizeIndividualRecording",
+                        allowStale: true,
+                        out _))
+                {
+                    cacheFinalizationApplied = true;
+                    cacheSuppliedTerminalOrbit =
+                        rec.TerminalStateValue.HasValue
+                        && UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value)
+                        && !string.IsNullOrEmpty(rec.TerminalOrbitBody);
                 }
                 else if (isSceneExit)
                 {
@@ -8710,6 +8890,7 @@ namespace Parsek
             //
             // Reuses finalizeVessel from the lookup above — no double FindVesselByPid.
             if (!(sceneExitLifetimeExtended && sceneExitSuppliedSnapshots)
+                && !cacheFinalizationApplied
                 && isLeaf
                 && rec.TerminalStateValue.HasValue
                 && finalizeVessel != null)
@@ -8730,13 +8911,20 @@ namespace Parsek
             {
                 bool preserveSceneExitTerminalOrbit =
                     sceneExitLifetimeExtended && sceneExitSuppliedTerminalOrbit;
+                bool preserveFinalizationCacheTerminalOrbit =
+                    cacheFinalizationApplied && cacheSuppliedTerminalOrbit;
+                bool preserveFinalizerSuppliedTerminalOrbit =
+                    preserveSceneExitTerminalOrbit
+                    || preserveFinalizationCacheTerminalOrbit;
                 string bodyBeforeRefresh = rec.TerminalOrbitBody;
-                if (!sceneExitLifetimeExtended && finalizeVessel != null)
+                if (!sceneExitLifetimeExtended && !cacheFinalizationApplied && finalizeVessel != null)
                     CaptureTerminalOrbit(rec, finalizeVessel);
-                else if (preserveSceneExitTerminalOrbit)
+                else if (preserveFinalizerSuppliedTerminalOrbit)
                     ParsekLog.Verbose("Flight",
-                        $"FinalizeIndividualRecording: preserving scene-exit terminal orbit for '{rec.RecordingId}' " +
-                        $"(body={rec.TerminalOrbitBody}, terminal={rec.TerminalStateValue})");
+                        $"FinalizeIndividualRecording: preserving " +
+                        $"{(preserveFinalizationCacheTerminalOrbit ? "cache" : "scene-exit")} " +
+                        $"terminal orbit for '{rec.RecordingId}' (body={rec.TerminalOrbitBody}, " +
+                        $"terminal={rec.TerminalStateValue})");
 
                 if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)
                     && !string.Equals(rec.TerminalOrbitBody, bodyBeforeRefresh, StringComparison.Ordinal))
@@ -8751,10 +8939,10 @@ namespace Parsek
                 // refresh. If CaptureTerminalOrbit just rewrote TerminalOrbitBody,
                 // that refreshed body should stay authoritative instead of letting
                 // stale point metadata from a prior SOI suppress the finalize path.
-                bool handledSameUtPointAnchor = !preserveSceneExitTerminalOrbit
+                bool handledSameUtPointAnchor = !preserveFinalizerSuppliedTerminalOrbit
                     && TryHandleFinalizeSameUtPointAnchoredTerminalOrbit(rec);
                 if (!handledSameUtPointAnchor
-                    && !preserveSceneExitTerminalOrbit
+                    && !preserveFinalizerSuppliedTerminalOrbit
                     && ShouldPopulateTerminalOrbitFromLastSegment(rec))
                 {
                     string bodyBeforeFallback = rec.TerminalOrbitBody;
