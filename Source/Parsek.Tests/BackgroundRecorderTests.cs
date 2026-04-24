@@ -298,13 +298,19 @@ namespace Parsek.Tests
                 VesselPersistentId = 0
             };
 
+            RecordingFinalizationCache stored =
+                bgRecorder.GetFinalizationCacheForTesting(100);
             RecordingFinalizationCache cache =
                 bgRecorder.GetFinalizationCacheForRecording(recording);
 
             Assert.NotNull(cache);
+            Assert.NotSame(stored, cache);
             Assert.Equal("rec_bg1", cache.RecordingId);
             Assert.Equal(100u, cache.VesselPersistentId);
             Assert.Equal(TerminalState.Orbiting, cache.TerminalState);
+
+            cache.RecordingId = "mutated-returned-copy";
+            Assert.Equal("rec_bg1", stored.RecordingId);
         }
 
         [Fact]

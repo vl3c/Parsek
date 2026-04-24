@@ -8556,17 +8556,25 @@ namespace Parsek
                 : null;
 
             // 3. Process each recording in the tree
+            RecordingFinalizationCache activeFinalizationCache = null;
             foreach (var kvp in tree.Recordings)
             {
+                Recording recording = kvp.Value;
                 RecordingFinalizationCache finalizationCache =
                     resolveFinalizationCache != null
-                        ? resolveFinalizationCache(kvp.Value)
+                        ? resolveFinalizationCache(recording)
                         : null;
-                if (FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit, finalizationCache)
-                    && sceneExitLifetimeExtendedIds != null
-                    && !string.IsNullOrEmpty(kvp.Value?.RecordingId))
+                if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                    && string.Equals(recording?.RecordingId, tree.ActiveRecordingId, StringComparison.Ordinal))
                 {
-                    sceneExitLifetimeExtendedIds.Add(kvp.Value.RecordingId);
+                    activeFinalizationCache = finalizationCache;
+                }
+
+                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache)
+                    && sceneExitLifetimeExtendedIds != null
+                    && !string.IsNullOrEmpty(recording?.RecordingId))
+                {
+                    sceneExitLifetimeExtendedIds.Add(recording.RecordingId);
                 }
             }
 
@@ -8574,16 +8582,6 @@ namespace Parsek
             // In tree mode, the active recording may have debris branches (non-leaf)
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
-            RecordingFinalizationCache activeFinalizationCache = null;
-            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
-                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording activeForCache))
-            {
-                activeFinalizationCache =
-                    resolveFinalizationCache != null
-                        ? resolveFinalizationCache(activeForCache)
-                        : null;
-            }
-
             if (EnsureActiveRecordingTerminalState(
                     tree,
                     isSceneExit,
@@ -8679,7 +8677,7 @@ namespace Parsek
                 || recording.VesselPersistentId == cache.VesselPersistentId;
         }
 
-        internal static bool ShouldAttemptFinalizationCacheFallback(
+        internal static bool HasFallbackCandidateCache(
             RecordingFinalizationCache cache,
             bool vesselMissing)
         {
@@ -8718,6 +8716,21 @@ namespace Parsek
                         result.TerminalUT,
                         result.AppendedSegmentCount,
                         allowStale));
+
+                if (cache.Status == FinalizationCacheStatus.Stale)
+                {
+                    ParsekLog.Warn("Flight",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Finalization source=cache applied stale cache consumer={0} rec={1} " +
+                            "terminal={2} terminalUT={3:F3} owner={4} cachedAtUT={5:F3}",
+                            consumerPath ?? "(null)",
+                            recording?.DebugName ?? "(null)",
+                            result.TerminalState?.ToString() ?? "(null)",
+                            result.TerminalUT,
+                            cache.Owner,
+                            cache.CachedAtUT));
+                }
             }
 
             return applied;
@@ -8814,7 +8827,7 @@ namespace Parsek
             }
 
             if (!activeRec.TerminalStateValue.HasValue
-                && ShouldAttemptFinalizationCacheFallback(finalizationCache, v == null)
+                && HasFallbackCandidateCache(finalizationCache, v == null)
                 && TryApplyFinalizationCacheFallback(
                     activeRec,
                     finalizationCache,
@@ -8991,7 +9004,7 @@ namespace Parsek
                         }
                     }
                 }
-                else if (ShouldAttemptFinalizationCacheFallback(
+                else if (HasFallbackCandidateCache(
                     finalizationCache,
                     vesselMissing: true)
                     && TryApplyFinalizationCacheFallback(

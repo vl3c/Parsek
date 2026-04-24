@@ -322,6 +322,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_StaleCacheFallback_AppliesAndWarnsWhenVesselMissing()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-stale-cache",
+                VesselName = "Stale Cached Tail",
+                VesselPersistentId = 43,
+                ChildBranchPointId = null,
+                ExplicitEndUT = double.NaN
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                terminalUT: 180.0);
+            cache.Status = FinalizationCacheStatus.Stale;
+            cache.CachedAtUT = 105.0;
+
+            bool extended = ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: true,
+                finalizationCache: cache);
+
+            Assert.False(extended);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(180.0, rec.ExplicitEndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Flight]") &&
+                l.Contains("Finalization source=cache applied stale cache") &&
+                l.Contains("consumer=FinalizeIndividualRecording") &&
+                l.Contains("Stale Cached Tail"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_CacheRejected_FallsBackToTrajectoryInference()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-cache-rejected",
+                VesselName = "Rejected Cache",
+                VesselPersistentId = 44,
+                ChildBranchPointId = null,
+                ExplicitEndUT = double.NaN
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                "other-recording",
+                rec.VesselPersistentId,
+                terminalUT: 180.0);
+
+            bool extended = ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: true,
+                finalizationCache: cache);
+
+            Assert.False(extended);
+            Assert.Equal(TerminalState.SubOrbital, rec.TerminalStateValue);
+            Assert.Equal(100.0, rec.ExplicitEndUT);
+            Assert.Empty(rec.OrbitSegments);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][FinalizerCache]") &&
+                l.Contains("Apply rejected") &&
+                l.Contains("reason=RejectedMismatchedRecording") &&
+                l.Contains("consumer=FinalizeIndividualRecording"));
+            Assert.Contains(logLines, l =>
+                l.Contains("inferred SubOrbital from trajectory") &&
+                l.Contains("scene-exit-cache-rejected"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Finalization source=cache") && l.Contains("Rejected Cache"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_LiveSceneExitFinalizerWinsOverCache()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
@@ -440,7 +530,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldAttemptFinalizationCacheFallback_OnlyUsesStableCacheWhenVesselMissing()
+        public void HasFallbackCandidateCache_RequiresCacheAndMissingVessel()
         {
             var stable = new RecordingFinalizationCache
             {
@@ -471,12 +561,13 @@ namespace Parsek.Tests
                 }
             };
 
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(stable, vesselMissing: false));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(stable, vesselMissing: true));
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(synthetic, vesselMissing: false));
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(predictedStable, vesselMissing: false));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(synthetic, vesselMissing: true));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(predictedStable, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(null, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(stable, vesselMissing: false));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(stable, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(synthetic, vesselMissing: false));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(predictedStable, vesselMissing: false));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(synthetic, vesselMissing: true));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(predictedStable, vesselMissing: true));
         }
 
         [Fact]
@@ -492,8 +583,26 @@ namespace Parsek.Tests
             var tree = new RecordingTree
             {
                 Id = "tree-cache-consumer",
-                TreeName = "Cache Consumer Tree"
+                TreeName = "Cache Consumer Tree",
+                ActiveRecordingId = "active-cache-consumer"
             };
+            var active = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Active Missing",
+                VesselPersistentId = 200,
+                ChildBranchPointId = "bp-active",
+                ExplicitEndUT = 100.0
+            };
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[active.RecordingId] = active;
+
             var background = new Recording
             {
                 RecordingId = "bg-cache-consumer",
@@ -530,7 +639,7 @@ namespace Parsek.Tests
                         : null;
                 });
 
-            Assert.True(resolverCalls > 0);
+            Assert.Equal(2, resolverCalls);
             Assert.Equal(TerminalState.Destroyed, background.TerminalStateValue);
             Assert.Equal(180.0, background.ExplicitEndUT);
             Assert.Single(background.OrbitSegments);
