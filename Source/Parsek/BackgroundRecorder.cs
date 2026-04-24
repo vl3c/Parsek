@@ -1814,8 +1814,11 @@ namespace Parsek
                 return false;
 
             RecordingFinalizationCache cache = GetFinalizationCacheForRecording(recording);
-            if (cache == null && vesselPid != 0)
-                finalizationCaches.TryGetValue(vesselPid, out cache);
+            if (cache == null && vesselPid != 0
+                && finalizationCaches.TryGetValue(vesselPid, out RecordingFinalizationCache pidLookup))
+            {
+                cache = CopyAndAlignFinalizationCacheIdentity(pidLookup, recording);
+            }
 
             return TryApplyFinalizationCacheForBackgroundEnd(
                 recording,

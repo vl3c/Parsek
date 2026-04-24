@@ -51,7 +51,7 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 **Status:** CLOSED 2026-04-24. Fixed for v0.9.0.
 
-## ~~557. Scene-enter auto-record never resumed on vessels with a committed recording~~
+## ~~567. Scene-enter auto-record never resumed on vessels with a committed recording~~
 
 Observed in the `2026-04-23_2200_playtest-post-v083` playtest: launch a vessel, commit the recording, exit to KSC, re-enter the same vessel via Tracking Station, drive it. Auto-record stayed `mode=none` for the entire session. The `FlightRecorder.OnVesselGoOffRails` handler early-returns when `IsRecording` is false, and the design spec (`recording-system-design.md` §4.5 "When the player returns to flight, vessels come off rails → new checkpoints captured → physics sampling resumes") expected the resume path to run here.
 
@@ -395,7 +395,7 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 ---
 
-## ~~558. Real-spawned vessel post-resume stands on its side when physics activates~~
+## ~~568. Real-spawned vessel post-resume stands on its side when physics activates~~
 
 **Source:** filed on `bug/scene-enter-resume-recording` after `logs/2026-04-23_2333_spawn-orientation` and reproduced in `logs/2026-04-24_0004_orientation-regression`. The 2026-04-24 in-flight real-spawn logged `srfRel=-0.000111888832,-0.133055791,-0.000464609941,0.991108477` for an upright rover with about 15 degrees of yaw, then wrote `world=0.000474858942,-0.885830998,5.37633787E-05,-0.464007854` into the snapshot `rot` field. KSP immediately classified the spawned LANDED vessel through a non-active `0 -> ORBITING` transition, matching the observed "on its side" physics activation.
 
@@ -409,9 +409,9 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 ---
 
-## ~~559. Time-jump chain-tip spawns can leave the materialized recording unmarked~~
+## ~~569. Time-jump chain-tip spawns can leave the materialized recording unmarked~~
 
-**Source:** spawn audit while validating #558 / PR #519. `TimeJumpManager.SpawnCrossedChainTips(...)` called `VesselGhoster.SpawnAtChainTip(...)` and removed the chain key after a non-zero spawned PID, but the time-jump caller did not mirror the normal Flight caller's `VesselSpawned=true` / `SpawnedVesselPersistentId=<pid>` update onto the tip recording.
+**Source:** spawn audit while validating #568 / PR #519. `TimeJumpManager.SpawnCrossedChainTips(...)` called `VesselGhoster.SpawnAtChainTip(...)` and removed the chain key after a non-zero spawned PID, but the time-jump caller did not mirror the normal Flight caller's `VesselSpawned=true` / `SpawnedVesselPersistentId=<pid>` update onto the tip recording.
 
 **Concern:** after a time jump materialized a crossed chain tip, Parsek metadata could still describe the tip as ghost-only/unspawned. Later spawn-death tracking, watch handoff, background-map checks, and spawn policy would have to rediscover the live vessel by adoption instead of following the spawned PID.
 
