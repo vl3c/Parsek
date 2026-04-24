@@ -202,7 +202,7 @@ independent from #414's).
   latch test; sum+max-reconciliation invariant test.
 - `docs/dev/todo-and-known-bugs.md` — note Phase A diagnostic shipped;
   Phase B branch (B1/B2/B3) gated on next playtest's breakdown output.
-- `docs/dev/plan-450-build-breakdown.md` (this file, checked in per
+- `docs/dev/done/plan-450-build-breakdown.md` (this file, checked in per
   review finding #9).
 
 No CHANGELOG entry: per `feedback_changelog_style` the CHANGELOG is

@@ -3165,7 +3165,7 @@ namespace Parsek
         /// for recordings with non-empty <c>Points</c>. Does NOT touch
         /// <see cref="MilestoneStore.Milestones"/> — that global mutation is specifically
         /// what callers need to avoid when marking a single tree fully applied (see plan
-        /// Phase C, `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`). Returns the
+        /// Phase C, `docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md`). Returns the
         /// number of recordings whose applied index was advanced. Safe to call with a
         /// null tree (returns 0).
         /// </summary>

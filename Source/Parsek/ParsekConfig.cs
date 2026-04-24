@@ -131,7 +131,7 @@ namespace Parsek
         /// cap × <see cref="MaxSpawnBuildMillisecondsPerAdvance"/> ≈ under
         /// the 8ms playback-budget WARN threshold. Watch-mode and
         /// loop-cycle-rebuild spawns bypass this cap; see
-        /// <c>docs/dev/plan-414-spawn-throttle.md</c> for the full call-site
+        /// <c>docs/dev/done/plan-414-spawn-throttle.md</c> for the full call-site
         /// taxonomy.
         /// </summary>
         internal const int MaxSpawnsPerFrame = 2;

@@ -290,7 +290,7 @@ Session counters in `DiagnosticsStructs.HealthCounters`:
 - `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs` (new) — unit tests.
 - `docs/dev/todo-and-known-bugs.md` — extend #450 entry: B3 shipped,
   B2 next.
-- `docs/dev/plan-450-b3-lazy-reentry.md` (this file).
+- `docs/dev/done/plan-450-b3-lazy-reentry.md` (this file).
 
 ## Tests
 

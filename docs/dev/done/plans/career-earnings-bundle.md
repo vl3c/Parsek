@@ -431,7 +431,7 @@ For each of **#394, #395, #396, #397, #398, #400, #401, #402, #403, #404, #405**
 
 Keep **#399** (ComputeTotalSpendings same-UT walk) as open — still suspect/unverified; add a note that it's unblocked by this PR landing.
 
-### docs/dev/plans/career-earnings-bundle.md
+### docs/dev/done/plans/career-earnings-bundle.md
 
 When the PR merges, move this plan doc + the review doc to `docs/dev/plans/done/`.
 

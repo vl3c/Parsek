@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Phase C of the ledger / lump-sum reconciliation fix
-    /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
+    /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
     /// <para>The merge dialog used to commit a tree without advancing its child
     /// recordings' <c>LastAppliedResourceIndex</c> values to the end. That left

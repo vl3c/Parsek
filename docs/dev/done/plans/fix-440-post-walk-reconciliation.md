@@ -2,7 +2,7 @@
 
 Status: plan v1 (Phase E2 of ledger/lump-sum fix). Branch: feat/440-post-walk-reconciliation.
 Target: v0.8.2 release (sits on top of #439; rebase onto origin/main when #439 merges).
-Governs: Phase E2 of docs/dev/plans/fix-ledger-lump-sum-reconciliation.md.
+Governs: Phase E2 of docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md.
 Depends on: #436 Phase A shipped, #437 Phase B shipped, #343 Phase D shipped, #439 Phase A shipped.
 Scope note: "do it all" per user direction. Full action-type coverage across funds, science, reputation.
 
@@ -372,7 +372,7 @@ Docs:
 
 - docs/dev/todo-and-known-bugs.md: strike through entry #440.
 - CHANGELOG.md: under v0.8.2 "Fixed". Plain ASCII, 1-2 sentences.
-- docs/dev/plans/fix-ledger-lump-sum-reconciliation.md: mark Phase E2 delivered.
+- docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md: mark Phase E2 delivered.
 
 ## 14. Risks and open questions
 
@@ -405,7 +405,7 @@ R8. FundsSpending(source=Strategy) scope carve-out: not emitted today. Low risk.
 - [ ] dotnet test green in Source/Parsek.Tests.
 - [ ] docs/dev/todo-and-known-bugs.md entry #440 struck through.
 - [ ] CHANGELOG.md v0.8.2 Fixed entry added.
-- [ ] docs/dev/plans/fix-ledger-lump-sum-reconciliation.md Phase E2 marked delivered.
+- [ ] docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md Phase E2 marked delivered.
 - [ ] Rebased onto origin/main after #439 (and #376 if earlier) merge.
 - [ ] Manual in-game check (v0.8.2 user-visible ship criterion): stock career, activate one Admin-tier-1 strategy, complete one contract, save, reload. Grep KSP.log for `Earnings reconciliation (post-walk,` -> zero matches. Revert to launch, reload -> still zero matches.
 

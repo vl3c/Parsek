@@ -7526,7 +7526,7 @@ namespace Parsek
 
             // Tree resources are already live in the game — mark as applied via the
             // shared tree-scoped primitive. Phase C of the ledger / lump-sum reconciliation
-            // fix (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`) replaced the
+            // fix (`docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md`) replaced the
             // inline equivalent with this call so the in-flight commit and merge-dialog
             // commit paths stay in lockstep.
             int markedCount = RecordingStore.MarkTreeAsApplied(activeTree);
