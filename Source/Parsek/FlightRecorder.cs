@@ -353,7 +353,8 @@ namespace Parsek
         private static float speedChangeThreshold =>
             (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
         private const double snapshotRefreshIntervalUT = 10.0;
-        private const double finalizationCacheRefreshIntervalUT = RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
+        private static readonly double finalizationCacheRefreshIntervalUT =
+            RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
@@ -6319,7 +6320,6 @@ namespace Parsek
                 hasMeaningfulThrust,
                 out refreshed);
 
-            refreshed.LastObservedOrbitDigest = currentDigest;
             FinalizationCache = refreshed;
             lastFinalizationCacheRefreshUT = ut;
             return success;
@@ -6356,9 +6356,22 @@ namespace Parsek
 
             FinalizationCache.RecordingId = recording.RecordingId;
             if (FinalizationCache.VesselPersistentId == 0)
-                FinalizationCache.VesselPersistentId = recording.VesselPersistentId != 0
-                    ? recording.VesselPersistentId
-                    : RecordingVesselId;
+            {
+                if (recording.VesselPersistentId != 0)
+                {
+                    FinalizationCache.VesselPersistentId = recording.VesselPersistentId;
+                }
+                else
+                {
+                    FinalizationCache.VesselPersistentId = RecordingVesselId;
+                    if (RecordingVesselId != 0)
+                    {
+                        ParsekLog.Verbose("FinalizerCache",
+                            $"Backfilled active cache vessel pid from recorder state: rec={recording.RecordingId ?? "(null)"} " +
+                            $"pid={RecordingVesselId}");
+                    }
+                }
+            }
             return FinalizationCache;
         }
 

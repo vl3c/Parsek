@@ -231,7 +231,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AdoptFinalizationCacheForTesting_TransfersActiveCacheOwnership()
+        public void AdoptFinalizationCacheForTesting_PreservesOwnerUntilRefresh()
         {
             var tree = MakeTree((100, "rec_bg1"));
             var bgRecorder = new BackgroundRecorder(tree);
@@ -251,8 +251,30 @@ namespace Parsek.Tests
             Assert.NotNull(cache);
             Assert.Equal("rec_bg1", cache.RecordingId);
             Assert.Equal(100u, cache.VesselPersistentId);
-            Assert.Equal(FinalizationCacheOwner.BackgroundOnRails, cache.Owner);
+            Assert.Equal(FinalizationCacheOwner.ActiveRecorder, cache.Owner);
             Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+        }
+
+        [Fact]
+        public void OnVesselRemovedFromBackground_ClearsFinalizationCache()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", new RecordingFinalizationCache
+            {
+                RecordingId = "rec_bg1",
+                VesselPersistentId = 100u,
+                Owner = FinalizationCacheOwner.BackgroundOnRails,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Orbiting,
+                TerminalUT = 200.0
+            });
+
+            Assert.True(bgRecorder.HasFinalizationCache(100));
+
+            bgRecorder.OnVesselRemovedFromBackground(100);
+
+            Assert.False(bgRecorder.HasFinalizationCache(100));
         }
 
         [Fact]
