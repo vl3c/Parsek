@@ -39,6 +39,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.
 - Boring-end trim now uses the trimmed endpoint for playback and displayed duration instead of keeping the later scene-exit time.
 - Boring-end trim now ignores normal landed idle jitter more reliably, so parked vessels are less likely to keep a long dead tail.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.

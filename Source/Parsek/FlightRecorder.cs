@@ -4279,7 +4279,16 @@ namespace Parsek
 
         #endregion
 
-        public void StartRecording(bool isPromotion = false)
+        internal static bool ShouldShowStartRecordingScreenMessage(
+            bool isPromotion,
+            bool suppressStartScreenMessage)
+        {
+            return !isPromotion && !suppressStartScreenMessage;
+        }
+
+        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
+        // the caller posts its own custom screen message.
+        public void StartRecording(bool isPromotion = false, bool suppressStartScreenMessage = false)
         {
             if (Time.timeScale < 0.01f)
             {
@@ -4363,7 +4372,7 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Recording started: vessel=\"{0}\", parts={1}, points=0{2}, treeRec={3}",
                     v.vesselName, partCount, isPromotion ? ", promotion" : "", treeRecDbg));
-            if (!isPromotion)
+            if (ShouldShowStartRecordingScreenMessage(isPromotion, suppressStartScreenMessage))
                 ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }
 

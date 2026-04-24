@@ -4402,7 +4402,7 @@ namespace Parsek
                     return;
             }
 
-            StartRecording();
+            StartRecording(suppressStartScreenMessage: true);
             Log($"Auto-record started ({data.from} → {data.to})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
@@ -5256,7 +5256,7 @@ namespace Parsek
 
                 case PostSwitchAutoRecordStartDecision.StartFreshRecording:
                     PrepareActiveTreeForFreshPostSwitchRecording(v, state, currentUT);
-                    StartRecording();
+                    StartRecording(suppressStartScreenMessage: true);
                     if (IsRecording)
                     {
                         Log($"Auto-record started (post-switch {trigger})");
@@ -6884,7 +6884,7 @@ namespace Parsek
                 activeVesselIsEva: hasActiveVessel && FlightGlobals.ActiveVessel.isEVA))
                 return;
 
-            StartRecording();
+            StartRecording(suppressStartScreenMessage: true);
 
             if (IsRecording)
             {
@@ -6935,7 +6935,9 @@ namespace Parsek
 
         #region Recording
 
-        public void StartRecording()
+        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
+        // the caller posts its own custom screen message.
+        public void StartRecording(bool suppressStartScreenMessage = false)
         {
             // Always-tree mode makes a chain continuation without a live tree impossible.
             // If we reach StartRecording with orphaned chain/transient state, treat it as
@@ -7040,7 +7042,9 @@ namespace Parsek
                 recorder.ActiveTree = activeTree;
                 chainManager.ActiveTreeId = activeTree.Id;
             }
-            recorder.StartRecording(isPromotion: isContinuation);
+            recorder.StartRecording(
+                isPromotion: isContinuation,
+                suppressStartScreenMessage: suppressStartScreenMessage);
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");

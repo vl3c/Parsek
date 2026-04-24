@@ -10,9 +10,9 @@ namespace Parsek.Tests
     public class SpawnAuditFollowupTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
-        private readonly Func<int, string> originalBodyNameResolver;
-        private readonly Func<string, CelestialBody> originalBodyResolver;
-        private readonly Func<CelestialBody, int> originalBodyIndexResolver;
+        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public SpawnAuditFollowupTests()
         {

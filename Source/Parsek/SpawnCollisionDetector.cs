@@ -517,7 +517,7 @@ namespace Parsek
             TrajectoryPoint earlier,
             float t)
         {
-            t = Mathf.Clamp01(t);
+            t = Clamp01Managed(t);
 
             string bodyName;
             if (string.Equals(later.bodyName, earlier.bodyName, StringComparison.Ordinal))
@@ -550,13 +550,73 @@ namespace Parsek
                 latitude = later.latitude + (earlier.latitude - later.latitude) * t,
                 longitude = later.longitude + (earlier.longitude - later.longitude) * t,
                 altitude = later.altitude + (earlier.altitude - later.altitude) * t,
-                rotation = TrajectoryMath.SanitizeQuaternion(Quaternion.Slerp(later.rotation, earlier.rotation, t)),
-                velocity = Vector3.Lerp(later.velocity, earlier.velocity, t),
+                rotation = SlerpQuaternionManaged(later.rotation, earlier.rotation, t),
+                velocity = new Vector3(
+                    LerpFloat(later.velocity.x, earlier.velocity.x, t),
+                    LerpFloat(later.velocity.y, earlier.velocity.y, t),
+                    LerpFloat(later.velocity.z, earlier.velocity.z, t)),
                 bodyName = bodyName,
                 funds = later.funds + (earlier.funds - later.funds) * t,
                 science = later.science + (earlier.science - later.science) * t,
                 reputation = later.reputation + (earlier.reputation - later.reputation) * t,
             };
+        }
+
+        private static float Clamp01Managed(float value)
+        {
+            if (float.IsNaN(value) || value <= 0f)
+                return 0f;
+            if (value >= 1f)
+                return 1f;
+            return value;
+        }
+
+        private static float LerpFloat(float a, float b, float t)
+        {
+            return a + (b - a) * t;
+        }
+
+        private static Quaternion SlerpQuaternionManaged(Quaternion from, Quaternion to, float t)
+        {
+            from = TrajectoryMath.SanitizeQuaternion(from);
+            to = TrajectoryMath.SanitizeQuaternion(to);
+
+            double dot =
+                (from.x * to.x) +
+                (from.y * to.y) +
+                (from.z * to.z) +
+                (from.w * to.w);
+
+            if (dot < 0.0)
+            {
+                to = new Quaternion(-to.x, -to.y, -to.z, -to.w);
+                dot = -dot;
+            }
+
+            if (dot > 0.9995)
+            {
+                return TrajectoryMath.SanitizeQuaternion(new Quaternion(
+                    LerpFloat(from.x, to.x, t),
+                    LerpFloat(from.y, to.y, t),
+                    LerpFloat(from.z, to.z, t),
+                    LerpFloat(from.w, to.w, t)));
+            }
+
+            dot = Math.Max(-1.0, Math.Min(1.0, dot));
+            double theta0 = Math.Acos(dot);
+            double sinTheta0 = Math.Sin(theta0);
+            if (Math.Abs(sinTheta0) < 1e-8)
+                return from;
+
+            double theta = theta0 * t;
+            double scaleFrom = Math.Sin(theta0 - theta) / sinTheta0;
+            double scaleTo = Math.Sin(theta) / sinTheta0;
+
+            return TrajectoryMath.SanitizeQuaternion(new Quaternion(
+                (float)((scaleFrom * from.x) + (scaleTo * to.x)),
+                (float)((scaleFrom * from.y) + (scaleTo * to.y)),
+                (float)((scaleFrom * from.z) + (scaleTo * to.z)),
+                (float)((scaleFrom * from.w) + (scaleTo * to.w))));
         }
 
         /// <summary>
