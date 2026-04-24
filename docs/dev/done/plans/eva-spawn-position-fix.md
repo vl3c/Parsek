@@ -481,12 +481,22 @@ During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the r
 
 **Status:** Fixed (in-flight spawn path only — see Follow-ups)
 
-**Follow-ups (separate PRs):**
-- `VesselGhoster.TryWalkbackSpawn` at `VesselGhoster.cs:421-432` uses the same old lat/lon/alt override pattern (writes lat/lon/alt, calls `RespawnVessel`) — safe for LANDED chain tips (`updateMode = IDLE`) but potentially broken for FLYING tips. Should also route through `SpawnAtPosition` and migrate to `WalkbackAlongTrajectorySubdivided`.
-- `ParsekFlight.SpawnTreeLeaves` at `ParsekFlight.cs:5926-5991` (scene-load tree leaf spawn) does not route EVA through `SpawnAtPosition` either; only the in-flight spawn path is fixed here. Same stale-orbit bug reproduces when resuming a saved game where a tree has a leaf EVA waiting to spawn.
-- `ParsekKSC.cs:780-847` (KSC-scene spawn path) uses the same old `OverrideSnapshotPosition` + `RespawnVessel` pattern. An EVA recording that's still pending spawn when the player returns to KSC routes through this path. Probability low (EVA recordings usually spawn in flight) but not zero.
-- `VesselSpawner.StripEvaLadderState` writes the literal FSM state `"idle"` which is not a valid `KerbalEVA` state name. `StartEVA` catches the exception and falls back to the `SurfaceContact`-driven default state (functionally correct but cosmetically broken). Either use a real state name (`st_idle_gr` / `st_idle_fl` / `st_swim_idle`) or remove the state assignment entirely and let the fallback handle it.
+**Follow-ups (later completed):**
+- `VesselGhoster` chain-tip spawns now route the normal, blocked-clear, and walkback paths through explicit resolved spawn state, and chain-tip walkback now uses the subdivided walkback helper with interpolated trajectory points.
+- `ParsekFlight.SpawnTreeLeaves` now delegates to `VesselSpawner.SpawnOrRecoverIfTooClose`, so scene-load tree leaves share the same endpoint/orbit reconstruction path as the main in-flight spawner.
+- `ParsekKSC.TrySpawnAtRecordingEnd` now prepares a private snapshot copy and routes EVA / breakup / orbit-sensitive KSC spawns through the same `SpawnAtPosition` / validated-respawn split as flight.
+- `VesselSpawner.StripEvaLadderState` no longer writes `"idle"`; it removes the stored state value so `KerbalEVA.StartEVA` reinitializes the correct real FSM state.
 ```
+
+### Audit update (2026-04-24)
+
+- `ParsekFlight.SpawnTreeLeaves` now delegates to `VesselSpawner.SpawnOrRecoverIfTooClose`, so the scene-load tree-leaf path shares the same endpoint/orbit reconstruction logic as the main in-flight spawn path.
+
+### Audit update (2026-04-24, later)
+
+- `ParsekKSC.TrySpawnAtRecordingEnd` now prepares a private snapshot copy, applies the same endpoint/rotation/EVA-breakup spawn prep as flight, and routes route-sensitive KSC spawns through `SpawnAtPosition` with a validated-respawn fallback.
+- `VesselGhoster` now routes chain-tip normal spawns, blocked-clear spawns, and walkback spawns through explicit resolved spawn state instead of the older "mutate lat/lon/alt then raw respawn" pattern. The walkback path now uses `SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed`.
+- The earlier follow-ups in this plan are now closed; the remaining note here is only the future triple-correction-layer cleanup.
 
 ### `.claude/CLAUDE.md`
 
@@ -501,8 +511,8 @@ No changes. No layout / build / workflow changes. The `KSP Decompilation` sectio
 - **Orbital path** — inline `FLYING → ORBITING` override factored into `OverrideSituationFromTerminalState`. Behavior-identical (regression guard tests added).
 - **Non-EVA Landed/Splashed path** — unchanged. Still uses `RespawnVessel` with rotation-aware `OverrideSnapshotPosition`.
 - **Non-EVA fallback path (`body == null`)** — unchanged.
-- **Scene-load tree leaf spawn (`SpawnTreeLeaves`)** — unchanged (flagged follow-up).
-- **Chain-tip spawn (`VesselGhoster`)** — unchanged (flagged follow-up). Existing point-granularity `WalkbackAlongTrajectory` untouched; its tests stay green.
+- **Scene-load tree leaf spawn (`SpawnTreeLeaves`)** — later aligned with the main in-flight spawn path during the 2026-04-24 audit.
+- **Chain-tip spawn (`VesselGhoster`)** — later aligned during the same audit: normal/blocked/walkback paths now share explicit resolved spawn state, and walkback uses the subdivided helper with a point-granularity fallback only when body resolution is unavailable.
 - **`CheckSpawnCollisions` signature change** — internal method, callers in `VesselSpawner` only, no public API impact.
 
 ### Regressions to manual-playtest
@@ -528,8 +538,8 @@ Single commit. Revert via `git revert`. No save file format or `ParsekScenario.O
 | Q2 | Distinct `Recording.WalkbackExhausted` field | **Yes, add it.** Transient runtime-only bool (no `ParsekScenario.OnSave/OnLoad` touch). Mirrors the `GhostChain.WalkbackExhausted` precedent at `VesselGhoster.cs:442`. Set alongside `SpawnAbandoned` in `TryWalkbackForEndOfRecordingSpawn`; reset in whatever path resets `SpawnAbandoned`. Avoids conflating the KSC-exclusion abandon and walkback-exhausted abandon in diagnostics. |
 | Q3 | `Quaternion? rotation = null` parameter on `SpawnAtPosition` | **Yes, add it.** Required for breakup-continuous rotation parity (that path currently calls `OverrideSnapshotPosition(rotation: lastPt.rotation)` at `VesselSpawner.cs:291-292`, and the `SpawnAtPosition` routing would lose it otherwise). Write `spawnNode.SetValue("rot", KSPUtil.WriteQuaternion(rotation.Value), true)` after `ApplySituationToNode`. Orbital/EVA callers pass `null`; breakup-continuous callers pass `lastPt.rotation`. |
 | Q4 | Walkback step size (1.5 m) | **Confirmed 1.5 m.** Satisfies the user's "1-2 m" constraint; halving doubles compute with no visible benefit for a one-shot walkback. Constant `DefaultWalkbackStepMeters` is internal so tuning later is trivial. |
-| Q5 | Migrate `VesselGhoster.TryWalkbackSpawn` atomically with this PR | **Defer to follow-up.** Chain-tip path is stable, has its own tests, and the point-granularity behavior is adequate near-term. Atomic migration doubles blast radius. Add a one-line comment at both walkback call sites (`WalkbackAlongTrajectory` and `WalkbackAlongTrajectorySubdivided`) noting the two granularities exist for historical reasons and linking the follow-up. |
-| Q6 | Fix `StripEvaLadderState` `"idle"` cosmetic in this PR | **Defer to follow-up.** Functionally fine today (StartEVA's catch-block fallback picks a real state), touching it changes existing `StripEvaLadderState_ClearsLadderState` test expectations. Separate PR keeps this one focused. |
+| Q5 | Migrate `VesselGhoster.TryWalkbackSpawn` atomically with this PR | **Later resolved (2026-04-24 audit).** Chain-tip walkback now uses the subdivided helper with interpolated trajectory points and routes the actual spawn through the resolved-state chain-tip helper. |
+| Q6 | Fix `StripEvaLadderState` `"idle"` cosmetic in this PR | **Later resolved.** `StripEvaLadderState` now removes the stored FSM state value instead of writing `"idle"`, so KSP reinitializes a valid `st_*` state. |
 
 ## Additional open questions raised during review
 
@@ -548,4 +558,4 @@ Single commit. Revert via `git revert`. No save file format or `ParsekScenario.O
 - `Source/Parsek/InGameTests/Helpers/InGameKerbalEvaSnapshot.cs` — NEW FILE — in-game-assembly snapshot builder (parallel to `VesselSnapshotBuilder`)
 - `Source/Parsek/InGameTests/RuntimeTests.cs` — new `EvaSpawnPosition` category with 2 tests (endpoint fidelity + walkback-on-overlap)
 - `CHANGELOG.md` — 0.7.2 entry (marked partial — follow-ups remain)
-- `docs/dev/todo-and-known-bugs.md` — #264 rewrite + 4 follow-ups (`VesselGhoster.TryWalkbackSpawn`, `SpawnTreeLeaves`, `ParsekKSC.cs:780-847`, `StripEvaLadderState "idle"`)
+- `docs/dev/todo-and-known-bugs.md` — #264 rewrite; the original four follow-ups listed here were later closed during the 2026-04-24 spawn audit.

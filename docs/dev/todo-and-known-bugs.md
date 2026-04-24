@@ -421,6 +421,20 @@ The 2026-04-23 18:29 package showed the remaining failures were harness races ra
 
 ---
 
+## ~~566. Spawn audit follow-ups still left KSC and chain-tip materialization on older respawn paths~~
+
+**Source:** 2026-04-24 Parsek spawn audit across `VesselSpawner`, `ParsekFlight.SpawnTreeLeaves`, `ParsekKSC.TrySpawnAtRecordingEnd`, `VesselGhoster` chain-tip spawns, `GhostVisualBuilder` flag spawns, and the related design notes.
+
+**Concern:** even after the in-flight EVA / breakup stale-orbit fixes, several secondary materialization paths still diverged from the shared spawn contract. KSC materialization still prepared a raw snapshot override and called `RespawnVessel` directly, chain-tip blocked/walkback spawns still relied on the older mutate-then-respawn pattern, blocked-clear chain-tip rechecks only used the propagated position for collision testing instead of for the actual materialization state, and failed `ProtoVessel.Load()` on several spawn paths could leave orphaned `ProtoVessel` entries behind in `flightState.protoVessels`.
+
+**Fix:** failed `ProtoVessel.Load()` cleanup is now centralized in `VesselSpawner.CleanupFailedSpawnedProtoVessel(...)` and applied to normal respawns, `SpawnAtPosition`, and flag spawning. `ParsekFlight.SpawnTreeLeaves` now routes through `SpawnOrRecoverIfTooClose`, KSC materialization now prepares a private snapshot copy and uses the same endpoint/rotation/EVA-breakup spawn prep plus `SpawnAtPosition` / validated-respawn split as flight, and `VesselGhoster` now routes chain-tip normal spawns, blocked-clear spawns, and walkback spawns through explicit resolved spawn state. Chain-tip walkback now uses the subdivided walkback helper with interpolated trajectory points, while the older point walkback remains only as a body-resolution fallback.
+
+**Files:** `Source/Parsek/VesselSpawner.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/VesselGhoster.cs`, `Source/Parsek/SpawnCollisionDetector.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek.Tests/VesselSpawnerExtractedTests.cs`, `Source/Parsek.Tests/EndOfRecordingWalkbackTests.cs`, `docs/dev/todo-and-known-bugs.md`, `docs/dev/done/plans/eva-spawn-position-fix.md`, `docs/dev/done/todo-and-known-bugs-v2.md`.
+
+**Status:** CLOSED 2026-04-24. Fixed in the `spawn-audit-fixes` worktree; full build/test verification remains blocked on the local .NET Framework 4.7.2 targeting pack / KSP dependency environment.
+
+---
+
 ## ~~528. Launchpad science gathered before recording start is still being committed onto the later flight recording~~
 
 **Source:** the same package records launchpad science subjects before `r0` starts, then later commits those `KerbinSrfLandedLaunchPad` subjects under recording id `3c32a9406c044f3daf00c79d0852dbf3` / `startUT=29.16`. The resulting run also emits the familiar science-mismatch warnings: `Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0`, plus post-walk misses for `ScienceTransmission` / `VesselRecovery`.
