@@ -572,6 +572,13 @@ namespace Parsek
             public SurfacePosition surfacePosition;
         }
 
+        internal enum DeferredDestructionOutcome
+        {
+            ConfirmedDestroyed = 0,
+            DockingInProgress = 1,
+            FalseDestroyReattach = 2
+        }
+
         // Diagnostic logging guards (log once per state transition, not per frame)
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
@@ -4134,8 +4141,54 @@ namespace Parsek
             HashSet<uint> dockingInProgress,
             bool vesselStillExists)
         {
-            if (dockingInProgress.Contains(vesselPid)) return false;
-            return !vesselStillExists;
+            return ClassifyDeferredDestruction(vesselPid, dockingInProgress, vesselStillExists)
+                == DeferredDestructionOutcome.ConfirmedDestroyed;
+        }
+
+        internal static DeferredDestructionOutcome ClassifyDeferredDestruction(
+            uint vesselPid,
+            HashSet<uint> dockingInProgress,
+            bool vesselStillExists)
+        {
+            if (dockingInProgress != null && dockingInProgress.Contains(vesselPid))
+                return DeferredDestructionOutcome.DockingInProgress;
+            return vesselStillExists
+                ? DeferredDestructionOutcome.FalseDestroyReattach
+                : DeferredDestructionOutcome.ConfirmedDestroyed;
+        }
+
+        internal static bool ShouldReattachBackgroundRecorderAfterDeferredDestruction(
+            DeferredDestructionOutcome outcome)
+        {
+            return outcome == DeferredDestructionOutcome.FalseDestroyReattach;
+        }
+
+        internal static bool TryHandleDeferredDestructionAbort(
+            uint vesselPid,
+            DeferredDestructionOutcome outcome,
+            Action<uint> reattachBackgroundRecorder,
+            Action<string> debugLog,
+            Action<string> infoLog)
+        {
+            if (outcome == DeferredDestructionOutcome.ConfirmedDestroyed)
+                return false;
+
+            if (ShouldReattachBackgroundRecorderAfterDeferredDestruction(outcome))
+            {
+                debugLog?.Invoke(
+                    $"DeferredDestructionCheck: pid={vesselPid} still exists — vessel unloaded, not destroyed");
+                reattachBackgroundRecorder?.Invoke(vesselPid);
+                infoLog?.Invoke(
+                    $"DeferredDestructionCheck: reattached background recorder state for " +
+                    $"pid={vesselPid} after false destruction signal");
+            }
+            else
+            {
+                debugLog?.Invoke(
+                    $"DeferredDestructionCheck: pid={vesselPid} now in dockingInProgress — aborting");
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -4289,20 +4342,17 @@ namespace Parsek
 
             // Use pure decision method to determine if vessel is truly destroyed
             bool vesselStillExists = FlightRecorder.FindVesselByPid(pending.vesselPid) != null;
-            if (!IsTrulyDestroyed(pending.vesselPid, dockingInProgress, vesselStillExists))
+            DeferredDestructionOutcome destructionOutcome = ClassifyDeferredDestruction(
+                pending.vesselPid,
+                dockingInProgress,
+                vesselStillExists);
+            if (TryHandleDeferredDestructionAbort(
+                    pending.vesselPid,
+                    destructionOutcome,
+                    pid => backgroundRecorder?.OnVesselBackgrounded(pid),
+                    Log,
+                    message => ParsekLog.Info("Flight", message)))
             {
-                if (dockingInProgress.Contains(pending.vesselPid))
-                {
-                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} now in dockingInProgress — aborting");
-                }
-                else
-                {
-                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} still exists — vessel unloaded, not destroyed");
-                    backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid);
-                    ParsekLog.Info("Flight",
-                        $"DeferredDestructionCheck: reattached background recorder state for " +
-                        $"pid={pending.vesselPid} after false destruction signal");
-                }
                 yield break;
             }
 
@@ -4364,6 +4414,7 @@ namespace Parsek
             BackgroundRecorder.PersistFinalizedRecording(
                 rec,
                 $"DeferredDestructionCheck pid={pending.vesselPid}");
+            backgroundRecorder?.ForgetFinalizationCache(pending.vesselPid);
 
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
@@ -8582,17 +8633,25 @@ namespace Parsek
                 : null;
 
             // 3. Process each recording in the tree
+            RecordingFinalizationCache activeFinalizationCache = null;
             foreach (var kvp in tree.Recordings)
             {
+                Recording recording = kvp.Value;
                 RecordingFinalizationCache finalizationCache =
                     resolveFinalizationCache != null
-                        ? resolveFinalizationCache(kvp.Value)
+                        ? resolveFinalizationCache(recording)
                         : null;
-                if (FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit, finalizationCache)
-                    && sceneExitLifetimeExtendedIds != null
-                    && !string.IsNullOrEmpty(kvp.Value?.RecordingId))
+                if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                    && string.Equals(recording?.RecordingId, tree.ActiveRecordingId, StringComparison.Ordinal))
                 {
-                    sceneExitLifetimeExtendedIds.Add(kvp.Value.RecordingId);
+                    activeFinalizationCache = finalizationCache;
+                }
+
+                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache)
+                    && sceneExitLifetimeExtendedIds != null
+                    && !string.IsNullOrEmpty(recording?.RecordingId))
+                {
+                    sceneExitLifetimeExtendedIds.Add(recording.RecordingId);
                 }
             }
 
@@ -8600,16 +8659,6 @@ namespace Parsek
             // In tree mode, the active recording may have debris branches (non-leaf)
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
-            RecordingFinalizationCache activeFinalizationCache = null;
-            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
-                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording activeForCache))
-            {
-                activeFinalizationCache =
-                    resolveFinalizationCache != null
-                        ? resolveFinalizationCache(activeForCache)
-                        : null;
-            }
-
             if (EnsureActiveRecordingTerminalState(
                     tree,
                     isSceneExit,
@@ -8705,7 +8754,7 @@ namespace Parsek
                 || recording.VesselPersistentId == cache.VesselPersistentId;
         }
 
-        internal static bool ShouldAttemptFinalizationCacheFallback(
+        internal static bool HasFallbackCandidateCache(
             RecordingFinalizationCache cache,
             bool vesselMissing)
         {
@@ -8744,6 +8793,21 @@ namespace Parsek
                         result.TerminalUT,
                         result.AppendedSegmentCount,
                         allowStale));
+
+                if (cache.Status == FinalizationCacheStatus.Stale)
+                {
+                    ParsekLog.Warn("Flight",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Finalization source=cache applied stale cache consumer={0} rec={1} " +
+                            "terminal={2} terminalUT={3:F3} owner={4} cachedAtUT={5:F3}",
+                            consumerPath ?? "(null)",
+                            recording?.DebugName ?? "(null)",
+                            result.TerminalState?.ToString() ?? "(null)",
+                            result.TerminalUT,
+                            cache.Owner,
+                            cache.CachedAtUT));
+                }
             }
 
             return applied;
@@ -8840,7 +8904,7 @@ namespace Parsek
             }
 
             if (!activeRec.TerminalStateValue.HasValue
-                && ShouldAttemptFinalizationCacheFallback(finalizationCache, v == null)
+                && HasFallbackCandidateCache(finalizationCache, v == null)
                 && TryApplyFinalizationCacheFallback(
                     activeRec,
                     finalizationCache,
@@ -9017,7 +9081,7 @@ namespace Parsek
                         }
                     }
                 }
-                else if (ShouldAttemptFinalizationCacheFallback(
+                else if (HasFallbackCandidateCache(
                     finalizationCache,
                     vesselMissing: true)
                     && TryApplyFinalizationCacheFallback(

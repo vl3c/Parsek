@@ -1043,32 +1043,24 @@ namespace Parsek
                 rec.ExplicitEndUT = endUT;
             }
 
-            // Capture the finalization cache before OnVesselRemovedFromBackground
-            // clears it, so TryApplyFinalizationCacheForBackgroundEnd below can still
-            // reach a cached terminal tail.
-            RecordingFinalizationCache preservedCache;
-            bool hadPreservedCache = finalizationCaches.TryGetValue(vesselPid, out preservedCache);
+            RecordingFinalizationCache cacheForApply = null;
+            finalizationCaches.TryGetValue(vesselPid, out cacheForApply);
 
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid);
 
-            if (hadPreservedCache && preservedCache != null)
-                finalizationCaches[vesselPid] = preservedCache;
-
             RecordingFinalizationCacheApplyResult cacheResult;
             bool cacheApplied = rec != null
                 && TryApplyFinalizationCacheForBackgroundEnd(
                     rec,
+                    cacheForApply,
                     vesselPid,
                     endUT,
                     "EndDebrisRecording",
                     allowStale: true,
                     requireDestroyedTerminal: false,
                     out cacheResult);
-
-            if (hadPreservedCache)
-                finalizationCaches.Remove(vesselPid);
 
             if (rec != null && !cacheApplied && !rec.TerminalStateValue.HasValue)
             {
@@ -1597,7 +1589,13 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
-            finalizationCaches.Remove(pid);
+            // Keep the finalization cache until DeferredDestructionCheck confirms
+            // whether this was true destruction or a false unload signal.
+        }
+
+        internal void ForgetFinalizationCache(uint vesselPid)
+        {
+            finalizationCaches.Remove(vesselPid);
         }
 
         /// <summary>
@@ -1614,6 +1612,9 @@ namespace Parsek
         /// pass wrote those empty recordings over the in-memory data. Persisting at
         /// flush time closes the window between "data exists in memory" and "data
         /// exists on disk" (bug #280).
+        /// DeferredDestructionCheck calls this directly for the same invariant:
+        /// terminal sidecars must match in-memory state before later scene or merge
+        /// transitions.
         /// </summary>
         internal static void PersistFinalizedRecording(Recording rec, string context)
         {
@@ -1816,6 +1817,31 @@ namespace Parsek
             if (cache == null && vesselPid != 0)
                 finalizationCaches.TryGetValue(vesselPid, out cache);
 
+            return TryApplyFinalizationCacheForBackgroundEnd(
+                recording,
+                cache,
+                vesselPid,
+                endUT,
+                consumerPath,
+                allowStale,
+                requireDestroyedTerminal,
+                out result);
+        }
+
+        internal bool TryApplyFinalizationCacheForBackgroundEnd(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool allowStale,
+            bool requireDestroyedTerminal,
+            out RecordingFinalizationCacheApplyResult result)
+        {
+            result = default(RecordingFinalizationCacheApplyResult);
+            if (recording == null)
+                return false;
+
             if (cache == null)
             {
                 ParsekLog.Verbose("FinalizerCache",
@@ -1824,18 +1850,19 @@ namespace Parsek
                 return false;
             }
 
-            AlignFinalizationCacheIdentity(cache, recording);
-            if (requireDestroyedTerminal && cache.TerminalState != TerminalState.Destroyed)
-            {
-                ParsekLog.Warn("FinalizerCache",
-                    $"Background apply skipped: consumer={consumerPath ?? "(null)"} " +
-                    $"rec={recording.DebugName} pid={vesselPid} reason=non-destroyed-cache " +
-                    $"terminal={cache.TerminalState?.ToString() ?? "(null)"}");
-                return false;
-            }
-
             RecordingFinalizationCache scopedCache =
                 ScopeFinalizationCacheToBackgroundEnd(cache, endUT);
+            ApplyFinalizationCacheIdentity(scopedCache, recording);
+
+            if (requireDestroyedTerminal && scopedCache.TerminalState != TerminalState.Destroyed)
+            {
+                ParsekLog.Verbose("FinalizerCache",
+                    $"Background apply skipped: consumer={consumerPath ?? "(null)"} " +
+                    $"rec={recording.DebugName} pid={vesselPid} reason=non-destroyed-cache " +
+                    $"terminal={scopedCache.TerminalState?.ToString() ?? "(null)"} " +
+                    "using live destruction fallback");
+                return false;
+            }
 
             var options = new RecordingFinalizationCacheApplyOptions
             {
@@ -1865,6 +1892,19 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        private static void ApplyFinalizationCacheIdentity(
+            RecordingFinalizationCache cache,
+            Recording recording)
+        {
+            if (cache == null || recording == null)
+                return;
+
+            if (string.IsNullOrEmpty(cache.RecordingId))
+                cache.RecordingId = recording.RecordingId;
+            if (cache.VesselPersistentId == 0)
+                cache.VesselPersistentId = recording.VesselPersistentId;
         }
 
         internal static RecordingFinalizationCache ScopeFinalizationCacheToBackgroundEndForTesting(
@@ -1946,20 +1986,20 @@ namespace Parsek
             if (recording.VesselPersistentId != 0
                 && finalizationCaches.TryGetValue(recording.VesselPersistentId, out cache))
             {
-                AlignFinalizationCacheIdentity(cache, recording);
-                return cache;
+                return CopyAndAlignFinalizationCacheIdentity(cache, recording);
             }
 
             if (!string.IsNullOrEmpty(recording.RecordingId))
             {
+                // RecordingId fallback is only for transitional PID-less recordings at
+                // scene-exit commit time; typical tree sizes keep this linear scan small.
                 foreach (var kvp in finalizationCaches)
                 {
                     cache = kvp.Value;
                     if (cache != null
                         && string.Equals(cache.RecordingId, recording.RecordingId, StringComparison.Ordinal))
                     {
-                        AlignFinalizationCacheIdentity(cache, recording);
-                        return cache;
+                        return CopyAndAlignFinalizationCacheIdentity(cache, recording);
                     }
                 }
             }
@@ -3903,17 +3943,57 @@ namespace Parsek
                 $"terminal={inheritedCache.TerminalState?.ToString() ?? "(null)"}");
         }
 
-        private static void AlignFinalizationCacheIdentity(
+        private static RecordingFinalizationCache CopyAndAlignFinalizationCacheIdentity(
             RecordingFinalizationCache cache,
             Recording recording)
         {
-            if (cache == null || recording == null)
-                return;
+            if (cache == null)
+                return null;
 
-            if (string.IsNullOrEmpty(cache.RecordingId))
-                cache.RecordingId = recording.RecordingId;
-            if (cache.VesselPersistentId == 0)
-                cache.VesselPersistentId = recording.VesselPersistentId;
+            RecordingFinalizationCache aligned = CopyFinalizationCache(cache);
+            if (recording == null)
+                return aligned;
+
+            if (string.IsNullOrEmpty(aligned.RecordingId))
+                aligned.RecordingId = recording.RecordingId;
+            if (aligned.VesselPersistentId == 0)
+                aligned.VesselPersistentId = recording.VesselPersistentId;
+
+            return aligned;
+        }
+
+        private static RecordingFinalizationCache CopyFinalizationCache(RecordingFinalizationCache source)
+        {
+            if (source == null)
+                return null;
+
+            return new RecordingFinalizationCache
+            {
+                RecordingId = source.RecordingId,
+                VesselPersistentId = source.VesselPersistentId,
+                Owner = source.Owner,
+                Status = source.Status,
+                CachedAtUT = source.CachedAtUT,
+                CachedAtRealtime = source.CachedAtRealtime,
+                RefreshReason = source.RefreshReason,
+                DeclineReason = source.DeclineReason,
+                LastObservedUT = source.LastObservedUT,
+                LastObservedBodyName = source.LastObservedBodyName,
+                LastSituation = source.LastSituation,
+                LastWasInAtmosphere = source.LastWasInAtmosphere,
+                LastHadMeaningfulThrust = source.LastHadMeaningfulThrust,
+                LastObservedOrbitDigest = source.LastObservedOrbitDigest,
+                TailStartsAtUT = source.TailStartsAtUT,
+                TerminalUT = source.TerminalUT,
+                TerminalState = source.TerminalState,
+                TerminalBodyName = source.TerminalBodyName,
+                TerminalOrbit = source.TerminalOrbit,
+                TerminalPosition = source.TerminalPosition,
+                TerrainHeightAtEnd = source.TerrainHeightAtEnd,
+                PredictedSegments = source.PredictedSegments != null
+                    ? new List<OrbitSegment>(source.PredictedSegments)
+                    : new List<OrbitSegment>()
+            };
         }
 
         private bool RefreshFinalizationCacheForVessel(

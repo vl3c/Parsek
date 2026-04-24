@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -323,6 +322,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_StaleCacheFallback_AppliesAndWarnsWhenVesselMissing()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-stale-cache",
+                VesselName = "Stale Cached Tail",
+                VesselPersistentId = 43,
+                ChildBranchPointId = null,
+                ExplicitEndUT = double.NaN
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                terminalUT: 180.0);
+            cache.Status = FinalizationCacheStatus.Stale;
+            cache.CachedAtUT = 105.0;
+
+            bool extended = ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: true,
+                finalizationCache: cache);
+
+            Assert.False(extended);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(180.0, rec.ExplicitEndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Flight]") &&
+                l.Contains("Finalization source=cache applied stale cache") &&
+                l.Contains("consumer=FinalizeIndividualRecording") &&
+                l.Contains("Stale Cached Tail"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_CacheRejected_FallsBackToTrajectoryInference()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-cache-rejected",
+                VesselName = "Rejected Cache",
+                VesselPersistentId = 44,
+                ChildBranchPointId = null,
+                ExplicitEndUT = double.NaN
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            RecordingFinalizationCache cache = MakeDestroyedCache(
+                "other-recording",
+                rec.VesselPersistentId,
+                terminalUT: 180.0);
+
+            bool extended = ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: true,
+                finalizationCache: cache);
+
+            Assert.False(extended);
+            Assert.Equal(TerminalState.SubOrbital, rec.TerminalStateValue);
+            Assert.Equal(100.0, rec.ExplicitEndUT);
+            Assert.Empty(rec.OrbitSegments);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][FinalizerCache]") &&
+                l.Contains("Apply rejected") &&
+                l.Contains("reason=RejectedMismatchedRecording") &&
+                l.Contains("consumer=FinalizeIndividualRecording"));
+            Assert.Contains(logLines, l =>
+                l.Contains("inferred SubOrbital from trajectory") &&
+                l.Contains("scene-exit-cache-rejected"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Finalization source=cache") && l.Contains("Rejected Cache"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_LiveSceneExitFinalizerWinsOverCache()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
@@ -441,7 +530,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldAttemptFinalizationCacheFallback_OnlyUsesStableCacheWhenVesselMissing()
+        public void HasFallbackCandidateCache_RequiresCacheAndMissingVessel()
         {
             var stable = new RecordingFinalizationCache
             {
@@ -472,12 +561,13 @@ namespace Parsek.Tests
                 }
             };
 
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(stable, vesselMissing: false));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(stable, vesselMissing: true));
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(synthetic, vesselMissing: false));
-            Assert.False(ParsekFlight.ShouldAttemptFinalizationCacheFallback(predictedStable, vesselMissing: false));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(synthetic, vesselMissing: true));
-            Assert.True(ParsekFlight.ShouldAttemptFinalizationCacheFallback(predictedStable, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(null, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(stable, vesselMissing: false));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(stable, vesselMissing: true));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(synthetic, vesselMissing: false));
+            Assert.False(ParsekFlight.HasFallbackCandidateCache(predictedStable, vesselMissing: false));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(synthetic, vesselMissing: true));
+            Assert.True(ParsekFlight.HasFallbackCandidateCache(predictedStable, vesselMissing: true));
         }
 
         [Fact]
@@ -493,8 +583,26 @@ namespace Parsek.Tests
             var tree = new RecordingTree
             {
                 Id = "tree-cache-consumer",
-                TreeName = "Cache Consumer Tree"
+                TreeName = "Cache Consumer Tree",
+                ActiveRecordingId = "active-cache-consumer"
             };
+            var active = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Active Missing",
+                VesselPersistentId = 200,
+                ChildBranchPointId = "bp-active",
+                ExplicitEndUT = 100.0
+            };
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 5000.0,
+                bodyName = "Kerbin"
+            });
+            tree.Recordings[active.RecordingId] = active;
+
             var background = new Recording
             {
                 RecordingId = "bg-cache-consumer",
@@ -531,7 +639,7 @@ namespace Parsek.Tests
                         : null;
                 });
 
-            Assert.True(resolverCalls > 0);
+            Assert.Equal(2, resolverCalls);
             Assert.Equal(TerminalState.Destroyed, background.TerminalStateValue);
             Assert.Equal(180.0, background.ExplicitEndUT);
             Assert.Single(background.OrbitSegments);
@@ -597,32 +705,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DeferredDestructionCheck_FalseDestroy_ReattachesBackgroundRecorderState()
+        public void TryHandleDeferredDestructionAbort_FalseDestroyReattachesBackgroundRecorder()
         {
-            string source = File.ReadAllText(LocateParsekFlightSource());
-            int methodStart = source.IndexOf(
-                "IEnumerator DeferredDestructionCheck(PendingDestruction pending)",
-                StringComparison.Ordinal);
-            Assert.True(methodStart >= 0, "DeferredDestructionCheck not found.");
+            var docking = new HashSet<uint>();
 
-            int falseDestroyLog = source.IndexOf(
-                "still exists — vessel unloaded, not destroyed",
-                methodStart,
-                StringComparison.Ordinal);
-            int reattach = source.IndexOf(
-                "backgroundRecorder?.OnVesselBackgrounded(pending.vesselPid)",
-                methodStart,
-                StringComparison.Ordinal);
-            int firstYieldBreakAfterFalseDestroy = source.IndexOf(
-                "yield break;",
-                falseDestroyLog,
-                StringComparison.Ordinal);
+            ParsekFlight.DeferredDestructionOutcome falseDestroy =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.FalseDestroyReattach, falseDestroy);
+            Assert.True(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(falseDestroy));
 
-            Assert.True(falseDestroyLog >= 0, "False-destroy abort branch not found.");
-            Assert.True(reattach > falseDestroyLog,
-                "False-destroy abort must reattach BackgroundRecorder state.");
-            Assert.True(firstYieldBreakAfterFalseDestroy > reattach,
-                "Reattach must happen before the false-destroy branch exits.");
+            uint reattachedPid = 0;
+            var debugLines = new List<string>();
+            var infoLines = new List<string>();
+            bool handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: falseDestroy,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(100u, reattachedPid);
+            Assert.Contains(debugLines, l => l.Contains("still exists"));
+            Assert.Contains(infoLines, l => l.Contains("reattached background recorder state"));
+
+            docking.Add(100u);
+            ParsekFlight.DeferredDestructionOutcome dockingAbort =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: true);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.DockingInProgress, dockingAbort);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(dockingAbort));
+
+            reattachedPid = 0;
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: dockingAbort,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.True(handled);
+            Assert.Equal(0u, reattachedPid);
+
+            docking.Clear();
+            ParsekFlight.DeferredDestructionOutcome confirmed =
+                ParsekFlight.ClassifyDeferredDestruction(
+                    vesselPid: 100u,
+                    dockingInProgress: docking,
+                    vesselStillExists: false);
+            Assert.Equal(ParsekFlight.DeferredDestructionOutcome.ConfirmedDestroyed, confirmed);
+            Assert.False(ParsekFlight.ShouldReattachBackgroundRecorderAfterDeferredDestruction(confirmed));
+
+            handled = ParsekFlight.TryHandleDeferredDestructionAbort(
+                vesselPid: 100u,
+                outcome: confirmed,
+                reattachBackgroundRecorder: pid => reattachedPid = pid,
+                debugLog: message => debugLines.Add(message),
+                infoLog: message => infoLines.Add(message));
+
+            Assert.False(handled);
         }
 
         [Fact]
@@ -1423,21 +1569,6 @@ namespace Parsek.Tests
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
-        }
-
-        private static string LocateParsekFlightSource()
-        {
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
-            {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
-                if (File.Exists(candidate)) return candidate;
-                dir = Path.GetDirectoryName(dir);
-            }
-
-            return Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
         private static RecordingFinalizationCache MakeDestroyedCache(
