@@ -476,6 +476,38 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        // --- Seed-skip guard tests ---
+
+        [Fact]
+        public void SeedSkip_InactiveSection_DoesNotSkip()
+        {
+            bool result = FlightRecorder.ShouldSkipSeedDueToRelativeSection(
+                trackSectionActive: false,
+                sectionReferenceFrame: ReferenceFrame.Relative);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void SeedSkip_AbsoluteSection_DoesNotSkip()
+        {
+            bool result = FlightRecorder.ShouldSkipSeedDueToRelativeSection(
+                trackSectionActive: true,
+                sectionReferenceFrame: ReferenceFrame.Absolute);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void SeedSkip_ActiveRelativeSection_Skips()
+        {
+            bool result = FlightRecorder.ShouldSkipSeedDueToRelativeSection(
+                trackSectionActive: true,
+                sectionReferenceFrame: ReferenceFrame.Relative);
+
+            Assert.True(result);
+        }
+
         // --- FindFirstMovingPoint tests ---
 
         private static List<TrajectoryPoint> MakePoints(params (double alt, float speed)[] specs)

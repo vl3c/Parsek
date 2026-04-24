@@ -151,6 +151,44 @@ namespace Parsek.Tests
             Assert.Equal(300.0, result.z, 5);
         }
 
+        [Fact]
+        public void ResolveRelativePlaybackRotation_RoundTripsV6AnchorLocalStorage()
+        {
+            // v6 stores Inverse(anchor) * focus; resolver reconstitutes anchor * stored = focus.
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            Quaternion focusWorldRotation = TrajectoryMath.PureAngleAxis(135f, Vector3.up);
+            Quaternion storedLocalRotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                focusWorldRotation,
+                anchorRotation);
+
+            Quaternion result = TrajectoryMath.ResolveRelativePlaybackRotation(
+                anchorRotation,
+                storedLocalRotation);
+
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(focusWorldRotation, result) < 0.001f);
+        }
+
+        [Fact]
+        public void ResolveRelativePlaybackRotation_PreservesLegacyAnchorTimesStoredSemantics()
+        {
+            // v5 stored v.srfRelRotation in the relative slot; legacy playback composed
+            // anchor.rotation * stored. The simplified resolver must still yield that
+            // composition (no version branch, same formula).
+            Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            Quaternion storedLegacyRotation = TrajectoryMath.PureAngleAxis(45f, Vector3.right);
+
+            Quaternion result = TrajectoryMath.ResolveRelativePlaybackRotation(
+                anchorRotation,
+                storedLegacyRotation);
+
+            Quaternion expected = TrajectoryMath.ApplyRelativeLocalRotation(
+                anchorRotation,
+                storedLegacyRotation);
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(expected, result) < 0.001f);
+        }
+
         #endregion
 
         #region FindTrackSectionForUT -- section lookup
