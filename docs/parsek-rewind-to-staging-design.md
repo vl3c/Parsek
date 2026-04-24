@@ -6,7 +6,7 @@
 
 **Status:** shipped in v0.9.0.
 **Pre-implementation spec:** `docs/dev/done/parsek-rewind-staging-design.md` (archived as-is alongside the v0.9 rollout). This document supersedes it as the source of truth for what actually shipped.
-**Related docs:** `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`.
+**Related docs:** `parsek-flight-recorder-design.md`, `parsek-recording-finalization-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`.
 
 ---
 
@@ -53,6 +53,7 @@ v1 deliberately does NOT attempt:
 Rewind to Staging is layered on top of, not inside, the existing subsystems:
 
 - **Flight recorder:** the recording DAG, segment boundary rule, controller identity, ghost chains, background recording, terminal kinds. Rewind to Staging does not change any of these. It adds new persistent state — Rewind Points, supersede relations, tombstones, a session marker, a journal — stored alongside the existing recording tree in `ParsekScenario`.
+- **Recording finalization:** Rewind-to-Staging assumes each sibling recording has a trustworthy terminal state and endpoint. The finalization reliability contract in `parsek-recording-finalization-design.md` is the upstream dependency that prevents Unfinished Flights from depending on stale last-sample inference when KSP unloads, deletes, or destroys a vessel before scene exit.
 - **Timeline / ledger:** the immutable `ActionId`, the recalculation engine, the resource modules. The feature adds `GameAction.ActionId` as a hard precondition (legacy migration generates a deterministic hash on first load) and introduces `LedgerTombstone` as an append-only retirement filter, but the recalculation walk itself is unchanged — `LedgerOrchestrator.Recalculate*` now feeds from `EffectiveState.ComputeELS()` (the tombstone-filtered view) instead of raw `Ledger.Actions`.
 - **Game actions & resources:** contracts, milestones, facilities, strategies, tech, science, funds, kerbals. v1 tombstones only kerbal deaths (plus bundled rep). Everything else sticks. This is the central design decision; see §2 and §10.
 

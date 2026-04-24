@@ -77,6 +77,7 @@ All UI windows are read-only views of the three stores above (`RecordingStore`, 
 Each of these is the authoritative source for its area. This index doesn't duplicate their content.
 
 - **Flight recorder + ghost playback**: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md) — trajectory sampling, part-event capture, commit/discard, ghost spawn/despawn, loop and overlap semantics, watch mode.
+- **Recording finalization reliability**: [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md) — terminal-state and synthetic-tail contract for scene exit, crash, vessel unload/delete, background recordings, and Rewind-to-Staging dependencies.
 - **Timeline (entries + resource budget)**: [`parsek-timeline-design.md`](parsek-timeline-design.md) — timeline entry model, significance tiers, source toggles, time-range filter, resource-budget footer.
 - **Game actions & career resources**: [`parsek-game-actions-and-resources-recorder-design.md`](parsek-game-actions-and-resources-recorder-design.md) — how KSP career events become `GameAction` ledger entries, resource module semantics, recalculation engine, action replay.
 - **Logistics routes**: [`parsek-logistics-routes-design.md`](parsek-logistics-routes-design.md) — one-way routes, dock/transfer/undock validation, round-trip linking.
