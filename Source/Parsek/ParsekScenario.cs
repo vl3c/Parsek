@@ -1479,8 +1479,11 @@ namespace Parsek
                                 GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
                             RecordingStore.PendingDestinationScene = null;
 
-                            // Auto-discard idle-on-pad before commit approval or auto-commit
-                            if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+                            // Auto-discard idle-on-pad before commit approval or auto-commit.
+                            // Only for Finalized trees (Limbo trees are resume-flow stashes).
+                            if (RecordingStore.HasPendingTree
+                                && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized
+                                && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
                                 DiscardPendingTreeAndRecalculate(
@@ -1720,12 +1723,41 @@ namespace Parsek
                 if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
                     RecordingStore.HasPendingTree)
                 {
-                    // Auto-discard idle-on-pad recordings before auto-committing
-                    if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+                    // Auto-discard idle-on-pad recordings before auto-committing.
+                    // ONLY for Finalized-state trees — those come from a
+                    // completed flight session that produced a terminal-state
+                    // merge-dialog candidate. For Limbo / LimboVesselSwitch
+                    // trees (quickload-resume stashes populated from the
+                    // save's ACTIVE_TREE node by `TryRestoreActiveTreeNode`),
+                    // the maxDist values can legitimately be near zero right
+                    // after a rewind reload because the provisional recording
+                    // was just created and hasn't moved yet. Auto-discarding
+                    // those would silently wipe the player's entire mission
+                    // tree plus its Rewind Point and quicksave on every
+                    // subsequent SPACECENTER load, as seen in
+                    // logs/2026-04-25_0103_recordings-vanish-on-load:
+                    //   TryRestoreActiveTreeNode: stashed active tree
+                    //     'Kerbal X' (8 recording(s)) into pending-Limbo slot
+                    //   IsTreeIdleOnPad: all 8 recordings within 30m — idle on pad
+                    //   Idle on pad — auto-discarding pending tree
+                    //   PurgeTree deleted rewind quicksave rp=... path=...
+                    //   Discarded pending tree 'Kerbal X' (state=Limbo)
+                    // The normal idle-on-pad use case (player starts recording,
+                    // doesn't launch, exits to KSC) produces a Finalized state
+                    // via CommitTreeSceneExit, so the gate still fires there.
+                    if (RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized
+                        && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                     {
                         ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
                         DiscardPendingTreeAndRecalculate(
                             "outside-flight idle-on-pad auto-discard");
+                    }
+                    else if (RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized)
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"Idle-on-pad auto-discard skipped: pending tree state is " +
+                            $"{RecordingStore.PendingTreeStateValue} (not Finalized), " +
+                            "resume/restore flow will run instead");
                     }
 
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
@@ -3158,8 +3190,11 @@ namespace Parsek
                 yield break;
             }
 
-            // Auto-discard idle-on-pad recordings before showing the dialog
-            if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+            // Auto-discard idle-on-pad recordings before showing the dialog.
+            // Only for Finalized trees (Limbo trees are resume-flow stashes,
+            // not merge candidates).
+            if (RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized
+                && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
                 DiscardPendingTreeAndRecalculate(
