@@ -1043,9 +1043,18 @@ namespace Parsek
                 rec.ExplicitEndUT = endUT;
             }
 
+            // Capture the finalization cache before OnVesselRemovedFromBackground
+            // clears it, so TryApplyFinalizationCacheForBackgroundEnd below can still
+            // reach a cached terminal tail.
+            RecordingFinalizationCache preservedCache;
+            bool hadPreservedCache = finalizationCaches.TryGetValue(vesselPid, out preservedCache);
+
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid);
+
+            if (hadPreservedCache && preservedCache != null)
+                finalizationCaches[vesselPid] = preservedCache;
 
             RecordingFinalizationCacheApplyResult cacheResult;
             bool cacheApplied = rec != null
@@ -1057,6 +1066,9 @@ namespace Parsek
                     allowStale: true,
                     requireDestroyedTerminal: false,
                     out cacheResult);
+
+            if (hadPreservedCache)
+                finalizationCaches.Remove(vesselPid);
 
             if (rec != null && !cacheApplied && !rec.TerminalStateValue.HasValue)
             {
@@ -1801,8 +1813,11 @@ namespace Parsek
                 return false;
 
             RecordingFinalizationCache cache = GetFinalizationCacheForRecording(recording);
-            if (cache == null && vesselPid != 0)
-                finalizationCaches.TryGetValue(vesselPid, out cache);
+            if (cache == null && vesselPid != 0
+                && finalizationCaches.TryGetValue(vesselPid, out RecordingFinalizationCache pidLookup))
+            {
+                cache = CopyAndAlignFinalizationCacheIdentity(pidLookup, recording);
+            }
 
             if (cache == null)
             {
@@ -1812,7 +1827,6 @@ namespace Parsek
                 return false;
             }
 
-            AlignFinalizationCacheIdentity(cache, recording);
             if (requireDestroyedTerminal && cache.TerminalState != TerminalState.Destroyed)
             {
                 ParsekLog.Warn("FinalizerCache",
