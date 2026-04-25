@@ -529,9 +529,50 @@ gained an `IPlaybackTrajectory traj` parameter; both call sites in
 four branches of the pure helper (absolute, relative v6, relative legacy v5,
 orbital-checkpoint, no-section) plus an explicit discriminator test that
 identical point data in Absolute vs Relative sections produces divergent
-world positions.
+world positions. `Source/Parsek.Tests/GhostMapObservabilityTests.cs`
+(32 tests) covers the structured decision-line builder, the lifecycle-summary
+helper, the resolution-branch translator, and the per-branch coordinate
+contract.
 
-**Status:** Fixed in PR (state-vector RELATIVE-frame contract).
+**Observability (post-fix logging contract):** every create / position /
+update / destroy decision in `Source/Parsek/GhostMapPresence.cs` emits a
+single structured line via `BuildGhostMapDecisionLine` so a future KSP.log
+filtered on `[Parsek][INFO][GhostMap]` / `[Parsek][VERBOSE][GhostMap]`
+reconstructs the full per-recording lifecycle without cross-file lookups.
+Producers fill `GhostMapDecisionFields` (set NaN sentinels via
+`NewDecisionFields(action)`) and call the builder. Standard fields always
+present: `action`, `rec`, `idx`, `vessel`, `source`, `branch`, `body`,
+`scene`. Optional slots appear only when set: `worldPos`, `ghostPid`,
+`segmentBody / segmentUT / sma / ecc / inc / mna / epoch`,
+`terminalOrbitBody / terminalSma / terminalEcc`, `stateVecAlt /
+stateVecSpeed`, `anchorPid / anchorPos / localOffset`, `ut`, `reason`.
+
+Canonical actions (use these names for new lines so existing greps keep
+working): `create-segment-intent`, `create-segment-done`,
+`create-terminal-orbit-intent`, `create-terminal-orbit-done`,
+`create-state-vector-intent`, `create-state-vector-done`,
+`create-state-vector-skip`, `create-state-vector-miss`,
+`create-dispatch`, `create-chain-intent`, `create-chain-done`,
+`update-segment`, `update-state-vector`, `update-state-vector-soi-change`,
+`update-state-vector-skip`, `update-state-vector-miss`,
+`update-terminal-orbit-fallback`, `update-chain-segment`,
+`destroy`, `destroy-chain`, `source-resolve`. The branch tag uses the
+capitalised forms (`Absolute` / `Relative` / `OrbitalCheckpoint` /
+`no-section` / `(n/a)`) — convert from the resolver via
+`MapResolutionBranch`. Per-frame update paths route through
+`ParsekLog.VerboseRateLimited` keyed on `recId` (5 s window) so a long warp
+pass leaves a readable trace without spam. Both lifecycle drivers
+(`UpdateTrackingStationGhostLifecycle`,
+`ParsekPlaybackPolicy.CheckPendingMapVessels`) call
+`EmitLifecycleSummary(scope, currentUT)` once per tick, which logs
+`vesselsTracked / created / destroyed / updated` and resets the per-tick
+counters. Future agents extending GhostMap should pick an existing action
+name when the decision shape matches, and add a new entry to the canonical
+list above when adding a new decision point — duplicating the line shape is
+the goal.
+
+**Status:** Fixed in PR (state-vector RELATIVE-frame contract + structured
+GhostMap observability).
 
 ---
 

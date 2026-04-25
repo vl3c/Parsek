@@ -43,7 +43,7 @@ All notable changes to Parsek are documented here.
 
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
 
-- `#582` Map-view state-vector ghosts now honour the originating track section's reference frame, so a ghost that traverses a Relative-frame docking/rendezvous segment stays attached to its anchor vessel instead of snapping to the body surface at a meaningless lat/lon.
+- `#582` Map-view state-vector ghosts now honour the originating track section's reference frame, so a ghost that traverses a Relative-frame docking/rendezvous segment stays attached to its anchor vessel instead of snapping to the body surface at a meaningless lat/lon. Ghost-map create / position / update / destroy paths now emit a single structured `[GhostMap]` decision line (action, source, branch, body, world position, anchor, segment / terminal-orbit / state-vector data, scene) so a future "ghost icon went weird in map mode" report can be reconstructed from the KSP.log alone.
 
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.
 

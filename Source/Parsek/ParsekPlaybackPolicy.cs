@@ -1032,6 +1032,8 @@ namespace Parsek
                     }
                 }
             }
+
+            GhostMapPresence.EmitLifecycleSummary("flight-map-presence", currentUT);
         }
 
         private static bool TryGetMapOrbitKey(
@@ -1091,6 +1093,32 @@ namespace Parsek
                 ParsekLog.Info("Policy",
                     $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to terminal-orbit fallback " +
                     $"during sparse gap body={fallbackKey.body} sma={fallbackKey.sma:F0}");
+
+                // Structured GhostMap line so the per-recording trace stays
+                // consistent across files. Emits the new orbit shape and the
+                // ghost's resolved world position (post-update).
+                var fields = GhostMapPresence.NewDecisionFields("update-terminal-orbit-fallback");
+                fields.RecordingId = rec?.RecordingId;
+                fields.RecordingIndex = idx;
+                fields.VesselName = rec?.VesselName;
+                fields.Source = "TerminalOrbit";
+                fields.Branch = "(n/a)";
+                fields.Body = fallbackSegment.bodyName;
+                fields.Segment = fallbackSegment;
+                fields.TerminalBody = rec?.TerminalOrbitBody;
+                fields.TerminalSma = rec?.TerminalOrbitSemiMajorAxis ?? double.NaN;
+                fields.TerminalEcc = rec?.TerminalOrbitEccentricity ?? double.NaN;
+                fields.UT = currentUT;
+                fields.Reason = "sparse-gap-fallback";
+                if (GhostMapPresence.TryGetGhostWorldPosForRecording(idx, out Vector3d worldPos))
+                    fields.WorldPos = worldPos;
+                ParsekLog.VerboseRateLimited(
+                    "GhostMap",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "gm-terminal-fallback-{0}",
+                        rec?.RecordingId ?? idx.ToString(CultureInfo.InvariantCulture)),
+                    GhostMapPresence.BuildGhostMapDecisionLine(fields),
+                    5.0);
             }
 
             return true;
