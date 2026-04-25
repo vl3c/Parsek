@@ -72,17 +72,21 @@ namespace Parsek
             if (marker != null && !validation.Valid)
             {
                 clearedMarkerSessionId = marker.SessionId;
-                LogMarkerInvalid(marker, validation.Reason);
+                LogMarkerInvalid(marker, validation.Reason, validation.Details);
                 scenario.ActiveReFlySessionMarker = null;
             }
             else if (markerValid)
             {
+                var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Info(SessionTag,
                     $"Marker valid sess={marker.SessionId ?? "<no-id>"} " +
                     $"tree={marker.TreeId ?? "<no-id>"} " +
                     $"active={marker.ActiveReFlyRecordingId ?? "<no-id>"} " +
                     $"origin={marker.OriginChildRecordingId ?? "<no-id>"} " +
-                    $"rp={marker.RewindPointId ?? "<no-id>"}");
+                    $"rp={marker.RewindPointId ?? "<no-id>"} " +
+                    $"invokedUT={marker.InvokedUT.ToString("R", ic)} " +
+                    $"invokedRealTime={marker.InvokedRealTime ?? "<none>"} " +
+                    $"details={validation.Details ?? "<none>"}");
             }
 
             // ----------------------------------------------------------------
@@ -534,7 +538,7 @@ namespace Parsek
             return false;
         }
 
-        private static void LogMarkerInvalid(ReFlySessionMarker marker, string reason)
+        private static void LogMarkerInvalid(ReFlySessionMarker marker, string reason, string details)
         {
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Warn(SessionTag,
@@ -545,7 +549,8 @@ namespace Parsek
                 $"origin={marker.OriginChildRecordingId ?? "<no-id>"} " +
                 $"rp={marker.RewindPointId ?? "<no-id>"} " +
                 $"invokedUT={marker.InvokedUT.ToString("R", ic)} " +
-                $"invokedRealTime={marker.InvokedRealTime ?? "<none>"}");
+                $"invokedRealTime={marker.InvokedRealTime ?? "<none>"} " +
+                $"details={details ?? "<none>"}");
         }
     }
 }

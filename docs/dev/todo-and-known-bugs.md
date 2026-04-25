@@ -336,7 +336,7 @@ for an expected-on-startup or transient-during-soi-transition condition.
 
 ---
 
-## 577. ReFlySession marker invalidated on the `InvokedUT` field on a fresh load
+## ~~577. ReFlySession marker invalidated on the `InvokedUT` field on a fresh load~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` line 8889:
 
@@ -365,8 +365,25 @@ fresh start. The cause may be a stale-marker survival problem, a too-strict
 - `Source/Parsek/ReFlySessionMarker.cs` — when `InvokedUT` is allowed to be
   null/zero and when it must be non-zero.
 
-**Status:** Open. Single occurrence in this log; reproducer needs the prior
-session that authored the on-disk marker.
+**Diagnosis (2026-04-25):** `InvokedUT` is Planetarium game UT; `InvokedRealTime`
+is the wall-clock UTC timestamp. The marker was rejected because the pre-fix
+validator compared `marker.InvokedUT > CurrentUt()`: the cited fresh
+SPACECENTER load reported current UT 0 in the scenario summary, so the valid
+prior-session `invokedUT=578.13180328350882` looked like a future value even
+though the referenced RP was from the same UT neighborhood.
+
+**Fix:** `InvokedUT` validation now rejects only corrupt values (NaN/Infinity,
+negative, or above the `1E+15` sanity ceiling); current UT is diagnostic-only
+and accept logs call out `legacyFutureUtCheck=triggered` when the old rule
+would have wiped the marker. Load-time marker accept/reject logs include the
+six durable fields plus the specific validation details, including `currentUT`,
+`rpUT`, and deltas for `InvokedUT`. Regressions:
+`MarkerValid_PriorSessionInvokedUtAfterFreshLoadUt_PreservedAndLogged`,
+`MarkerInvalid_InvokedUtNaN_ClearedWithDiagnostic`,
+`MarkerInvalid_InvokedUtNegative_ClearedWithDiagnostic`, and
+`MarkerInvalid_InvokedUtExtremeFuture_ClearedWithDiagnostic`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.8.3.
 
 ---
 
