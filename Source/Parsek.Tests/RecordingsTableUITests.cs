@@ -292,6 +292,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveRewindPointForRecording_ActiveParentOfBreakup_ResolvesViaChildBranchPointId()
+        {
+            // Review item 13 regression guard: the breakup author records
+            // BOTH the surviving active parent AND each break child as
+            // controllable outputs in the RP slot list (see
+            // ParsekFlight.TryAuthorRewindPointForBreakup +
+            // AuthorRewindPointFromVesselRecordings). The active parent
+            // references the breakup branch via ChildBranchPointId (it's the
+            // split it produced), not ParentBranchPointId. The UI lookup must
+            // resolve the active-parent row to the same RP so its
+            // Rewind-to-Staging button works after the active parent later
+            // crashes. Pre-029f549a, this lookup only matched
+            // ParentBranchPointId — the active-parent slot was unreachable.
+            var activeParent = new Recording
+            {
+                RecordingId = "rec_active_parent",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                // No ParentBranchPointId — active parent's branch link to the
+                // breakup BP is via ChildBranchPointId only.
+                ChildBranchPointId = "bp_breakup"
+            };
+            var breakChild = new Recording
+            {
+                RecordingId = "rec_break_child",
+                VesselName = "Kerbal X Booster",
+                MergeState = MergeState.Immutable,
+                ParentBranchPointId = "bp_breakup"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_breakup",
+                BranchPointId = "bp_breakup",
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(0, "rec_active_parent"),
+                    MakeSlot(1, "rec_break_child")
+                }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolvedActive = RecordingsTableUI.TryResolveRewindPointForRecording(
+                activeParent, out var rpFromActive, out int slotIdxActive);
+            bool resolvedChild = RecordingsTableUI.TryResolveRewindPointForRecording(
+                breakChild, out var rpFromChild, out int slotIdxChild);
+
+            Assert.True(resolvedActive);
+            Assert.Same(rp, rpFromActive);
+            Assert.Equal(0, slotIdxActive);
+            Assert.True(resolvedChild);
+            Assert.Same(rp, rpFromChild);
+            Assert.Equal(1, slotIdxChild);
+        }
+
+        [Fact]
         public void CanInvokeRewindPointSlot_DisabledSlotBlocksBeforeGlobalPreconditions()
         {
             var rp = new RewindPoint
