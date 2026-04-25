@@ -12063,11 +12063,19 @@ namespace Parsek
 
                 bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
 
-                // Log spawn suppression reason for non-debris recordings (diagnostic)
+                // Log spawn suppression reason for non-debris recordings (diagnostic).
+                // Emit only when the suppression reason flips for this recording —
+                // stable per-frame repeats (e.g., "no vessel snapshot" for the entire
+                // session) are coalesced into the suppressed counter and surfaced
+                // on the next reason change. Per-recording identity ensures a real
+                // reason flip on one recording doesn't mask another's stable state.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
                     string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
-                    ParsekLog.VerboseRateLimited("Spawner", "spawn-suppressed-" + i,
+                    ParsekLog.VerboseOnChange(
+                        "Spawner",
+                        "spawn-suppressed|" + i,
+                        reason ?? "(none)",
                         $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
                 }
 

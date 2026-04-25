@@ -43,6 +43,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Map-vessel source-resolve and spawn-suppression diagnostics no longer storm `KSP.log` when the same per-frame decision repeats every tick. Stable `(source, reason)` tuples now emit once per recording and stay quiet until the decision flips, with the suppressed count surfaced as `| suppressed=N` on the next state change.
+
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
