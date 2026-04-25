@@ -31,6 +31,7 @@ namespace Parsek
         internal Func<double> CurrentUTOverrideForTesting;
         internal Func<bool> HasActiveVesselOverrideForTesting;
         internal Func<Vector3d> ActiveVesselWorldPosOverrideForTesting;
+        internal Func<Recording, Vector3d, bool> ShouldDeferSpawnOutsideBubbleOverrideForTesting;
         internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
         internal Action<uint> DeferredActivateVesselOverrideForTesting;
         internal const int FlagReplayWarnRetryThreshold = 3;
@@ -165,6 +166,8 @@ namespace Parsek
                 : FlightGlobals.ActiveVessel != null;
             int spawnedCount = 0;
             int deferredOutOfBubble = 0;
+            int firstDeferredOutOfBubbleIndex = -1;
+            string firstDeferredOutOfBubbleName = null;
             var flushedSpawnIds = new List<string>();
             var clearedFlagReplayIds = new List<string>();
             Vector3d activeVesselPos = hasActiveVessel
@@ -194,11 +197,14 @@ namespace Parsek
                 {
                     // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
                     if (hasActiveVessel &&
-                        ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
+                        ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
                     {
                         deferredOutOfBubble++;
-                        ParsekLog.Verbose("Policy",
-                            $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
+                        if (firstDeferredOutOfBubbleIndex < 0)
+                        {
+                            firstDeferredOutOfBubbleIndex = i;
+                            firstDeferredOutOfBubbleName = rec.VesselName;
+                        }
                         continue;
                     }
 
@@ -273,21 +279,42 @@ namespace Parsek
                 pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
             }
 
-            if (deferredOutOfBubble > 0)
+            int remainingCount = pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count;
+            bool madeProgress = spawnedCount > 0 || flushedSpawnIds.Count > 0 || clearedFlagReplayIds.Count > 0;
+            if (remainingCount > 0)
             {
-                ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount} deferred spawn(s), " +
-                    $"{deferredOutOfBubble} kept (outside bubble), " +
-                    $"{pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count} remaining");
+                string outsideBubbleSample = firstDeferredOutOfBubbleIndex >= 0
+                    ? $" sample=#{firstDeferredOutOfBubbleIndex} \"{firstDeferredOutOfBubbleName}\""
+                    : string.Empty;
+                string message =
+                    $"Deferred spawn queue waiting — flushed {spawnedCount} deferred spawn(s), " +
+                    $"{deferredOutOfBubble} kept outside physics bubble, " +
+                    $"{pendingFlagReplayRecordingIds.Count} flag replay(s) pending, " +
+                    $"{remainingCount} total pending{outsideBubbleSample}";
+
+                if (madeProgress)
+                    ParsekLog.Info("Policy", message);
+                else
+                    ParsekLog.VerboseRateLimited("Policy", "deferred-spawn-queue-waiting", message);
             }
             else
             {
                 ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
+                    $"Deferred spawn queue drained — spawned {spawnedCount} deferred spawn(s), " +
+                    $"cleared {flushedSpawnIds.Count} spawn queue item(s), " +
+                    $"cleared {clearedFlagReplayIds.Count} flag replay(s)");
             }
 
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
+        }
+
+        private bool ShouldDeferSpawnOutsideBubble(Recording rec, Vector3d activeVesselPos)
+        {
+            if (ShouldDeferSpawnOutsideBubbleOverrideForTesting != null)
+                return ShouldDeferSpawnOutsideBubbleOverrideForTesting(rec, activeVesselPos);
+
+            return ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos);
         }
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
