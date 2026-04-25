@@ -173,6 +173,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RefreshOnRailsFinalizationCache_AlreadyDestroyedSkipRefreshesOnCadence()
+        {
+            var logLines = new List<string>();
+            double logClock = 0.0;
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ClockOverrideForTesting = () => logClock;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+
+            var tree = MakeTree((100, "rec_bg1"));
+            Recording recording = tree.Recordings["rec_bg1"];
+            recording.TerminalStateValue = TerminalState.Destroyed;
+            recording.ExplicitEndUT = 180.0;
+            recording.TerminalOrbitBody = "Kerbin";
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 50.0,
+                endUT = 100.0,
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+                eccentricity = 0.01,
+                inclination = 2.0,
+                longitudeOfAscendingNode = 3.0,
+                argumentOfPeriapsis = 4.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 50.0
+            });
+
+            bool firstRefresh = bgRecorder.RefreshOnRailsFinalizationCacheForTesting(
+                100,
+                currentUT: 120.0,
+                force: true);
+            logClock = 10.0;
+            bool secondRefresh = bgRecorder.RefreshOnRailsFinalizationCacheForTesting(
+                100,
+                currentUT: 130.0,
+                force: false);
+
+            RecordingFinalizationCache cache = bgRecorder.GetFinalizationCacheForTesting(100);
+            Assert.False(firstRefresh);
+            Assert.False(secondRefresh);
+            Assert.NotNull(cache);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal(
+                RecordingFinalizationCacheProducer.AlreadyClassifiedDestroyedDeclineReason,
+                cache.DeclineReason);
+            Assert.Equal(130.0, cache.CachedAtUT);
+            Assert.Equal(180.0, cache.TerminalUT);
+            Assert.Equal(TerminalState.Destroyed, recording.TerminalStateValue);
+            Assert.Equal(180.0, recording.ExplicitEndUT);
+
+            Assert.Equal(2, logLines.FindAll(line =>
+                line.Contains("[VERBOSE][Extrapolator]")
+                && line.Contains("already classified Destroyed at terminalUT=180.0; skipping re-run")).Count);
+            Assert.Equal(2, logLines.FindAll(line =>
+                line.Contains("[INFO][Extrapolator] FinalizerCache refresh summary: owner=BackgroundOnRails reason=test_on_rails recordingsExamined=1 alreadyClassified=1 newlyClassified=0")).Count);
+        }
+
+        [Fact]
         public void TryTouchSkippedFinalizationCache_PeriodicRequired_DoesNotAdvanceCacheCadence()
         {
             var cache = new RecordingFinalizationCache

@@ -195,6 +195,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#574` Already-Destroyed recordings no longer re-run the sub-surface ballistic finalizer on cache refresh. The first Destroyed classification now logs once with body, altitude, and threshold; later refreshes emit a rate-limited skip diagnostic plus refresh summary instead of a repeated WARN storm.
 - `#577` Re-Fly session markers loaded from an earlier game session now survive fresh-load scenes where KSP reports UT 0 during validation. The validator still rejects corrupt `InvokedUT` values and now logs current-UT/RP-UT comparisons for both accepts and rejects.
 
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.

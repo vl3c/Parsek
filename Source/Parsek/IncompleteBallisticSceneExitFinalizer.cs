@@ -24,6 +24,10 @@ namespace Parsek
         public SurfacePosition? terminalPosition;
         public double? terrainHeightAtEnd;
         public RecordingFinalizationTerminalOrbit? terminalOrbit;
+        public ExtrapolationFailureReason extrapolationFailureReason;
+        public string subSurfaceDestroyedBodyName;
+        public double subSurfaceDestroyedAltitude;
+        public double subSurfaceDestroyedThreshold;
     }
 
     internal static class IncompleteBallisticSceneExitFinalizer
@@ -44,6 +48,8 @@ namespace Parsek
 
         internal static TryFinalizeDelegate TryFinalizeHook;
         internal static TryFinalizeDelegate TryFinalizeOverrideForTesting;
+        private static readonly HashSet<string> subSurfaceDestroyedClassificationLogs =
+            new HashSet<string>(StringComparer.Ordinal);
 
         internal static void ResetForTesting()
         {
@@ -51,6 +57,12 @@ namespace Parsek
             FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
+            ResetLifecycleDiagnostics();
+        }
+
+        internal static void ResetLifecycleDiagnostics()
+        {
+            subSurfaceDestroyedClassificationLogs.Clear();
         }
 
         internal static bool TryApply(
@@ -60,6 +72,12 @@ namespace Parsek
             string logContext)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
+            if (IsAlreadyClassifiedDestroyed(recording))
+            {
+                LogAlreadyClassifiedDestroyedSkip(recording, logContext ?? "SceneExitFinalizer", "try-apply");
+                return false;
+            }
+
             var finalize = TryFinalizeHook ?? TryFinalizeOverrideForTesting ?? TryFinalizeRecording;
             bool usingHook = TryFinalizeHook != null;
             bool usingDefaultFinalize = TryFinalizeHook == null && TryFinalizeOverrideForTesting == null;
@@ -166,7 +184,10 @@ namespace Parsek
                         {
                             return TryBuildStartStateFromVessel(vessel, commitUT, out startState);
                         },
-                        (startState, extrapolationBodies) => BallisticExtrapolator.Extrapolate(startState, extrapolationBodies),
+                        (startState, extrapolationBodies) => BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false),
                         out result))
                 {
                     return false;
@@ -213,7 +234,78 @@ namespace Parsek
         {
             // Side-effect-free: the finalization-cache producer calls this on the
             // periodic refresh path, so all recording mutation must stay in Apply().
+            if (IsAlreadyClassifiedDestroyed(recording))
+            {
+                result = default(IncompleteBallisticFinalizationResult);
+                LogAlreadyClassifiedDestroyedSkip(recording, "TryBuildDefaultFinalizationResult", "cache-refresh");
+                return false;
+            }
+
             return TryFinalizeRecording(recording, vessel, commitUT, out result);
+        }
+
+        internal static bool IsAlreadyClassifiedDestroyed(Recording recording)
+        {
+            return recording != null
+                && recording.TerminalStateValue.HasValue
+                && recording.TerminalStateValue.Value == TerminalState.Destroyed;
+        }
+
+        internal static void LogAlreadyClassifiedDestroyedSkip(
+            Recording recording,
+            string context,
+            string reason)
+        {
+            string recordingId = recording?.RecordingId ?? "(null)";
+            double terminalUT = double.NaN;
+            if (recording != null)
+                terminalUT = !double.IsNaN(recording.ExplicitEndUT)
+                    ? recording.ExplicitEndUT
+                    : recording.EndUT;
+            ParsekLog.VerboseRateLimited("Extrapolator", $"subsurface-destroyed-skip.{recordingId}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: already classified Destroyed at terminalUT={1:F1}; skipping re-run " +
+                    "(rec={2}, reason={3})",
+                    string.IsNullOrEmpty(context) ? "TryFinalizeRecording" : context,
+                    terminalUT,
+                    recordingId,
+                    reason ?? "(none)"),
+                5.0);
+        }
+
+        internal static bool LogSubSurfaceDestroyedClassificationOnce(
+            string recordingId,
+            double terminalUT,
+            string bodyName,
+            double altitude,
+            double threshold)
+        {
+            string key = string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId;
+            if (!subSurfaceDestroyedClassificationLogs.Add(key))
+                return false;
+
+            ParsekLog.Warn("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Start rejected: sub-surface state rec={0} body={1} ut={2:F3} alt={3:F1} " +
+                    "(threshold={4:F1}); classifying recording as Destroyed",
+                    key,
+                    bodyName ?? "(unknown-body)",
+                    terminalUT,
+                    altitude,
+                    threshold));
+            ParsekLog.Info("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TryFinalizeRecording: classified Destroyed by sub-surface path " +
+                    "rec={0} terminalUT={1:F1} body={2} alt={3:F1} threshold={4:F1}",
+                    key,
+                    terminalUT,
+                    bodyName ?? "(unknown-body)",
+                    altitude,
+                    threshold));
+            return true;
         }
 
         internal static bool TryCompleteFinalizationFromPatchedSnapshotForTesting(
@@ -354,6 +446,15 @@ namespace Parsek
                 : 0;
             result.terminalState = extrapolated.terminalState;
             result.terminalUT = extrapolated.terminalUT;
+            result.extrapolationFailureReason = extrapolated.failureReason;
+            if (extrapolated.failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+            {
+                PopulateSubSurfaceDestroyedDetails(
+                    startState,
+                    extrapolated,
+                    bodies,
+                    ref result);
+            }
 
             if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
                 result.terminalOrbit =
@@ -373,12 +474,39 @@ namespace Parsek
             }
             else if (extrapolated.failureReason == ExtrapolationFailureReason.SubSurfaceStart)
             {
-                ParsekLog.Info("Extrapolator",
-                    $"TryFinalizeRecording: sub-surface destroyed terminal applied for '{recordingId}' " +
-                    $"(terminalUT={result.terminalUT:F1}) — skipping segment append");
+                LogSubSurfaceDestroyedClassificationOnce(
+                    recordingId,
+                    result.terminalUT,
+                    result.subSurfaceDestroyedBodyName,
+                    result.subSurfaceDestroyedAltitude,
+                    result.subSurfaceDestroyedThreshold);
             }
 
             return applied;
+        }
+
+        private static void PopulateSubSurfaceDestroyedDetails(
+            BallisticStateVector startState,
+            ExtrapolationResult extrapolated,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            ref IncompleteBallisticFinalizationResult result)
+        {
+            string bodyName = !string.IsNullOrEmpty(extrapolated.terminalBodyName)
+                ? extrapolated.terminalBodyName
+                : startState.bodyName;
+            double altitude = double.NaN;
+            if (!string.IsNullOrEmpty(bodyName)
+                && bodies != null
+                && bodies.TryGetValue(bodyName, out ExtrapolationBody body)
+                && body != null)
+            {
+                bodyName = body.Name ?? bodyName;
+                altitude = Magnitude(extrapolated.terminalPosition) - body.Radius;
+            }
+
+            result.subSurfaceDestroyedBodyName = bodyName;
+            result.subSurfaceDestroyedAltitude = altitude;
+            result.subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude;
         }
 
         private static string TryDescribeHeadlessFlightGlobalsFailure(Exception ex)
@@ -812,6 +940,12 @@ namespace Parsek
         {
             return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
                 || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
+        }
+
+        private static double Magnitude(Vector3d value)
+        {
+            // Avoid Vector3d.magnitude here so headless seam tests do not depend on Unity operator internals.
+            return Math.Sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
         }
 
         private static void GetApproximateLatitudeLongitude(
