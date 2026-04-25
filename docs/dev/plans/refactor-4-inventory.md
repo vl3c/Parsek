@@ -46,7 +46,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass0-Done; same-file candidates exist, cross-file split deferred |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass0-OpportunityMap; old large sampling/event file included in sweep |
-| `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass0-OpportunityMap; playback logic candidates mapped |
+| `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Partial; ghost info population helpers extracted, `ApplyPartEvents` remains |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass0-OpportunityMap; split/init candidates mapped |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
@@ -426,10 +426,22 @@ This static helper mixes loop/warp policy, ghost info dictionaries, visibility,
 explosions, part events, canopy/engine/audio/RCS/robotic/heat/light playback,
 spawn-at-end policy, zone rendering policy, and watch-mode queries.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `PopulateGhostInfoDictionaries` into dictionary population groups,
-  heat/light initialization, audio population, and orphan auto-start helpers.
+- Split `PopulateGhostInfoDictionaries` into private same-file helpers for
+  engine, heat, light, RCS, robotic, audio, and orphan-engine auto-start
+  population. The original dictionary fill order, heat cold-start loop, audio
+  selection-order assignment, orphan event-key detection, and logs remain in
+  the same sequence.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~OrphanEngineFxAutoStartTests|FullyQualifiedName~Bug450B3LazyReentryTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
+
+Remaining Pass 1 same-file candidates:
+
 - Split `ApplyPartEvents` into contiguous event clusters while preserving the
   existing switch order exactly.
 - Leave `ShouldSpawnAtRecordingEnd` alone unless a focused read finds a
@@ -694,8 +706,9 @@ raw scan with a manual map for the high-risk owners:
 
 1. Select the next Pass 1 same-file extraction from the low-to-medium risk
    candidates in the large-file opportunity map. Good next choices are
-   `GhostPlaybackLogic.PopulateGhostInfoDictionaries` or
-   `FlightRecorder.LogVisualRecordingCoverage`.
+   `FlightRecorder.LogVisualRecordingCoverage`,
+   `GhostPlaybackLogic.ApplyPartEvents`, or
+   `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger`.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication.

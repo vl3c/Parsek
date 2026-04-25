@@ -1001,6 +1001,34 @@ namespace Parsek
             if (result.jettisonInfos != null)
                 state.jettisonInfos = BuildDictByPid(result.jettisonInfos, j => j.partPersistentId);
 
+            PopulateEngineInfos(state, result);
+
+            if (result.deployableInfos != null)
+                state.deployableInfos = BuildDictByPid(result.deployableInfos, d => d.partPersistentId);
+
+            PopulateHeatInfos(state, result);
+            PopulateLightInfos(state, result);
+
+            if (result.fairingInfos != null)
+                state.fairingInfos = BuildDictByPid(result.fairingInfos, f => f.partPersistentId);
+
+            PopulateRcsInfos(state, result);
+            PopulateRoboticInfos(state, result);
+
+            if (result.colorChangerInfos != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
+
+            state.compoundPartInfos = result.compoundPartInfos;
+
+            PopulateAudioInfos(state, result);
+
+            state.oneShotAudio = result.oneShotAudio;
+
+            AutoStartOrphanEnginePlayback(state, traj);
+        }
+
+        private static void PopulateEngineInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.engineInfos != null)
             {
                 state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
@@ -1011,10 +1039,10 @@ namespace Parsek
                     state.engineInfos[key] = result.engineInfos[i];
                 }
             }
+        }
 
-            if (result.deployableInfos != null)
-                state.deployableInfos = BuildDictByPid(result.deployableInfos, d => d.partPersistentId);
-
+        private static void PopulateHeatInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.heatInfos != null)
             {
                 state.heatInfos = BuildDictByPid(result.heatInfos, h => h.partPersistentId);
@@ -1027,7 +1055,10 @@ namespace Parsek
                     ApplyHeatState(state, coldEvt, HeatLevel.Cold);
                 }
             }
+        }
 
+        private static void PopulateLightInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.lightInfos != null)
             {
                 state.lightInfos = BuildDictByPid(result.lightInfos, l => l.partPersistentId);
@@ -1035,10 +1066,10 @@ namespace Parsek
                 for (int i = 0; i < result.lightInfos.Count; i++)
                     state.lightPlaybackStates[result.lightInfos[i].partPersistentId] = new LightPlaybackState();
             }
+        }
 
-            if (result.fairingInfos != null)
-                state.fairingInfos = BuildDictByPid(result.fairingInfos, f => f.partPersistentId);
-
+        private static void PopulateRcsInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.rcsInfos != null)
             {
                 state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
@@ -1049,7 +1080,10 @@ namespace Parsek
                     state.rcsInfos[key] = result.rcsInfos[i];
                 }
             }
+        }
 
+        private static void PopulateRoboticInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.roboticInfos != null)
             {
                 state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
@@ -1060,12 +1094,10 @@ namespace Parsek
                     state.roboticInfos[key] = result.roboticInfos[i];
                 }
             }
+        }
 
-            if (result.colorChangerInfos != null)
-                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
-
-            state.compoundPartInfos = result.compoundPartInfos;
-
+        private static void PopulateAudioInfos(GhostPlaybackState state, GhostBuildResult result)
+        {
             if (result.audioInfos != null)
             {
                 state.audioInfos = new Dictionary<ulong, AudioGhostInfo>();
@@ -1077,9 +1109,12 @@ namespace Parsek
                     state.audioInfos[key] = result.audioInfos[i];
                 }
             }
+        }
 
-            state.oneShotAudio = result.oneShotAudio;
-
+        private static void AutoStartOrphanEnginePlayback(
+            GhostPlaybackState state,
+            IPlaybackTrajectory traj)
+        {
             // Build engine event key set for orphan detection (scan over PartEvents).
             // Debris boosters that were running at breakup have no seed events because
             // BackgroundRecorder.InitializeLoadedState finds engine.isOperational=false
@@ -1135,7 +1170,6 @@ namespace Parsek
                     }
                 }
             }
-
         }
 
         /// <summary>
