@@ -587,8 +587,36 @@ namespace Parsek
         ///
         /// <para>This predicate gates that one create site without touching any
         /// other source path. Pure-static so xUnit can pin every branch
-        /// without a live KSP scene; takes the marker, the resolution branch
-        /// label, the resolved anchor pid, and the committed-recordings list.</para>
+        /// without a live KSP scene.</para>
+        ///
+        /// <para><b>Scope (PR #574 review P2):</b> the suppression is also
+        /// gated on the *recording relationship* between the recording being
+        /// mapped (<paramref name="victimRecordingId"/>) and the active Re-Fly
+        /// recording. The bug only manifests when the victim is a
+        /// <em>parent</em> (in the BranchPoint topology sense) of the active
+        /// Re-Fly recording — that is, the recording from which the active
+        /// was decoupled or otherwise branched. A docking-target recording
+        /// or any unrelated recording that happens to be Relative-anchored to
+        /// the active vessel (legitimate #583/#584 docking/rendezvous map
+        /// ghosts) is *not* suppressed. The parent walk uses
+        /// <see cref="Recording.ParentBranchPointId"/> +
+        /// <see cref="BranchPoint.ParentRecordingIds"/> via the committed
+        /// trees — the same edge data
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/> walks
+        /// child-ward, traversed in the opposite direction.</para>
+        ///
+        /// <para><b>Retry semantics (PR #574 review P2):</b> when the
+        /// predicate returns true at the call site
+        /// <see cref="CreateGhostVesselFromStateVectors"/>, the function
+        /// returns null. The flight-scene caller
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c> normally drops
+        /// the pending-map entry on null return — that would mean the
+        /// recording never re-attempts after the Re-Fly session ends. The
+        /// caller now consults <paramref name="retryLater"/> via
+        /// <see cref="CreateGhostVesselFromSource(int, IPlaybackTrajectory,
+        /// TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, double,
+        /// out bool)"/> and keeps the pending entry alive when this gate
+        /// fires, so suppression is "skip-this-tick", not "permanent-reject".</para>
         ///
         /// <para>Sister fixes (#587 and the #587 follow-up) targeted the
         /// strip-side leftover (a pre-existing in-scene <c>Vessel</c> the
@@ -601,19 +629,30 @@ namespace Parsek
         /// <param name="resolutionBranch">Branch label from
         /// <see cref="StateVectorWorldFrame.Branch"/>: only "relative" suppresses.</param>
         /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
+        /// <param name="victimRecordingId">RecordingId of the recording being
+        /// mapped. Suppression is rejected with
+        /// <c>not-suppressed-not-parent-of-refly-target</c> when the victim is
+        /// not in the active Re-Fly recording's parent chain.</param>
         /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>.
         /// Tests pass a list directly; production passes the live property.</param>
-        /// <param name="suppressReason">On true, a short human-readable reason
-        /// for the structured log line. On false, set to "not-suppressed-..."
-        /// describing which gate clause rejected the suppression.</param>
+        /// <param name="committedTrees">Snapshot of <see cref="RecordingStore.CommittedTrees"/>
+        /// for BranchPoint topology lookup. Tests pass a list directly;
+        /// production passes the live property.</param>
+        /// <param name="suppressReason">On true, a structured human-readable
+        /// reason for the log line including the relationship scope. On false,
+        /// set to "not-suppressed-..." describing which gate clause rejected
+        /// the suppression.</param>
         /// <returns>True iff the state-vector ProtoVessel should NOT be
         /// created because its world position would land on top of the
-        /// active Re-Fly target.</returns>
+        /// active Re-Fly target AND the victim recording is in the active
+        /// Re-Fly recording's parent chain.</returns>
         internal static bool ShouldSuppressStateVectorProtoVesselForActiveReFly(
             ReFlySessionMarker marker,
             string resolutionBranch,
             uint resolutionAnchorPid,
+            string victimRecordingId,
             IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
             out string suppressReason)
         {
             if (marker == null)
@@ -686,8 +725,127 @@ namespace Parsek
                 return false;
             }
 
-            suppressReason = "refly-relative-anchor=active";
+            // PR #574 review P2: the anchor-equality predicate is necessary
+            // but not sufficient. A docking-target / rendezvous recording or
+            // any sibling recording could legitimately be Relative-anchored
+            // to the active vessel (cf. #583 / #584). Restrict suppression
+            // to the user's actual case: the recording being mapped is in
+            // the active Re-Fly recording's *parent* chain (i.e. the
+            // recording from which the active was decoupled or otherwise
+            // branched).
+            if (string.IsNullOrEmpty(victimRecordingId))
+            {
+                suppressReason = "not-suppressed-no-victim-id";
+                return false;
+            }
+
+            if (string.Equals(victimRecordingId, marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal))
+            {
+                // The active recording itself is already covered by the
+                // SessionSuppressedSubtree gate (IsSuppressedByActiveSession);
+                // this branch keeps the predicate idempotent for the unlikely
+                // case that the active recording reaches this code path.
+                suppressReason = "not-suppressed-victim-is-active";
+                return false;
+            }
+
+            if (!IsRecordingInParentChainOfActiveReFly(
+                    victimRecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    committedTrees))
+            {
+                suppressReason = "not-suppressed-not-parent-of-refly-target";
+                return false;
+            }
+
+            suppressReason = "refly-relative-anchor=active relationship=parent";
             return true;
+        }
+
+        /// <summary>
+        /// Pure: walks the BranchPoint topology parent-ward from the active
+        /// Re-Fly recording and returns true when <paramref name="victimRecordingId"/>
+        /// is encountered in any parent BP's <see cref="BranchPoint.ParentRecordingIds"/>.
+        /// Mirror of the child-ward closure in
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>, traversed
+        /// in the opposite direction. Returns false on any structural defect
+        /// (null trees / missing tree / missing recording / cycle), erring on
+        /// the side of NOT suppressing.
+        /// </summary>
+        internal static bool IsRecordingInParentChainOfActiveReFly(
+            string victimRecordingId,
+            string activeRecordingId,
+            IReadOnlyList<RecordingTree> committedTrees)
+        {
+            if (string.IsNullOrEmpty(victimRecordingId)
+                || string.IsNullOrEmpty(activeRecordingId)
+                || committedTrees == null)
+            {
+                return false;
+            }
+
+            // Locate the tree containing the active recording and seed the
+            // queue with the active recording's ParentBranchPointId.
+            RecordingTree tree = null;
+            Recording active = null;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                RecordingTree t = committedTrees[i];
+                if (t?.Recordings == null) continue;
+                if (t.Recordings.TryGetValue(activeRecordingId, out Recording rec)
+                    && rec != null)
+                {
+                    tree = t;
+                    active = rec;
+                    break;
+                }
+            }
+            if (tree == null || active == null) return false;
+            if (string.IsNullOrEmpty(active.ParentBranchPointId)) return false;
+
+            var pendingBPs = new Queue<string>();
+            var visitedBPs = new HashSet<string>();
+            var visitedRecs = new HashSet<string>();
+            pendingBPs.Enqueue(active.ParentBranchPointId);
+
+            while (pendingBPs.Count > 0)
+            {
+                string bpId = pendingBPs.Dequeue();
+                if (string.IsNullOrEmpty(bpId) || !visitedBPs.Add(bpId))
+                    continue;
+
+                BranchPoint bp = null;
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    if (tree.BranchPoints[i] != null
+                        && string.Equals(tree.BranchPoints[i].Id, bpId, StringComparison.Ordinal))
+                    {
+                        bp = tree.BranchPoints[i];
+                        break;
+                    }
+                }
+                if (bp?.ParentRecordingIds == null) continue;
+
+                for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                {
+                    string parentId = bp.ParentRecordingIds[i];
+                    if (string.IsNullOrEmpty(parentId) || !visitedRecs.Add(parentId))
+                        continue;
+
+                    if (string.Equals(parentId, victimRecordingId, StringComparison.Ordinal))
+                        return true;
+
+                    if (tree.Recordings.TryGetValue(parentId, out Recording parent)
+                        && parent != null
+                        && !string.IsNullOrEmpty(parent.ParentBranchPointId))
+                    {
+                        pendingBPs.Enqueue(parent.ParentBranchPointId);
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static double GetCurrentUTSafe()
@@ -3305,6 +3463,35 @@ namespace Parsek
             TrajectoryPoint stateVectorPoint,
             double currentUT)
         {
+            return CreateGhostVesselFromSource(
+                recordingIndex,
+                traj,
+                source,
+                segment,
+                stateVectorPoint,
+                currentUT,
+                out _);
+        }
+
+        /// <summary>
+        /// Overload that propagates <paramref name="retryLater"/> from
+        /// <see cref="CreateGhostVesselFromStateVectors(int, IPlaybackTrajectory,
+        /// TrajectoryPoint, double, out bool, bool, string)"/>. Non-state-vector
+        /// branches always set it false. Callers that maintain a pending-map
+        /// queue use this overload to decide whether to drop the pending entry
+        /// on null return or keep it for the next tick (PR #574 review P2:
+        /// retry-later semantics for the active-Re-Fly suppression gate).
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromSource(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            TrajectoryPoint stateVectorPoint,
+            double currentUT,
+            out bool retryLater)
+        {
+            retryLater = false;
             // Dispatcher-line: which sub-create is about to fire? Single line
             // gives the post-hoc reader the routing decision.
             var dispatch = NewDecisionFields("create-dispatch");
@@ -3355,6 +3542,7 @@ namespace Parsek
                         traj,
                         stateVectorPoint,
                         currentUT,
+                        out retryLater,
                         allowOrbitalCheckpointStateVector: source == TrackingStationGhostSource.StateVectorSoiGap,
                         stateVectorCreateReason: source == TrackingStationGhostSource.StateVectorSoiGap
                             ? SoiGapStateVectorFallbackReason
@@ -4036,6 +4224,34 @@ namespace Parsek
             bool allowOrbitalCheckpointStateVector = false,
             string stateVectorCreateReason = null)
         {
+            return CreateGhostVesselFromStateVectors(
+                recordingIndex,
+                traj,
+                point,
+                ut,
+                out _,
+                allowOrbitalCheckpointStateVector,
+                stateVectorCreateReason);
+        }
+
+        /// <summary>
+        /// Overload that exposes <paramref name="retryLater"/> = true when the
+        /// PR #574 active-Re-Fly suppression gate fires. Callers that maintain
+        /// a "pending map vessel" queue (cf.
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the
+        /// pending entry alive on (<c>null</c>, <c>retryLater = true</c>) so
+        /// the recording is retried next tick once the Re-Fly session ends —
+        /// rather than silently dropping it forever.
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromStateVectors(
+            int recordingIndex, IPlaybackTrajectory traj,
+            TrajectoryPoint point,
+            double ut,
+            out bool retryLater,
+            bool allowOrbitalCheckpointStateVector = false,
+            string stateVectorCreateReason = null)
+        {
+            retryLater = false;
             if (traj == null) return null;
 
             // Phase 7 session-suppression gate (design §3.3).
@@ -4124,13 +4340,25 @@ namespace Parsek
             // creation here; GhostPlaybackEngine still renders the legitimate
             // in-physics-zone ghost. See
             // docs/dev/plans/refly-doubled-ghostmap-protovessel-fix.md.
+            //
+            // PR #574 review P2: scope this to the *parent* recording chain of
+            // the active Re-Fly recording — a docking-target recording that
+            // is Relative-anchored to the active vessel for legitimate #583 /
+            // #584 reasons must NOT be suppressed. PR #574 review P2 also
+            // adds retry-later semantics: on suppression we set retryLater =
+            // true so the flight-scene caller leaves its pending-map entry
+            // intact (otherwise the recording would never get a map ghost
+            // again after the Re-Fly session ends).
             if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
                     resolution.AnchorPid,
+                    traj.RecordingId,
                     RecordingStore.CommittedRecordings,
+                    RecordingStore.CommittedTrees,
                     out string activeReFlySuppressReason))
             {
+                retryLater = true;
                 var suppressed = NewDecisionFields("create-state-vector-suppressed");
                 suppressed.RecordingId = traj.RecordingId;
                 suppressed.RecordingIndex = recordingIndex;
@@ -4145,7 +4373,7 @@ namespace Parsek
                 suppressed.StateVecSpeed = point.velocity.magnitude;
                 suppressed.UT = ut;
                 suppressed.Reason = string.Format(ic,
-                    "{0} sess={1}",
+                    "{0} sess={1} retryLater=true",
                     activeReFlySuppressReason,
                     SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));

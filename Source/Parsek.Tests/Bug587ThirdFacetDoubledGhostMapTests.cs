@@ -60,12 +60,85 @@ namespace Parsek.Tests
             return list;
         }
 
+        private const string TreeId = "tree-1";
+        private const string ParentBpId = "bp-decouple-1";
+
+        /// <summary>
+        /// Builds a one-tree topology where <paramref name="activeId"/> is the
+        /// child of <paramref name="parentId"/>: an Undock BranchPoint whose
+        /// <c>ParentRecordingIds</c> contains <paramref name="parentId"/>, and
+        /// the active recording's <c>ParentBranchPointId</c> points to that BP.
+        /// This is the exact shape <see cref="GhostMapPresence.IsRecordingInParentChainOfActiveReFly"/>
+        /// walks: child → ParentBranchPointId → BranchPoint → ParentRecordingIds.
+        /// </summary>
+        private static List<RecordingTree> TreesWithDecouple(
+            string parentId,
+            string activeId,
+            params (string id, string vesselName, uint pid)[] extraRecs)
+        {
+            var tree = new RecordingTree { Id = TreeId };
+            tree.Recordings[parentId] = new Recording
+            {
+                RecordingId = parentId,
+                TreeId = TreeId,
+                ChildBranchPointId = ParentBpId,
+            };
+            tree.Recordings[activeId] = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = TreeId,
+                ParentBranchPointId = ParentBpId,
+            };
+            for (int i = 0; i < extraRecs.Length; i++)
+            {
+                var r = extraRecs[i];
+                if (tree.Recordings.ContainsKey(r.id)) continue;
+                tree.Recordings[r.id] = new Recording
+                {
+                    RecordingId = r.id,
+                    TreeId = TreeId,
+                    VesselName = r.vesselName,
+                    VesselPersistentId = r.pid,
+                };
+            }
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = ParentBpId,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { parentId },
+                ChildRecordingIds = new List<string> { activeId },
+            });
+            return new List<RecordingTree> { tree };
+        }
+
+        /// <summary>
+        /// Builds a two-recording, no-relationship topology: each recording is
+        /// its own root with no ParentBranchPointId / ChildBranchPointId. Used
+        /// for tests that exercise gates upstream of the parent-chain walk
+        /// (no marker / placeholder / wrong branch / etc.) where the trees are
+        /// irrelevant — keeping the helper distinct from
+        /// <see cref="TreesWithDecouple"/> documents that intent.
+        /// </summary>
+        private static List<RecordingTree> TreesFlat(params string[] recIds)
+        {
+            var tree = new RecordingTree { Id = TreeId };
+            for (int i = 0; i < recIds.Length; i++)
+            {
+                tree.Recordings[recIds[i]] = new Recording
+                {
+                    RecordingId = recIds[i],
+                    TreeId = TreeId,
+                };
+            }
+            return new List<RecordingTree> { tree };
+        }
+
         private static ReFlySessionMarker InPlaceMarker(string activeAndOriginRecId)
         {
             return new ReFlySessionMarker
             {
                 SessionId = "sess_587_third_facet_test",
-                TreeId = "tree-1",
+                TreeId = TreeId,
                 ActiveReFlyRecordingId = activeAndOriginRecId,
                 OriginChildRecordingId = activeAndOriginRecId,
                 InvokedUT = 159.5,
@@ -77,12 +150,180 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------
 
         [Fact]
-        public void Suppresses_WhenInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid()
+        public void Suppresses_WhenInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid_VictimIsParent()
         {
             // The user's exact case: the parent capsule recording is being
             // mapped during a Re-Fly of the booster, with its current section
             // in Relative frame anchored to the booster's pid (= active
-            // Re-Fly target).
+            // Re-Fly target). The capsule decouples into the booster, so the
+            // booster's ParentBranchPointId points to a BP whose
+            // ParentRecordingIds = [capsule].
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.True(suppressed);
+            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+        }
+
+        // -----------------------------------------------------------------
+        // PR #574 review P2: parent-chain scope. The anchor-equality predicate
+        // is necessary but not sufficient — a docking-target recording or any
+        // sibling recording could legitimately be Relative-anchored to the
+        // active vessel for #583 / #584 reasons. Restrict suppression to the
+        // user's actual case (victim is in the active recording's parent
+        // chain).
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NotSuppressed_WhenAnchorIsActiveButRecordingIsNotParent_DockingTargetSibling()
+        {
+            // A separate recording (e.g. a station that the booster docks to
+            // for rendezvous) is Relative-anchored to the booster's pid for
+            // legitimate map-display reasons, but is NOT in the booster's
+            // parent chain. The anchor-equality check would otherwise hide
+            // its #583 / #584 ghost during Re-Fly — the parent-chain gate
+            // prevents that.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid),
+                ("rec-station", "Mun Station", 9999999u));
+            // Only capsule -> booster is a parent relationship; rec-station
+            // exists alongside as an unrelated sibling/peer.
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster",
+                extraRecs: ("rec-station", "Mun Station", 9999999u));
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid, // anchor IS the booster (the active)
+                victimRecordingId: "rec-station", // but the recording being mapped is the station
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.False(suppressed);
+            Assert.Equal("not-suppressed-not-parent-of-refly-target", reason);
+        }
+
+        [Fact]
+        public void Suppresses_WhenVictimIsGrandparent_MultiHopParentChain()
+        {
+            // A multi-hop parent chain: rec-pad (root) -> rec-capsule (decoupled
+            // off pad) -> rec-booster (decoupled off capsule). All three are
+            // valid victims of the doubled-vessel placement during a Re-Fly
+            // of rec-booster. The walk must enqueue parent BPs transitively.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-pad", "Kerbal X Pad", 1u),
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+
+            var tree = new RecordingTree { Id = TreeId };
+            tree.Recordings["rec-pad"] = new Recording
+            {
+                RecordingId = "rec-pad",
+                TreeId = TreeId,
+                ChildBranchPointId = "bp-pad-decouple",
+            };
+            tree.Recordings["rec-capsule"] = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-pad-decouple",
+                ChildBranchPointId = "bp-stage-decouple",
+            };
+            tree.Recordings["rec-booster"] = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-stage-decouple",
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-pad-decouple",
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { "rec-pad" },
+                ChildRecordingIds = new List<string> { "rec-capsule" },
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-stage-decouple",
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-capsule" },
+                ChildRecordingIds = new List<string> { "rec-booster" },
+            });
+            var trees = new List<RecordingTree> { tree };
+
+            // Victim is the grandparent (rec-pad) — must still be reached by
+            // the multi-hop parent walk.
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-pad",
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.True(suppressed);
+            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+        }
+
+        [Fact]
+        public void NotSuppressed_WhenVictimIsActiveItself()
+        {
+            // The active recording itself is already covered by the
+            // SessionSuppressedSubtree gate (IsSuppressedByActiveSession);
+            // the parent-chain predicate is idempotent for that case and
+            // returns a distinct rejection reason for grep clarity.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-booster", // victim IS the active recording
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.False(suppressed);
+            Assert.Equal("not-suppressed-victim-is-active", reason);
+        }
+
+        [Fact]
+        public void NotSuppressed_WhenCommittedTreesIsNull_BailsSafely()
+        {
+            // Defensive: a missing tree topology cannot be safely walked —
+            // err on the side of NOT suppressing rather than silently
+            // returning true on the looser anchor-equality predicate.
             const uint boosterPid = 2676381515u;
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(
@@ -93,11 +334,37 @@ namespace Parsek.Tests
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: null, // missing tree data
                 out string reason);
 
-            Assert.True(suppressed);
-            Assert.Equal("refly-relative-anchor=active", reason);
+            Assert.False(suppressed);
+            Assert.Equal("not-suppressed-not-parent-of-refly-target", reason);
+        }
+
+        [Fact]
+        public void NotSuppressed_WhenVictimIdIsNullOrEmpty()
+        {
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: null,
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.False(suppressed);
+            Assert.Equal("not-suppressed-no-victim-id", reason);
         }
 
         // -----------------------------------------------------------------
@@ -114,12 +381,15 @@ namespace Parsek.Tests
             var committed = CommittedWith(
                 ("rec-capsule", "Kerbal X", 2708531065u),
                 ("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesFlat("rec-capsule", "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker: null,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 2676381515u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -137,7 +407,7 @@ namespace Parsek.Tests
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess_placeholder",
-                TreeId = "tree-1",
+                TreeId = TreeId,
                 ActiveReFlyRecordingId = "rec-fresh-provisional",
                 OriginChildRecordingId = "rec-booster",
                 InvokedUT = 159.5,
@@ -145,12 +415,15 @@ namespace Parsek.Tests
             var committed = CommittedWith(
                 ("rec-fresh-provisional", "Kerbal X Probe", boosterPid),
                 ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesFlat("rec-fresh-provisional", "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-booster",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -167,12 +440,17 @@ namespace Parsek.Tests
             var committed = CommittedWith(
                 ("rec-capsule", "Kerbal X", 2708531065u),
                 ("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "absolute",
                 resolutionAnchorPid: 0u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -191,12 +469,18 @@ namespace Parsek.Tests
                 ("rec-capsule", "Kerbal X", 2708531065u),
                 ("rec-booster", "Kerbal X Probe", 2676381515u),
                 ("rec-station", "Mun Station", 9999999u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster",
+                extraRecs: ("rec-station", "Mun Station", 9999999u));
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 9999999u, // anchor is the station, not the booster
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -212,12 +496,17 @@ namespace Parsek.Tests
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(
                 ("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 0u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -233,12 +522,15 @@ namespace Parsek.Tests
             var marker = InPlaceMarker("rec-missing-from-store");
             var committed = CommittedWith(
                 ("rec-capsule", "Kerbal X", 2708531065u));
+            var trees = TreesFlat("rec-capsule");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 2676381515u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -255,12 +547,17 @@ namespace Parsek.Tests
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(
                 ("rec-booster", "Kerbal X Probe", 0u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 12345u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -271,12 +568,17 @@ namespace Parsek.Tests
         public void NotSuppressed_WhenCommittedListIsNull()
         {
             var marker = InPlaceMarker("rec-booster");
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 2676381515u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: null,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -286,14 +588,19 @@ namespace Parsek.Tests
         [Fact]
         public void NotSuppressed_WhenMarkerFieldsEmpty()
         {
-            var marker = new ReFlySessionMarker { SessionId = "sess", TreeId = "tree-1" };
+            var marker = new ReFlySessionMarker { SessionId = "sess", TreeId = TreeId };
             var committed = CommittedWith(("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: 2676381515u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -314,12 +621,17 @@ namespace Parsek.Tests
             // not be suppressed.
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "no-section",
                 resolutionAnchorPid: 0u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -331,12 +643,17 @@ namespace Parsek.Tests
         {
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(("rec-booster", "Kerbal X Probe", 2676381515u));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "orbital-checkpoint",
                 resolutionAnchorPid: 0u,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
             Assert.False(suppressed);
@@ -347,22 +664,119 @@ namespace Parsek.Tests
         public void Suppression_DistinctReason_StableForLogParsers()
         {
             // The structured log line shape pins on the suppress-reason value;
-            // tests that grep for `refly-relative-anchor=active` would silently
-            // pass if the constant ever drifted to e.g. "active-refly-anchor".
-            // Assert the canonical spelling here so a future refactor cannot
-            // change the reason string without breaking this test.
+            // tests that grep for `refly-relative-anchor=active relationship=parent`
+            // would silently pass if the constant ever drifted. Assert the
+            // canonical spelling here so a future refactor cannot change the
+            // reason string without breaking this test.
             const uint boosterPid = 2676381515u;
             var marker = InPlaceMarker("rec-booster");
-            var committed = CommittedWith(("rec-booster", "Kerbal X Probe", boosterPid));
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
 
             GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
                 resolutionBranch: "relative",
                 resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
+                committedTrees: trees,
                 out string reason);
 
-            Assert.Equal("refly-relative-anchor=active", reason);
+            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+        }
+
+        // -----------------------------------------------------------------
+        // Pure parent-chain helper: direct-call coverage so future refactors
+        // of the topology walk cannot silently drift from the predicate's
+        // gate logic.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_DirectParent_ReturnsTrue()
+        {
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule",
+                "rec-booster",
+                trees));
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_UnrelatedSibling_ReturnsFalse()
+        {
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster",
+                extraRecs: ("rec-station", "Mun Station", 9999999u));
+
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-station",
+                "rec-booster",
+                trees));
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_NullArgsBailSafely()
+        {
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                null, "rec-booster", new List<RecordingTree>()));
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule", null, new List<RecordingTree>()));
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule", "rec-booster", null));
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_MissingActiveRecording_ReturnsFalse()
+        {
+            // The walk must locate the active recording in some tree before it
+            // can seed the queue — otherwise it bails false (not suppress).
+            var trees = TreesFlat("rec-capsule");
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule",
+                "rec-booster", // not in any tree
+                trees));
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_CycleInBpTopologyBailsSafely()
+        {
+            // A pathological cycle (BP-A's parent is rec-1, which references
+            // BP-A again as its ParentBranchPointId) must not infinite-loop;
+            // the visited-sets cut the walk.
+            var tree = new RecordingTree { Id = TreeId };
+            tree.Recordings["rec-1"] = new Recording
+            {
+                RecordingId = "rec-1",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-cycle",
+            };
+            tree.Recordings["rec-2"] = new Recording
+            {
+                RecordingId = "rec-2",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-cycle",
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-cycle",
+                ParentRecordingIds = new List<string> { "rec-1", "rec-2" },
+                ChildRecordingIds = new List<string> { "rec-1", "rec-2" },
+            });
+            var trees = new List<RecordingTree> { tree };
+
+            // rec-1 IS itself a parent in the BP, so walking from rec-2 hits
+            // rec-1 immediately. The cycle is harmless because visited-recs
+            // bounds the walk.
+            Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-1", "rec-2", trees));
         }
 
         // -----------------------------------------------------------------
@@ -387,7 +801,7 @@ namespace Parsek.Tests
             fields.StateVecAlt = 0.0;
             fields.StateVecSpeed = 2185.7;
             fields.UT = 159.5;
-            fields.Reason = "refly-relative-anchor=active sess=sess_demo";
+            fields.Reason = "refly-relative-anchor=active relationship=parent sess=sess_demo retryLater=true";
 
             string line = GhostMapPresence.BuildGhostMapDecisionLine(fields);
 
@@ -399,9 +813,11 @@ namespace Parsek.Tests
             Assert.Contains("source=StateVector", line);
             Assert.Contains("branch=Relative", line);
             Assert.Contains("body=Kerbin", line);
-            // Anchor + reason
+            // Anchor + reason — relationship + retryLater are PR #574 P2 additions
             Assert.Contains("anchorPid=" + boosterPid.ToString(), line);
-            Assert.Contains("reason=refly-relative-anchor=active sess=sess_demo", line);
+            Assert.Contains(
+                "reason=refly-relative-anchor=active relationship=parent sess=sess_demo retryLater=true",
+                line);
         }
     }
 }
