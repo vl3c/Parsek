@@ -1942,27 +1942,74 @@ hydration-failed recording gets written through to disk.
   matching `pendingTree`, but it requires the pending tree to
   exist + match by id, which doesn't always hold under Re-Fly load.
 
-**Resolution (2026-04-26):** Fixed in `fix/585-587-followup` by
-gating `SaveRecordingFilesToPathsInternal` on a new pure-static
-helper `RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec)`
-that returns true iff `rec.SidecarLoadFailed` is true AND the
-in-memory state is effectively empty (no `Points`, `OrbitSegments`,
-`TrackSections`, `PartEvents`, `FlagEvents`, `SegmentEvents`,
-`VesselSnapshot`, or `GhostVisualSnapshot`). When the gate triggers,
-the saver returns success WITHOUT writing the trajectory sidecar,
-WITHOUT incrementing the epoch, and WITHOUT touching the vessel /
-ghost snapshot files — the on-disk `.prec` is preserved. A
-structured WARN line carries the recording id, the
-`SidecarLoadFailureReason`, and the data-loss-prevention rationale.
-The active-recording case from PR `#558` is unaffected: as soon as
-the recorder rebinds and adds even one trajectory point, the
-predicate returns false and the save proceeds normally.
+**Resolution (2026-04-26 / 2026-04-27 integration):** Fixed in
+`fix/585-587-followup` (PR #572) which integrates parallel work from
+`fix/refly-bugs-2210` to provide two complementary layers of
+protection:
+
+1. **Repair-from-committed-tree (caller-side, in-session recovery)** —
+   `ParsekScenario.SaveActiveTreeIfAny` now invokes
+   `RestoreHydrationFailedRecordingsFromCommittedTree` before
+   iterating dirty recordings. For each active-tree record whose
+   `SidecarLoadFailed=true` (excluding snapshot-only failures and
+   the marker's active recording itself), the helper finds the
+   matching committed tree by id and copies trajectory data
+   (`Points`, `OrbitSegments`, `TrackSections`, `PartEvents`,
+   `FlagEvents`, `SegmentEvents`, `Controllers`, `SidecarEpoch`,
+   start-location, vessel name, persistence artifacts) over the
+   empty active-tree record while preserving Re-Fly identity fields
+   (`RecordingId`, `TreeId`, `MergeState`, `CreatingSessionId`,
+   `SupersedeTargetId`, `ProvisionalForRpId`). The flag is cleared
+   and the record becomes playable in-session.
+2. **Skip-empty-overwrite (caller-side, defense-in-depth)** —
+   `SaveActiveTreeIfAny` then skips any remaining
+   `SidecarLoadFailed`+empty record via
+   `ShouldSkipActiveTreeEmptySidecarOverwrite`, logging the
+   structured `SaveActiveTreeIfAny: skipped empty sidecar
+   overwrite` line and bumping the `skippedDegraded` counter on
+   the iteration summary.
+3. **Skip-empty-overwrite (callee-side, all save paths)** —
+   `RecordingStore.SaveRecordingFilesToPathsInternal` is gated on a
+   new pure-static helper
+   `RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec)` that
+   returns true iff `rec.SidecarLoadFailed` is true AND the
+   in-memory state is effectively empty (no `Points`,
+   `OrbitSegments`, `TrackSections`, `PartEvents`, `FlagEvents`,
+   `SegmentEvents`, `VesselSnapshot`, or `GhostVisualSnapshot`).
+   The gate covers BgRecorder out-of-band writes and scene-exit
+   force-writes that bypass `SaveActiveTreeIfAny`. When the gate
+   triggers, the saver returns success without touching any
+   sidecar file, without incrementing the epoch, and emits a
+   `SaveRecordingFiles: skipping write … preserving on-disk .prec`
+   WARN. The active-recording case from PR #558 is unaffected:
+   as soon as the recorder rebinds and adds any trajectory data,
+   both gates evaluate to false and the save proceeds normally.
+
 Tests: `Bug585FollowupSaveSkipTests` (10 cases — 8 predicate cases
 covering null rec, flag false, each individual data field present,
 and all-empty + flag set; 2 end-to-end cases pinning that the
 on-disk `.prec` is byte-for-byte unchanged after a stale-flag save
 attempt and that the active-recovered recording still writes new
-data).
+data); plus integrated `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`
+and `RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording`
+from the parallel branch pinning the repair contract.
+
+**Companion fixes integrated from `fix/refly-bugs-2210` for the same
+playtest's downstream cascades:** `MarkerValidator` accepts a marker
+whose `TreeId` resolves through `RecordingStore.PendingTree` (not just
+`CommittedTrees`), preventing the playtest's `21:59:57` "Marker invalid
+field=TreeId" event when the active tree is in pending-Limbo;
+`RewindPointReaper.ReapOrphanedRPs` preserves any RP referenced by the
+live `ActiveReFlySessionMarker.RewindPointId`, preventing the playtest's
+`22:07:14` "Marker invalid field=RewindPointId" event after a reap pass
+deletes the marker's own RP; `ParsekFlight.UpdateTimelinePlaybackViaEngine`
+gates timeline-ghost spawn/positioning while
+`RewindInvokeContext.Pending` is true, closing a frame race between the
+post-load coroutine and the strip/activate/atomic-marker-write critical
+section. Test pins:
+`LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`,
+`LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`,
+`RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
 
 **Status:** CLOSED 2026-04-27.
 
