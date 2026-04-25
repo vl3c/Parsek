@@ -5455,9 +5455,13 @@ namespace Parsek
 
             if (!motionTriggered && !attitudeTriggered)
             {
+                // Bug #595: the previous 2.0s rate-limit window still produced
+                // ~200 lines per 30-min session during stationary intervals.
+                // Use the default 5s window — the line conveys "stationary,
+                // waiting" which is a steady state, so per-window granularity
+                // is plenty.
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
-                    $"Sample skipped at ut={currentUT:F2}; waiting for motion/attitude trigger",
-                    2.0);
+                    $"Sample skipped at ut={currentUT:F2}; waiting for motion/attitude trigger");
                 return;
             }
 

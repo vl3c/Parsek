@@ -688,11 +688,38 @@ namespace Parsek
                     $"{targetLevel.ToString(IC)} (destroyed={state.Destroyed.ToString(IC)})");
             }
 
-            ParsekLog.Info(Tag,
-                $"PatchFacilities: levels patched={patchedCount.ToString(IC)}, " +
-                $"skipped={skippedCount.ToString(IC)}, " +
-                $"notFound={notFoundCount.ToString(IC)}, " +
-                $"total={allFacilities.Count}");
+            // Bug #596: gate INFO on changed-state-or-not-found-diagnostic only.
+            // skippedCount increments when a facility is already at its target
+            // level (no-op pass), so a steady-state non-empty facility list
+            // would still emit the INFO summary on every recalc if `skipped`
+            // counted toward the gate. Use `patched + notFound > 0` so INFO
+            // fires only when real game state changed (`patched`) or when a
+            // facility lookup miss is worth surfacing (`notFound`). Skipped-
+            // only summaries (steady state, nothing to do) and the all-zero
+            // empty-totals case both route through `VerboseRateLimited` so the
+            // diagnostic stays available when investigating without flooding
+            // INFO.
+            int materialWork = patchedCount + notFoundCount;
+            if (materialWork > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchFacilities: levels patched={patchedCount.ToString(IC)}, " +
+                    $"skipped={skippedCount.ToString(IC)}, " +
+                    $"notFound={notFoundCount.ToString(IC)}, " +
+                    $"total={allFacilities.Count}");
+            }
+            else if (skippedCount > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "patch-facilities-skipped-only",
+                    $"PatchFacilities: skipped-only steady state " +
+                    $"(patched=0, skipped={skippedCount.ToString(IC)}, " +
+                    $"notFound=0, total={allFacilities.Count})");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited(Tag, "patch-facilities-empty",
+                    $"PatchFacilities: nothing to patch (total={allFacilities.Count})");
+            }
 
             // Patch destruction state via DestructibleBuilding components.
             // Collect all destructibles once (expensive FindObjectsOfType call),
@@ -985,7 +1012,16 @@ namespace Parsek
                         if (milestones.IsMilestoneCredited(nodeId))
                         {
                             shouldBeAchieved = true;
-                            ParsekLog.Verbose(Tag,
+                            // Bug #594: this diagnostic fires every recalc walk for the
+                            // same (nodeId, qualifiedId) pair — once a fallback match
+                            // exists for an old recording, every walk re-emits the
+                            // same line. Rate-limit per pair so the diagnostic still
+                            // surfaces when a new fallback path appears, without
+                            // flooding the log on steady-state walks.
+                            string fallbackKey = string.Format(IC,
+                                "patch-milestones-fallback-{0}-{1}",
+                                nodeId, qualifiedId);
+                            ParsekLog.VerboseRateLimited(Tag, fallbackKey,
                                 $"PatchMilestones: bare-Id fallback match for '{nodeId}' " +
                                 $"(qualified='{qualifiedId}' not found — old recording?)");
                         }

@@ -692,16 +692,15 @@ namespace Parsek
 
         private static void TargetSelectedGhost(Vessel vessel)
         {
-            if (vessel == null || FlightGlobals.fetch == null)
+            if (vessel == null)
             {
                 ParsekLog.Warn(Tag,
-                    $"Target selected ghost failed: vessel={vessel != null} flightGlobals={FlightGlobals.fetch != null}");
+                    "Target selected ghost failed: vessel=False");
                 return;
             }
 
-            FlightGlobals.fetch.SetVesselTarget(vessel);
-            ParsekLog.Info(Tag,
-                $"Set Tracking Station ghost '{vessel.vesselName}' pid={vessel.persistentId} as target");
+            int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(vessel.persistentId);
+            GhostMapPresence.SetGhostMapNavigationTarget(vessel, recIndex, "tracking station panel");
         }
 
         private void ToggleSelectedRecordingDetails(TrackingStationGhostSelectionInfo selection)
