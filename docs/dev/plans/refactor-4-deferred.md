@@ -92,3 +92,25 @@ deduplication needs a specific proposal and discussion before implementation.
 **Revisit when:** Pass 2 has dependency maps, static state ownership, public
 method references, duplication include/reject decisions, validation scope, and
 a rollback plan for each proposed split.
+
+## D8. Pass 1 large-file deferrals
+
+**What:** Pass 1 reviewed the remaining mapped large files after the validated
+same-file helper extractions and intentionally left several candidates inline:
+`GhostVisualBuilder`, `UI/RecordingsTableUI`, `GameStateRecorder`,
+`KspStatePatcher`, `BallisticExtrapolator`, `RecordingOptimizer`,
+`RecordingTree`, `ParsekKSC`, `UI/TimelineWindowUI`, and `RewindInvoker`. It
+also closed `CrewReservationManager`, `EngineFxBuilder`, `KerbalsModule`,
+`ParsekPlaybackPolicy`, `VesselGhoster`, `TrajectorySidecarBinary`,
+`DiagnosticsComputation`, the remaining `ParsekFlight` finalization split, the
+smaller leftover `FlightRecorder` / `GhostPlaybackLogic` candidates, and Tier 3
+examples other than the `TimelineBuilder` canary as deferrals.
+
+**Why deferred:** The remaining useful splits are not simple zero-logic helper
+moves. They need runtime visual validation, IMGUI field ownership maps,
+event-handler ownership maps, KSP state-family patcher boundaries, math/order
+regression review, serialization codec design, KSC/flight playback architecture,
+or rewind-invocation checkpoint ownership.
+
+**Revisit when:** A Pass 2 proposal names the owner boundary, exact moved
+methods/state, validation scope, architectural tradeoffs, and rollback plan.

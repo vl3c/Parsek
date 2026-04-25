@@ -217,6 +217,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 with a behavior-neutral `GhostMapPresence.BuildAndLoadGhostProtoVesselCore` extraction: Tracking Station ghost proto-vessel node construction and failure cleanup now live in private same-file helpers while preserving ghost registration and load diagnostics.
 - Continued refactor-4 with a behavior-neutral `VesselSpawner.SpawnOrRecoverIfTooClose` extraction: resolved spawn-state snapshot overrides now live in a private same-file helper while preserving EVA, breakup-continuous, and surface-terminal spawn handling.
 - Continued refactor-4 with a behavior-neutral `GhostPlaybackEngine.UpdatePlayback` extraction: per-frame playback counters, deferred event buffers, diagnostics stopwatches, and heaviest-spawn latches now reset through a private same-file helper while preserving reset order.
+- Closed the refactor-4 Pass 1 inventory for the remaining mapped files: high-risk visual/UI/math/optimizer/serialization/KSC/rewind candidates are explicitly deferred to discussed Pass 2 owner proposals instead of hidden inside same-file helper churn.
 
 ### Tests
 

@@ -41,26 +41,26 @@ locked KSP process/log condition above; the build itself succeeds.
 
 | File | Lines | Initial status |
 |------|-------|----------------|
-| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Partial; post-switch auto-record trigger helpers extracted, finalization remains |
-| `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
+| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Done; post-switch auto-record trigger helpers extracted, finalization deferred |
+| `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pass1-Done; optimization and rewind helpers extracted |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
-| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
+| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass1-Done; per-frame playback reset helper extracted |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass1-Done; proto-vessel node helpers extracted |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass1-Done; watch entry helpers extracted |
-| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
+| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass1-Deferred; event-handler families need owner map |
 | `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass1-Done; `Build` tab view-model helpers extracted |
-| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass0-OpportunityMap; patcher candidates mapped |
-| `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass0-OpportunityMap; math-heavy file, cautious only |
-| `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass0-OpportunityMap; optimizer candidates mapped, high semantic risk |
-| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass0-OpportunityMap; serialization candidates mapped |
-| `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass0-OpportunityMap; old large KSC playback file included in sweep |
+| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass1-Deferred; patch-order/reflection/UI mutation split deferred |
+| `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass1-Deferred; math/iteration-order split deferred |
+| `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass1-Deferred; optimizer identity/order split deferred |
+| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass1-Deferred; resource/state codec split deferred |
+| `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass1-Deferred; KSC/flight playback sharing deferred |
 
 ## Growth Since Refactor-3 Inventory
 
@@ -155,26 +155,26 @@ central enough that parallel edits would make review and rollback worse.
 These may be suitable for small parallel batches only after ownership is
 clearly separated by file.
 
-| File | Lines |
-|------|-------|
-| `GhostMapPresence.cs` | 3,408 |
-| `WatchModeController.cs` | 3,197 |
-| `GameStateRecorder.cs` | 2,004 |
-| `UI/CareerStateWindowUI.cs` | 1,867 |
-| `GameActions/KspStatePatcher.cs` | 1,759 |
-| `BallisticExtrapolator.cs` | 1,639 |
-| `RecordingOptimizer.cs` | 1,621 |
-| `RecordingTree.cs` | 1,615 |
-| `ParsekKSC.cs` | 1,520 |
-| `CrewReservationManager.cs` | 1,447 |
-| `EngineFxBuilder.cs` | 1,367 |
-| `KerbalsModule.cs` | 1,273 |
-| `ParsekPlaybackPolicy.cs` | 1,268 |
-| `UI/TimelineWindowUI.cs` | 1,255 |
-| `RewindInvoker.cs` | 1,218 |
-| `VesselGhoster.cs` | 1,190 |
-| `TrajectorySidecarBinary.cs` | 1,124 |
-| `Diagnostics/DiagnosticsComputation.cs` | 1,054 |
+| File | Lines | Pass 1 status |
+|------|-------|---------------|
+| `GhostMapPresence.cs` | 3,408 | Done; proto-vessel node helpers extracted |
+| `WatchModeController.cs` | 3,197 | Done; watch entry helpers extracted |
+| `GameStateRecorder.cs` | 2,004 | Deferred; event-handler owner map needed |
+| `UI/CareerStateWindowUI.cs` | 1,867 | Done; tab view-model helpers extracted |
+| `GameActions/KspStatePatcher.cs` | 1,759 | Deferred; state-family patcher proposal needed |
+| `BallisticExtrapolator.cs` | 1,639 | Deferred; math/order sensitive |
+| `RecordingOptimizer.cs` | 1,621 | Deferred; optimizer identity/order sensitive |
+| `RecordingTree.cs` | 1,615 | Deferred; serialization codec proposal needed |
+| `ParsekKSC.cs` | 1,520 | Deferred; KSC/flight playback owner proposal needed |
+| `CrewReservationManager.cs` | 1,447 | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal |
+| `EngineFxBuilder.cs` | 1,367 | Deferred; visual/FX builder work grouped with visual runtime validation |
+| `KerbalsModule.cs` | 1,273 | Deferred; kerbal-state and mission-outcome ownership not a Pass 1 helper target |
+| `ParsekPlaybackPolicy.cs` | 1,268 | Deferred; playback event policy split needs lifecycle owner proposal |
+| `UI/TimelineWindowUI.cs` | 1,255 | Deferred; timeline filter/action ownership needed |
+| `RewindInvoker.cs` | 1,218 | Deferred; scene-load checkpoint ownership needed |
+| `VesselGhoster.cs` | 1,190 | Deferred; snapshot/ghost materialization ownership needs a focused proposal |
+| `TrajectorySidecarBinary.cs` | 1,124 | Deferred; binary sidecar codec proposal needed |
+| `Diagnostics/DiagnosticsComputation.cs` | 1,054 | Deferred; diagnostics thresholds/metrics ownership can wait for Pass 2 |
 
 ### Tier 3 - Medium New/Changed Files
 
@@ -189,6 +189,10 @@ Examples from the current snapshot: `IncompleteBallisticSceneExitFinalizer.cs`,
 `SupersedeCommit.cs`, `MergeJournalOrchestrator.cs`, `LoadTimeSweep.cs`,
 `Patches/GhostVesselLoadPatch.cs`, `RewindPointAuthor.cs`, and
 `GameStateEvent.cs`.
+
+Pass 1 status: `Timeline/TimelineBuilder.cs` was used as the canary and is
+Done. The other Tier 3 examples remain Deferred for Pass 1 unless a later Pass 2
+proposal promotes one with a focused owner boundary and validation scope.
 
 ## Pass 1 Canary
 
@@ -347,11 +351,13 @@ The main ownership bands are:
 - sort, format, and grouping data helpers
 - stats, tooltip, and loop-period helpers
 
-This file should not be the Pass 1 canary. Size alone is not enough to prove a
-safe split because prior refactor notes already called out high field coupling
-when the table was much smaller. Conservative same-file extractions may be
-reasonable inside `DrawRecordingsWindow` and `DrawRecordingRow`, but only where
-the extracted block is contiguous and does not reorder IMGUI layout calls.
+Pass 1 deferred:
+
+- Left `DrawRecordingsWindow`, `DrawRecordingRow`, group tree drawing, and the
+  filter/action rows inline. The candidate blocks are contiguous on screen but
+  share IMGUI call order, static per-frame buffers, edit/confirmation state,
+  cross-link scrolling, and group-picker state. Extracting them now would add
+  callback plumbing without proving an ownership boundary.
 
 The existing TODO to migrate rows to recording-id-keyed state is semantic work
 and remains deferred. A cross-file split should wait until Pass 2 produces a
@@ -386,16 +392,13 @@ reduce readability rather than improve it.
 
 The finalization region is partly delegated already through
 `IncompleteBallisticSceneExitFinalizer`, `RecordingFinalizationCache`,
-`RecordingEndpointResolver`, and terminal-orbit helpers. The best same-file
-candidate is `FinalizeIndividualRecording`, split by ordered phases such as
-explicit time initialization, live vessel/cache lookup, scene-exit finalizer
-resolution, terminal state selection, stable terminal snapshot refresh,
-terminal-orbit repair, endpoint finalization, and warning/log emission.
-
-Do not start Pass 1 by moving finalization into a new owner. A future
-`RecordingFinalizer` or similar split may be useful, but only after Pass 2 maps
-the current finalization cache producer, endpoint resolver, scene-exit
-finalizer, and `ParsekFlight` call sites.
+`RecordingEndpointResolver`, and terminal-orbit helpers. Pass 1 leaves
+`FinalizeIndividualRecording` inline because the remaining phases share live
+vessel/cache lookup, scene-exit finalizer resolution, terminal state selection,
+stable terminal snapshot refresh, terminal-orbit repair, endpoint finalization,
+and warning/log emission. A future `RecordingFinalizer` or similar split may be
+useful, but only after Pass 2 maps the current finalization cache producer,
+endpoint resolver, scene-exit finalizer, and `ParsekFlight` call sites.
 
 ## Pass 0 Large-File Opportunity Map
 
@@ -421,6 +424,14 @@ Pass 1 same-file candidates:
   the checks or order.
 - Split `TryBuildRcsFX` into same-file phases for module discovery,
   effect-node extraction, transform resolution, particle setup, and diagnostics.
+
+Pass 1 deferred:
+
+- Left `AddPartVisuals` and `TryBuildRcsFX` inline. The candidate blocks
+  interleave model-node cloning, renderer/variant selection, prefab discovery,
+  transform resolution, particle setup, runtime diagnostics, and module-order
+  assumptions. Even same-file helper extraction here should wait for a visual
+  builder owner plan plus runtime visual validation.
 
 Pass 2 discussion only: `RcsFxBuilder`, `VariantVisualRules`,
 `ReentryFxBuilder`, or a narrower part-visual builder owner.
@@ -473,10 +484,11 @@ Validation:
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~FlightRecorderExtractedTests|FullyQualifiedName~BackgroundPartEventAuditTests"`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
-Remaining Pass 1 same-file candidates:
+Remaining Pass 1 same-file candidates deferred:
 
-- Consider narrow same-file part-category scanning helpers only where the loop
-  body is contiguous and does not change subscription/polling order.
+- Narrow part-category scanning helpers were left inline because the remaining
+  candidates touch subscription/polling order. Revisit only with a
+  foreground/background part-event owner map.
 
 Pass 2 discussion only: deduplicating part-event pollers with
 `BackgroundRecorder` or moving event families into shared owners.
@@ -506,10 +518,11 @@ Validation:
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~PartEventTests|FullyQualifiedName~ExplosionFxTests"`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
-Remaining Pass 1 same-file candidates:
+Remaining Pass 1 same-file candidates deferred:
 
-- Leave `ShouldSpawnAtRecordingEnd` alone unless a focused read finds a
-  contiguous guard-clause extraction that improves the current pure decision.
+- `ShouldSpawnAtRecordingEnd` remains inline. The current pure decision is
+  already compact enough that a guard-clause extraction would add churn without
+  reducing the Pass 2 risk surface.
 
 Pass 2 discussion only: part-event applier, audio controller, spawn policy,
 watch policy, or flag replay ownership.
@@ -701,6 +714,14 @@ Pass 1 same-file candidates:
   precedence and pending-list behavior stay unchanged.
 - Split facility polling helpers around contiguous facility families.
 
+Pass 1 deferred:
+
+- Left the resource handlers, milestone enrichment, and facility polling inline.
+  The resource paths differ in threshold/capture behavior, milestone enrichment
+  mutates the pending map plus store/ledger copies in one ordered sequence, and
+  facility polling mixes live KSP reads, cache updates, direct-ledger forwarding,
+  and emitted counters. These should wait for an event-handler owner map.
+
 Pass 2 discussion only: contract, crew, resource, milestone, and facility
 event handler owners.
 
@@ -716,6 +737,14 @@ Pass 1 same-file candidates:
 - Extract repeatable record-state helpers only when values, reflection access,
   and UI patching order remain unchanged.
 
+Pass 1 deferred:
+
+- Left `PatchContracts` and `PatchProgressNodeTree` inline. The candidate
+  blocks interleave KSP collection mutation, reflection-backed proto state,
+  append-only bucket preservation, UI refresh events, and summary counters.
+  Same-file extraction would mostly pass mutable counter/context bags without
+  clarifying ownership.
+
 Pass 2 discussion only: separate patchers per state family.
 
 ### `Source/Parsek/BallisticExtrapolator.cs`
@@ -728,6 +757,12 @@ Pass 1 same-file candidates:
 - Only consider `Extrapolate` phase helpers if a focused read can prove the
   extraction preserves iteration order, floating-point operations, and stop
   conditions.
+
+Pass 1 deferred:
+
+- Left `Extrapolate` and the nested solver/math helpers inline. The remaining
+  seams are floating-point and iteration-order sensitive; a structural split
+  should be preceded by math-specific regression review.
 
 Pass 2 discussion only: moving `TwoBodyOrbit` or solver helpers into separate
 math owners.
@@ -742,6 +777,13 @@ Pass 1 same-file candidates:
 - Split `TrimBoringTail`, `SplitAtSection`, and `MergeInto` by local phases
   only with focused optimizer tests.
 
+Pass 1 deferred:
+
+- Left `TrimBoringTail`, `SplitAtSection`, and `MergeInto` inline. Their local
+  ordering controls recording identity, branch points, split boundaries, and
+  optimizer logs, so helper extraction is deferred until an optimizer-specific
+  test-and-review slice.
+
 Pass 2 discussion only: broader optimizer strategy decomposition.
 
 ### `Source/Parsek/RecordingTree.cs`
@@ -753,6 +795,13 @@ Pass 1 same-file candidates:
 
 - Review `SaveRecordingResourceAndState` and
   `LoadRecordingResourceAndState` for local contiguous helper extraction.
+
+Pass 1 deferred:
+
+- Left the resource/state save-load helpers inline. They already sit behind
+  extracted save/load entry points, but the remaining repeated shape is really a
+  serialization codec question: field order, defaulting, legacy reads, and
+  logging must be proposed together.
 
 Pass 2 discussion only: a recording tree serialization codec.
 
@@ -767,6 +816,12 @@ Pass 1 same-file candidates:
   contiguous and validation can stay local.
 - Extract local loop schedule helpers only without deduplicating with flight
   playback yet.
+
+Pass 1 deferred:
+
+- Left KSC playback update, interpolation, and local loop scheduling inline.
+  The valuable split is the shared KSC/flight playback abstraction, which is an
+  architectural Pass 2 proposal rather than a Pass 1 helper move.
 
 Pass 2 discussion only: cross-scene playback abstraction shared with
 `GhostPlaybackEngine`.
@@ -803,6 +858,13 @@ Pass 1 same-file candidates:
   `DrawTimeRangeFilterBar`, or `DrawEntryRow` only where IMGUI call order stays
   exactly the same.
 
+Pass 1 deferred:
+
+- Left timeline drawing, filter bars, time-range controls, and row rendering
+  inline. The remaining helpers would still share IMGUI call order, filter
+  mutation, row actions, and action-width/layout state, so this waits for a
+  timeline filter/action model proposal.
+
 Pass 2 discussion only: timeline filter/action model ownership.
 
 ### `Source/Parsek/RewindInvoker.cs`
@@ -815,7 +877,46 @@ Pass 1 same-file candidates:
 - Split `StartInvoke`, `ConsumePostLoad`, and `RunStripActivateMarker` by
   ordered precondition, marker, load, and cleanup phases.
 
+Pass 1 deferred:
+
+- Left `StartInvoke`, `ConsumePostLoad`, and `RunStripActivateMarker` inline.
+  They encode a synchronous pre-load/post-load invariant across KSP scene
+  teardown, temp-save cleanup, context survival, flight-ready deferral, and
+  ledger recalculation. A helper-only move here would obscure the checkpoint
+  sequence without creating a new owner.
+
 Pass 2 discussion only: rewind invocation service ownership.
+
+## Pass 1 Closure Summary
+
+Pass 1 is closed for the mapped files. Files marked Done received
+behavior-neutral same-file helper extraction and validation. Files marked
+Deferred were reviewed and left inline because the next useful change is either
+semantic, architectural, runtime-visual, math-sensitive, or UI-order-sensitive.
+
+| File | Pass 1 result |
+| --- | --- |
+| `GhostVisualBuilder.cs` | Deferred; visual-builder helper split needs runtime visual validation and an owner plan. |
+| `UI/RecordingsTableUI.cs` | Deferred; IMGUI row/tree extraction needs field ownership map. |
+| `ParsekFlight.cs` | Done for post-switch auto-record; finalization split deferred to Pass 2. |
+| `FlightRecorder.cs` | Done for visual coverage logging; remaining part-event poller work deferred. |
+| `GhostPlaybackLogic.cs` | Done for dictionary population and part events; remaining spawn policy cleanup deferred. |
+| `GameStateRecorder.cs` | Deferred; resource/milestone/facility handler families need owner map. |
+| `GameActions/KspStatePatcher.cs` | Deferred; patch-order/reflection/UI mutation paths need state-family patcher proposal. |
+| `BallisticExtrapolator.cs` | Deferred; math and iteration-order sensitive. |
+| `RecordingOptimizer.cs` | Deferred; recording identity/order sensitive. |
+| `RecordingTree.cs` | Deferred; remaining shape belongs to serialization codec proposal. |
+| `ParsekKSC.cs` | Deferred; useful split is KSC/flight playback architecture. |
+| `UI/TimelineWindowUI.cs` | Deferred; timeline filter/action model ownership needed. |
+| `RewindInvoker.cs` | Deferred; scene-load checkpoint sequence should remain visible until service ownership is proposed. |
+| `CrewReservationManager.cs` | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal. |
+| `EngineFxBuilder.cs` | Deferred; grouped with visual/FX builder runtime validation. |
+| `KerbalsModule.cs` | Deferred; kerbal-state and mission-outcome ownership not a Pass 1 helper target. |
+| `ParsekPlaybackPolicy.cs` | Deferred; playback event policy split needs lifecycle owner proposal. |
+| `VesselGhoster.cs` | Deferred; snapshot/ghost materialization ownership needs a focused proposal. |
+| `TrajectorySidecarBinary.cs` | Deferred; binary sidecar codec proposal needed. |
+| `Diagnostics/DiagnosticsComputation.cs` | Deferred; diagnostics thresholds/metrics ownership can wait for Pass 2. |
+| Tier 3 examples | Deferred except `Timeline/TimelineBuilder.cs`, which was the Pass 1 canary. |
 
 ## Static State Scan Note
 
@@ -834,12 +935,12 @@ raw scan with a manual map for the high-risk owners:
 - `MilestoneStore`
 - rewind/effective-state helpers
 
-## Immediate Investigation Priorities
+## Next Investigation Priorities
 
-1. Select the next Pass 1 same-file extraction from the low-to-medium risk
-   candidates in the large-file opportunity map. Good next choices are
-   `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` or
-   `LedgerOrchestrator.ReconcileEarningsWindow`.
+1. Prepare Pass 2 owner proposals for the deferred architectural areas before
+   moving code across files: visual builders, foreground/background part-event
+   pollers, KSC/flight playback, event handler families, state patchers,
+   serialization codecs, and rewind invocation.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication.
