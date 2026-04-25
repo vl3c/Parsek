@@ -106,6 +106,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog()
+        {
+            Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                "rec-reset-lifecycle",
+                500.0,
+                "Kerbin",
+                -599979.0,
+                BallisticExtrapolator.SubSurfaceDestroyedAltitude));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                "rec-reset-lifecycle",
+                500.0,
+                "Kerbin",
+                -599979.0,
+                BallisticExtrapolator.SubSurfaceDestroyedAltitude));
+
+            IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                "rec-reset-lifecycle",
+                500.0,
+                "Kerbin",
+                -599979.0,
+                BallisticExtrapolator.SubSurfaceDestroyedAltitude));
+            Assert.Equal(2, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "Start rejected: sub-surface state",
+                "rec=rec-reset-lifecycle"));
+        }
+
+        [Fact]
         public void TryApply_AlreadyDestroyed_DoesNotReapplyOrMutateTerminal()
         {
             int finalizeCalls = 0;
@@ -1088,7 +1118,10 @@ namespace Parsek.Tests
                     return true;
                 },
                 (startState, extrapolationBodies) =>
-                    BallisticExtrapolator.Extrapolate(startState, extrapolationBodies),
+                    BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false),
                 out IncompleteBallisticFinalizationResult result);
 
             Assert.True(built);
@@ -1139,7 +1172,10 @@ namespace Parsek.Tests
                         return true;
                     },
                     (startState, extrapolationBodies) =>
-                        BallisticExtrapolator.Extrapolate(startState, extrapolationBodies),
+                        BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false),
                     out IncompleteBallisticFinalizationResult result);
 
                 Assert.True(built);

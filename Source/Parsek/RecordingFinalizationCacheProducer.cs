@@ -279,7 +279,7 @@ namespace Parsek
             cache.Status = FinalizationCacheStatus.Failed;
             cache.DeclineReason = AlreadyClassifiedDestroyedDeclineReason;
             cache.TerminalState = TerminalState.Destroyed;
-            cache.TerminalUT = ResolveDestroyedTerminalUT(recording);
+            cache.TerminalUT = ResolveDestroyedTerminalUT(recording, refreshUT);
             cache.TerminalBodyName = ResolveDestroyedTerminalBodyName(recording);
             cache.TailStartsAtUT = cache.TerminalUT;
             cache.PredictedSegments = new List<OrbitSegment>();
@@ -308,6 +308,9 @@ namespace Parsek
             int alreadyClassified,
             int newlyClassified)
         {
+            if (recordingsExamined <= 0 && alreadyClassified <= 0 && newlyClassified <= 0)
+                return;
+
             ParsekLog.Info("Extrapolator",
                 string.Format(
                     CultureInfo.InvariantCulture,
@@ -502,13 +505,16 @@ namespace Parsek
             return success;
         }
 
-        private static double ResolveDestroyedTerminalUT(Recording recording)
+        private static double ResolveDestroyedTerminalUT(Recording recording, double refreshUT)
         {
             if (recording == null)
-                return double.NaN;
+                return IsFinite(refreshUT) ? refreshUT : double.NaN;
             if (IsFinite(recording.ExplicitEndUT))
                 return recording.ExplicitEndUT;
-            return recording.EndUT;
+            double endUT = recording.EndUT;
+            if (IsFinite(endUT))
+                return endUT;
+            return IsFinite(refreshUT) ? refreshUT : double.NaN;
         }
 
         private static string ResolveDestroyedTerminalBodyName(Recording recording)

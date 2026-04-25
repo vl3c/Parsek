@@ -4149,6 +4149,8 @@ namespace Parsek
                 state.currentOrbitSegment);
             RecordingFinalizationCache previous;
             finalizationCaches.TryGetValue(state.vesselPid, out previous);
+            // Failed caches include already-Destroyed skip caches; refresh them on cadence
+            // so the rate-limited skip diagnostic and per-refresh summary remain visible.
             bool requiresPeriodicRefresh = previous == null
                 || previous.Status == FinalizationCacheStatus.Failed;
             if (!RecordingFinalizationCacheProducer.ShouldRefresh(

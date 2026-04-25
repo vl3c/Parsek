@@ -101,6 +101,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LogRefreshSummary_ZeroRecordNoClassification_Suppressed()
+        {
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.BackgroundOnRails,
+                "unit-zero-records",
+                recordingsExamined: 0,
+                alreadyClassified: 0,
+                newlyClassified: 0);
+
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "reason=unit-zero-records"));
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_SurfaceTerminal_CachesSurfaceMetadataAndLogs()
         {
             var vessel = new FakeVesselView
@@ -269,6 +285,33 @@ namespace Parsek.Tests
                 "recordingsExamined=1",
                 "alreadyClassified=1",
                 "newlyClassified=0"));
+        }
+
+        [Fact]
+        public void TryBuildAlreadyClassifiedDestroyedSkip_NonFiniteTerminalUsesRefreshUt()
+        {
+            var recording = new Recording
+            {
+                RecordingId = "rec-destroyed-nonfinite-terminal",
+                VesselPersistentId = 406u,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = double.NaN
+            };
+            recording.Points.Add(new TrajectoryPoint { ut = double.NaN, bodyName = "Kerbin" });
+
+            bool skipped = RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip(
+                recording,
+                406u,
+                FinalizationCacheOwner.BackgroundLoaded,
+                refreshUT: 222.0,
+                reason: "unit-nonfinite-terminal",
+                out RecordingFinalizationCache cache);
+
+            Assert.True(skipped);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal(RecordingFinalizationCacheProducer.AlreadyClassifiedDestroyedDeclineReason, cache.DeclineReason);
+            Assert.Equal(222.0, cache.TerminalUT);
+            Assert.Equal(222.0, cache.TailStartsAtUT);
         }
 
         [Fact]

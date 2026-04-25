@@ -57,6 +57,11 @@ namespace Parsek
             FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
+            ResetLifecycleDiagnostics();
+        }
+
+        internal static void ResetLifecycleDiagnostics()
+        {
             subSurfaceDestroyedClassificationLogs.Clear();
         }
 
@@ -179,7 +184,10 @@ namespace Parsek
                         {
                             return TryBuildStartStateFromVessel(vessel, commitUT, out startState);
                         },
-                        (startState, extrapolationBodies) => BallisticExtrapolator.Extrapolate(startState, extrapolationBodies),
+                        (startState, extrapolationBodies) => BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false),
                         out result))
                 {
                     return false;
@@ -936,6 +944,7 @@ namespace Parsek
 
         private static double Magnitude(Vector3d value)
         {
+            // Avoid Vector3d.magnitude here so headless seam tests do not depend on Unity operator internals.
             return Math.Sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
         }
 
