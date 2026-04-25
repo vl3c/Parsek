@@ -338,16 +338,5 @@ namespace Parsek.Tests
         }
 
         #endregion
-
-        #region Physics-bubble spawn scoping constant
-
-        [Fact]
-        public void PhysicsBubbleSpawnRadius_Is2300()
-        {
-            // Verify the constant used for physics-bubble scoping in warp queue flush.
-            Assert.Equal(2300.0, ParsekFlight.PhysicsBubbleSpawnRadius);
-        }
-
-        #endregion
     }
 }

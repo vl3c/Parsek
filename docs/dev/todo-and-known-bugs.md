@@ -37,10 +37,19 @@ place the real vessel at its recorded endpoint. Keeping the spawn queued only
 made it wait forever unless the active vessel moved within 2.3 km.
 
 **Fix:** `ParsekPlaybackPolicy.FlushDeferredSpawns` now executes pending spawn
-items once warp is inactive instead of re-checking `ShouldDeferSpawnOutsideBubble`.
-Failed flag replays remain queued as before. Regression
+items once warp is inactive instead of re-checking the active-vessel
+physics-bubble distance. Failed flag replays remain queued as before. Regression
 `DeferredSpawnTests.FlushDeferredSpawns_SpawnsQueuedSplashedSurvivorAfterWarpEnds`
 pins the splashed-survivor case from the log.
+
+Post-warp flush can materialize every pending spawn in the first non-warp frame.
+That is intentional for terminal survivors; expected pending counts are small.
+If runtime evidence shows large batches hitch, throttle post-warp materialization
+as separate performance work instead of reintroducing distance gating.
+
+The regression uses the policy spawn override, matching existing headless
+`DeferredSpawnTests` coverage. A future in-game canary should cover the live
+`SpawnVesselOrChainTipFromPolicy` branch if this path regresses in KSP runtime.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
