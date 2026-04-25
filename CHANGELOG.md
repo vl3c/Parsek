@@ -42,6 +42,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#591` Missed-vessel-switch recovery still replays the normal `OnVesselSwitchComplete` path, but the recovery-context `RecState` `entry/post` snapshots now share a 5-second rate-limit keyed by active vessel plus recorder/tracking fingerprint. Normal player-driven vessel-switch boundaries continue to emit every `entry/post` diagnostic, while identical recovery frames collapse into `suppressed=N` summaries.
+
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
 
 - `#576` PatchedConicSnapshot `solver unavailable` and the paired Extrapolator `patched-conic snapshot failed for ... with NullSolver; falling back to live orbit state` WARNs are now rate-limited per (vessel-name) and per (recording-id, failure-reason) respectively. The 2026-04-25 marker-validator-fix playtest emitted 146 of each — almost all from debris, EVA-kerbals, and probe-debris that have no patched-conic solver by design in stock KSP. Downstream NullSolver semantics (live-orbit fallback for the destroyed-vessel case) are unchanged; only the log-noise floor is trimmed.
