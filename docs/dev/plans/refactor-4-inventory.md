@@ -41,13 +41,13 @@ locked KSP process/log condition above; the build itself succeeds.
 
 | File | Lines | Initial status |
 |------|-------|----------------|
-| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pending detailed read |
+| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass0-Done; same-file candidates in post-switch auto-recording and finalization |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pending detailed read |
-| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pending detailed read |
+| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass0-Done; same-file candidates exist, cross-file split deferred |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pending detailed read |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pending detailed read |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pending detailed read |
-| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pending detailed read |
+| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pending detailed read |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pending detailed read |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pending detailed read |
@@ -246,6 +246,97 @@ loops can fool a mechanical scan.
 | `VesselSpawner.cs` | `TryRepairSnapshotBodyProvenance` | 3175 | 144 |
 | `WatchModeController.cs` | `EnterWatchMode` | 1349 | 224 |
 
+## Pass 0 Detailed Read Notes
+
+### `Source/Parsek/GameActions/LedgerOrchestrator.cs`
+
+The file is no longer just the compact 900-line hub recorded during
+refactor-3. It now contains several distinct bands:
+
+- module initialization, resource tracker availability, and seed state
+- commit-window earnings reconciliation
+- vessel-cost actions, rollout adoption, and recovery pairing
+- recalculation, KSP patching, committed-science rebuild, and timeline
+  invalidation
+- load repair and legacy tree-resource migration
+- KSC action expectation reconciliation
+- post-walk reconciliation and aggregation
+- facility slot and pending-science notification helpers
+
+Pass 1 should stay same-file only. The best candidates are phase extractions
+inside `ReconcileEarningsWindow`, `CreateVesselCostActions`, and
+`RecalculateAndPatchCore`. These are long because they perform ordered
+orchestration, so extractions must keep call order unchanged and avoid broad
+parameter bags.
+
+Cross-file decomposition should wait for Pass 2. Likely owners to evaluate are
+ledger migration/load repair, KSC expectation reconciliation, post-walk
+reconciliation, recovery-funds pairing, and rollout adoption. These regions are
+large enough to justify a split, but they share tolerances, ledger/action
+classification details, and commit-window state.
+
+Magic-value follow-up candidates include the resource tolerances used by
+earnings/post-walk reconciliation, `KscReconcileEpsilonSeconds`,
+`PostWalkReconcileEpsilonSeconds`, `PostWalkAggregateContributionEpsilon`, and
+nearby coalescing thresholds. Treat this as a later constants pass, not part of
+the first structural extraction.
+
+### `Source/Parsek/UI/RecordingsTableUI.cs`
+
+This is a stateful IMGUI surface with many shared fields: window and scroll
+state, resize and input-lock state, column widths, static per-frame buffers,
+expansion state, unfinished-flight cache, rename and double-click state, group
+picker state, sort state, tooltips, expanded stats, loop editing, watch/R/FF
+tracking, deletion confirmation, budget cache, and cross-link scrolling.
+
+The main ownership bands are:
+
+- window lifecycle, input, layout, and style setup
+- header, bottom controls, and time indicator drawing
+- table orchestration in `DrawRecordingsWindow`
+- row rendering in `DrawRecordingRow`
+- group tree drawing in `DrawGroupTree` and
+  `DrawVirtualUnfinishedFlightsGroup`
+- command and confirmation handlers
+- sort, format, and grouping data helpers
+- stats, tooltip, and loop-period helpers
+
+This file should not be the Pass 1 canary. Size alone is not enough to prove a
+safe split because prior refactor notes already called out high field coupling
+when the table was much smaller. Conservative same-file extractions may be
+reasonable inside `DrawRecordingsWindow` and `DrawRecordingRow`, but only where
+the extracted block is contiguous and does not reorder IMGUI layout calls.
+
+The existing TODO to migrate rows to recording-id-keyed state is semantic work
+and remains deferred. A cross-file split should wait until Pass 2 produces a
+field ownership map for row rendering, group data, sorting, and edit state.
+
+### `Source/Parsek/ParsekFlight.cs`
+
+The post-switch auto-recording region already has many extracted pure/static
+decisions, including launch decision, arming, suppression, meaningful vessel
+activity, and manifest-diff checks. The strongest Pass 1 same-file candidate is
+`EvaluatePostSwitchAutoRecordTrigger`, which has clear ordered phases for cache
+refresh, engine/RCS transition scans, attitude debounce, manifest diff, landed
+and orbit guards, and final trigger selection.
+
+`CapturePostSwitchPartStateTokens` is long but repetitive. It can be revisited
+after the auto-record trigger extraction, but extracting every module case may
+reduce readability rather than improve it.
+
+The finalization region is partly delegated already through
+`IncompleteBallisticSceneExitFinalizer`, `RecordingFinalizationCache`,
+`RecordingEndpointResolver`, and terminal-orbit helpers. The best same-file
+candidate is `FinalizeIndividualRecording`, split by ordered phases such as
+explicit time initialization, live vessel/cache lookup, scene-exit finalizer
+resolution, terminal state selection, stable terminal snapshot refresh,
+terminal-orbit repair, endpoint finalization, and warning/log emission.
+
+Do not start Pass 1 by moving finalization into a new owner. A future
+`RecordingFinalizer` or similar split may be useful, but only after Pass 2 maps
+the current finalization cache producer, endpoint resolver, scene-exit
+finalizer, and `ParsekFlight` call sites.
+
 ## Static State Scan Note
 
 A raw regex scan for mutable static fields is too noisy to use directly:
@@ -265,19 +356,11 @@ raw scan with a manual map for the high-risk owners:
 
 ## Immediate Investigation Priorities
 
-1. Re-read `LedgerOrchestrator.cs`. Refactor-3 judged it clean at 900 lines;
-   that conclusion does not carry to a 6,976-line file.
-2. Re-read `UI/RecordingsTableUI.cs`. Refactor-3 deferred its extraction when
-   it was ~1,100 lines due to 30+ shared fields; at 4,868 lines it needs a new
-   coupling map before any split.
-3. Re-read `ParsekFlight.cs` around code added after rewind-to-staging,
-   finalization cache, Tracking Station, and deferred spawn work. Focus on new
-   logic; do not churn already-extracted stable regions.
-4. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
+1. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication.
-5. Build a static mutable state map for `GameStateRecorder`,
+2. Build a static mutable state map for `GameStateRecorder`,
    `LedgerOrchestrator`, `RecordingStore`, `ParsekScenario`,
    `WatchModeController`, and `GhostPlaybackEngine`.
-6. Audit magic thresholds and literal keys introduced after the `ParsekConfig`
+3. Audit magic thresholds and literal keys introduced after the `ParsekConfig`
    centralization entry in 0.8.3.
