@@ -209,22 +209,7 @@ namespace Parsek
             RebuildAutoLoopLaunchScheduleCache(committed);
 
             if (suppressGhosts)
-            {
-                // High time warp: hide primary ghosts, destroy overlap ghosts.
-                // KSC scene does not apply resource deltas (flight-only), so no
-                // ApplyResourceDeltas call needed here.
                 loggedReshow.Clear();
-                foreach (var kvp in kscGhosts)
-                    if (kvp.Value.ghost != null && kvp.Value.ghost.activeSelf)
-                    {
-                        kvp.Value.ghost.SetActive(false);
-                        ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.GhostHide}x");
-                    }
-                foreach (int key in new List<int>(kscOverlapGhosts.Keys))
-                    DestroyAllKscOverlapGhosts(key);
-                return;
-            }
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -297,6 +282,8 @@ namespace Parsek
                                 duration,
                                 playbackStartUT,
                                 scheduleStartUT,
+                                warpRate,
+                                suppressGhosts,
                                 suppressVisualFx);
                         }
                         continue;
@@ -312,14 +299,15 @@ namespace Parsek
                         out targetUT, out cycleIndex, out inPauseWindow, i, autoLoopLaunchSchedules);
 
                     UpdateSingleGhostKsc(i, rec, currentUT, targetUT, cycleIndex,
-                        inRange, inPauseWindow, suppressVisualFx);
+                        inRange, inPauseWindow, warpRate, suppressGhosts, suppressVisualFx);
                 }
                 else
                 {
                     // Non-looping: raw UT range check
                     DestroyAllKscOverlapGhosts(i);
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
-                    UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false, suppressVisualFx);
+                    UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false,
+                        warpRate, suppressGhosts, suppressVisualFx);
                 }
             }
         }
@@ -485,11 +473,24 @@ namespace Parsek
         /// </summary>
         void UpdateSingleGhostKsc(int recIdx, Recording rec,
             double currentUT, double targetUT, long cycleIndex,
-            bool inRange, bool inPauseWindow, bool suppressVisualFx)
+            bool inRange, bool inPauseWindow, float warpRate,
+            bool suppressGhosts, bool suppressVisualFx)
         {
             GhostPlaybackState state;
             kscGhosts.TryGetValue(recIdx, out state);
             bool ghostActive = state != null && state.ghost != null;
+
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                    warpRate, rec, targetUT))
+            {
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Ghost #{recIdx} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.GhostHide}x");
+                }
+                return;
+            }
 
             if (inRange && !inPauseWindow)
             {
@@ -601,7 +602,7 @@ namespace Parsek
         void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
-            bool suppressVisualFx)
+            float warpRate, bool suppressGhosts, bool suppressVisualFx)
         {
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
@@ -640,16 +641,50 @@ namespace Parsek
             // primaryActive already guarantees primaryState != null && ghost != null
             bool primaryCycleChanged = !primaryActive
                 || primaryState.loopCycleIndex != lastCycle;
+            double primaryLoopUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                currentUT,
+                scheduleStartUT,
+                playbackStartUT,
+                duration,
+                cycleDuration,
+                lastCycle);
+
+            if (suppressGhosts)
+            {
+                DestroyAllKscOverlapGhosts(recIdx);
+
+                if (GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                        warpRate, rec, primaryLoopUT))
+                {
+                    if (primaryActive && primaryState.ghost.activeSelf)
+                    {
+                        primaryState.ghost.SetActive(false);
+                        ParsekLog.Verbose("KSCGhost",
+                            $"Ghost #{recIdx} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.GhostHide}x");
+                    }
+                    return;
+                }
+
+                // Keep the newest stationary primary mesh only during high warp.
+            }
 
             if (primaryCycleChanged)
             {
-                // Move old primary to overlap list (don't destroy — it keeps playing)
                 if (primaryActive)
                 {
                     kscGhosts.Remove(recIdx);
-                    overlaps.Add(primaryState);
-                    ParsekLog.Verbose("KSCGhost",
-                        $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                    if (suppressGhosts)
+                    {
+                        // Do not accumulate overlap clones while high-warp culling is active.
+                        DestroyKscGhost(primaryState, recIdx);
+                    }
+                    else
+                    {
+                        // Move old primary to the overlap list so it keeps playing.
+                        overlaps.Add(primaryState);
+                        ParsekLog.Verbose("KSCGhost",
+                            $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                    }
                 }
 
                 // Spawn new primary for lastCycle
@@ -664,13 +699,7 @@ namespace Parsek
 
             // Position and animate primary (SpawnKscGhost above guarantees non-null)
             {
-                double loopUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
-                    currentUT,
-                    scheduleStartUT,
-                    playbackStartUT,
-                    duration,
-                    cycleDuration,
-                    lastCycle);
+                double loopUT = primaryLoopUT;
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT);

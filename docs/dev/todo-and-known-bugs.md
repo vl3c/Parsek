@@ -1802,6 +1802,18 @@ case that reduces to equality.
 
 ---
 
+## ~~600. Stationary surface ghosts are hidden above 50x warp even though their mesh does not need per-frame motion~~
+
+**Source:** User investigation request on 2026-04-25: high-warp playback hides all ghost vessels in KSC and flight view for performance, but vessels that are actually standing still should remain visible at any warp speed.
+
+**Cause:** The high-warp mesh suppression policy was a global `warpRate > WarpThresholds.GhostHide` decision. It ran before the per-trajectory render path in flight and before the per-recording playback path in KSC, so it could not distinguish a moving trajectory from a `SurfaceStationary` section.
+
+**Fix:** Added `GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp`, which preserves the old threshold for moving ghosts but exempts the current playback UT when its `TrackSection.environment` is `SurfaceStationary` (plus surface-only static trajectories). Flight playback now applies the decision per trajectory/loop UT, and KSC playback no longer returns early for all ghosts during high warp. FX suppression is unchanged, and overlap clones remain culled during high warp so the exemption only keeps the newest stationary primary mesh visible. Regression coverage lives in `Bug290_WarpSuppressionMapViewTests`.
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
 ## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
