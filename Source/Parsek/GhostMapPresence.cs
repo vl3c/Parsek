@@ -1455,11 +1455,21 @@ namespace Parsek
 
         internal static bool IsVesselRegistered(Vessel vessel)
         {
-            if (vessel == null || FlightGlobals.fetch == null || FlightGlobals.Vessels == null)
+            if (vessel == null || FlightGlobals.fetch == null)
+                return false;
+
+            // O(1) persistent-id lookup against FlightGlobals.PersistentVesselIds
+            // (stock FlightGlobals.FindVessel is a thin wrapper around it).
+            if (vessel.persistentId != 0u)
+                return FlightGlobals.FindVessel(vessel.persistentId, out _);
+
+            // pid==0 vessels (unregistered / mid-construction) fall back to an
+            // identity scan so callers still get a meaningful answer.
+            if (FlightGlobals.Vessels == null)
                 return false;
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
-                if (IsSameVessel(FlightGlobals.Vessels[i], vessel))
+                if (ReferenceEquals(FlightGlobals.Vessels[i], vessel))
                     return true;
             }
             return false;
