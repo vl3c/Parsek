@@ -2507,22 +2507,37 @@ namespace Parsek.InGameTests
                         allowTerminalOrbitFallback: true,
                         logOperationName: "runtime-571-checkpoint-world",
                         ref cachedIndex,
+                        out OrbitSegment resolvedSegment,
                         out _,
-                        out TrajectoryPoint stateVectorPoint,
                         out string skipReason);
 
+                // OrbitalCheckpoint sections coexist with their seed OrbitSegment
+                // (#571 closure). When the segment covers currentUT the resolver
+                // intentionally returns Segment — the densified checkpoint frames
+                // are sampling along that same Keplerian arc, not a competing
+                // source. Compare the existing xUnit pin
+                // ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper.
                 InGameAssert.IsTrue(
-                    source == GhostMapPresence.TrackingStationGhostSource.StateVector,
-                    $"Expected StateVector checkpoint source, got {source}");
+                    source == GhostMapPresence.TrackingStationGhostSource.Segment,
+                    $"Expected Segment checkpoint source, got {source}");
                 InGameAssert.IsTrue(string.IsNullOrEmpty(skipReason),
                     $"Expected no skip reason, got {skipReason ?? "(null)"}");
-                InGameAssert.AreEqual(body.name, stateVectorPoint.bodyName);
+                InGameAssert.AreEqual(body.name, resolvedSegment.bodyName);
 
+                // P3 review pin: also require stateVectorSource=OrbitalCheckpoint
+                // and orbitalCheckpointFallback=reject so the captured-line
+                // predicate proves the resolver actually traversed the
+                // OrbitalCheckpoint section before settling on Segment. Without
+                // these substrings a future regression that silently stops
+                // walking checkpoints would still match `sourceKind=Segment`
+                // and leave this coexistence test green.
                 string line = captured.LastOrDefault(l =>
                     l.Contains("[GhostMap]")
                     && l.Contains("runtime-571-checkpoint-world")
-                    && l.Contains("sourceKind=StateVector"));
-                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
+                    && l.Contains("sourceKind=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
+                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured with stateVectorSource=OrbitalCheckpoint and orbitalCheckpointFallback=reject");
                 InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
                     "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");
             }
@@ -4617,7 +4632,13 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            var roster = HighLogic.CurrentGame.CrewRoster;
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
             int valid = 0;
             var problems = new List<string>();
 

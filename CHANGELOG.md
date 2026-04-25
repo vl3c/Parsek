@@ -45,6 +45,16 @@ All notable changes to Parsek are documented here.
 
 - In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
 
+- `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
+
+- `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
+
+- `#525` Destroyed loop-cycle boundaries now emit exactly one `OnLoopCameraAction` event (the `ExplosionHoldStart`) instead of also emitting a redundant `RetargetToNewGhost` from the ghost-reuse step. The watch handler already ignored the second event while in explosion-hold state, so camera behaviour is unchanged; the contract clean-up unblocks the in-game terrain-clearance regression that pins the explosion anchor to the same terrain-clamped position the camera holds at.
+
+- In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` now passes again: the stable-terminal re-snapshot Info log line emitted by `FinalizeIndividualRecording` carries the `[#289]` tag the test scans for.
+
+- In-game test `CrewReservationTests.ReplacementsAreValid` no longer NREs in MAINMENU when no save is loaded; it now skips cleanly when `HighLogic.CurrentGame` is null, mirroring the sibling `ReservedCrewNotAssigned` guard.
+
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.

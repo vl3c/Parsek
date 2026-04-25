@@ -166,6 +166,46 @@ namespace Parsek.Tests
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipTimeJumpTransient, decision);
         }
 
+        [Fact]
+        public void EvaluateAutoRecordLaunchDecision_TimeJumpTransient_NonActiveVessel_StillReportsTransient()
+        {
+            // During a Real Spawn Control / Timeline FF jump the playback policy can spawn synthetic
+            // vessels mid-window. Their stock-KSP situation flickers (e.g. 0 -> ORBITING) hit
+            // OnVesselSituationChange even though they are not the focused vessel. Reporting them as
+            // SkipInactiveVessel hides the time-jump origin and starves the in-game pad canaries of
+            // the [INFO][Flight] "suppressing time-jump transient" log they assert on.
+            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+                isRecording: false,
+                isActiveVessel: false,
+                fromSituation: Vessel.Situations.PRELAUNCH,
+                autoRecordOnLaunchEnabled: true,
+                lastLandedUt: -1.0,
+                currentUt: 102.9,
+                landedSettleThreshold: 5.0,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipTimeJumpTransient, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordLaunchDecision_AlreadyRecording_TakesPrecedenceOverTimeJumpTransient()
+        {
+            // Defence in depth: even when a jump-window flicker arrives for the active vessel, an
+            // already-running recording must short-circuit before any other branch so we do not
+            // double-emit StartRecording or log a misleading suppression line.
+            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+                isRecording: true,
+                isActiveVessel: true,
+                fromSituation: Vessel.Situations.PRELAUNCH,
+                autoRecordOnLaunchEnabled: true,
+                lastLandedUt: -1.0,
+                currentUt: 102.9,
+                landedSettleThreshold: 5.0,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipAlreadyRecording, decision);
+        }
+
         [Theory]
         [InlineData(true, true, true)]
         [InlineData(false, true, false)]

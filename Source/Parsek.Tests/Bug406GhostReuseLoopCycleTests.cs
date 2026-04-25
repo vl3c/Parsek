@@ -370,5 +370,63 @@ namespace Parsek.Tests
             Assert.Equal(0, state.playbackIndex);
             Assert.Equal(0, state.partEventIndex);
         }
+
+        // --- emitRetargetEvent parameter (loop-cycle camera-event suppression) ---
+
+        [Fact]
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventFalse_StillNoEvent()
+        {
+            // Pin the contract for the early-return path: when state.ghost is
+            // null, the helper bails out before reaching the camera-event
+            // emission, so the new emitRetargetEvent parameter must NOT change
+            // observable behaviour on the null-ghost branch — no events fire,
+            // no log line about suppression appears (the suppression breadcrumb
+            // is only relevant when the helper would otherwise have fired the
+            // retarget event). Guards against a refactor that moves the
+            // suppression log above the early-return guard.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var state = new GhostPlaybackState { ghost = null, loopCycleIndex = 0 };
+
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+
+            engine.ReusePrimaryGhostAcrossCycle(
+                index: 525, traj: null, flags: default, state,
+                playbackUT: 0, newCycleIndex: 1,
+                emitRetargetEvent: false);
+
+            Assert.Empty(cameraEvents);
+            // The suppression log only fires on the success path (after the
+            // ghost-reuse work). On the early-return null-ghost path, only the
+            // skip breadcrumb appears.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("RetargetToNewGhost suppressed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ReusePrimaryGhostAcrossCycle") && l.Contains("#525")
+                && l.Contains("state.ghost is null"));
+        }
+
+        [Fact]
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventTrue_NoEvent()
+        {
+            // Symmetric pin for the default parameter value: default true must
+            // preserve the existing "no event from null-ghost path" behaviour,
+            // matching ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents
+            // which set up the same scenario before the suppression parameter
+            // existed. Together with the False variant above, the pair pins
+            // that the parameter is truly inert on the early-return branch.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var state = new GhostPlaybackState { ghost = null, loopCycleIndex = 0 };
+
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+
+            engine.ReusePrimaryGhostAcrossCycle(
+                index: 525, traj: null, flags: default, state,
+                playbackUT: 0, newCycleIndex: 1,
+                emitRetargetEvent: true);
+
+            Assert.Empty(cameraEvents);
+        }
     }
 }
