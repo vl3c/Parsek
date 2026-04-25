@@ -234,6 +234,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MarkerValid_TreeExistsOnlyAsPendingTree_Preserved()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_pending",
+                TreeName = "Pending Tree",
+                RootRecordingId = "rec_origin",
+                ActiveRecordingId = "rec_active",
+                BranchPoints = new List<BranchPoint> { Bp("bp_1", "rp_1") },
+            };
+            var active = Rec("rec_active", MergeState.NotCommitted, sessionId: "sess_1",
+                supersedeTarget: "rec_origin", treeId: "tree_pending");
+            var origin = Rec("rec_origin", MergeState.CommittedProvisional,
+                treeId: "tree_pending");
+            tree.AddOrReplaceRecording(active);
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_pending", "rec_active", "rec_origin", "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") && l.Contains("Marker valid sess=sess_1"));
+        }
+
+        [Fact]
         public void MarkerInvalid_SessionIdEmpty_ClearedLogsWarn()
         {
             InstallTree("tree_1",
@@ -624,6 +658,41 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]") && l.Contains("Zombie discarded rec=rec_zombie"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Purged session-prov rp=rp_dead"));
+        }
+
+        [Fact]
+        public void Reaper_PreservesEligibleRpReferencedByActiveMarker()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1");
+            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            {
+                deletedRpIds.Add(id);
+                return true;
+            };
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", scenario.RewindPoints[0].RewindPointId);
+            Assert.Empty(deletedRpIds);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("keeping marker rp=rp_1"));
         }
 
         [Fact]

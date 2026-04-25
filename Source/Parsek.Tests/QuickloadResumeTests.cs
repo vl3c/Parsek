@@ -1184,6 +1184,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches()
+        {
+            var committedTree = MakeTree("tree_refly_salvage", "Committed", 2);
+            var committedRoot = committedTree.Recordings["root_tree_refly_salvage"];
+            committedRoot.VesselName = "Committed Root";
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 6;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_refly_salvage", "Active", 2);
+            var activeRoot = activeTree.Recordings["root_tree_refly_salvage"];
+            Recording activeRootReference = activeRoot;
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarEpoch = 2;
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+            activeRoot.MergeState = MergeState.NotCommitted;
+            activeRoot.CreatingSessionId = "sess_refly";
+            activeRoot.SupersedeTargetId = "old_root";
+            activeRoot.ProvisionalForRpId = "rp_refly";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(1, restored);
+            var restoredRoot = activeTree.Recordings["root_tree_refly_salvage"];
+            Assert.Same(activeRootReference, restoredRoot);
+            Assert.Equal("Committed Root", restoredRoot.VesselName);
+            Assert.Equal(3, restoredRoot.Points.Count);
+            Assert.Equal(6, restoredRoot.SidecarEpoch);
+            Assert.False(restoredRoot.FilesDirty);
+            Assert.False(restoredRoot.SidecarLoadFailed);
+            Assert.Null(restoredRoot.SidecarLoadFailureReason);
+            Assert.Equal(MergeState.NotCommitted, restoredRoot.MergeState);
+            Assert.Equal("sess_refly", restoredRoot.CreatingSessionId);
+            Assert.Equal("old_root", restoredRoot.SupersedeTargetId);
+            Assert.Equal("rp_refly", restoredRoot.ProvisionalForRpId);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording()
+        {
+            var committedTree = MakeTree("tree_refly_active_skip", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_refly_active_skip"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_refly_active_skip", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_refly_active_skip"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(
+                activeTree,
+                activeTree.ActiveRecordingId);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.True(activeRoot.FilesDirty);
+            Assert.True(activeRoot.SidecarLoadFailed);
+        }
+
+        [Fact]
         public void RestoreHydrationFailedRecordingsFromPendingTree_SnapshotFailure_KeepsDiskTrajectory()
         {
             var pendingTree = MakeTree("tree_snapshot_salvage", "Pending", 2);
