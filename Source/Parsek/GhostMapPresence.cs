@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using HarmonyLib;
 using KSP.UI.Screens;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -54,6 +55,246 @@ namespace Parsek
 
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+
+        // -----------------------------------------------------------------
+        // Observability (#582 follow-up): every create/position/update/destroy
+        // decision in this file emits a single structured line via
+        // BuildGhostMapDecisionLine so a future KSP.log filtered on
+        // "[Parsek][INFO][GhostMap]" / "[Parsek][VERBOSE][GhostMap]" reconstructs
+        // the full per-recording lifecycle without cross-file lookups.
+        //
+        // Standard fields (always present): action, rec, idx, vessel, source,
+        // branch, body, worldPos, scene. Optional fields appear only when the
+        // source/branch implies them (segment*, terminal*, stateVec*, anchor*,
+        // localOffset). Producers fill GhostMapDecisionFields and call
+        // EmitGhostMapDecision(level, fields) — the builder formats and logs.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Last-known per-recording ghost frame, captured on every successful
+        /// position/update so RemoveGhostVesselForRecording can include the
+        /// trailing context in its destroy log line. Cleared on remove.
+        /// </summary>
+        internal struct LastKnownGhostFrame
+        {
+            public string RecordingId;
+            public string VesselName;
+            public uint GhostPid;
+            public string Source;       // Segment / TerminalOrbit / StateVector / Chain
+            public string Branch;       // Absolute / Relative / OrbitalCheckpoint / no-section / (n/a)
+            public string Body;
+            public Vector3d WorldPos;
+            public uint AnchorPid;
+            public double LastUT;
+        }
+
+        private static readonly Dictionary<int, LastKnownGhostFrame>
+            lastKnownByRecordingIndex = new Dictionary<int, LastKnownGhostFrame>();
+
+        private static readonly Dictionary<uint, LastKnownGhostFrame>
+            lastKnownByChainPid = new Dictionary<uint, LastKnownGhostFrame>();
+
+        // Per-tick lifecycle counters; flushed via VerboseRateLimited so map-mode
+        // sessions get one summary line every ~5s rather than per-frame.
+        internal static int lifecycleCreatedThisTick;
+        internal static int lifecycleDestroyedThisTick;
+        internal static int lifecycleUpdatedThisTick;
+
+        /// <summary>
+        /// Decision-line field bag for the structured GhostMap log lines.
+        /// All numeric fields default to NaN; the builder omits NaN-valued slots.
+        /// </summary>
+        internal struct GhostMapDecisionFields
+        {
+            public string Action;          // create / position / update / destroy / source-resolve
+            public string RecordingId;
+            public int RecordingIndex;
+            public string VesselName;
+            public string Source;          // Segment / TerminalOrbit / StateVector / None / Chain
+            public string Branch;          // Absolute / Relative / OrbitalCheckpoint / no-section / (n/a)
+            public string Body;
+            public Vector3d? WorldPos;
+            public uint GhostPid;          // 0 if unknown
+            public uint AnchorPid;         // 0 if not Relative
+            public Vector3d? AnchorPos;
+            public Vector3d? LocalOffset;  // anchor-local offset (Relative branch)
+            public OrbitSegment? Segment;  // populated when source=Segment
+            public string TerminalBody;
+            public double TerminalSma;     // NaN if unknown
+            public double TerminalEcc;     // NaN if unknown
+            public double StateVecAlt;     // NaN if unknown
+            public double StateVecSpeed;   // NaN if unknown
+            public string Reason;          // why this decision / which fallback / skip-reason
+            public double UT;              // NaN if unknown
+        }
+
+        /// <summary>
+        /// Create a <see cref="GhostMapDecisionFields"/> with NaN sentinels in
+        /// every numeric slot so the builder can detect "unset". C# 7 structs
+        /// default to 0.0 which would make every `terminalSma=0` look like a
+        /// real reading; the helper avoids that ambiguity.
+        /// </summary>
+        internal static GhostMapDecisionFields NewDecisionFields(string action)
+        {
+            return new GhostMapDecisionFields
+            {
+                Action = action,
+                TerminalSma = double.NaN,
+                TerminalEcc = double.NaN,
+                StateVecAlt = double.NaN,
+                StateVecSpeed = double.NaN,
+                UT = double.NaN
+            };
+        }
+
+        /// <summary>
+        /// Read the current world position of a recording-index ghost (after a
+        /// successful Vessel.Load). Returns false if no ghost is bound or the
+        /// vessel was destroyed mid-frame.
+        /// </summary>
+        internal static bool TryGetGhostWorldPosForRecording(int recordingIndex, out Vector3d worldPos)
+        {
+            if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel)
+                && vessel != null)
+            {
+                worldPos = vessel.GetWorldPos3D();
+                return true;
+            }
+            worldPos = default(Vector3d);
+            return false;
+        }
+
+        /// <summary>
+        /// Emit the per-tick lifecycle summary line and reset the counters.
+        /// Called from the two map-presence drivers
+        /// (<see cref="UpdateTrackingStationGhostLifecycle"/> and
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) so the post-hoc
+        /// reader sees one summary per tick without spam.
+        /// </summary>
+        internal static void EmitLifecycleSummary(string scope, double currentUT)
+        {
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                "gm-lifecycle-summary",
+                string.Format(ic,
+                    "lifecycle-summary: scope={0} vesselsTracked={1} created={2} destroyed={3} updated={4} currentUT={5:F1} scene={6}",
+                    scope ?? "(unspecified)",
+                    vesselsByRecordingIndex.Count,
+                    lifecycleCreatedThisTick,
+                    lifecycleDestroyedThisTick,
+                    lifecycleUpdatedThisTick,
+                    currentUT,
+                    GetCurrentSceneName()),
+                5.0);
+            lifecycleCreatedThisTick = 0;
+            lifecycleDestroyedThisTick = 0;
+            lifecycleUpdatedThisTick = 0;
+        }
+
+        private static string GetCurrentSceneName()
+        {
+            try
+            {
+                return HighLogic.LoadedScene.ToString();
+            }
+            catch
+            {
+                // HighLogic may be unavailable in xUnit
+                return "n/a";
+            }
+        }
+
+        private static string FormatVec3d(Vector3d v)
+        {
+            return string.Format(ic, "({0:F1},{1:F1},{2:F1})", v.x, v.y, v.z);
+        }
+
+        /// <summary>
+        /// Build the canonical structured GhostMap decision line. One line per
+        /// create / position / update / destroy / source-resolve event. Producers
+        /// fill <see cref="GhostMapDecisionFields"/> and pass it here; the builder
+        /// formats every populated slot and omits the rest.
+        /// </summary>
+        internal static string BuildGhostMapDecisionLine(GhostMapDecisionFields f)
+        {
+            var sb = new StringBuilder();
+            sb.Append(string.IsNullOrEmpty(f.Action) ? "decision" : f.Action);
+            sb.Append(": rec=");
+            sb.Append(string.IsNullOrEmpty(f.RecordingId) ? "(null)" : f.RecordingId);
+            sb.Append(" idx=").Append(f.RecordingIndex.ToString(ic));
+            sb.Append(" vessel=\"");
+            sb.Append(f.VesselName ?? "(null)");
+            sb.Append('"');
+            sb.Append(" source=").Append(string.IsNullOrEmpty(f.Source) ? "None" : f.Source);
+            sb.Append(" branch=").Append(string.IsNullOrEmpty(f.Branch) ? "(n/a)" : f.Branch);
+            sb.Append(" body=").Append(string.IsNullOrEmpty(f.Body) ? "(none)" : f.Body);
+
+            if (f.WorldPos.HasValue)
+                sb.Append(" worldPos=").Append(FormatVec3d(f.WorldPos.Value));
+
+            if (f.GhostPid != 0)
+                sb.Append(" ghostPid=").Append(f.GhostPid.ToString(ic));
+
+            if (f.Segment.HasValue)
+            {
+                var seg = f.Segment.Value;
+                sb.Append(" segmentBody=").Append(seg.bodyName ?? "(null)");
+                sb.AppendFormat(ic,
+                    " segmentUT={0:F1}-{1:F1} sma={2:F0} ecc={3:F4} inc={4:F4} mna={5:F4} epoch={6:F1}",
+                    seg.startUT, seg.endUT,
+                    seg.semiMajorAxis, seg.eccentricity, seg.inclination,
+                    seg.meanAnomalyAtEpoch, seg.epoch);
+            }
+
+            if (!string.IsNullOrEmpty(f.TerminalBody))
+                sb.Append(" terminalOrbitBody=").Append(f.TerminalBody);
+            if (!double.IsNaN(f.TerminalSma))
+                sb.AppendFormat(ic, " terminalSma={0:F0}", f.TerminalSma);
+            if (!double.IsNaN(f.TerminalEcc))
+                sb.AppendFormat(ic, " terminalEcc={0:F4}", f.TerminalEcc);
+
+            if (!double.IsNaN(f.StateVecAlt))
+                sb.AppendFormat(ic, " stateVecAlt={0:F0}", f.StateVecAlt);
+            if (!double.IsNaN(f.StateVecSpeed))
+                sb.AppendFormat(ic, " stateVecSpeed={0:F1}", f.StateVecSpeed);
+
+            if (f.AnchorPid != 0)
+                sb.Append(" anchorPid=").Append(f.AnchorPid.ToString(ic));
+            if (f.AnchorPos.HasValue)
+                sb.Append(" anchorPos=").Append(FormatVec3d(f.AnchorPos.Value));
+            if (f.LocalOffset.HasValue)
+                sb.Append(" localOffset=").Append(FormatVec3d(f.LocalOffset.Value));
+
+            if (!double.IsNaN(f.UT))
+                sb.AppendFormat(ic, " ut={0:F1}", f.UT);
+
+            sb.Append(" scene=").Append(GetCurrentSceneName());
+
+            if (!string.IsNullOrEmpty(f.Reason))
+                sb.Append(" reason=").Append(f.Reason);
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Snapshot the resolved frame so RemoveGhostVesselForRecording can later
+        /// emit the trailing context. Called from every create/update success path.
+        /// </summary>
+        private static void StashLastKnownFrame(int recordingIndex, LastKnownGhostFrame frame)
+        {
+            lastKnownByRecordingIndex[recordingIndex] = frame;
+        }
+
+        /// <summary>
+        /// Try to read the last-known frame for a recording index. Returns true
+        /// when a frame is available; the caller is responsible for converting
+        /// any partial fields to the decision-line shape.
+        /// </summary>
+        private static bool TryGetLastKnownFrame(int recordingIndex, out LastKnownGhostFrame frame)
+        {
+            return lastKnownByRecordingIndex.TryGetValue(recordingIndex, out frame);
+        }
+
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
@@ -516,10 +757,60 @@ namespace Parsek
                 return vesselsByChainPid[chain.OriginalVesselPid];
             }
 
+            // Intent-line: chain-pid terminal-orbit creation about to fire.
+            {
+                var intent = NewDecisionFields("create-chain-intent");
+                intent.RecordingId = traj.RecordingId;
+                intent.RecordingIndex = -1;
+                intent.VesselName = traj.VesselName;
+                intent.Source = "Chain";
+                intent.Branch = "(n/a)";
+                intent.Body = traj.TerminalOrbitBody;
+                intent.TerminalBody = traj.TerminalOrbitBody;
+                intent.TerminalSma = traj.TerminalOrbitSemiMajorAxis;
+                intent.TerminalEcc = traj.TerminalOrbitEccentricity;
+                intent.Reason = string.Format(ic, "chainPid={0}", chain.OriginalVesselPid);
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
+            }
+
             string logContext = string.Format(ic, "chain pid={0}", chain.OriginalVesselPid);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
             if (vessel != null)
+            {
                 vesselsByChainPid[chain.OriginalVesselPid] = vessel;
+                lifecycleCreatedThisTick++;
+
+                Vector3d worldPos = vessel.GetWorldPos3D();
+                string body = vessel.orbitDriver?.celestialBody?.name ?? traj.TerminalOrbitBody;
+
+                var done = NewDecisionFields("create-chain-done");
+                done.RecordingId = traj.RecordingId;
+                done.RecordingIndex = -1;
+                done.VesselName = traj.VesselName;
+                done.Source = "Chain";
+                done.Branch = "(n/a)";
+                done.Body = body;
+                done.WorldPos = worldPos;
+                done.GhostPid = vessel.persistentId;
+                done.TerminalBody = traj.TerminalOrbitBody;
+                done.TerminalSma = traj.TerminalOrbitSemiMajorAxis;
+                done.TerminalEcc = traj.TerminalOrbitEccentricity;
+                done.Reason = string.Format(ic, "chainPid={0}", chain.OriginalVesselPid);
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(done));
+
+                lastKnownByChainPid[chain.OriginalVesselPid] = new LastKnownGhostFrame
+                {
+                    RecordingId = traj.RecordingId,
+                    VesselName = traj.VesselName,
+                    GhostPid = vessel.persistentId,
+                    Source = "Chain",
+                    Branch = "(n/a)",
+                    Body = body,
+                    WorldPos = worldPos,
+                    AnchorPid = 0u,
+                    LastUT = double.NaN
+                };
+            }
 
             return vessel;
         }
@@ -537,6 +828,29 @@ namespace Parsek
                 return;
             }
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "chain pid={0}", chainPid));
+            lifecycleUpdatedThisTick++;
+
+            Vector3d worldPos = vessel.GetWorldPos3D();
+            string updateKey = string.Format(ic, "chain-orbit-update-{0}", chainPid);
+            var done = NewDecisionFields("update-chain-segment");
+            done.RecordingIndex = -1;
+            done.GhostPid = vessel.persistentId;
+            done.Source = "Chain";
+            done.Branch = "(n/a)";
+            done.Body = segment.bodyName;
+            done.WorldPos = worldPos;
+            done.Segment = segment;
+            done.Reason = string.Format(ic, "chainPid={0}", chainPid);
+            ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
+
+            // Keep last-known frame fresh for the destroy log.
+            if (lastKnownByChainPid.TryGetValue(chainPid, out var prev))
+            {
+                prev.Body = segment.bodyName;
+                prev.WorldPos = worldPos;
+                prev.LastUT = segment.startUT;
+                lastKnownByChainPid[chainPid] = prev;
+            }
         }
 
         /// <summary>
@@ -561,6 +875,7 @@ namespace Parsek
                 && FlightGlobals.fetch.VesselTarget.GetVessel() == vessel;
 
             uint ghostPid = vessel.persistentId;
+            bool hadLastKnown = lastKnownByChainPid.TryGetValue(chainPid, out LastKnownGhostFrame last);
 
             try
             {
@@ -577,11 +892,23 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
+            lastKnownByChainPid.Remove(chainPid);
+            lifecycleDestroyedThisTick++;
 
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Removed ghost vessel chainPid={0} ghostPid={1} reason={2} wasTarget={3}",
-                    chainPid, ghostPid, reason, wasTarget));
+            var destroy = NewDecisionFields("destroy-chain");
+            destroy.RecordingId = hadLastKnown ? last.RecordingId : null;
+            destroy.RecordingIndex = -1;
+            destroy.VesselName = hadLastKnown ? last.VesselName : null;
+            destroy.Source = hadLastKnown ? last.Source : "Chain";
+            destroy.Branch = hadLastKnown ? last.Branch : "(n/a)";
+            destroy.Body = hadLastKnown ? last.Body : null;
+            destroy.WorldPos = hadLastKnown ? (Vector3d?)last.WorldPos : null;
+            destroy.GhostPid = ghostPid;
+            destroy.AnchorPid = hadLastKnown ? last.AnchorPid : 0u;
+            destroy.UT = hadLastKnown ? last.LastUT : double.NaN;
+            destroy.Reason = string.Format(ic, "{0} chainPid={1} wasTarget={2}",
+                reason ?? "(none)", chainPid, wasTarget);
+            ParsekLog.Info(Tag, BuildGhostMapDecisionLine(destroy));
 
             return wasTarget;
         }
@@ -884,6 +1211,8 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            lastKnownByRecordingIndex.Clear();
+            lastKnownByChainPid.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -917,10 +1246,58 @@ namespace Parsek
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
 
+            // Intent-line: terminal-orbit creation about to fire.
+            {
+                var intent = NewDecisionFields("create-terminal-orbit-intent");
+                intent.RecordingId = traj.RecordingId;
+                intent.RecordingIndex = recordingIndex;
+                intent.VesselName = traj.VesselName;
+                intent.Source = "TerminalOrbit";
+                intent.Branch = "(n/a)";
+                intent.Body = traj.TerminalOrbitBody;
+                intent.TerminalBody = traj.TerminalOrbitBody;
+                intent.TerminalSma = traj.TerminalOrbitSemiMajorAxis;
+                intent.TerminalEcc = traj.TerminalOrbitEccentricity;
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
+            }
+
             string logContext = string.Format(ic, "recording index={0}", recordingIndex);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
             if (vessel != null)
+            {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
+                lifecycleCreatedThisTick++;
+
+                Vector3d worldPos = vessel.GetWorldPos3D();
+                string body = vessel.orbitDriver?.celestialBody?.name ?? traj.TerminalOrbitBody;
+
+                var done = NewDecisionFields("create-terminal-orbit-done");
+                done.RecordingId = traj.RecordingId;
+                done.RecordingIndex = recordingIndex;
+                done.VesselName = traj.VesselName;
+                done.Source = "TerminalOrbit";
+                done.Branch = "(n/a)";
+                done.Body = body;
+                done.WorldPos = worldPos;
+                done.GhostPid = vessel.persistentId;
+                done.TerminalBody = traj.TerminalOrbitBody;
+                done.TerminalSma = traj.TerminalOrbitSemiMajorAxis;
+                done.TerminalEcc = traj.TerminalOrbitEccentricity;
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(done));
+
+                StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+                {
+                    RecordingId = traj.RecordingId,
+                    VesselName = traj.VesselName,
+                    GhostPid = vessel.persistentId,
+                    Source = "TerminalOrbit",
+                    Branch = "(n/a)",
+                    Body = body,
+                    WorldPos = worldPos,
+                    AnchorPid = 0u,
+                    LastUT = double.NaN
+                });
+            }
 
             return vessel;
         }
@@ -946,12 +1323,53 @@ namespace Parsek
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
 
+            // Intent-line: full input shape before BuildAndLoadGhostProtoVessel.
+            {
+                var intent = NewDecisionFields("create-segment-intent");
+                intent.RecordingId = traj.RecordingId;
+                intent.RecordingIndex = recordingIndex;
+                intent.VesselName = traj.VesselName;
+                intent.Source = "Segment";
+                intent.Branch = "(n/a)";
+                intent.Body = segment.bodyName;
+                intent.Segment = segment;
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
+            }
+
             string logContext = string.Format(ic, "recording index={0} (from segment)", recordingIndex);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
             if (vessel != null)
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
                 ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+                lifecycleCreatedThisTick++;
+
+                Vector3d worldPos = vessel.GetWorldPos3D();
+
+                var done = NewDecisionFields("create-segment-done");
+                done.RecordingId = traj.RecordingId;
+                done.RecordingIndex = recordingIndex;
+                done.VesselName = traj.VesselName;
+                done.Source = "Segment";
+                done.Branch = "(n/a)";
+                done.Body = segment.bodyName;
+                done.WorldPos = worldPos;
+                done.GhostPid = vessel.persistentId;
+                done.Segment = segment;
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(done));
+
+                StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+                {
+                    RecordingId = traj.RecordingId,
+                    VesselName = traj.VesselName,
+                    GhostPid = vessel.persistentId,
+                    Source = "Segment",
+                    Branch = "(n/a)",
+                    Body = segment.bodyName,
+                    WorldPos = worldPos,
+                    AnchorPid = 0u,
+                    LastUT = segment.startUT
+                });
             }
 
             return vessel;
@@ -967,6 +1385,9 @@ namespace Parsek
                 return;
 
             uint ghostPid = vessel.persistentId;
+
+            // Snapshot last-known frame before Die() destroys the vessel.
+            bool hadLastKnown = TryGetLastKnownFrame(recordingIndex, out LastKnownGhostFrame last);
 
             try { vessel.Die(); }
             catch (Exception ex)
@@ -984,11 +1405,22 @@ namespace Parsek
             vesselsByRecordingIndex.Remove(recordingIndex);
             trackingStationStateVectorOrbitTrajectories.Remove(recordingIndex);
             trackingStationStateVectorCachedIndices.Remove(recordingIndex);
+            lastKnownByRecordingIndex.Remove(recordingIndex);
+            lifecycleDestroyedThisTick++;
 
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Removed ghost map vessel for recording #{0} ghostPid={1} reason={2}",
-                    recordingIndex, ghostPid, reason));
+            var destroy = NewDecisionFields("destroy");
+            destroy.RecordingId = hadLastKnown ? last.RecordingId : null;
+            destroy.RecordingIndex = recordingIndex;
+            destroy.VesselName = hadLastKnown ? last.VesselName : null;
+            destroy.Source = hadLastKnown ? last.Source : "None";
+            destroy.Branch = hadLastKnown ? last.Branch : "(n/a)";
+            destroy.Body = hadLastKnown ? last.Body : null;
+            destroy.WorldPos = hadLastKnown ? (Vector3d?)last.WorldPos : null;
+            destroy.GhostPid = ghostPid;
+            destroy.AnchorPid = hadLastKnown ? last.AnchorPid : 0u;
+            destroy.UT = hadLastKnown ? last.LastUT : double.NaN;
+            destroy.Reason = reason ?? "(none)";
+            ParsekLog.Info(Tag, BuildGhostMapDecisionLine(destroy));
         }
 
         /// <summary>
@@ -1132,6 +1564,63 @@ namespace Parsek
                     || (rec.VesselPersistentId != 0 && realVesselExists));
         }
 
+        /// <summary>
+        /// Emit the structured "source-resolve" decision line. Pulled out of
+        /// <see cref="ResolveMapPresenceGhostSource"/>'s inner local function
+        /// because C# 7 forbids closing over <c>out</c>/<c>ref</c> parameters,
+        /// and the segment / state-vector data we want to log are passed in
+        /// through such parameters.
+        /// </summary>
+        private static void EmitSourceResolveLine(
+            IPlaybackTrajectory traj,
+            string recId,
+            int recordingIndex,
+            TrackingStationGhostSource source,
+            string reason,
+            double currentUT,
+            string logOperationName,
+            OrbitSegment resolvedSegment,
+            TrajectoryPoint resolvedStatePoint)
+        {
+            var srf = NewDecisionFields("source-resolve");
+            srf.RecordingId = recId;
+            // `recordingIndex` is `-1` when the caller did not (or could not)
+            // know the index — that's an explicit "unknown" sentinel rather
+            // than the misleading `idx=0` `NewDecisionFields` would produce.
+            srf.RecordingIndex = recordingIndex;
+            srf.VesselName = traj?.VesselName;
+            srf.Source = source.ToString();
+            srf.Branch = "(n/a)";
+            srf.UT = currentUT;
+            srf.Reason = string.IsNullOrEmpty(reason) ? logOperationName : reason;
+            if (source == TrackingStationGhostSource.Segment)
+            {
+                srf.Body = resolvedSegment.bodyName;
+                srf.Segment = resolvedSegment;
+            }
+            else if (source == TrackingStationGhostSource.StateVector)
+            {
+                srf.Body = resolvedStatePoint.bodyName;
+                srf.StateVecAlt = resolvedStatePoint.altitude;
+                srf.StateVecSpeed = resolvedStatePoint.velocity.magnitude;
+            }
+            else if (source == TrackingStationGhostSource.TerminalOrbit)
+            {
+                srf.Body = traj?.TerminalOrbitBody;
+                srf.TerminalBody = traj?.TerminalOrbitBody;
+                srf.TerminalSma = traj?.TerminalOrbitSemiMajorAxis ?? double.NaN;
+                srf.TerminalEcc = traj?.TerminalOrbitEccentricity ?? double.NaN;
+            }
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                string.Format(ic,
+                    "gm-source-resolve-{0}-{1}",
+                    recId,
+                    source),
+                BuildGhostMapDecisionLine(srf),
+                5.0);
+        }
+
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
             IPlaybackTrajectory traj,
             bool isSuppressed,
@@ -1142,12 +1631,21 @@ namespace Parsek
             ref int stateVectorCachedIndex,
             out OrbitSegment segment,
             out TrajectoryPoint stateVectorPoint,
-            out string skipReason)
+            out string skipReason,
+            int recordingIndex = -1)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
             skipReason = null;
             string recId = traj?.RecordingId ?? "(null)";
+
+            // These mirrors of the out parameters exist solely so the ReturnDecision
+            // local function can read the resolved segment / state point at the
+            // moment a decision is finalised. C# 7 forbids capturing `out` /
+            // `ref` parameters in nested closures, so we keep these locals in sync
+            // immediately before each ReturnDecision call.
+            OrbitSegment resolvedSegment = default(OrbitSegment);
+            TrajectoryPoint resolvedStatePoint = default(TrajectoryPoint);
 
             TrackingStationGhostSource ReturnDecision(
                 TrackingStationGhostSource source,
@@ -1172,6 +1670,23 @@ namespace Parsek
                             source,
                             reason ?? "(none)",
                             string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+
+                    // Structured-line emission so the post-hoc reader can grep one
+                    // canonical shape across every decision in this file. Local
+                    // copies of segment / stateVectorPoint are captured into
+                    // resolvedSegment / resolvedStatePoint at each ReturnDecision
+                    // call site since the C# spec forbids closing over `out`/`ref`
+                    // parameters.
+                    EmitSourceResolveLine(
+                        traj,
+                        recId,
+                        recordingIndex,
+                        source,
+                        reason,
+                        currentUT,
+                        logOperationName,
+                        resolvedSegment,
+                        resolvedStatePoint);
                 }
                 return source;
             }
@@ -1217,6 +1732,7 @@ namespace Parsek
                 if (currentSegment.HasValue)
                 {
                     segment = currentSegment.Value;
+                    resolvedSegment = segment;
                     return ReturnDecision(
                         TrackingStationGhostSource.Segment,
                         skipReason,
@@ -1238,6 +1754,7 @@ namespace Parsek
                     out stateVectorPoint,
                     out stateVectorSkipReason))
                 {
+                    resolvedStatePoint = stateVectorPoint;
                     return ReturnDecision(
                         TrackingStationGhostSource.StateVector,
                         skipReason,
@@ -1342,6 +1859,7 @@ namespace Parsek
                 epoch = epoch,
                 bodyName = seedBodyName
             };
+            resolvedSegment = segment;
 
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
@@ -1527,6 +2045,35 @@ namespace Parsek
             TrajectoryPoint stateVectorPoint,
             double currentUT)
         {
+            // Dispatcher-line: which sub-create is about to fire? Single line
+            // gives the post-hoc reader the routing decision.
+            var dispatch = NewDecisionFields("create-dispatch");
+            dispatch.RecordingId = traj?.RecordingId;
+            dispatch.RecordingIndex = recordingIndex;
+            dispatch.VesselName = traj?.VesselName;
+            dispatch.Source = source.ToString();
+            dispatch.Branch = "(n/a)";
+            dispatch.UT = currentUT;
+            switch (source)
+            {
+                case TrackingStationGhostSource.Segment:
+                    dispatch.Body = segment.bodyName;
+                    dispatch.Segment = segment;
+                    break;
+                case TrackingStationGhostSource.StateVector:
+                    dispatch.Body = stateVectorPoint.bodyName;
+                    dispatch.StateVecAlt = stateVectorPoint.altitude;
+                    dispatch.StateVecSpeed = stateVectorPoint.velocity.magnitude;
+                    break;
+                case TrackingStationGhostSource.TerminalOrbit:
+                    dispatch.Body = traj?.TerminalOrbitBody;
+                    dispatch.TerminalBody = traj?.TerminalOrbitBody;
+                    dispatch.TerminalSma = traj?.TerminalOrbitSemiMajorAxis ?? double.NaN;
+                    dispatch.TerminalEcc = traj?.TerminalOrbitEccentricity ?? double.NaN;
+                    break;
+            }
+            ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(dispatch));
+
             switch (source)
             {
                 case TrackingStationGhostSource.TerminalOrbit:
@@ -1667,6 +2214,8 @@ namespace Parsek
                 committed.Count,
                 lifecycleCreated,
                 alreadyTracked);
+
+            EmitLifecycleSummary("tracking-station", currentUT);
         }
 
         private static void RefreshTrackingStationGhosts(
@@ -1748,7 +2297,7 @@ namespace Parsek
                         continue;
                     }
 
-                    UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+                    UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);
                     continue;
                 }
 
@@ -1943,12 +2492,210 @@ namespace Parsek
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex));
+            lifecycleUpdatedThisTick++;
+
+            Vector3d worldPos = vessel.GetWorldPos3D();
+            string recId = TryGetLastKnownFrame(recordingIndex, out var prev) ? prev.RecordingId : null;
+            string vesselName = prev.VesselName;
+            string updateKey = string.Format(ic, "rec-orbit-update-{0}",
+                recId ?? recordingIndex.ToString(ic));
+
+            var done = NewDecisionFields("update-segment");
+            done.RecordingId = recId;
+            done.RecordingIndex = recordingIndex;
+            done.VesselName = vesselName;
+            done.Source = "Segment";
+            done.Branch = "(n/a)";
+            done.Body = segment.bodyName;
+            done.WorldPos = worldPos;
+            done.GhostPid = vessel.persistentId;
+            done.Segment = segment;
+            ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
+
+            // Refresh last-known so destroy can read the current orbit shape.
+            StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+            {
+                RecordingId = recId,
+                VesselName = vesselName,
+                GhostPid = vessel.persistentId,
+                Source = "Segment",
+                Branch = "(n/a)",
+                Body = segment.bodyName,
+                WorldPos = worldPos,
+                AnchorPid = 0u,
+                LastUT = segment.startUT
+            });
+        }
+
+        /// <summary>
+        /// Outcome of resolving a state-vector trajectory point to a world-space
+        /// position. The reference frame of the originating <see cref="TrackSection"/>
+        /// determines whether <c>point.latitude/longitude/altitude</c> are body-fixed
+        /// surface coordinates or anchor-local XYZ offsets — the wrong interpretation
+        /// silently places the ghost roughly at the body surface but at a horizontally
+        /// meaningless lat/lon (#582 / #571 contributor). This struct centralises the
+        /// branch so both call sites in <see cref="CreateGhostVesselFromStateVectors"/>
+        /// and <see cref="UpdateGhostOrbitFromStateVectors"/> stay in sync.
+        /// </summary>
+        internal struct StateVectorWorldFrame
+        {
+            public bool Resolved;
+            public Vector3d WorldPos;
+            public string Branch;          // "absolute", "relative", "orbital-checkpoint", "no-section"
+            public string FailureReason;   // null on success
+            public uint AnchorPid;         // 0 unless Branch == "relative"
+        }
+
+        /// <summary>
+        /// Pure-static resolution: given a trajectory point, the originating section
+        /// (or null), the body, and pre-resolved anchor data, return the world-space
+        /// position the state-vector orbit should be seeded at. No KSP API calls —
+        /// callers do the body / anchor lookups and pass results in. Pure for testability.
+        /// </summary>
+        internal static StateVectorWorldFrame ResolveStateVectorWorldPositionPure(
+            TrajectoryPoint point,
+            TrackSection? section,
+            int recordingFormatVersion,
+            Func<double, double, double, Vector3d> absoluteSurfaceLookup,
+            bool anchorFound,
+            Vector3d anchorWorldPos,
+            Quaternion anchorWorldRot,
+            uint anchorVesselId)
+        {
+            // No track sections at all — fall back to the original Absolute interpretation.
+            // This preserves behaviour for legacy / synthetic recordings that have not yet
+            // been split into sections, where the lat/lon/alt fields are still surface coords.
+            if (!section.HasValue)
+            {
+                Vector3d pos = absoluteSurfaceLookup(point.latitude, point.longitude, point.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "no-section",
+                    FailureReason = null,
+                    AnchorPid = 0
+                };
+            }
+
+            ReferenceFrame frame = section.Value.referenceFrame;
+            if (frame == ReferenceFrame.Absolute)
+            {
+                Vector3d pos = absoluteSurfaceLookup(point.latitude, point.longitude, point.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "absolute",
+                    FailureReason = null,
+                    AnchorPid = 0
+                };
+            }
+
+            if (frame == ReferenceFrame.Relative)
+            {
+                if (!anchorFound)
+                {
+                    return new StateVectorWorldFrame
+                    {
+                        Resolved = false,
+                        WorldPos = default(Vector3d),
+                        Branch = "relative",
+                        FailureReason = "anchor-not-found",
+                        AnchorPid = section.Value.anchorVesselId
+                    };
+                }
+
+                // The lat/lon/alt fields are reused as anchor-local XYZ offsets in
+                // RELATIVE sections (TrajectoryPoint.cs:13-15 docstring). Resolve via
+                // the same canonical helper InterpolateAndPositionRelative uses on the
+                // flight-scene playback path (ParsekFlight.cs:13821).
+                Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchorWorldPos,
+                    anchorWorldRot,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    recordingFormatVersion);
+
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = worldPos,
+                    Branch = "relative",
+                    FailureReason = null,
+                    AnchorPid = section.Value.anchorVesselId
+                };
+            }
+
+            // OrbitalCheckpoint: state-vector entry points should never come from a
+            // checkpoint section (those carry Keplerian elements, not point samples).
+            // If we get here, the upstream caller fed mismatched data — refuse.
+            return new StateVectorWorldFrame
+            {
+                Resolved = false,
+                WorldPos = default(Vector3d),
+                Branch = "orbital-checkpoint",
+                FailureReason = "state-vector-from-orbital-checkpoint",
+                AnchorPid = 0
+            };
+        }
+
+        /// <summary>
+        /// KSP-dependent wrapper over <see cref="ResolveStateVectorWorldPositionPure"/>.
+        /// Looks up the section, body, and anchor vessel, then delegates to the pure helper.
+        /// </summary>
+        private static StateVectorWorldFrame ResolveStateVectorWorldPosition(
+            IPlaybackTrajectory traj,
+            TrajectoryPoint point,
+            CelestialBody body)
+        {
+            TrackSection? section = null;
+            if (traj?.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, point.ut);
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                    section = traj.TrackSections[sectionIdx];
+            }
+
+            bool anchorFound = false;
+            Vector3d anchorPos = default(Vector3d);
+            Quaternion anchorRot = Quaternion.identity;
+            uint anchorPid = section?.anchorVesselId ?? 0u;
+            if (section.HasValue
+                && section.Value.referenceFrame == ReferenceFrame.Relative
+                && anchorPid != 0u)
+            {
+                Vessel anchor = FlightRecorder.FindVesselByPid(anchorPid);
+                if (anchor != null)
+                {
+                    anchorFound = true;
+                    anchorPos = anchor.GetWorldPos3D();
+                    anchorRot = anchor.transform != null
+                        ? anchor.transform.rotation
+                        : Quaternion.identity;
+                }
+            }
+
+            int formatVersion = traj?.RecordingFormatVersion ?? 0;
+            return ResolveStateVectorWorldPositionPure(
+                point,
+                section,
+                formatVersion,
+                (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
+                anchorFound,
+                anchorPos,
+                anchorRot,
+                anchorPid);
         }
 
         /// <summary>
         /// Create a ghost map ProtoVessel from interpolated trajectory state vectors.
         /// Used for physics-only suborbital recordings that have no orbit segments.
         /// Constructs a Keplerian orbit from position + velocity at the given UT.
+        /// Honours the originating TrackSection's <see cref="ReferenceFrame"/>: Absolute
+        /// uses surface lat/lon/alt; Relative resolves through the anchor vessel's
+        /// world transform (matches the flight-scene contract in ParsekFlight.cs:13821).
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
@@ -1966,25 +2713,78 @@ namespace Parsek
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
 
+            // Intent-line: log the input shape before any work — easy filter
+            // for "what was Parsek asked to create at this UT?".
+            {
+                var intent = NewDecisionFields("create-state-vector-intent");
+                intent.RecordingId = traj.RecordingId;
+                intent.RecordingIndex = recordingIndex;
+                intent.VesselName = traj.VesselName;
+                intent.Source = "StateVector";
+                intent.Body = point.bodyName;
+                intent.StateVecAlt = point.altitude;
+                intent.StateVecSpeed = point.velocity.magnitude;
+                intent.UT = ut;
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
+            }
+
             CelestialBody body = FindBodyByName(point.bodyName);
             if (body == null)
             {
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "CreateGhostVesselFromStateVectors: body '{0}' not found for recording #{1}",
-                        point.bodyName, recordingIndex));
+                var miss = NewDecisionFields("create-state-vector-miss");
+                miss.RecordingId = traj.RecordingId;
+                miss.RecordingIndex = recordingIndex;
+                miss.VesselName = traj.VesselName;
+                miss.Source = "StateVector";
+                miss.Body = point.bodyName;
+                miss.UT = ut;
+                miss.Reason = "body-not-found";
+                ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
                 return null;
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            StateVectorWorldFrame resolution =
+                ResolveStateVectorWorldPosition(traj, point, body);
+            if (!resolution.Resolved)
+            {
+                var skip = NewDecisionFields("create-state-vector-skip");
+                skip.RecordingId = traj.RecordingId;
+                skip.RecordingIndex = recordingIndex;
+                skip.VesselName = traj.VesselName;
+                skip.Source = "StateVector";
+                skip.Branch = MapResolutionBranch(resolution.Branch);
+                skip.Body = point.bodyName;
+                skip.AnchorPid = resolution.AnchorPid;
+                skip.StateVecAlt = point.altitude;
+                skip.StateVecSpeed = point.velocity.magnitude;
+                skip.UT = ut;
+                skip.Reason = resolution.FailureReason ?? "(null)";
+                ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
+                return null;
+            }
+
+            // Compute optional anchor metadata for the structured line.
+            Vector3d? anchorPosForLog = null;
+            Vector3d? localOffsetForLog = null;
+            if (resolution.Branch == "relative" && resolution.AnchorPid != 0u)
+            {
+                Vessel anchorRef = FlightRecorder.FindVesselByPid(resolution.AnchorPid);
+                if (anchorRef != null)
+                {
+                    anchorPosForLog = anchorRef.GetWorldPos3D();
+                    localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
+                }
+            }
+
+            Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             Orbit orbit = new Orbit();
             orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
 
             string logContext = string.Format(ic,
-                "recording #{0} (state vectors alt={1:F0} spd={2:F1})",
-                recordingIndex, point.altitude, point.velocity.magnitude);
+                "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
+                recordingIndex, point.altitude, point.velocity.magnitude, resolution.Branch);
             Vessel vessel = BuildAndLoadGhostProtoVesselCore(
                 traj,
                 orbit,
@@ -1992,45 +2792,149 @@ namespace Parsek
                 logContext,
                 "state-vector-fallback",
                 string.Format(ic,
-                    "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1}",
+                    "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1} frame={4} anchorPid={5}",
                     point.bodyName ?? "(null)",
                     ut,
                     point.altitude,
-                    point.velocity.magnitude));
+                    point.velocity.magnitude,
+                    resolution.Branch,
+                    resolution.AnchorPid));
             if (vessel != null)
+            {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
+                lifecycleCreatedThisTick++;
+
+                // Exit-line: full input/output now that the vessel is bound.
+                var done = NewDecisionFields("create-state-vector-done");
+                done.RecordingId = traj.RecordingId;
+                done.RecordingIndex = recordingIndex;
+                done.VesselName = traj.VesselName;
+                done.Source = "StateVector";
+                done.Branch = MapResolutionBranch(resolution.Branch);
+                done.Body = body.name;
+                done.WorldPos = worldPos;
+                done.GhostPid = vessel.persistentId;
+                done.AnchorPid = resolution.AnchorPid;
+                done.AnchorPos = anchorPosForLog;
+                done.LocalOffset = localOffsetForLog;
+                done.StateVecAlt = point.altitude;
+                done.StateVecSpeed = point.velocity.magnitude;
+                done.UT = ut;
+                done.Reason = string.Format(ic, "formatV={0}", traj.RecordingFormatVersion);
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(done));
+
+                StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+                {
+                    RecordingId = traj.RecordingId,
+                    VesselName = traj.VesselName,
+                    GhostPid = vessel.persistentId,
+                    Source = "StateVector",
+                    Branch = MapResolutionBranch(resolution.Branch),
+                    Body = body.name,
+                    WorldPos = worldPos,
+                    AnchorPid = resolution.AnchorPid,
+                    LastUT = ut
+                });
+            }
 
             return vessel;
+        }
+
+        /// <summary>
+        /// Translate the lowercase <see cref="StateVectorWorldFrame.Branch"/>
+        /// strings ("absolute" / "relative" / "orbital-checkpoint" /
+        /// "no-section") into the capitalised user-facing branch names used by
+        /// the structured log lines.
+        /// </summary>
+        internal static string MapResolutionBranch(string resolutionBranch)
+        {
+            switch (resolutionBranch)
+            {
+                case "absolute": return "Absolute";
+                case "relative": return "Relative";
+                case "orbital-checkpoint": return "OrbitalCheckpoint";
+                case "no-section": return "no-section";
+                default: return resolutionBranch ?? "(n/a)";
+            }
         }
 
         /// <summary>
         /// Update a ghost map ProtoVessel's orbit from interpolated trajectory state vectors.
         /// Used for per-frame orbit updates of physics-only suborbital ghosts.
         /// Handles SOI transitions (body change + orbit renderer rebuild).
+        /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
+        /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
         /// </summary>
         internal static void UpdateGhostOrbitFromStateVectors(
-            int recordingIndex, TrajectoryPoint point, double ut)
+            int recordingIndex, IPlaybackTrajectory traj,
+            TrajectoryPoint point, double ut)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
 
             if (vessel.orbitDriver == null)
             {
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbitFromStateVectors: no OrbitDriver for recording #{0}",
-                        recordingIndex));
+                var miss = NewDecisionFields("update-state-vector-miss");
+                miss.RecordingId = traj?.RecordingId;
+                miss.RecordingIndex = recordingIndex;
+                miss.VesselName = traj?.VesselName;
+                miss.Source = "StateVector";
+                miss.Body = point.bodyName;
+                miss.GhostPid = vessel.persistentId;
+                miss.UT = ut;
+                miss.Reason = "no-orbit-driver";
+                ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
                 return;
             }
 
             CelestialBody body = FindBodyByName(point.bodyName);
             if (body == null)
             {
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbitFromStateVectors: body '{0}' not found for recording #{1}",
-                        point.bodyName, recordingIndex));
+                var miss = NewDecisionFields("update-state-vector-miss");
+                miss.RecordingId = traj?.RecordingId;
+                miss.RecordingIndex = recordingIndex;
+                miss.VesselName = traj?.VesselName;
+                miss.Source = "StateVector";
+                miss.Body = point.bodyName;
+                miss.GhostPid = vessel.persistentId;
+                miss.UT = ut;
+                miss.Reason = "body-not-found";
+                ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
                 return;
+            }
+
+            StateVectorWorldFrame resolution =
+                ResolveStateVectorWorldPosition(traj, point, body);
+            if (!resolution.Resolved)
+            {
+                var skip = NewDecisionFields("update-state-vector-skip");
+                skip.RecordingId = traj?.RecordingId;
+                skip.RecordingIndex = recordingIndex;
+                skip.VesselName = traj?.VesselName;
+                skip.Source = "StateVector";
+                skip.Branch = MapResolutionBranch(resolution.Branch);
+                skip.Body = point.bodyName;
+                skip.GhostPid = vessel.persistentId;
+                skip.AnchorPid = resolution.AnchorPid;
+                skip.StateVecAlt = point.altitude;
+                skip.StateVecSpeed = point.velocity.magnitude;
+                skip.UT = ut;
+                skip.Reason = resolution.FailureReason ?? "(null)";
+                ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
+                return;
+            }
+
+            // Compute optional anchor metadata for the structured line.
+            Vector3d? anchorPosForLog = null;
+            Vector3d? localOffsetForLog = null;
+            if (resolution.Branch == "relative" && resolution.AnchorPid != 0u)
+            {
+                Vessel anchorRef = FlightRecorder.FindVesselByPid(resolution.AnchorPid);
+                if (anchorRef != null)
+                {
+                    anchorPosForLog = anchorRef.GetWorldPos3D();
+                    localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
+                }
             }
 
             // SOI transition handling (same pattern as ApplyOrbitToVessel)
@@ -2038,13 +2942,19 @@ namespace Parsek
             if (soiChanged)
             {
                 vessel.orbitDriver.celestialBody = body;
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "SOI change for state-vector ghost #{0} — new body={1}",
-                        recordingIndex, body.name));
+                var soi = NewDecisionFields("update-state-vector-soi-change");
+                soi.RecordingId = traj?.RecordingId;
+                soi.RecordingIndex = recordingIndex;
+                soi.VesselName = traj?.VesselName;
+                soi.Source = "StateVector";
+                soi.Branch = MapResolutionBranch(resolution.Branch);
+                soi.Body = body.name;
+                soi.GhostPid = vessel.persistentId;
+                soi.UT = ut;
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(soi));
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
@@ -2056,6 +2966,43 @@ namespace Parsek
                 vessel.orbitRenderer.enabled = false;
                 vessel.orbitRenderer.enabled = true;
             }
+
+            lifecycleUpdatedThisTick++;
+
+            // Per-recording rate-limited line — one entry per recording per ~5s
+            // window so a long warp pass leaves a readable trace without spam.
+            string updateKey = string.Format(ic,
+                "state-vector-update-{0}",
+                traj?.RecordingId ?? recordingIndex.ToString(ic));
+            var done = NewDecisionFields("update-state-vector");
+            done.RecordingId = traj?.RecordingId;
+            done.RecordingIndex = recordingIndex;
+            done.VesselName = traj?.VesselName;
+            done.Source = "StateVector";
+            done.Branch = MapResolutionBranch(resolution.Branch);
+            done.Body = body.name;
+            done.WorldPos = worldPos;
+            done.GhostPid = vessel.persistentId;
+            done.AnchorPid = resolution.AnchorPid;
+            done.AnchorPos = anchorPosForLog;
+            done.LocalOffset = localOffsetForLog;
+            done.StateVecAlt = point.altitude;
+            done.StateVecSpeed = point.velocity.magnitude;
+            done.UT = ut;
+            ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
+
+            StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+            {
+                RecordingId = traj?.RecordingId,
+                VesselName = traj?.VesselName,
+                GhostPid = vessel.persistentId,
+                Source = "StateVector",
+                Branch = MapResolutionBranch(resolution.Branch),
+                Body = body.name,
+                WorldPos = worldPos,
+                AnchorPid = resolution.AnchorPid,
+                LastUT = ut
+            });
         }
 
         /// <summary>
@@ -2373,7 +3320,8 @@ namespace Parsek
                 ref stateVectorCachedIndex,
                 out segment,
                 out stateVectorPoint,
-                out skipReason);
+                out skipReason,
+                recordingIndex: recordingIndex);
 
             LogTrackingStationGhostSourceDecision(
                 context,
@@ -2887,6 +3835,11 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            lastKnownByRecordingIndex.Clear();
+            lastKnownByChainPid.Clear();
+            lifecycleCreatedThisTick = 0;
+            lifecycleDestroyedThisTick = 0;
+            lifecycleUpdatedThisTick = 0;
         }
 
         /// <summary>
@@ -2937,6 +3890,8 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            lastKnownByRecordingIndex.Clear();
+            lastKnownByChainPid.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,

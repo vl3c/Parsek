@@ -6545,6 +6545,14 @@ namespace Parsek
                 out refreshed);
 
             if (!success
+                && RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(refreshed))
+            {
+                FinalizationCache = refreshed;
+                lastFinalizationCacheRefreshUT = ut;
+                return false;
+            }
+
+            if (!success
                 && RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
                     previous,
                     refreshed,

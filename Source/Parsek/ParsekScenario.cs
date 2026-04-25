@@ -963,6 +963,7 @@ namespace Parsek
         public override void OnLoad(ConfigNode node)
         {
             DiagnosticsState.ResetSessionCounters();
+            IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();
             int loadedRecordingCount = 0;
             try
