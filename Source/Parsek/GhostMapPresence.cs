@@ -57,6 +57,7 @@ namespace Parsek
         internal enum GhostTargetVerificationStatus
         {
             Accepted,
+            VerificationUnavailable,
             MissingFlightGlobals,
             NullTarget,
             CurrentMainBody,
@@ -67,6 +68,7 @@ namespace Parsek
 
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
+        private static long ghostTargetRequestSequence;
 
         // -----------------------------------------------------------------
         // Observability (#582 follow-up): every create/position/update/destroy
@@ -951,6 +953,12 @@ namespace Parsek
             return mapViewEnabled || isTrackingStationScene;
         }
 
+        /// <summary>
+        /// Set a ghost as KSP's navigation target and log success only after
+        /// stock target validation has had frames to reject invalid targetables.
+        /// <paramref name="recordingIndex"/> is diagnostic-only; callers may pass
+        /// -1 when a selection path cannot resolve the recording index.
+        /// </summary>
         internal static void SetGhostMapNavigationTarget(
             Vessel vessel,
             int recordingIndex,
@@ -989,12 +997,18 @@ namespace Parsek
             }
 
             NormalizeGhostOrbitDriverTargetIdentity(vessel, safeSource);
+            long requestId;
+            unchecked
+            {
+                requestId = ++ghostTargetRequestSequence;
+            }
 
             string before = CaptureGhostTargetState(vessel, "before");
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "Ghost target request via {0}: recIndex={1} ghost='{2}' before=[{3}]",
+                    "Ghost target request via {0}: requestId={1} recIndex={2} ghost='{3}' before=[{4}]",
                     safeSource,
+                    requestId,
                     recordingIndex,
                     vesselName,
                     before));
@@ -1004,8 +1018,9 @@ namespace Parsek
             string immediate = CaptureGhostTargetState(vessel, "after-set");
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "Ghost target request via {0}: recIndex={1} ghost='{2}' afterSet=[{3}]",
+                    "Ghost target request via {0}: requestId={1} recIndex={2} ghost='{3}' afterSet=[{4}]",
                     safeSource,
+                    requestId,
                     recordingIndex,
                     vesselName,
                     immediate));
@@ -1019,21 +1034,21 @@ namespace Parsek
                     safeSource,
                     vesselName,
                     before,
-                    immediate));
+                    immediate,
+                    requestId));
                 return;
             }
 
-            GhostTargetVerificationStatus status = EvaluateGhostTargetVerification(vessel, out string reason);
             LogGhostTargetVerificationOutcome(
                 vesselName,
                 recordingIndex,
                 safeSource,
-                status,
-                reason,
-                CaptureGhostTargetState(vessel, "immediate-no-coroutine"),
+                GhostTargetVerificationStatus.VerificationUnavailable,
+                "ParsekScenario.Instance=null; post-validation target state cannot be observed",
+                CaptureGhostTargetState(vessel, "unverified-no-coroutine"),
                 before,
                 immediate,
-                "immediate-no-coroutine");
+                "unverified-no-coroutine");
         }
 
         private static IEnumerator VerifyGhostMapNavigationTargetAfterKspValidation(
@@ -1042,10 +1057,24 @@ namespace Parsek
             string source,
             string vesselName,
             string before,
-            string immediate)
+            string immediate,
+            long requestId)
         {
             yield return null;
             yield return null;
+
+            if (requestId != ghostTargetRequestSequence)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Ghost target verification superseded via {0}: requestId={1} latestRequestId={2} recIndex={3} ghost='{4}'",
+                        source ?? "unknown",
+                        requestId,
+                        ghostTargetRequestSequence,
+                        recordingIndex,
+                        vesselName ?? "Ghost"));
+                yield break;
+            }
 
             GhostTargetVerificationStatus status = EvaluateGhostTargetVerification(vessel, out string reason);
             string final = CaptureGhostTargetState(vessel, "after-ksp-validation");
@@ -1108,6 +1137,23 @@ namespace Parsek
                         recordingIndex,
                         safeFinal));
                 return true;
+            }
+
+            if (status == GhostTargetVerificationStatus.VerificationUnavailable)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Ghost '{0}' target verification unavailable via {1}: status={2} reason={3} recIndex={4} phase={5} before=[{6}] immediate=[{7}] final=[{8}]",
+                        safeName,
+                        safeSource,
+                        status,
+                        safeReason,
+                        recordingIndex,
+                        phase ?? "(unknown)",
+                        string.IsNullOrEmpty(beforeState) ? "(none)" : beforeState,
+                        string.IsNullOrEmpty(immediateState) ? "(none)" : immediateState,
+                        safeFinal));
+                return false;
             }
 
             ParsekLog.Warn(Tag,
@@ -4557,6 +4603,7 @@ namespace Parsek
             lifecycleCreatedThisTick = 0;
             lifecycleDestroyedThisTick = 0;
             lifecycleUpdatedThisTick = 0;
+            ghostTargetRequestSequence = 0;
         }
 
         /// <summary>
@@ -4575,6 +4622,8 @@ namespace Parsek
         /// </summary>
         internal static void ResetBetweenTestRuns(string reason)
         {
+            ghostTargetRequestSequence = 0;
+
             int pidCount = ghostMapVesselPids.Count;
             int suppressedIconCount = ghostsWithSuppressedIcon.Count;
             int orbitBoundsCount = ghostOrbitBounds.Count;

@@ -46,8 +46,10 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.MissingFlightGlobals, "FlightGlobals.fetch=null")]
         [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.NullTarget, "FlightGlobals.fetch.VesselTarget=null")]
         [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.CurrentMainBody, "target-driver-celestialBody-is-current-main-body body=Kerbin")]
+        [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.ParentBody, "target-driver-celestialBody-is-parent-body targetBody=Sun currentBody=Kerbin")]
         [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.WrongVessel, "target-vessel-mismatch ghostPid=100 targetPid=200")]
         [InlineData((int)GhostMapPresence.GhostTargetVerificationStatus.WrongObject, "target-is-not-the-ghost-vessel")]
         public void TargetVerification_Rejected_DoesNotLogSetAsTargetSuccess(
@@ -73,6 +75,29 @@ namespace Parsek.Tests
                 && l.Contains("status=" + status)
                 && l.Contains(reason)
                 && l.Contains("final-target-state"));
+        }
+
+        [Fact]
+        public void TargetVerification_Unavailable_DoesNotLogSetAsTargetSuccess()
+        {
+            bool accepted = GhostMapPresence.LogGhostTargetVerificationForTesting(
+                "Ghost: Kerbal X",
+                1,
+                "icon click",
+                GhostMapPresence.GhostTargetVerificationStatus.VerificationUnavailable,
+                "ParsekScenario.Instance=null; post-validation target state cannot be observed",
+                "unverified-target-state");
+
+            Assert.False(accepted);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("set as target via icon click"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[GhostMap]")
+                && l.Contains("target verification unavailable via icon click")
+                && l.Contains("status=VerificationUnavailable")
+                && l.Contains("ParsekScenario.Instance=null")
+                && l.Contains("unverified-target-state"));
         }
     }
 }
