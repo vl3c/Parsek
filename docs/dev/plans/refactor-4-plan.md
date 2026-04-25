@@ -166,9 +166,11 @@ same-file dictionary and orphan auto-start helpers. After that, lower-risk
 candidates include same-file phase helpers in
 `FlightRecorder.LogVisualRecordingCoverage` or `GhostPlaybackLogic.ApplyPartEvents`.
 `FlightRecorder.LogVisualRecordingCoverage` has also been completed with
-private same-file coverage accumulation and logging helpers. Central files such as
-`ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates, but each
-needs its own focused validation and review before editing.
+private same-file coverage accumulation and logging helpers.
+`GhostPlaybackLogic.ApplyPartEvents` has also been completed for destructive
+part events, parachute cleanup, and inventory visibility updates. Central files
+such as `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates,
+but each needs its own focused validation and review before editing.
 
 ### Tier 1 - Sequential
 

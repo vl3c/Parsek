@@ -205,6 +205,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 with a behavior-neutral `CareerStateWindowUI.Build` extraction: contracts, strategies, facilities, and milestones tab view-model construction now lives in private same-file helpers while preserving the action walk and row ordering.
 - Continued refactor-4 with a behavior-neutral `GhostPlaybackLogic.PopulateGhostInfoDictionaries` extraction: engine, heat, light, RCS, robotic, audio, and orphan-engine auto-start population now lives in private same-file helpers while preserving dictionary fill order and logging.
 - Continued refactor-4 with a behavior-neutral `FlightRecorder.LogVisualRecordingCoverage` extraction: visual coverage accumulation and summary/detail logging now use private same-file helpers while preserving category counts and log ordering.
+- Continued refactor-4 with a behavior-neutral `GhostPlaybackLogic.ApplyPartEvents` extraction: destructive part events, parachute cleanup, and inventory visibility updates now delegate to private same-file helpers while preserving switch order and visibility/reentry side effects.
 
 ### Tests
 

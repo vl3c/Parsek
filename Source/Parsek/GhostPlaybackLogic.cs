@@ -1769,71 +1769,39 @@ namespace Parsek
                 switch (evt.eventType)
                 {
                     case PartEventType.Decoupled:
-                        StopEngineFxForPart(state, evt.partPersistentId);
-                        StopRcsFxForPart(state, evt.partPersistentId);
-                        StopAudioForPart(state, evt.partPersistentId);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        if (allowTransientEffects)
-                            SpawnPartPuffAtPart(ghost, evt.partPersistentId);
-                        if (tree != null)
-                        {
-                            HidePartSubtree(ghost, evt.partPersistentId, tree);
-                            RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, tree);
-                        }
-                        else
-                        {
-                            HideGhostPart(ghost, evt.partPersistentId);
-                            RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
-                        }
-                        visibilityChanged = true;
-                        needsReentryMeshRebuild = true;
+                        ApplyDecoupledPartEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            tree,
+                            evt,
+                            allowTransientEffects,
+                            ref visibilityChanged,
+                            ref needsReentryMeshRebuild);
                         break;
                     case PartEventType.Destroyed:
-                        StopEngineFxForPart(state, evt.partPersistentId);
-                        StopRcsFxForPart(state, evt.partPersistentId);
-                        StopAudioForPart(state, evt.partPersistentId);
-                        if (allowTransientEffects)
-                            PlayOneShotAtGhost(state, evt.eventType);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        if (allowTransientEffects)
-                            SpawnPartPuffAtPart(ghost, evt.partPersistentId);
-                        HideGhostPart(ghost, evt.partPersistentId);
-                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
-                        visibilityChanged = true;
-                        needsReentryMeshRebuild = true;
+                        ApplyDestroyedPartEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            evt,
+                            allowTransientEffects,
+                            ref visibilityChanged,
+                            ref needsReentryMeshRebuild);
                         break;
                     case PartEventType.ParachuteCut:
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo cutInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out cutInfo))
-                            {
-                                if (cutInfo.canopyTransform != null)
-                                    cutInfo.canopyTransform.localScale = Vector3.zero;
-                                if (cutInfo.capTransform != null)
-                                    cutInfo.capTransform.gameObject.SetActive(false);
-                            }
-                        }
-                        DestroyFakeCanopy(state, evt.partPersistentId);
+                        ApplyParachuteCutEvent(state, evt.partPersistentId);
                         break;
                     case PartEventType.ShroudJettisoned:
                         ApplyJettisonPanelState(state, evt, jettisoned: true);
                         break;
                     case PartEventType.ParachuteDestroyed:
-                        // Clean up canopy visuals before hiding the part
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo destroyedInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out destroyedInfo))
-                            {
-                                if (destroyedInfo.canopyTransform != null)
-                                    destroyedInfo.canopyTransform.localScale = Vector3.zero;
-                            }
-                        }
-                        DestroyFakeCanopy(state, evt.partPersistentId);
-                        HideGhostPart(ghost, evt.partPersistentId);
-                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
-                        visibilityChanged = true;
+                        ApplyParachuteDestroyedEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref visibilityChanged);
                         break;
                     case PartEventType.ParachuteSemiDeployed:
                         if (state.parachuteInfos != null)
@@ -1940,18 +1908,19 @@ namespace Parsek
                         ApplyRoboticEvent(state, evt, currentUT);
                         break;
                     case PartEventType.InventoryPartPlaced:
-                        SetGhostPartActive(state, evt.partPersistentId, true);
-                        if (logicalPartIds != null)
-                            logicalPartIds.Add(evt.partPersistentId);
-                        if (placedTargetPartIds == null)
-                            placedTargetPartIds = new HashSet<uint>();
-                        placedTargetPartIds.Add(evt.partPersistentId);
-                        visibilityChanged = true;
+                        ApplyInventoryPartPlacedEvent(
+                            state,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref placedTargetPartIds,
+                            ref visibilityChanged);
                         break;
                     case PartEventType.InventoryPartRemoved:
-                        SetGhostPartActive(state, evt.partPersistentId, false);
-                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
-                        visibilityChanged = true;
+                        ApplyInventoryPartRemovedEvent(
+                            state,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref visibilityChanged);
                         break;
                 }
                 evtIdx++;
@@ -1974,6 +1943,127 @@ namespace Parsek
             }
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
+        }
+
+        private static void ApplyDecoupledPartEvent(
+            GhostPlaybackState state,
+            GameObject ghost,
+            HashSet<uint> logicalPartIds,
+            Dictionary<uint, List<uint>> tree,
+            PartEvent evt,
+            bool allowTransientEffects,
+            ref bool visibilityChanged,
+            ref bool needsReentryMeshRebuild)
+        {
+            StopEngineFxForPart(state, evt.partPersistentId);
+            StopRcsFxForPart(state, evt.partPersistentId);
+            StopAudioForPart(state, evt.partPersistentId);
+            ApplyHeatState(state, evt, HeatLevel.Cold);
+            if (allowTransientEffects)
+                SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+            if (tree != null)
+            {
+                HidePartSubtree(ghost, evt.partPersistentId, tree);
+                RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, tree);
+            }
+            else
+            {
+                HideGhostPart(ghost, evt.partPersistentId);
+                RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
+            }
+            visibilityChanged = true;
+            needsReentryMeshRebuild = true;
+        }
+
+        private static void ApplyDestroyedPartEvent(
+            GhostPlaybackState state,
+            GameObject ghost,
+            HashSet<uint> logicalPartIds,
+            PartEvent evt,
+            bool allowTransientEffects,
+            ref bool visibilityChanged,
+            ref bool needsReentryMeshRebuild)
+        {
+            StopEngineFxForPart(state, evt.partPersistentId);
+            StopRcsFxForPart(state, evt.partPersistentId);
+            StopAudioForPart(state, evt.partPersistentId);
+            if (allowTransientEffects)
+                PlayOneShotAtGhost(state, evt.eventType);
+            ApplyHeatState(state, evt, HeatLevel.Cold);
+            if (allowTransientEffects)
+                SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+            HideGhostPart(ghost, evt.partPersistentId);
+            RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
+            visibilityChanged = true;
+            needsReentryMeshRebuild = true;
+        }
+
+        private static void ApplyParachuteCutEvent(
+            GhostPlaybackState state,
+            uint partPersistentId)
+        {
+            if (state.parachuteInfos != null)
+            {
+                ParachuteGhostInfo cutInfo;
+                if (state.parachuteInfos.TryGetValue(partPersistentId, out cutInfo))
+                {
+                    if (cutInfo.canopyTransform != null)
+                        cutInfo.canopyTransform.localScale = Vector3.zero;
+                    if (cutInfo.capTransform != null)
+                        cutInfo.capTransform.gameObject.SetActive(false);
+                }
+            }
+            DestroyFakeCanopy(state, partPersistentId);
+        }
+
+        private static void ApplyParachuteDestroyedEvent(
+            GhostPlaybackState state,
+            GameObject ghost,
+            HashSet<uint> logicalPartIds,
+            uint partPersistentId,
+            ref bool visibilityChanged)
+        {
+            // Clean up canopy visuals before hiding the part
+            if (state.parachuteInfos != null)
+            {
+                ParachuteGhostInfo destroyedInfo;
+                if (state.parachuteInfos.TryGetValue(partPersistentId, out destroyedInfo))
+                {
+                    if (destroyedInfo.canopyTransform != null)
+                        destroyedInfo.canopyTransform.localScale = Vector3.zero;
+                }
+            }
+            DestroyFakeCanopy(state, partPersistentId);
+            HideGhostPart(ghost, partPersistentId);
+            RemovePartSubtreeFromLogicalPresence(logicalPartIds, partPersistentId, null);
+            visibilityChanged = true;
+        }
+
+        private static void ApplyInventoryPartPlacedEvent(
+            GhostPlaybackState state,
+            HashSet<uint> logicalPartIds,
+            uint partPersistentId,
+            ref HashSet<uint> placedTargetPartIds,
+            ref bool visibilityChanged)
+        {
+            SetGhostPartActive(state, partPersistentId, true);
+            if (logicalPartIds != null)
+                logicalPartIds.Add(partPersistentId);
+            if (placedTargetPartIds == null)
+                placedTargetPartIds = new HashSet<uint>();
+            placedTargetPartIds.Add(partPersistentId);
+            visibilityChanged = true;
+        }
+
+        private static void ApplyInventoryPartRemovedEvent(
+            GhostPlaybackState state,
+            HashSet<uint> logicalPartIds,
+            uint partPersistentId,
+            ref bool visibilityChanged)
+        {
+            SetGhostPartActive(state, partPersistentId, false);
+            RemovePartSubtreeFromLogicalPresence(logicalPartIds, partPersistentId, null);
+            visibilityChanged = true;
         }
 
         /// <summary>
