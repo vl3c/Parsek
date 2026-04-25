@@ -1574,6 +1574,7 @@ namespace Parsek
         private static void EmitSourceResolveLine(
             IPlaybackTrajectory traj,
             string recId,
+            int recordingIndex,
             TrackingStationGhostSource source,
             string reason,
             double currentUT,
@@ -1583,6 +1584,10 @@ namespace Parsek
         {
             var srf = NewDecisionFields("source-resolve");
             srf.RecordingId = recId;
+            // `recordingIndex` is `-1` when the caller did not (or could not)
+            // know the index — that's an explicit "unknown" sentinel rather
+            // than the misleading `idx=0` `NewDecisionFields` would produce.
+            srf.RecordingIndex = recordingIndex;
             srf.VesselName = traj?.VesselName;
             srf.Source = source.ToString();
             srf.Branch = "(n/a)";
@@ -1626,7 +1631,8 @@ namespace Parsek
             ref int stateVectorCachedIndex,
             out OrbitSegment segment,
             out TrajectoryPoint stateVectorPoint,
-            out string skipReason)
+            out string skipReason,
+            int recordingIndex = -1)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -1674,6 +1680,7 @@ namespace Parsek
                     EmitSourceResolveLine(
                         traj,
                         recId,
+                        recordingIndex,
                         source,
                         reason,
                         currentUT,
@@ -3313,7 +3320,8 @@ namespace Parsek
                 ref stateVectorCachedIndex,
                 out segment,
                 out stateVectorPoint,
-                out skipReason);
+                out skipReason,
+                recordingIndex: recordingIndex);
 
             LogTrackingStationGhostSourceDecision(
                 context,

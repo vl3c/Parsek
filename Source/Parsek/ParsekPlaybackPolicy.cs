@@ -717,7 +717,8 @@ namespace Parsek
                 ref cachedStateVectorIndex,
                 out OrbitSegment segment,
                 out TrajectoryPoint stateVectorPoint,
-                out _);
+                out _,
+                recordingIndex: evt.Index);
             stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
 
             if (source != TrackingStationGhostSource.None)
@@ -818,7 +819,8 @@ namespace Parsek
                         ref cachedStateVectorIndex,
                         out OrbitSegment segment,
                         out TrajectoryPoint point,
-                        out _);
+                        out _,
+                        recordingIndex: idx);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     if (source == TrackingStationGhostSource.Segment
@@ -1004,16 +1006,32 @@ namespace Parsek
 
                     if (!pt.HasValue) continue;
 
-                    double atmosRemove = GetAtmosphereDepth(pt.Value.bodyName);
-                    if (ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
+                    // Relative-frame points reuse `TrajectoryPoint.altitude` as the
+                    // anchor-local dz offset (metres along the anchor's local z axis),
+                    // not as geographic altitude. Feeding the dz into the
+                    // `ShouldRemoveStateVectorOrbit` altitude threshold trips the
+                    // remove path on every typical rendezvous frame (dz ~ 0) and
+                    // re-defers the ghost — but pending-create currently skips
+                    // Relative frames, so the ghost disappears through the section
+                    // rather than staying attached to the anchor (#547 P1 review).
+                    // Skip the threshold check entirely for Relative-frame points;
+                    // `UpdateGhostOrbitFromStateVectors` already dispatches on
+                    // `referenceFrame` and resolves the world position via
+                    // anchor + offset for that branch.
+                    bool inRelativeFrame = GhostMapPresence.IsInRelativeFrame(traj, currentUT);
+                    if (!inRelativeFrame)
                     {
-                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
-                        if (toReDefer == null) toReDefer = new List<int>();
-                        toReDefer.Add(idx);
-                        ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
-                            "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
-                            idx, pt.Value.altitude, pt.Value.velocity.magnitude));
-                        continue;
+                        double atmosRemove = GetAtmosphereDepth(pt.Value.bodyName);
+                        if (ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
+                        {
+                            GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
+                            if (toReDefer == null) toReDefer = new List<int>();
+                            toReDefer.Add(idx);
+                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
+                                idx, pt.Value.altitude, pt.Value.velocity.magnitude));
+                            continue;
+                        }
                     }
 
                     GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT);
@@ -1077,7 +1095,8 @@ namespace Parsek
                 ref cachedStateVectorIndex,
                 out fallbackSegment,
                 out _,
-                out _);
+                out _,
+                recordingIndex: idx);
             if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
                 return false;
 

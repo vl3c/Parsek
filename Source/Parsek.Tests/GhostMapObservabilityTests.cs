@@ -469,5 +469,66 @@ namespace Parsek.Tests
 
             Assert.StartsWith(action + ":", line);
         }
+
+        // -----------------------------------------------------------------
+        // P3 review fix (#547): EmitSourceResolveLine builds a structured
+        // line through NewDecisionFields and previously left RecordingIndex
+        // at the struct default (0), making every source-resolve entry
+        // misleadingly log idx=0. The fix threads `recordingIndex` through
+        // ResolveMapPresenceGhostSource into EmitSourceResolveLine, with
+        // -1 as the "unknown" sentinel for callers that don't have an
+        // index in scope.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Builder_NewDecisionFields_DefaultsRecordingIndexToZero_NoLeakageInProductionLines()
+        {
+            // Tripwire: NewDecisionFields uses C# 7 struct defaults, so
+            // RecordingIndex starts at 0. Any production path that emits
+            // a structured line MUST overwrite this with the real index
+            // (or the -1 sentinel) before BuildGhostMapDecisionLine runs.
+            var f = GhostMapPresence.NewDecisionFields("source-resolve");
+
+            Assert.Equal(0, f.RecordingIndex);
+        }
+
+        [Fact]
+        public void Builder_RecordingIndexNegativeOne_RendersAsExplicitSentinel()
+        {
+            // The "unknown" sentinel must round-trip through the line so
+            // post-hoc readers can tell idx=-1 (caller had no index) apart
+            // from idx=0 (literal recording #0).
+            var f = GhostMapPresence.NewDecisionFields("source-resolve");
+            f.RecordingId = "rec-unknown-idx";
+            f.RecordingIndex = -1;
+            f.Source = "None";
+            f.Branch = "(n/a)";
+
+            string line = GhostMapPresence.BuildGhostMapDecisionLine(f);
+
+            Assert.Contains("idx=-1", line);
+            Assert.DoesNotContain("idx=0 ", line);
+        }
+
+        [Fact]
+        public void Builder_RecordingIndexNonZero_PropagatesIntoLine()
+        {
+            // Regression for the P3 review on #547: pre-fix
+            // EmitSourceResolveLine never wrote RecordingIndex, so a real
+            // index of 7 still printed as idx=0. Production callers now
+            // pass `evt.Index` / `idx` through, and the structured line
+            // must reflect it.
+            var f = GhostMapPresence.NewDecisionFields("source-resolve");
+            f.RecordingId = "rec-7";
+            f.RecordingIndex = 7;
+            f.Source = "Segment";
+            f.Branch = "Absolute";
+            f.Body = "Kerbin";
+
+            string line = GhostMapPresence.BuildGhostMapDecisionLine(f);
+
+            Assert.Contains("idx=7", line);
+            Assert.DoesNotContain("idx=0 ", line);
+        }
     }
 }
