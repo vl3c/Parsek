@@ -51,7 +51,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
-| `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
+| `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass1-Done; proto-vessel node helpers extracted |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass1-Done; watch entry helpers extracted |
 | `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
@@ -592,12 +592,23 @@ respawn-at-position, collision/walkback/surface altitude checks, crew filtering,
 dead-crew handling, snapshot normalization, body/orbit repairs, and terminal
 orbit spawn state.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `SpawnOrRecoverIfTooClose` into adoption, snapshot preparation,
-  body/position resolution, collision/recovery decision, crew filtering,
-  spawn/marking, and logging helpers.
-- Split `TryRepairSnapshotBodyProvenance` only by contiguous repair phases.
+- Split the resolved spawn-state snapshot override phase out of
+  `SpawnOrRecoverIfTooClose` into a same-file helper. EVA endpoint overrides,
+  breakup-continuous overrides, surface-terminal overrides, collision walkback
+  ordering, dead-crew guard, spawn-at-position dispatch, and validated respawn
+  fallback remain unchanged.
+- Left `TryRepairSnapshotBodyProvenance` inline for Pass 1. Its malformed
+  snapshot, landed-like repair, recorded terminal orbit repair, endpoint state
+  vector fallback, and failure logging paths share a dense repair context; a
+  wider split should be part of a later snapshot normalizer proposal.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~VesselSpawnerExtractedTests|FullyQualifiedName~SpawnSafetyNetTests|FullyQualifiedName~Bug170Tests|FullyQualifiedName~DuplicateBlockerRecoveryTests|FullyQualifiedName~EndOfRecordingWalkbackTests|FullyQualifiedName~TrajectoryWalkbackTests|FullyQualifiedName~VesselGhosterTests|FullyQualifiedName~ChainTipSpawnTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: spawn planner, snapshot normalizer, and orbit spawn
 helper owners.

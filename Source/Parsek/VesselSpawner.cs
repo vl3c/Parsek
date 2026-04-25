@@ -1193,61 +1193,16 @@ namespace Parsek
             spawnAlt = collision.alt;
             spawnPos = collision.pos;
 
-            // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
-            // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
-            // but the kerbal walked to a different location during the recording. Without
-            // this override, the kerbal spawns on top of the parent vessel and grabs its
-            // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
-            if (isEva && rec.VesselSnapshot != null)
-            {
-                ApplyResolvedSpawnStateToSnapshot(
-                    rec.VesselSnapshot,
-                    rec,
-                    lastPt,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    index,
-                    rec.VesselName);
-            }
-
-            // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
-            // RespawnVessel uses raw snapshot position, so override it with the trajectory
-            // endpoint. Same pattern as EVA fix above. (#224)
-            if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
-            {
-                ApplyResolvedSpawnStateToSnapshot(
-                    rec.VesselSnapshot,
-                    rec,
-                    lastPt,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    index,
-                    rec.VesselName,
-                    allowPreferredRotation: !useRecordedTerminalOrbit,
-                    stripEvaLadder: false);
-            }
-
-            // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
-            // position may be from mid-flight (captured before the vessel reached its final
-            // rest position). ResolveSpawnPosition clamped the altitude, but RespawnVessel
-            // uses the raw snapshot. Override position and rotation so the vessel spawns
-            // in its near-landing orientation, not the mid-flight descent pose. (#231)
-            if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
-                && IsSurfaceTerminal(rec.TerminalStateValue))
-            {
-                ApplyResolvedSpawnStateToSnapshot(
-                    rec.VesselSnapshot,
-                    rec,
-                    lastPt,
-                    spawnLat,
-                    spawnLon,
-                    spawnAlt,
-                    index,
-                    rec.VesselName,
-                    stripEvaLadder: false);
-            }
+            ApplyResolvedSpawnStateOverrides(
+                rec,
+                index,
+                lastPt,
+                spawnLat,
+                spawnLon,
+                spawnAlt,
+                isEva,
+                isBreakupContinuous,
+                useRecordedTerminalOrbit);
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
             // Spawning a crewless command pod is worse than not spawning at all. (#170)
@@ -1378,6 +1333,74 @@ namespace Parsek
             else
             {
                 LogSpawnFailure(rec, index, maxSpawnAttempts);
+            }
+        }
+
+        private static void ApplyResolvedSpawnStateOverrides(
+            Recording rec,
+            int index,
+            TrajectoryPoint lastPt,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            bool isEva,
+            bool isBreakupContinuous,
+            bool useRecordedTerminalOrbit)
+        {
+            // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
+            // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
+            // but the kerbal walked to a different location during the recording. Without
+            // this override, the kerbal spawns on top of the parent vessel and grabs its
+            // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
+            if (isEva && rec.VesselSnapshot != null)
+            {
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName);
+            }
+
+            // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
+            // RespawnVessel uses raw snapshot position, so override it with the trajectory
+            // endpoint. Same pattern as EVA fix above. (#224)
+            if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
+            {
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    allowPreferredRotation: !useRecordedTerminalOrbit,
+                    stripEvaLadder: false);
+            }
+
+            // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
+            // position may be from mid-flight (captured before the vessel reached its final
+            // rest position). ResolveSpawnPosition clamped the altitude, but RespawnVessel
+            // uses the raw snapshot. Override position and rotation so the vessel spawns
+            // in its near-landing orientation, not the mid-flight descent pose. (#231)
+            if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
+                && IsSurfaceTerminal(rec.TerminalStateValue))
+            {
+                ApplyResolvedSpawnStateToSnapshot(
+                    rec.VesselSnapshot,
+                    rec,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    index,
+                    rec.VesselName,
+                    stripEvaLadder: false);
             }
         }
 
