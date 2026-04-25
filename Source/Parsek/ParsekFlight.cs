@@ -250,6 +250,12 @@ namespace Parsek
         // Computed frame-agnostically as d(active_pos - ghost_pos)/dt across consecutive
         // proximity scans — see CollectNearbySpawnCandidates.
         internal const double MaxRelativeSpeed = 2.0;
+        // Real Spawn Control: outer "show in list" bounds. Ghosts within these — but outside
+        // NearbySpawnRadius / MaxRelativeSpeed — appear in the window with the FF button
+        // disabled and red distance/speed text, so the player can see what is blocking warp
+        // (closing too fast, still too far) before they even reach the inner gate.
+        internal const double NearbySpawnListRadius = 1000.0;       // 4× FF radius
+        internal const double MaxListRelativeSpeed = 50.0;          // active-rendezvous range
         // Per-recording position samples from the prior proximity scan, used to derive a
         // frame-agnostic relative speed without depending on which frame
         // GhostPlaybackState.lastInterpolatedVelocity happens to be in (it varies by
@@ -14138,7 +14144,7 @@ namespace Parsek
         /// </summary>
         private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
-            int skippedSpeed = 0;
+            int admittedOverSpeed = 0;
             int skippedSeeding = 0;
             float now = Time.time;
             // Track which recordings still have an active ghost so we can prune stale samples.
@@ -14178,16 +14184,26 @@ namespace Parsek
 
                 Vector3d ghostPos = state.ghost.transform.position;
                 double dist = Vector3d.Distance(activePos, ghostPos);
-                if (dist > NearbySpawnRadius)
+                // Outer "show in list" radius: ghosts inside this — but outside the inner
+                // FF radius — appear in the window with the FF button disabled.
+                if (dist > NearbySpawnListRadius)
                     continue;
 
-                // Frame-agnostic relative-speed gate. We compute d(active_pos - ghost_pos)/dt
+                // Frame-agnostic relative-speed sample. We compute d(active_pos - ghost_pos)/dt
                 // across consecutive proximity scans rather than subtracting velocity vectors
                 // from KSP and ghost playback (those are not in a guaranteed common frame —
                 // TrajectoryPoint.velocity is "not guaranteed surface-relative" and orbit-only
                 // ghosts never seed lastInterpolatedVelocity at all). Both samples are read
                 // from transform.position in the same Update tick, so floating-origin and
                 // krakensbane shifts cancel in the per-sample relative vector.
+                //
+                // Two-tier gating:
+                //   • outer (this method) — ghosts beyond NearbySpawnListRadius / faster than
+                //     MaxListRelativeSpeed are dropped from the list entirely
+                //   • inner (SpawnControlPresentation.BuildRowPresentation) — ghosts within
+                //     the outer bounds but beyond NearbySpawnRadius / MaxRelativeSpeed appear
+                //     in the list with the FF button disabled, so the player can see what is
+                //     blocking the warp ("closing too fast", "still too far") at a glance.
                 seenRecordingIds.Add(rec.RecordingId);
                 bool hasPrev = proximityVelocitySamples.TryGetValue(rec.RecordingId, out var prev);
                 // Always overwrite the sample so the next scan can compute against this one.
@@ -14210,11 +14226,10 @@ namespace Parsek
                 double relSpeed = SelectiveSpawnUI.ComputeRelativeSpeed(
                     activePos, ghostPos, prev.activePos, prev.ghostPos, dt,
                     ProximityVelocitySampleMinDt, ProximityVelocitySampleMaxDt);
-                if (relSpeed > MaxRelativeSpeed)
-                {
-                    skippedSpeed++;
+                if (relSpeed > MaxListRelativeSpeed)
                     continue;
-                }
+                if (relSpeed > MaxRelativeSpeed)
+                    admittedOverSpeed++;
 
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
@@ -14223,6 +14238,7 @@ namespace Parsek
                     vesselName = rec.VesselName,
                     endUT = rec.EndUT,
                     distance = dist,
+                    relativeSpeed = relSpeed,
                     recordingId = rec.RecordingId,
                     willDepart = depInfo.willDepart,
                     departureUT = depInfo.departureUT,
@@ -14241,11 +14257,11 @@ namespace Parsek
                     proximityVelocitySamples.Remove(stale[s]);
             }
 
-            if ((skippedSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
+            if ((admittedOverSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: skipped {0} (rel-speed > {1:F1} m/s) + {2} (seeding first sample)",
-                        skippedSpeed, MaxRelativeSpeed, skippedSeeding));
+                        "Proximity check: admitted {0} over rel-speed > {1:F1} m/s (FF gated) + {2} seeding first sample",
+                        admittedOverSpeed, MaxRelativeSpeed, skippedSeeding));
         }
 
         /// <summary>
@@ -14256,6 +14272,11 @@ namespace Parsek
             for (int c = 0; c < nearbySpawnCandidates.Count; c++)
             {
                 var cand = nearbySpawnCandidates[c];
+                // The list now extends to NearbySpawnListRadius / MaxListRelativeSpeed for
+                // visibility, but the screen-message alert promises "fast forward and interact"
+                // so only fire it once the ghost is actually within the FF-enable gates.
+                if (cand.distance > NearbySpawnRadius || cand.relativeSpeed > MaxRelativeSpeed)
+                    continue;
                 if (notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
                     string notifyMsg;
@@ -14284,8 +14305,10 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: {0} candidate(s) within {1:F0}m and rel-speed <= {2:F1} m/s",
-                        nearbySpawnCandidates.Count, NearbySpawnRadius, MaxRelativeSpeed));
+                        "Proximity check: {0} candidate(s) within list bounds {1:F0}m / {2:F1} m/s (FF gated by {3:F0}m / {4:F1} m/s)",
+                        nearbySpawnCandidates.Count,
+                        NearbySpawnListRadius, MaxListRelativeSpeed,
+                        NearbySpawnRadius, MaxRelativeSpeed));
         }
 
         /// <summary>
@@ -14443,7 +14466,7 @@ namespace Parsek
         internal void WarpToNextCraftSpawn()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT);
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT, NearbySpawnRadius, MaxRelativeSpeed);
             if (next == null)
             {
                 ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");
