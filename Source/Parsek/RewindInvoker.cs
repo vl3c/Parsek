@@ -45,6 +45,7 @@ namespace Parsek
         // in tests to record each checkpoint; the invoker calls it at key
         // points during the §6.3 step 4 phase 1+2 critical section.
         internal static Action<string> CheckpointHookForTesting;
+        internal static Func<RewindPoint, string> ResolveAbsoluteQuicksavePathOverrideForTesting;
 
         /// <summary>
         /// Returns <c>true</c> if the Rewind button for <paramref name="rp"/>
@@ -61,6 +62,13 @@ namespace Parsek
         /// the .sfs every frame.
         /// </summary>
         internal static bool CanInvoke(RewindPoint rp, out string reason)
+        {
+            bool canInvoke = EvaluateCanInvoke(rp, out reason);
+            LogCanInvokeDecision(rp, canInvoke, reason);
+            return canInvoke;
+        }
+
+        private static bool EvaluateCanInvoke(RewindPoint rp, out string reason)
         {
             if (rp == null)
             {
@@ -127,6 +135,75 @@ namespace Parsek
 
             reason = null;
             return true;
+        }
+
+        private static void LogCanInvokeDecision(RewindPoint rp, bool canInvoke, string reason)
+        {
+            string rpId = GetRewindPointIdForLog(rp);
+            string normalizedReason = string.IsNullOrEmpty(reason) ? "<none>" : reason;
+            string identity = "CanInvoke|" + rpId;
+            string stateKey = canInvoke ? "enabled" : "disabled|" + normalizedReason;
+            string quicksave = rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename)
+                ? "<none>"
+                : rp.QuicksaveFilename;
+            string absoluteQuicksave = null;
+            if (rp != null && !string.IsNullOrEmpty(rp.QuicksaveFilename))
+            {
+                try { absoluteQuicksave = ResolveAbsoluteQuicksavePath(rp); }
+                catch (Exception ex) { absoluteQuicksave = "<resolve-error:" + ex.GetType().Name + ">"; }
+            }
+
+            ParsekLog.VerboseOnChange(
+                InvokeTag,
+                identity,
+                stateKey,
+                canInvoke
+                    ? $"CanInvoke: enabled rp={rpId} scene={SafeLoadedSceneForCanInvokeLog()} " +
+                      $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}'"
+                    : $"CanInvoke: disabled rp={rpId} reason='{normalizedReason}' " +
+                      $"scene={SafeLoadedSceneForCanInvokeLog()} corrupted={FormatNullableBool(rp?.Corrupted)} " +
+                      $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}' " +
+                      $"pendingInvoke={RewindInvokeContext.Pending} activeSession={FormatActiveSessionForCanInvokeLog()}");
+        }
+
+        private static string GetRewindPointIdForLog(RewindPoint rp)
+        {
+            if (rp == null)
+                return "<null>";
+            return string.IsNullOrEmpty(rp.RewindPointId) ? "<no-id>" : rp.RewindPointId;
+        }
+
+        private static string FormatCanInvokePath(string path)
+        {
+            return string.IsNullOrEmpty(path) ? "<none>" : path;
+        }
+
+        private static string FormatNullableBool(bool? value)
+        {
+            return value.HasValue ? value.Value.ToString() : "<null>";
+        }
+
+        private static string SafeLoadedSceneForCanInvokeLog()
+        {
+            try { return HighLogic.LoadedScene.ToString(); }
+            catch (Exception ex) { return "<scene-error:" + ex.GetType().Name + ">"; }
+        }
+
+        private static string FormatActiveSessionForCanInvokeLog()
+        {
+            try
+            {
+                var scenario = ParsekScenario.Instance;
+                if (object.ReferenceEquals(null, scenario) || scenario.ActiveReFlySessionMarker == null)
+                    return "none";
+
+                string sessionId = scenario.ActiveReFlySessionMarker.SessionId;
+                return string.IsNullOrEmpty(sessionId) ? "<no-session>" : sessionId;
+            }
+            catch (Exception ex)
+            {
+                return "<session-error:" + ex.GetType().Name + ">";
+            }
         }
 
         /// <summary>
@@ -883,6 +960,8 @@ namespace Parsek
         {
             if (rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename))
                 return null;
+            if (ResolveAbsoluteQuicksavePathOverrideForTesting != null)
+                return ResolveAbsoluteQuicksavePathOverrideForTesting(rp);
             return RecordingPaths.ResolveSaveScopedPath(rp.QuicksaveFilename);
         }
 

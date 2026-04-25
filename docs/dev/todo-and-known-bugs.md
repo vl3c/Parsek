@@ -29,6 +29,19 @@ from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
   event aggregation, production warning-prefix cleanup, and low-risk
   cleanup/reflection summaries.
 
+Phase 3 persistence/rewind observability is closed on
+`observability/persistence-rewind` (2026-04-26): `OnSave` / `OnLoad` now carry
+top-level exception context and single phase/status timing; recording sidecar,
+snapshot-probe, path-resolution, and transient cleanup failures now surface
+Warn/Error context with recording id, save folder, epoch, ghost snapshot mode,
+file kind, paths, staged-file count, and exception details; Rewind/Re-Fly
+`CanInvoke` plus disabled slot decisions now log only on reason changes. This
+closes the audit follow-up for duplicate/miscounted `OnLoad` timing, sidecar/path
+failure severity/context, and rewind precondition reason visibility. Remaining
+observability-audit work stays in the non-persistence phases: KSC/playback spam
+hygiene, ghost skip summaries, recorder/auto-record decision logs, game-action
+aggregation, and map/UI/test-runner visibility.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups

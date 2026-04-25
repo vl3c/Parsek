@@ -6,6 +6,8 @@ namespace Parsek
 {
     internal static class SidecarFileCommitBatch
     {
+        internal static Action<string> DeleteTransientArtifactOverrideForTesting;
+
         internal sealed class StagedChange
         {
             public string FinalPath;
@@ -122,15 +124,20 @@ namespace Parsek
             }
             finally
             {
-                CleanupArtifacts(changes, committed: null);
+                CleanupArtifacts(changes, committed: null, suppressLogging: suppressLogging);
             }
 
-            CleanupCommittedBackups(committed);
+            CleanupCommittedBackups(committed, suppressLogging);
         }
 
         internal static void CleanupStagedArtifacts(List<StagedChange> changes)
         {
-            CleanupArtifacts(changes, committed: null);
+            CleanupArtifacts(changes, committed: null, suppressLogging: null);
+        }
+
+        internal static void CleanupStagedArtifacts(List<StagedChange> changes, Func<bool> suppressLogging)
+        {
+            CleanupArtifacts(changes, committed: null, suppressLogging: suppressLogging);
         }
 
         private static void RestoreCommittedChange(CommittedChange state)
@@ -166,16 +173,23 @@ namespace Parsek
                 File.Delete(state.Change.FinalPath);
         }
 
-        private static void CleanupArtifacts(List<StagedChange> changes, List<CommittedChange> committed)
+        private static void CleanupArtifacts(
+            List<StagedChange> changes,
+            List<CommittedChange> committed,
+            Func<bool> suppressLogging)
         {
+            var failures = new List<string>();
+
             if (changes != null)
             {
                 for (int i = 0; i < changes.Count; i++)
                 {
                     string stagedPath = changes[i]?.StagedPath;
-                    DeleteTransientArtifact(stagedPath);
-                    DeleteTransientArtifact(
-                        string.IsNullOrEmpty(stagedPath) ? null : stagedPath + ".tmp");
+                    RecordCleanupFailure(failures, DeleteTransientArtifact(stagedPath));
+                    RecordCleanupFailure(
+                        failures,
+                        DeleteTransientArtifact(
+                            string.IsNullOrEmpty(stagedPath) ? null : stagedPath + ".tmp"));
                 }
             }
 
@@ -184,23 +198,49 @@ namespace Parsek
                 for (int i = 0; i < committed.Count; i++)
                 {
                     string backupPath = committed[i]?.BackupPath;
-                    DeleteTransientArtifact(backupPath);
+                    RecordCleanupFailure(failures, DeleteTransientArtifact(backupPath));
                 }
+            }
+
+            if (failures.Count > 0 && (suppressLogging == null || !suppressLogging()))
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"Sidecar transient cleanup failed: count={failures.Count} first={failures[0]}");
             }
         }
 
-        private static void CleanupCommittedBackups(List<CommittedChange> committed)
+        private static void CleanupCommittedBackups(
+            List<CommittedChange> committed,
+            Func<bool> suppressLogging)
         {
-            CleanupArtifacts(changes: null, committed: committed);
+            CleanupArtifacts(changes: null, committed: committed, suppressLogging: suppressLogging);
         }
 
-        private static void DeleteTransientArtifact(string path)
+        private static void RecordCleanupFailure(List<string> failures, string failure)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            if (failures == null || string.IsNullOrEmpty(failure))
                 return;
 
-            try { File.Delete(path); }
-            catch { }
+            failures.Add(failure);
+        }
+
+        private static string DeleteTransientArtifact(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return null;
+
+            try
+            {
+                if (DeleteTransientArtifactOverrideForTesting != null)
+                    DeleteTransientArtifactOverrideForTesting(path);
+                else
+                    File.Delete(path);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"path='{path}' ex={ex.GetType().Name}:{ex.Message}";
+            }
         }
     }
 }

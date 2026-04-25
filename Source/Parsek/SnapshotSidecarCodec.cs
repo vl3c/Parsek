@@ -74,32 +74,41 @@ namespace Parsek
                 return false;
             }
 
-            if (HasBinaryMagic(path))
-                return TryProbeBinary(path, out probe);
-
-            var legacyNode = ConfigNode.Load(path);
-            if (legacyNode == null)
+            try
             {
-                probe.FailureReason = "legacy text parse failed";
+                if (HasBinaryMagic(path))
+                    return TryProbeBinary(path, out probe);
+
+                var legacyNode = ConfigNode.Load(path);
+                if (legacyNode == null)
+                {
+                    probe.Encoding = SnapshotSidecarEncoding.TextConfigNode;
+                    probe.FailureReason = "legacy text parse failed";
+                    return false;
+                }
+
+                long fileLength = new FileInfo(path).Length;
+                probe = new SnapshotSidecarProbe
+                {
+                    Success = true,
+                    Supported = true,
+                    Encoding = SnapshotSidecarEncoding.TextConfigNode,
+                    FormatVersion = 0,
+                    Codec = 0,
+                    NodeName = legacyNode.name,
+                    UncompressedLength = fileLength > int.MaxValue ? int.MaxValue : (int)fileLength,
+                    CompressedLength = 0,
+                    Checksum = 0,
+                    LegacyNode = legacyNode,
+                    FailureReason = null
+                };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                probe.FailureReason = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
-
-            long fileLength = new FileInfo(path).Length;
-            probe = new SnapshotSidecarProbe
-            {
-                Success = true,
-                Supported = true,
-                Encoding = SnapshotSidecarEncoding.TextConfigNode,
-                FormatVersion = 0,
-                Codec = 0,
-                NodeName = legacyNode.name,
-                UncompressedLength = fileLength > int.MaxValue ? int.MaxValue : (int)fileLength,
-                CompressedLength = 0,
-                Checksum = 0,
-                LegacyNode = legacyNode,
-                FailureReason = null
-            };
-            return true;
         }
 
         internal static bool TryLoad(string path, out ConfigNode node, out SnapshotSidecarProbe probe)
@@ -163,7 +172,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                probe.FailureReason = ex.GetType().Name;
+                probe.FailureReason = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
         }
@@ -206,6 +215,24 @@ namespace Parsek
             return "UnknownBinary";
         }
 
+        internal static string DescribeProbe(SnapshotSidecarProbe probe)
+        {
+            return string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "success={0} supported={1} encoding={2} version={3} codec={4} node={5} " +
+                "uncompressedBytes={6} compressedBytes={7} checksum={8} failure={9}",
+                probe.Success,
+                probe.Supported,
+                GetEncodingLabel(probe),
+                probe.FormatVersion,
+                probe.Codec,
+                string.IsNullOrEmpty(probe.NodeName) ? "<none>" : probe.NodeName,
+                probe.UncompressedLength,
+                probe.CompressedLength,
+                probe.Checksum,
+                string.IsNullOrEmpty(probe.FailureReason) ? "<none>" : "'" + probe.FailureReason + "'");
+        }
+
         private static bool TryProbeBinary(string path, out SnapshotSidecarProbe probe)
         {
             probe = default(SnapshotSidecarProbe);
@@ -219,7 +246,10 @@ namespace Parsek
 
         private static bool TryReadBinaryHeader(BinaryReader reader, Stream stream, out SnapshotSidecarProbe probe)
         {
-            probe = default(SnapshotSidecarProbe);
+            probe = new SnapshotSidecarProbe
+            {
+                Encoding = SnapshotSidecarEncoding.UnknownBinary
+            };
 
             if (stream.Length < HeaderByteCount)
             {

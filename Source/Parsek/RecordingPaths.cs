@@ -43,38 +43,44 @@ namespace Parsek
 
         internal static string ResolveSaveScopedPath(string relativePath)
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder) || string.IsNullOrEmpty(relativePath))
+            if (!TryGetSaveContext(
+                    "ResolveSaveScopedPath",
+                    "resolve-save-scoped-missing-context",
+                    relativePath,
+                    out string root,
+                    out string saveFolder))
+                return null;
+
+            try
             {
-                ParsekLog.VerboseRateLimited("Paths", "resolve-save-scoped-missing-context",
-                    $"ResolveSaveScopedPath missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}, relativeSet={!string.IsNullOrEmpty(relativePath)}",
-                    5.0);
+                return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, relativePath));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Paths",
+                    $"ResolveSaveScopedPath failed: saveFolder='{saveFolder}' " +
+                    $"relativePath='{FormatPathContext(relativePath)}' " +
+                    $"ex={ex.GetType().Name}:{ex.Message}");
                 return null;
             }
-            return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, relativePath));
         }
 
         internal static string EnsureRecordingsDirectory()
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-            {
-                ParsekLog.VerboseRateLimited("Paths", "ensure-recordings-missing-context",
-                    $"EnsureRecordingsDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+            if (!TryGetSaveContext(
+                    "EnsureRecordingsDirectory",
+                    "ensure-recordings-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder))
                 return null;
-            }
 
-            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-                ParsekLog.Info("Paths", $"Created recordings directory '{dir}'");
-            }
-            return dir;
+            return EnsureSaveScopedDirectory(
+                root,
+                saveFolder,
+                "EnsureRecordingsDirectory",
+                Path.Combine("Parsek", "Recordings"),
+                "recordings");
         }
 
         internal static string BuildLedgerRelativePath()
@@ -115,44 +121,38 @@ namespace Parsek
         /// </summary>
         internal static string EnsureRewindPointsDirectory()
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-            {
-                ParsekLog.VerboseRateLimited("Paths", "ensure-rewindpoints-missing-context",
-                    $"EnsureRewindPointsDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+            if (!TryGetSaveContext(
+                    "EnsureRewindPointsDirectory",
+                    "ensure-rewindpoints-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder))
                 return null;
-            }
 
-            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "RewindPoints"));
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-                ParsekLog.Info("Paths", $"Created rewind points directory '{dir}'");
-            }
-            return dir;
+            return EnsureSaveScopedDirectory(
+                root,
+                saveFolder,
+                "EnsureRewindPointsDirectory",
+                Path.Combine("Parsek", "RewindPoints"),
+                "rewind points");
         }
 
         internal static string EnsureRewindSavesDirectory()
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-            {
-                ParsekLog.VerboseRateLimited("Paths", "ensure-rewindsaves-missing-context",
-                    $"EnsureRewindSavesDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+            if (!TryGetSaveContext(
+                    "EnsureRewindSavesDirectory",
+                    "ensure-rewindsaves-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder))
                 return null;
-            }
 
-            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Saves"));
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-                ParsekLog.Info("Paths", $"Created rewind saves directory '{dir}'");
-            }
-            return dir;
+            return EnsureSaveScopedDirectory(
+                root,
+                saveFolder,
+                "EnsureRewindSavesDirectory",
+                Path.Combine("Parsek", "Saves"),
+                "rewind saves");
         }
 
         internal static string BuildGameStateEventsRelativePath()
@@ -168,38 +168,43 @@ namespace Parsek
 
         internal static string EnsureGameStateDirectory()
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-            {
-                ParsekLog.VerboseRateLimited("Paths", "ensure-gamestate-missing-context",
-                    $"EnsureGameStateDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+            if (!TryGetSaveContext(
+                    "EnsureGameStateDirectory",
+                    "ensure-gamestate-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder))
                 return null;
-            }
 
-            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-                ParsekLog.Info("Paths", $"Created game state directory '{dir}'");
-            }
-            return dir;
+            return EnsureSaveScopedDirectory(
+                root,
+                saveFolder,
+                "EnsureGameStateDirectory",
+                Path.Combine("Parsek", "GameState"),
+                "game state");
         }
 
         internal static string ResolveGameStateDirectory()
         {
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            if (!TryGetSaveContext(
+                    "ResolveGameStateDirectory",
+                    "resolve-gamestate-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder))
+                return null;
+
+            try
             {
-                ParsekLog.VerboseRateLimited("Paths", "resolve-gamestate-missing-context",
-                    $"ResolveGameStateDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
-                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+                return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Paths",
+                    $"ResolveGameStateDirectory failed: saveFolder='{saveFolder}' " +
+                    $"ex={ex.GetType().Name}:{ex.Message}");
                 return null;
             }
-
-            return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
         }
 
         internal static bool ValidateRecordingId(
@@ -245,6 +250,77 @@ namespace Parsek
             }
 
             ParsekLog.Warn("Paths", message);
+        }
+
+        private static bool TryGetSaveContext(
+            string operation,
+            string rateLimitKey,
+            string relativePath,
+            out string root,
+            out string saveFolder)
+        {
+            string rootError = null;
+            string saveError = null;
+            try { root = KSPUtil.ApplicationRootPath ?? ""; }
+            catch (Exception ex)
+            {
+                root = "";
+                rootError = ex.GetType().Name + ":" + ex.Message;
+            }
+
+            try { saveFolder = HighLogic.SaveFolder ?? ""; }
+            catch (Exception ex)
+            {
+                saveFolder = "";
+                saveError = ex.GetType().Name + ":" + ex.Message;
+            }
+
+            bool rootSet = !string.IsNullOrEmpty(root);
+            bool saveSet = !string.IsNullOrEmpty(saveFolder);
+            bool relativeSet = relativePath == null || !string.IsNullOrEmpty(relativePath);
+            if (rootSet && saveSet && relativeSet)
+                return true;
+
+            ParsekLog.WarnRateLimited("Paths", rateLimitKey,
+                $"{operation} missing context: rootSet={rootSet}, saveSet={saveSet}, " +
+                $"relativeSet={relativeSet}, saveFolder='{FormatPathContext(saveFolder)}', " +
+                $"relativePath='{FormatPathContext(relativePath)}'" +
+                (string.IsNullOrEmpty(rootError) ? "" : $" rootError={rootError}") +
+                (string.IsNullOrEmpty(saveError) ? "" : $" saveError={saveError}"),
+                5.0);
+            return false;
+        }
+
+        private static string EnsureSaveScopedDirectory(
+            string root,
+            string saveFolder,
+            string operation,
+            string relativeDirectory,
+            string label)
+        {
+            try
+            {
+                string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, relativeDirectory));
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                    ParsekLog.Info("Paths", $"Created {label} directory '{dir}'");
+                }
+                return dir;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Paths",
+                    $"{operation} failed: saveFolder='{FormatPathContext(saveFolder)}' " +
+                    $"relativePath='{FormatPathContext(relativeDirectory)}' " +
+                    $"ex={ex.GetType().Name}:{ex.Message}");
+                return null;
+            }
+        }
+
+        private static string FormatPathContext(string value)
+        {
+            return string.IsNullOrEmpty(value) ? "<null>" : value;
         }
     }
 }
