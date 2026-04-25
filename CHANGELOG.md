@@ -224,6 +224,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
 - `#574` Already-Destroyed recordings no longer re-run the sub-surface ballistic finalizer on cache refresh. The first Destroyed classification now logs once with body, altitude, and threshold; later refreshes emit a rate-limited skip diagnostic plus refresh summary instead of a repeated WARN storm.

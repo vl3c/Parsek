@@ -648,8 +648,28 @@ namespace Parsek
         /// the ghost enters an orbital segment. Avoids showing orbit lines during
         /// atmospheric ascent when the ghost mesh is still on the pad.
         /// </summary>
-        private readonly Dictionary<int, IPlaybackTrajectory> pendingMapVessels =
-            new Dictionary<int, IPlaybackTrajectory>();
+        private struct PendingMapVessel
+        {
+            internal IPlaybackTrajectory Trajectory;
+            internal bool AllowSoiGapStateVectorFallback;
+            internal string ExpectedSoiGapBody;
+
+            internal PendingMapVessel(
+                IPlaybackTrajectory trajectory,
+                bool allowSoiGapStateVectorFallback,
+                string expectedSoiGapBody)
+            {
+                Trajectory = trajectory;
+                AllowSoiGapStateVectorFallback = allowSoiGapStateVectorFallback;
+                ExpectedSoiGapBody = expectedSoiGapBody;
+            }
+        }
+
+        private readonly Dictionary<int, PendingMapVessel> pendingMapVessels =
+            new Dictionary<int, PendingMapVessel>();
+
+        private readonly Dictionary<int, string> soiGapStateVectorExpectedBodies =
+            new Dictionary<int, string>();
 
         /// <summary>
         /// Tracks the last orbit segment body+SMA per recording index for change detection.
@@ -754,15 +774,27 @@ namespace Parsek
                     startUT);
                 if (ghost != null)
                 {
-                    if (source == TrackingStationGhostSource.StateVector)
+                    if (GhostMapPresence.IsStateVectorGhostSource(source))
+                    {
                         stateVectorOrbitTrajectories[evt.Index] = evt.Trajectory;
+                        if (source != TrackingStationGhostSource.StateVectorSoiGap)
+                            soiGapStateVectorExpectedBodies.Remove(evt.Index);
+                    }
                     else if (TryGetMapOrbitKey(source, segment, out var orbitKey))
+                    {
+                        soiGapStateVectorExpectedBodies.Remove(evt.Index);
                         lastMapOrbitByIndex[evt.Index] = orbitKey;
+                    }
                 }
             }
             else
             {
-                pendingMapVessels[evt.Index] = evt.Trajectory;
+                // Initial/pre-orbital deferrals are not SOI-gap recoveries; only the
+                // gap-between-orbit-segments requeue path opts into this fallback.
+                pendingMapVessels[evt.Index] = new PendingMapVessel(
+                    evt.Trajectory,
+                    allowSoiGapStateVectorFallback: false,
+                    expectedSoiGapBody: null);
                 ParsekLog.Verbose("Policy",
                     $"Deferred ghost map vessel for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
                     "— recording starts pre-orbital");
@@ -821,12 +853,13 @@ namespace Parsek
             //    OR for physics-only recordings that crossed the state-vector threshold.
             if (pendingMapVessels.Count > 0)
             {
-                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point)> toCreate = null;
+                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point, string expectedBody)> toCreate = null;
 
                 foreach (var kvp in pendingMapVessels)
                 {
                     int idx = kvp.Key;
-                    IPlaybackTrajectory traj = kvp.Value;
+                    PendingMapVessel pending = kvp.Value;
+                    IPlaybackTrajectory traj = pending.Trajectory;
 
                     int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
@@ -842,16 +875,18 @@ namespace Parsek
                         out OrbitSegment segment,
                         out TrajectoryPoint point,
                         out _,
-                        recordingIndex: idx);
+                        recordingIndex: idx,
+                        allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
+                        expectedSoiGapBody: pending.ExpectedSoiGapBody);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     if (source == TrackingStationGhostSource.Segment
-                        || source == TrackingStationGhostSource.StateVector
+                        || GhostMapPresence.IsStateVectorGhostSource(source)
                         || source == TrackingStationGhostSource.TerminalOrbit)
                     {
                         if (toCreate == null)
-                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint)>();
-                        toCreate.Add((idx, source, segment, point));
+                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string)>();
+                        toCreate.Add((idx, source, segment, point, pending.ExpectedSoiGapBody));
                     }
                 }
 
@@ -860,8 +895,9 @@ namespace Parsek
                     for (int i = 0; i < toCreate.Count; i++)
                     {
                         int idx = toCreate[i].idx;
-                        if (pendingMapVessels.TryGetValue(idx, out var traj))
+                        if (pendingMapVessels.TryGetValue(idx, out var pending))
                         {
+                            IPlaybackTrajectory traj = pending.Trajectory;
                             // Per-chain dedup before deferred creation
                             RemovePreviousChainMapVessel(idx);
                             Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
@@ -875,17 +911,25 @@ namespace Parsek
 
                             if (ghost != null)
                             {
-                                if (toCreate[i].source == TrackingStationGhostSource.StateVector)
+                                if (GhostMapPresence.IsStateVectorGhostSource(toCreate[i].source))
                                 {
                                     stateVectorOrbitTrajectories[idx] = traj;
+                                    if (toCreate[i].source == TrackingStationGhostSource.StateVectorSoiGap)
+                                        soiGapStateVectorExpectedBodies[idx] = toCreate[i].expectedBody;
+                                    else
+                                        soiGapStateVectorExpectedBodies.Remove(idx);
                                     ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
-                                        "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1}",
+                                        "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1} source={4}",
                                         idx, traj.VesselName,
                                         toCreate[i].point.altitude,
-                                        toCreate[i].point.velocity.magnitude));
+                                        toCreate[i].point.velocity.magnitude,
+                                        toCreate[i].source == TrackingStationGhostSource.StateVectorSoiGap
+                                            ? "soi-gap-state-vector"
+                                            : "state-vector"));
                                 }
                                 else if (TryGetMapOrbitKey(toCreate[i].source, toCreate[i].segment, out var orbitKey))
                                 {
+                                    soiGapStateVectorExpectedBodies.Remove(idx);
                                     lastMapOrbitByIndex[idx] = orbitKey;
 
                                     ParsekLog.Info("Policy",
@@ -908,7 +952,7 @@ namespace Parsek
             // 2a. Segment-based orbit updates (existing)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
             List<int> toRemoveFromMap = null;
-            List<int> toRequeue = null;
+            List<(int idx, string expectedBody)> toRequeue = null;
 
             foreach (var kvp in lastMapOrbitByIndex)
             {
@@ -950,10 +994,16 @@ namespace Parsek
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     bool hasFutureSegment = false;
+                    string futureSegmentBody = null;
                     var segs = rec.OrbitSegments;
                     for (int s = 0; s < segs.Count; s++)
                     {
-                        if (segs[s].startUT > currentUT) { hasFutureSegment = true; break; }
+                        if (segs[s].startUT > currentUT)
+                        {
+                            hasFutureSegment = true;
+                            futureSegmentBody = segs[s].bodyName;
+                            break;
+                        }
                     }
 
                     GhostMapPresence.RemoveGhostVesselForRecording(idx,
@@ -962,8 +1012,8 @@ namespace Parsek
                     if (hasFutureSegment)
                     {
                         // Re-add to pending so the next segment creates a new ProtoVessel
-                        if (toRequeue == null) toRequeue = new List<int>();
-                        toRequeue.Add(idx);
+                        if (toRequeue == null) toRequeue = new List<(int, string)>();
+                        toRequeue.Add((idx, futureSegmentBody));
                     }
 
                     if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
@@ -996,15 +1046,18 @@ namespace Parsek
             {
                 for (int i = 0; i < toRequeue.Count; i++)
                 {
-                    int idx = toRequeue[i];
+                    int idx = toRequeue[i].idx;
                     if (!pendingMapVessels.ContainsKey(idx) && idx < committed.Count)
                     {
                         var traj = committed[idx] as IPlaybackTrajectory;
                         if (traj != null)
                         {
-                            pendingMapVessels[idx] = traj;
+                            pendingMapVessels[idx] = new PendingMapVessel(
+                                traj,
+                                allowSoiGapStateVectorFallback: true,
+                                expectedSoiGapBody: toRequeue[i].expectedBody);
                             ParsekLog.Verbose("MapPresence",
-                                $"Re-queued recording #{idx} to pendingMapVessels (gap between orbit segments)");
+                                $"Re-queued recording #{idx} to pendingMapVessels (gap between orbit segments expectedBody={toRequeue[i].expectedBody ?? "(none)"})");
                         }
                     }
                 }
@@ -1014,6 +1067,8 @@ namespace Parsek
             if (stateVectorOrbitTrajectories.Count > 0)
             {
                 List<int> toReDefer = null;
+                List<int> toExitStateVector = null;
+                List<KeyValuePair<int, (string body, double sma, double ecc)>> stateVectorSegmentUpdates = null;
 
                 foreach (var kvp in stateVectorOrbitTrajectories)
                 {
@@ -1023,6 +1078,54 @@ namespace Parsek
                     if (!stateVectorCachedIndices.ContainsKey(idx))
                         stateVectorCachedIndices[idx] = -1;
                     int cached = stateVectorCachedIndices[idx];
+
+                    if (soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
+                    {
+                        TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                            traj,
+                            false,
+                            IsMaterializedForMapPresence(traj),
+                            currentUT,
+                            true,
+                            "map-presence-soi-gap-state-vector-update",
+                            ref cached,
+                            out OrbitSegment segment,
+                            out TrajectoryPoint soiGapPoint,
+                            out _,
+                            recordingIndex: idx,
+                            allowSoiGapStateVectorFallback: true,
+                            expectedSoiGapBody: expectedSoiGapBody);
+                        stateVectorCachedIndices[idx] = cached;
+
+                        if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                        {
+                            GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                                idx,
+                                traj,
+                                soiGapPoint,
+                                currentUT,
+                                allowOrbitalCheckpointStateVector: true,
+                                stateVectorUpdateReason: "soi-gap-state-vector-fallback");
+                            continue;
+                        }
+
+                        if (source == TrackingStationGhostSource.Segment
+                            || source == TrackingStationGhostSource.TerminalOrbit)
+                        {
+                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment);
+                            if (TryGetMapOrbitKey(source, segment, out var segmentKey))
+                            {
+                                if (stateVectorSegmentUpdates == null)
+                                    stateVectorSegmentUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                                stateVectorSegmentUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, segmentKey));
+                            }
+
+                            if (toExitStateVector == null) toExitStateVector = new List<int>();
+                            toExitStateVector.Add(idx);
+                            continue;
+                        }
+                    }
+
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                     stateVectorCachedIndices[idx] = cached;
 
@@ -1065,10 +1168,30 @@ namespace Parsek
                     {
                         int idx = toReDefer[i];
                         if (stateVectorOrbitTrajectories.TryGetValue(idx, out var traj))
-                            pendingMapVessels[idx] = traj;
+                            pendingMapVessels[idx] = new PendingMapVessel(
+                                traj,
+                                allowSoiGapStateVectorFallback: false,
+                                expectedSoiGapBody: null);
                         stateVectorOrbitTrajectories.Remove(idx);
+                        soiGapStateVectorExpectedBodies.Remove(idx);
                         // stateVectorCachedIndices[idx] intentionally kept — avoids
                         // O(n) re-scan if the ghost re-ascends above threshold.
+                    }
+                }
+
+                if (stateVectorSegmentUpdates != null)
+                {
+                    for (int i = 0; i < stateVectorSegmentUpdates.Count; i++)
+                        lastMapOrbitByIndex[stateVectorSegmentUpdates[i].Key] = stateVectorSegmentUpdates[i].Value;
+                }
+
+                if (toExitStateVector != null)
+                {
+                    for (int i = 0; i < toExitStateVector.Count; i++)
+                    {
+                        int idx = toExitStateVector[i];
+                        stateVectorOrbitTrajectories.Remove(idx);
+                        soiGapStateVectorExpectedBodies.Remove(idx);
                     }
                 }
             }
@@ -1232,6 +1355,7 @@ namespace Parsek
             pendingMapVessels.Remove(evt.Index);
             lastMapOrbitByIndex.Remove(evt.Index);
             stateVectorOrbitTrajectories.Remove(evt.Index);
+            soiGapStateVectorExpectedBodies.Remove(evt.Index);
             stateVectorCachedIndices.Remove(evt.Index);
 
             // Remove both recording-index and chain-based ghost map ProtoVessels
@@ -1268,6 +1392,7 @@ namespace Parsek
             lastMapOrbitByIndex.Clear();
             chainMapOwner.Clear();
             stateVectorOrbitTrajectories.Clear();
+            soiGapStateVectorExpectedBodies.Clear();
             stateVectorCachedIndices.Clear();
         }
 
@@ -1287,6 +1412,7 @@ namespace Parsek
             lastMapOrbitByIndex.Clear();
             chainMapOwner.Clear();
             stateVectorOrbitTrajectories.Clear();
+            soiGapStateVectorExpectedBodies.Clear();
             stateVectorCachedIndices.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
         }

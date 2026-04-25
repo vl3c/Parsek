@@ -1287,7 +1287,21 @@ segment endpoint and nothing, never settling into a Mun orbit.
 #589 (real-vessel spawns at end of recordings after rewind) are
 sibling symptoms in the same playtest.
 
-**Status:** Open.
+**Fix:** `ResolveMapPresenceGhostSource` now treats checkpoint-derived
+state vectors as a distinct `StateVectorSoiGap` source only when the
+flight map lifecycle explicitly re-queued the recording after
+`gap-between-orbit-segments`, no current segment source is available,
+the checkpoint body matches the post-gap SOI/body, and both the current
+UT and candidate state-vector UT are inside the recording playback
+window. Normal `OrbitalCheckpoint` state-vector creates still reject,
+and current segments still win. The structured `[GhostMap]` lines now
+emit `reason=soi-gap-state-vector-fallback` for accepted recoveries and
+specific reject reasons for safer segment, not-SOI-gap, body mismatch,
+or outside-window cases. Covered by
+`GhostMapSoiGapStateVectorTests` plus the explicit opt-in branch in
+`StateVectorWorldFrameTests`.
+
+**Status:** ~~done~~.
 
 ---
 
