@@ -112,6 +112,16 @@ All notable changes to Parsek are documented here.
 
 - Unfinished-flight predicate and missed-vessel-switch fallback now rate-limit their per-frame diagnostic lines, so KSP.log is no longer dominated by hundreds of thousands of identical `[UnfinishedFlights]` decisions or repeated `recovering missed vessel switch` warnings during a normal session.
 
+- `#592` Time-warp rate-change checkpoint logs now rate-limit per warp rate, so KSP's chatty `onTimeWarpRateChanged` GameEvent no longer re-emits ~3300 redundant `Time warp rate changed to 1.0x` / `CheckpointAllVessels` / `Active vessel orbit segments handled` lines during a single session of scene transitions and warp-to-here.
+
+- `#593` Repeatable record milestones (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`) and their funds/rep modules now rate-limit the `Milestone funds`, `Repeatable record milestone stays effective`, and `Milestone rep at UT` lines per stable action identity, so a steady recalc loop walking the same committed grant collapses to one line while two distinct grants of the same milestone in the same recording at different UT or reward still each log on their first walk.
+
+- `#594` `KspStatePatcher.PatchMilestones` bare-Id fallback diagnostic now rate-limits per `(nodeId, qualifiedId)` pair so an old-format recording with bare body-specific milestone IDs only logs once per pair per window instead of on every recalc walk.
+
+- `#595` `OrbitalCheckpoint point playback` and `Recorder Sample skipped` rate-limit windows widened from 1.0s and 2.0s to the default 5s, dropping per-section playback churn and stationary-recording skip lines from the hundreds per session into the tens.
+
+- `#596` `KspStatePatcher.PatchFacilities` now gates the INFO summary on real game-state work (`patched + notFound > 0`); skipped-only steady states and the all-zero empty case both route through rate-limited Verbose, so a non-empty `FacilitiesModule` whose facilities are already at their target levels no longer floods INFO every recalc.
+
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.

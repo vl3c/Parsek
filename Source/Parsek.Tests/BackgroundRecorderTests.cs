@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Xunit;
 
@@ -1331,6 +1332,51 @@ namespace Parsek.Tests
                     l.Contains("CheckpointAllVessels") &&
                     l.Contains("skippedNotOrbital=1") &&
                     l.Contains("skippedNoVessel=1"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_RepeatedCallsSameShape_RateLimitedToOneLine()
+        {
+            // Bug #592: KSP's onTimeWarpRateChanged GameEvent fires very
+            // chattily — a single 30-min playtest produced 1122 identical
+            // "CheckpointAllVessels at UT=N: checkpointed=0, ..." lines from
+            // ~1090 redundant 1.0x->1.0x event re-fires. The summary now
+            // routes through VerboseRateLimited keyed by the (checkpointed,
+            // skippedNotOrbital, skippedNoVessel) shape so a burst of
+            // identical no-op summaries collapses into one line per window
+            // while a real change in counts still surfaces immediately on the
+            // first call.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                var tree = MakeTree((100, "rec_bg1"));
+                var bgRecorder = new BackgroundRecorder(tree);
+                bgRecorder.SetVesselFinderForTesting(pid => null);
+
+                // Call CheckpointAllVessels 50 times back-to-back with the
+                // same UT and the same recording-tree shape — every call
+                // produces the exact same (0, 1, 0) summary tuple.
+                for (int i = 0; i < 50; i++)
+                {
+                    bgRecorder.CheckpointAllVessels(100.0);
+                }
+
+                int summaryLines = logLines.Count(l =>
+                    l.Contains("[BgRecorder]") &&
+                    l.Contains("CheckpointAllVessels at UT=") &&
+                    l.Contains("checkpointed=0") &&
+                    l.Contains("skippedNotOrbital=1") &&
+                    l.Contains("skippedNoVessel=0"));
+                Assert.Equal(1, summaryLines);
             }
             finally
             {
