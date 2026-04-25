@@ -7,6 +7,7 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class SelectiveSpawnUITests : System.IDisposable
     {
+        private const double MaxRelSpeed = 2.0;
         private readonly List<string> logLines = new List<string>();
 
         public SelectiveSpawnUITests()
@@ -212,7 +213,7 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { recordingIndex = 2, vesselName = "C", endUT = 200 }
             };
 
-            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100);
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed);
 
             Assert.NotNull(result);
             Assert.Equal("B", result.Value.vesselName);
@@ -227,20 +228,20 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { endUT = 80 }
             };
 
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed));
         }
 
         [Fact]
         public void FindNextSpawnCandidate_Empty_ReturnsNull()
         {
             Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(
-                new List<NearbySpawnCandidate>(), 100));
+                new List<NearbySpawnCandidate>(), 100, MaxRelSpeed));
         }
 
         [Fact]
         public void FindNextSpawnCandidate_Null_ReturnsNull()
         {
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(null, 100));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(null, 100, MaxRelSpeed));
         }
 
         [Fact]
@@ -251,7 +252,7 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { endUT = 100 }
             };
 
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed));
         }
 
         // ── FormatTimeDelta ──
