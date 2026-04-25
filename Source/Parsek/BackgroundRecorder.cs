@@ -4202,7 +4202,13 @@ namespace Parsek
                     reason,
                     treeRec != null ? 1 : 0,
                     1,
-                    0);
+                    0,
+                    skipped.RecordingId,
+                    skipped.VesselPersistentId,
+                    skipped.Status,
+                    skipped.TerminalState,
+                    skipped.DeclineReason,
+                    skipped.PredictedSegments?.Count ?? -1);
                 return false;
             }
 

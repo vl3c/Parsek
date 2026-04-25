@@ -236,8 +236,8 @@ namespace Parsek.Tests
             // RecordingFinalizationCacheProducer.LogRefreshSummary's
             // log-hygiene gate (no real classification work happened, just a
             // "still already destroyed" reaffirmation).
-            Assert.Equal(2, logLines.FindAll(line =>
-                line.Contains("[VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=BackgroundOnRails reason=test_on_rails recordingsExamined=1 alreadyClassified=1 newlyClassified=0")).Count);
+            Assert.Single(logLines.FindAll(line =>
+                line.Contains("[VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=BackgroundOnRails reason=test_on_rails recordingsExamined=1 alreadyClassified=1 newlyClassified=0")));
         }
 
         [Fact]

@@ -19,7 +19,9 @@ Implementation plan: `docs/dev/plan-observability-logging-visibility.md`.
 Open implementation follow-up: make Parsek's runtime decisions reconstructable
 from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
 
-- P1 save/load exception context and KSC playback spam fixes.
+- P1 current spam hygiene: finalizer-cache summaries, patched-snapshot /
+  extrapolator repeats, current map/proto-vessel/tracking-station repeaters,
+  diagnostics sidecar warnings, and KSC playback spam fixes.
 - P2 flight ghost skip reasons, playback frame skip summaries, rewind
   `CanInvoke` reason logging, sidecar/path severity and context, duplicate
   `OnLoad` timing cleanup, post-switch auto-record no-trigger summaries,
@@ -28,6 +30,17 @@ from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
 - P3 shared rate-limit key cleanup, repeated-warning rate limits, noisy resource
   event aggregation, production warning-prefix cleanup, and low-risk
   cleanup/reflection summaries.
+
+2026-04-26 Phase 1 update: the current retained-log hygiene slice is closed for
+the finalization/map signal called out in
+`logs/2026-04-26_0118_refly-postfix-still-broken`. The fix keys
+`FinalizerCache refresh summary` by owner/recording/terminal state, rate-limits
+stable no-delta and repeated classification summaries, collapses the
+patched-snapshot missing-body / captured and extrapolator seeded-OFR repeaters
+with `VerboseOnChange`, rate-limits empty GhostMap cleanup, gates map-visible
+window diagnostics on source/window changes, and adds focused log assertions.
+The broader observability audit remains open for later missing-decision logs and
+save/load context work.
 
 ---
 
@@ -2833,6 +2846,18 @@ PatchFacilities INFO summary on having actual work. #597 tracks the underlying
 "KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
 a separate open todo (performance / hygiene only — no observed correctness
 defect).
+
+2026-04-26 update (observability Phase 1 current spam hygiene): the newest
+retained package `2026-04-26_0118_refly-postfix-still-broken` surfaced a
+different top-repeat set: finalizer-cache periodic summaries, repeated
+patched-snapshot missing-body/captured pairs, repeated extrapolator seeded
+orbital-frame-rotation lines, and small GhostMap cleanup/window repeaters. This
+branch keys finalizer summaries by owner/recording/terminal state, removes the
+no-delta Info backstop, keeps only the first unique classification at Info,
+gates patched-snapshot and OFR-seeding details with `VerboseOnChange`, and
+rate-limits empty GhostMap cleanup plus diagnostics missing-sidecar warnings.
+Focused xUnit log assertions pin each gate. Remaining broader audit work stays
+tracked by the Observability Audit section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
