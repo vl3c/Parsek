@@ -3094,8 +3094,14 @@ namespace Parsek
             rec.LastAppliedResourceIndex = -1;
             // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
             // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the
-            // rewound tree's recordings AFTER ResetAllPlaybackState fires.
+            // active/source recording AFTER ResetAllPlaybackState fires.
+            if (rec.SpawnSuppressedByRewind && !SuppressLogging)
+                ParsekLog.Verbose("Rewind",
+                    $"SpawnSuppressedByRewind reset: \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"reason={rec.SpawnSuppressedByRewindReason ?? "<none>"}");
             rec.SpawnSuppressedByRewind = false;
+            rec.SpawnSuppressedByRewindReason = null;
+            rec.SpawnSuppressedByRewindUT = double.NaN;
 
             rec.SceneExitSituation = -1;
         }

@@ -78,7 +78,7 @@ All notable changes to Parsek are documented here.
 
 - Patched-conic snapshots now keep the valid prefix of a chain when KSP's stock solver leaves a later patch with a null reference body, instead of discarding everything. Recordings now retain their predicted-tail orbit data through transient ascent solver hiccups, and the previous WARN tier downgrades to a single VERBOSE truncation note.
 
-- Plain Rewind-to-Launch (R-button) no longer materialises a real upper-stage copy when chain replay later reaches a chain-leaf in the rewound tree. The rewind path now marks every recording in the rewound tree as `SpawnSuppressedByRewind`, so the chain-tip activation that fires after warp (well after the rewind flag has cleared) finds the recording flagged as ghost-only past and refuses to spawn.
+- `#589` Plain Rewind-to-Launch (R-button) now scopes `SpawnSuppressedByRewind` to the active/source recording stripped during rewind instead of marking the whole tree. The #573 duplicate-source protection still blocks that same recording from respawning, while future same-tree terminal recordings (EVA kerbals, flags, landers, etc.) remain spawn-eligible when playback crosses their `endUT`; stale legacy whole-tree markers are cleared/ignored at the spawn gate with diagnostics.
 
 - Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
 
