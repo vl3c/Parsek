@@ -3287,7 +3287,7 @@ namespace Parsek
                         string.Format(ic,
                             "BuildAndLoadGhostProtoVessel: vesselRef is null after Load for {0}",
                             logContext));
-                    RemoveGhostProtoVessel(pv);
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: false);
                     return null;
                 }
 
@@ -3348,7 +3348,7 @@ namespace Parsek
             {
                 if (pv != null)
                 {
-                    RemoveGhostProtoVessel(pv);
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: true);
                 }
                 ParsekLog.Error(Tag,
                     string.Format(ic,
@@ -3397,10 +3397,13 @@ namespace Parsek
             return vesselNode;
         }
 
-        private static void RemoveGhostProtoVessel(ProtoVessel pv)
+        private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
         {
             ghostMapVesselPids.Remove(pv.persistentId);
-            HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+            if (nullSafeFlightState)
+                HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+            else
+                HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
         }
 
         /// <summary>

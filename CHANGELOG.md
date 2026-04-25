@@ -173,27 +173,6 @@ All notable changes to Parsek are documented here.
 - `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
 - Added a recording-finalization cache manual checklist covering runtime canaries, atmospheric booster deletion, stable background orbiters, scene-exit mid-burns, maneuver-node ignoring, focused crashes, log sweeps, and cadence calibration.
 - Updated the spawn audit design note and todo docs to mark the KSC, chain-tip, tree-leaf, and orphan-`ProtoVessel` follow-ups closed.
-- Added refactor-4 planning docs covering the zero-logic-change workflow, hotspot inventory, Pass 1 extraction results, and Pass 2 architectural deferrals for visual/UI/math/optimizer/serialization/playback/rewind candidates.
-
-### Code Quality
-
-- Started refactor-4 with a behavior-neutral `TimelineBuilder` canary: the recording collector now delegates recording-start, separation, vessel-spawn, and crew-death row emission to private same-file helpers while preserving ordering, counts, and existing timeline logging.
-- Continued refactor-4 with a behavior-neutral `CareerStateWindowUI.Build` extraction: contracts, strategies, facilities, and milestones tab view-model construction now lives in private same-file helpers while preserving the action walk and row ordering.
-- Continued refactor-4 with a behavior-neutral `GhostPlaybackLogic.PopulateGhostInfoDictionaries` extraction: engine, heat, light, RCS, robotic, audio, and orphan-engine auto-start population now lives in private same-file helpers while preserving dictionary fill order and logging.
-- Continued refactor-4 with a behavior-neutral `FlightRecorder.LogVisualRecordingCoverage` extraction: visual coverage accumulation and summary/detail logging now use private same-file helpers while preserving category counts and log ordering.
-- Continued refactor-4 with a behavior-neutral `GhostPlaybackLogic.ApplyPartEvents` extraction: destructive part events, parachute cleanup, and inventory visibility updates now delegate to private same-file helpers while preserving switch order and visibility/reentry side effects.
-- Continued refactor-4 with a behavior-neutral `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` extraction: cache refresh, engine/RCS activity scans, attitude debounce, manifest diff, landed motion, and orbit checks now live in private same-file helpers while preserving trigger priority.
-- Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.ReconcileEarningsWindow` extraction: store-side deltas, emitted ledger deltas, summary logging, and mismatch warnings now live in private same-file helpers while preserving reconciliation math and warning keys.
-- Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.CreateVesselCostActions` extraction: vessel build/rollout costs and recovery funds now live in private same-file helpers while preserving rollout adoption and recovery fallback behavior.
-- Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.RecalculateAndPatchCore` extraction: effective-ledger input logging and KSP patch application now live in private same-file helpers while preserving cutoff filtering, patch deferral, and rewind tech patch behavior.
-- Continued refactor-4 with behavior-neutral `RecordingStore` extractions: optimization merge/split/trim phases and rewind setup/strip/temp-save cleanup now live in private same-file helpers while preserving optimizer order and rewind load behavior.
-- Continued refactor-4 with behavior-neutral `BackgroundRecorder` extractions: background split child-vessel discovery, inherited loaded-state merge, and loaded seed-event emission now live in private same-file helpers while preserving split registration and environment initialization order.
-- Continued refactor-4 with a behavior-neutral `ParsekScenario.LoadRecordingMetadata` extraction: identity/loop, budget/rewind, grouping/segment, location/terminal, playback flag, and manifest loading now live in private same-file helpers while preserving save-node read order.
-- Continued refactor-4 with a behavior-neutral `WatchModeController.EnterWatchMode` extraction: watch entry validation/range gating, unattended-flight warning, and hold-state reset now live in private same-file helpers while preserving camera switching and focus behavior.
-- Continued refactor-4 with a behavior-neutral `GhostMapPresence.BuildAndLoadGhostProtoVesselCore` extraction: Tracking Station ghost proto-vessel node construction and failure cleanup now live in private same-file helpers while preserving ghost registration and load diagnostics.
-- Continued refactor-4 with a behavior-neutral `VesselSpawner.SpawnOrRecoverIfTooClose` extraction: resolved spawn-state snapshot overrides now live in a private same-file helper while preserving EVA, breakup-continuous, and surface-terminal spawn handling.
-- Continued refactor-4 with a behavior-neutral `GhostPlaybackEngine.UpdatePlayback` extraction: per-frame playback counters, deferred event buffers, diagnostics stopwatches, and heaviest-spawn latches now reset through a private same-file helper while preserving reset order.
-- Closed the refactor-4 Pass 1 inventory for the remaining mapped files: high-risk visual/UI/math/optimizer/serialization/KSC/rewind candidates are explicitly deferred to discussed Pass 2 owner proposals instead of hidden inside same-file helper churn.
 
 ## 0.8.3
 

@@ -3761,7 +3761,6 @@ namespace Parsek
             LoadRecordingManifestMetadata(recNode, rec);
 
             RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
-
         }
 
         private static void LoadRecordingIdentityAndLoopMetadata(ConfigNode recNode, Recording rec)

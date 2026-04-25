@@ -1500,7 +1500,7 @@ namespace Parsek
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
-            ClearWatchEndHoldState();
+            ResetWatchEntryTransientState();
 
             string body = gs.lastInterpolatedBodyName ?? "?";
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
@@ -1586,9 +1586,9 @@ namespace Parsek
             }
         }
 
-        private void ClearWatchEndHoldState()
+        private void ResetWatchEntryTransientState()
         {
-            // Clear hold timer and safety counter
+            // Reset entry-time hold and diagnostic state.
             watchEndHoldUntilRealTime = -1;
             watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;

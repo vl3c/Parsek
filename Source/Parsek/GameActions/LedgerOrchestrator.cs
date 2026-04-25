@@ -399,6 +399,7 @@ namespace Parsek
             public double EmittedFundsDelta;
             public double EmittedRepDelta;
             public double EmittedSciDelta;
+            // Assigned once by ComputeEarningsWindowEmittedDeltas and treated read-only after return.
             public List<GameAction> EffectiveScienceActions;
             public int ContractAcceptCount;
             public int FacilityUpgradeCount;
