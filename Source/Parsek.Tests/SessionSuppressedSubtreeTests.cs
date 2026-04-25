@@ -249,6 +249,201 @@ namespace Parsek.Tests
             Assert.Contains("rec_origin", closure);
         }
 
+        // =====================================================================
+        // Chain-sibling expansion (item 23 / fix-chain-sibling-supersede)
+        //
+        // Merge-time RecordingOptimizer.SplitAtSection splits a single live
+        // recording at env boundaries (atmo<->exo) into a ChainId-linked
+        // HEAD + TIP. The HEAD keeps the parent-branch-point link to the
+        // RewindPoint and ends with ChildBranchPointId=null; the TIP carries
+        // the terminal=Destroyed and (if any) the ChildBranchPointId from
+        // before the split. The closure walker must expand chain siblings
+        // sharing both ChainId and ChainBranch so a re-fly merge supersede
+        // covers the entire chain instead of leaving the TIP orphaned as a
+        // stale "kerbal destroyed in atmo" row alongside the new re-fly.
+        // =====================================================================
+
+        [Fact]
+        public void ChainExpansion_HeadOrigin_IncludesTip()
+        {
+            // HEAD has the BP link, TIP has null ParentBp + the moved
+            // ChildBranchPointId (post-split shape, RecordingStore.cs:2018-2019).
+            // For this test the chain has no further BP descendants.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1", state: MergeState.Immutable);
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            // bp_split represents the EVA / undock that produced the chained
+            // recording in the first place; it lists head as its child.
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip },
+                new List<BranchPoint> { bp_split });
+            InstallScenario(Marker("rec_head"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_head"));
+
+            Assert.Contains("rec_head", closure);
+            Assert.Contains("rec_tip", closure);
+            Assert.Equal(2, closure.Count);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") && l.Contains("siblingsAdded="));
+        }
+
+        [Fact]
+        public void ChainExpansion_TipOrigin_IncludesHead()
+        {
+            // Symmetric: marker points at the TIP (defensive for future marker
+            // shape changes — chain expansion runs on every dequeued member,
+            // not just origin, so HEAD must still be picked up).
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1");
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip },
+                new List<BranchPoint> { bp_split });
+            InstallScenario(Marker("rec_tip"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_tip"));
+
+            Assert.Contains("rec_head", closure);
+            Assert.Contains("rec_tip", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void ChainExpansion_DifferentChainBranch_Excluded()
+        {
+            // Same ChainId, different ChainBranch → siblings independent
+            // (per IsChainMemberOfUnfinishedFlight contract). Ghost-only
+            // parallel continuations on ChainBranch>0 must not auto-suppress.
+            var seg0 = Rec("rec_seg0", "tree_1", parentBranchPointId: "bp_split");
+            seg0.ChainId = "chain_a";
+            seg0.ChainBranch = 0;
+            seg0.ChainIndex = 0;
+            var seg1 = Rec("rec_seg1", "tree_1");
+            seg1.ChainId = "chain_a";
+            seg1.ChainBranch = 0;
+            seg1.ChainIndex = 1;
+            seg1.TerminalStateValue = TerminalState.Destroyed;
+            var seg_alt = Rec("rec_seg_alt", "tree_1");
+            seg_alt.ChainId = "chain_a";
+            seg_alt.ChainBranch = 1;       // different branch
+            seg_alt.ChainIndex = 0;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_seg0" });
+
+            InstallTree("tree_1",
+                new List<Recording> { seg0, seg1, seg_alt },
+                new List<BranchPoint> { bp_split });
+            InstallScenario(Marker("rec_seg0"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_seg0"));
+
+            Assert.Contains("rec_seg0", closure);
+            Assert.Contains("rec_seg1", closure);
+            Assert.DoesNotContain("rec_seg_alt", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void ChainExpansion_ThreeSegments_AllIncluded()
+        {
+            // Multi-env crossing produces a 3-segment chain (e.g. exo -> atmo
+            // -> ground impact). All three siblings on ChainBranch=0 must
+            // end up in the closure regardless of which one the marker names.
+            var seg0 = Rec("rec_seg0", "tree_1", parentBranchPointId: "bp_split");
+            seg0.ChainId = "chain_b";
+            seg0.ChainBranch = 0;
+            seg0.ChainIndex = 0;
+            var seg1 = Rec("rec_seg1", "tree_1");
+            seg1.ChainId = "chain_b";
+            seg1.ChainBranch = 0;
+            seg1.ChainIndex = 1;
+            var seg2 = Rec("rec_seg2", "tree_1");
+            seg2.ChainId = "chain_b";
+            seg2.ChainBranch = 0;
+            seg2.ChainIndex = 2;
+            seg2.TerminalStateValue = TerminalState.Destroyed;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_seg0" });
+
+            InstallTree("tree_1",
+                new List<Recording> { seg0, seg1, seg2 },
+                new List<BranchPoint> { bp_split });
+            InstallScenario(Marker("rec_seg0"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_seg0"));
+
+            Assert.Contains("rec_seg0", closure);
+            Assert.Contains("rec_seg1", closure);
+            Assert.Contains("rec_seg2", closure);
+            Assert.Equal(3, closure.Count);
+        }
+
+        [Fact]
+        public void ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded()
+        {
+            // After SplitAtSection, the TIP receives the moved
+            // ChildBranchPointId. If the TIP has its own BP descendant
+            // (e.g. the kerbal docked back with the mother before crashing),
+            // the chain expansion must enqueue the TIP so the BP walk runs
+            // on it and picks up the downstream child.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_c";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1", childBranchPointId: "bp_downstream");
+            tip.ChainId = "chain_c";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            var downstream = Rec("rec_downstream", "tree_1", parentBranchPointId: "bp_downstream");
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+            var bp_downstream = Bp("bp_downstream", BranchPointType.Undock,
+                parents: new List<string> { "rec_tip" },
+                children: new List<string> { "rec_downstream" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip, downstream },
+                new List<BranchPoint> { bp_split, bp_downstream });
+            InstallScenario(Marker("rec_head"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_head"));
+
+            Assert.Contains("rec_head", closure);
+            Assert.Contains("rec_tip", closure);
+            Assert.Contains("rec_downstream", closure);
+            Assert.Equal(3, closure.Count);
+        }
+
         [Fact]
         public void IsInSessionSuppressedSubtree_PositiveAndNegativeCases()
         {

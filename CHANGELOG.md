@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
+
 - EVA splits now author a Rewind Point, so a destroyed EVA kerbal becomes an Unfinished Flight with a Re-Fly button. Previously `IsTrackableVessel` only recognised parts with `ModuleCommand`, so the kerbal didn't count as a controllable output, the split classified as single-controllable, and no RP was authored.
 
 - Re-Fly session marker now survives the SPACECENTER round-trip that precedes the merge dialog when the active recording is a previously-promoted Unfinished Flight; previously the load-time validator wiped it and the merge fell through to the regular tree-merge path (no force-Immutable, no RP reap, no UF clear-out).

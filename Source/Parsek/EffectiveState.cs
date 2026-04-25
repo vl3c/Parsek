@@ -562,12 +562,26 @@ namespace Parsek
 
                 int mixedParentHalts = 0;
                 int childrenAdded = 0;
+                int siblingsAdded = 0;
 
                 while (queue.Count > 0)
                 {
                     string currentId = queue.Dequeue();
                     if (!recById.TryGetValue(currentId, out var currentRec))
                         continue;
+
+                    // Chain-sibling expansion: merge-time SplitAtSection
+                    // splits one live recording into ChainId-linked siblings
+                    // where the HEAD keeps the parent-branch-point link
+                    // (and `ChildBranchPointId = null`) while the TIP carries
+                    // the terminal state (and the moved `ChildBranchPointId`).
+                    // Walking only via `ChildBranchPointId` would dequeue the
+                    // HEAD, hit the early-return below, and never enqueue the
+                    // TIP — leaving a stale orphan after re-fly merge. Run
+                    // chain expansion on every dequeued member, BEFORE the
+                    // null-`ChildBranchPointId` early-return, so a HEAD with
+                    // no BP descendants still propagates to its siblings.
+                    EnqueueChainSiblings(currentRec, recById, queue, result, ref siblingsAdded);
 
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
@@ -606,7 +620,7 @@ namespace Parsek
 
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
-                    $"(childrenAdded={childrenAdded} mixedParentHalts={mixedParentHalts})");
+                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} mixedParentHalts={mixedParentHalts})");
 
                 return suppressionCache;
             }
@@ -647,6 +661,58 @@ namespace Parsek
                     return bp;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Adds every committed recording sharing both <c>ChainId</c> and
+        /// <c>ChainBranch</c> with <paramref name="rec"/> to
+        /// <paramref name="result"/> and enqueues them for further BP
+        /// walking. Idempotent via the <paramref name="result"/> HashSet.
+        ///
+        /// <para>
+        /// Same-chain / same-branch is the canonical "this is the same vessel
+        /// continued at an env boundary" predicate — see
+        /// <see cref="IsChainMemberOfUnfinishedFlight"/> and
+        /// <see cref="ResolveChainTerminalRecording"/>, which use the same
+        /// dual key. Different <c>ChainBranch</c> values are independent
+        /// (parallel ghost-only continuations) and stay out of the closure.
+        /// </para>
+        ///
+        /// <para>
+        /// The cache invalidation that wraps the closure builder
+        /// (<c>RecordingStore.StateVersion</c>, see line 528) covers chain
+        /// siblings automatically — they live in
+        /// <c>RecordingStore.CommittedRecordings</c>, the same source the
+        /// builder iterates to populate <paramref name="recById"/>.
+        /// </para>
+        /// </summary>
+        private static void EnqueueChainSiblings(
+            Recording rec,
+            Dictionary<string, Recording> recById,
+            Queue<string> queue,
+            HashSet<string> result,
+            ref int siblingsAdded)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return;
+
+            foreach (var cand in recById.Values)
+            {
+                if (cand == null) continue;
+                if (ReferenceEquals(cand, rec)) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (cand.ChainBranch != rec.ChainBranch) continue;
+                if (result.Contains(cand.RecordingId)) continue;
+
+                result.Add(cand.RecordingId);
+                siblingsAdded++;
+                // Enqueue so the BP walk runs on this member too — covers
+                // a TIP that received the moved `ChildBranchPointId` from
+                // RecordingStore.cs:2018-2019, multi-segment chains, and
+                // the "origin is itself a TIP" symmetric case (HashSet
+                // dedup prevents revisits).
+                queue.Enqueue(cand.RecordingId);
+            }
         }
 
         private static bool HasOutsideParent(BranchPoint bp, HashSet<string> suppressed)
