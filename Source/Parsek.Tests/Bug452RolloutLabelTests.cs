@@ -151,7 +151,7 @@ namespace Parsek.Tests
             Assert.True(GameActionDisplay.IsUnclaimedRolloutAction(longKey));
             Assert.Equal(
                 "Vessel build -5000" + GameActionDisplay.CancelledRolloutSuffix,
-                GameActionDisplay.GetDescription(longKey));
+                GameActionDisplay.GetDescription(longKey, Game.Modes.CAREER));
         }
 
         [Fact]
@@ -237,7 +237,7 @@ namespace Parsek.Tests
         {
             // The user-visible #452 fix: the cancelled-rollout entry now carries a
             // suffix that distinguishes it from an adopted build cost.
-            string desc = GameActionDisplay.GetDescription(MakeUnclaimedRollout(cost: 5000f));
+            string desc = GameActionDisplay.GetDescription(MakeUnclaimedRollout(cost: 5000f), Game.Modes.CAREER);
             Assert.Equal("Vessel build -5000" + GameActionDisplay.CancelledRolloutSuffix, desc);
         }
 
@@ -245,7 +245,7 @@ namespace Parsek.Tests
         public void GetDescription_AdoptedRollout_NoSuffix()
         {
             // Adopted by a recording — render as the existing plain label, no suffix.
-            string desc = GameActionDisplay.GetDescription(MakeAdoptedRollout(cost: 5000f));
+            string desc = GameActionDisplay.GetDescription(MakeAdoptedRollout(cost: 5000f), Game.Modes.CAREER);
             Assert.Equal("Vessel build -5000", desc);
         }
 
@@ -254,7 +254,7 @@ namespace Parsek.Tests
         {
             // Regression guard: a normal recording-side build action without any
             // rollout: dedup tag must continue to render unchanged.
-            string desc = GameActionDisplay.GetDescription(MakeOrdinaryBuildAction(cost: 5000f));
+            string desc = GameActionDisplay.GetDescription(MakeOrdinaryBuildAction(cost: 5000f), Game.Modes.CAREER);
             Assert.Equal("Vessel build -5000", desc);
         }
 
@@ -268,7 +268,7 @@ namespace Parsek.Tests
             // Both renderers (Actions and Timeline) must agree, so the suffix is
             // also present in the per-frame Timeline view.
             string text = TimelineEntryDisplay.GetGameActionText(
-                MakeUnclaimedRollout(cost: 5000f), vesselName: null);
+                MakeUnclaimedRollout(cost: 5000f), vesselName: null, currentMode: Game.Modes.CAREER);
             Assert.Equal("Build -5000" + GameActionDisplay.CancelledRolloutSuffix, text);
         }
 
@@ -276,7 +276,7 @@ namespace Parsek.Tests
         public void TimelineGetGameActionText_AdoptedRollout_NoSuffix()
         {
             string text = TimelineEntryDisplay.GetGameActionText(
-                MakeAdoptedRollout(cost: 5000f), vesselName: null);
+                MakeAdoptedRollout(cost: 5000f), vesselName: null, currentMode: Game.Modes.CAREER);
             Assert.Equal("Build -5000", text);
         }
 
@@ -284,7 +284,7 @@ namespace Parsek.Tests
         public void TimelineGetGameActionText_OrdinaryRecordingBuildCost_NoSuffix()
         {
             string text = TimelineEntryDisplay.GetGameActionText(
-                MakeOrdinaryBuildAction(cost: 5000f), vesselName: null);
+                MakeOrdinaryBuildAction(cost: 5000f), vesselName: null, currentMode: Game.Modes.CAREER);
             Assert.Equal("Build -5000", text);
         }
     }
