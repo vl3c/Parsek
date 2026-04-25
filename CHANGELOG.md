@@ -178,6 +178,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#527` In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` now drives `CommitTreeFlight` to land its launch recording in the timeline before staging the rewind, replacing the earlier `StopRecording`-then-wait pattern that timed out because stop alone never commits.
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.

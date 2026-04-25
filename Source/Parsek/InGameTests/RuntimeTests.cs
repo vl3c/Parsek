@@ -7832,7 +7832,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a real launch recording, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a live recording, drives the in-flight CommitTreeFlight path to commit the launch tree, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
             Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
         public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
         {
@@ -7905,13 +7905,20 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 FlightInputHandler.state.mainThrottle = 0f;
-                flight.StopRecording();
+                // ParsekFlight.StopRecording stops the underlying recorder but does not
+                // commit the active tree to the timeline — only the flight-button path
+                // (CommitTreeFlight) and the scene-exit MergeDialog flow do that. The
+                // earlier StopRecording-then-wait pattern timed out because the recording
+                // never reached CommittedRecordings; the rewind canary needs a real
+                // committed launch recording (with RewindSaveFileName copied to the root)
+                // before InitiateRewind can resolve a rewind owner.
+                flight.CommitTreeFlight();
                 yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f);
 
                 Recording committedRecording = RecordingStore.CommittedRecordings.FirstOrDefault(
                     r => r != null && r.RecordingId == activeRecId);
                 InGameAssert.IsNotNull(committedRecording,
-                    "Stopping the live rewind canary recording should commit it into the timeline");
+                    "Committing the live rewind canary tree should land the recording in the timeline");
                 InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
                     "Committed rewind canary recording must have a rewind save file");
 
