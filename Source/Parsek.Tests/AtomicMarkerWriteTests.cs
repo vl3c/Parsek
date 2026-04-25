@@ -122,6 +122,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StartInvoke_CanInvokeFailsAfterDialog_AbortsBeforeStaging()
+        {
+            // TOCTOU defense (review item 15): CanInvoke is checked at UI
+            // render time AND at confirm-dialog show time, but state can
+            // flip between dialog open and confirm click (RP marked
+            // corrupted by load-time sweep, save file removed, another
+            // re-fly session activates, scene transition starts).
+            // StartInvoke must re-run CanInvoke at the action boundary so a
+            // stale confirmation cannot bypass the safety gates. This test
+            // drives the TOCTOU scenario: a dialog opens, then mid-dialog
+            // the RP gets marked corrupted, then the user clicks Rewind.
+            // StartInvoke must abort early — no provisional add, no marker
+            // write, no context parked — and the WARN log must record the
+            // reason from CanInvoke.
+            MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Headless: keep CanInvoke off the disk-access path entirely.
+            // Setting Corrupted=true short-circuits CanInvoke before it
+            // resolves the quicksave path or runs the part-loader probe,
+            // so the test does not depend on KSPUtil.ApplicationRootPath
+            // or HighLogic.SaveFolder being set.
+            rp.QuicksaveFilename = "Parsek/RewindPoints/" + rp.RewindPointId + ".sfs";
+            rp.Corrupted = false; // dialog-time state: passes CanInvoke
+
+            // Mid-dialog, between confirm-dialog show and confirm click,
+            // the load-time sweep / external pipeline marks the RP
+            // corrupted. The next CanInvoke now returns false.
+            rp.Corrupted = true;
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+            Assert.False(RewindInvokeContext.Pending);
+            Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+
+            // CanInvoke checks the scene first. Pin to FLIGHT so the test
+            // exercises the Corrupted branch instead of the scene branch.
+            GameScenes priorScene = HighLogic.LoadedScene;
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            try
+            {
+                RewindInvoker.StartInvoke(rp, slot);
+            }
+            finally
+            {
+                HighLogic.LoadedScene = priorScene;
+            }
+
+            // No state-mutating work ran past the precondition gate.
+            Assert.False(
+                RewindInvokeContext.Pending,
+                "StartInvoke must not park context when CanInvoke fails");
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+
+            // WARN log records the reason returned by CanInvoke, the rp id,
+            // and the slot — so a regression that loses the precondition
+            // re-run is diagnosable from the log alone.
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Rewind]") &&
+                l.Contains("precondition failed after dialog confirm") &&
+                l.Contains("corrupted") &&
+                l.Contains(rp.RewindPointId));
+        }
+
+        [Fact]
         public void ConsumePostLoad_StartInvokeGatePreventsStaleContext_PinnedBySourceInspection()
         {
             // Review item: StartInvoke must re-run CanInvoke so a stale

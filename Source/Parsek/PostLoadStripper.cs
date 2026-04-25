@@ -169,7 +169,20 @@ namespace Parsek
             uint pid = v.PersistentId;
             try
             {
-                v.Die();
+                // §6.4 step 4 contract: Strip is a SILENT vessel removal — the
+                // despawned siblings must not look like player-driven deaths
+                // to GameStateRecorder (no CrewKilled / CrewRemoved / etc.
+                // events should fan out to the ledger). The active call site
+                // already unsubscribes GameStateRecorder before Strip runs,
+                // so today this guard is belt-and-suspenders. Wrapping each
+                // Die() locally keeps the silent-removal contract owned by
+                // the stripper so a future refactor that reorders the
+                // unsubscribe/strip dance cannot accidentally let strip-time
+                // crew/resource deltas leak into the ledger.
+                using (SuppressionGuard.Crew())
+                {
+                    v.Die();
+                }
                 result.StrippedPids.Add(pid);
             }
             catch (Exception ex)

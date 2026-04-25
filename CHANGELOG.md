@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Rewind to Staging now re-checks its preconditions when the user clicks Rewind in the confirmation dialog, so a state change between dialog show and confirm (RP marked corrupted, quicksave file removed, another re-fly session activates, scene transition starts) cancels the action with a toast instead of staging a half-written invocation on top of invalid state.
+
 - Recordings table no longer renders duplicate rewind-to-launch `R` buttons on tree branches (debris, decouple children, EVA splits) after a normal merge; only the recording that owns the launch save (standalone, or the tree root) shows the legacy `R` button, while branch rows reserve the column slot for layout alignment.
 
 - Re-fly merges where the Limbo-restore path kept the origin recording alive across the RP-quicksave reload no longer write a self-supersede row that turns the supersede chain into a 1-node cycle; in-place continuations now skip the journaled merge, flip MergeState, and clear the marker, and load-time sweep purges any legacy self-supersede rows from older saves.
