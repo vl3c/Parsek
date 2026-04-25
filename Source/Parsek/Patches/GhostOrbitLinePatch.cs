@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
 
@@ -121,6 +122,84 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(OrbitRendererBase), "LateUpdate")]
     internal static class GhostOrbitLinePatch
     {
+        private const string Tag = "GhostOrbitLine";
+
+        internal static string BuildGhostOrbitLineDecisionStateKey(
+            bool lineActive,
+            OrbitRendererBase.DrawIcons drawIcons,
+            bool iconSuppressed,
+            string reason,
+            bool hasBounds)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "active={0}|icons={1}|suppressed={2}|reason={3}|bounds={4}",
+                lineActive ? 1 : 0,
+                drawIcons,
+                iconSuppressed ? 1 : 0,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                hasBounds ? 1 : 0);
+        }
+
+        internal static string FormatGhostOrbitLineDecision(
+            uint vesselPid,
+            string reason,
+            bool lineActive,
+            OrbitRendererBase.DrawIcons drawIcons,
+            bool iconSuppressed,
+            bool belowAtmosphere,
+            bool hasBounds,
+            double currentUT,
+            double startUT,
+            double endUT)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Orbit line decision: pid={0} reason={1} lineActive={2} drawIcons={3} iconSuppressed={4} belowAtmosphere={5} hasBounds={6} currentUT={7:F1} bounds=[{8:F1},{9:F1}] scene={10}",
+                vesselPid,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                lineActive,
+                drawIcons,
+                iconSuppressed,
+                belowAtmosphere,
+                hasBounds,
+                currentUT,
+                hasBounds ? startUT : double.NaN,
+                hasBounds ? endUT : double.NaN,
+                HighLogic.LoadedScene);
+        }
+
+        private static void LogOrbitLineDecision(
+            uint vesselPid,
+            string reason,
+            bool lineActive,
+            OrbitRendererBase.DrawIcons drawIcons,
+            bool iconSuppressed,
+            bool belowAtmosphere,
+            bool hasBounds,
+            double currentUT,
+            double startUT,
+            double endUT)
+        {
+            ParsekLog.VerboseOnChange(Tag,
+                "pid-" + vesselPid.ToString(CultureInfo.InvariantCulture),
+                BuildGhostOrbitLineDecisionStateKey(
+                    lineActive,
+                    drawIcons,
+                    iconSuppressed,
+                    reason,
+                    hasBounds),
+                FormatGhostOrbitLineDecision(
+                    vesselPid,
+                    reason,
+                    lineActive,
+                    drawIcons,
+                    iconSuppressed,
+                    belowAtmosphere,
+                    hasBounds,
+                    currentUT,
+                    startUT,
+                    endUT));
+        }
+
         static void Postfix(OrbitRendererBase __instance)
         {
             if (__instance.vessel == null)
@@ -132,7 +211,16 @@ namespace Parsek.Patches
 
             var line = __instance.OrbitLine;
             if (line == null)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "missing-line-" + pid.ToString(CultureInfo.InvariantCulture),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Orbit line decision skipped: pid={0} reason=missing-orbit-line scene={1}",
+                        pid,
+                        HighLogic.LoadedScene),
+                    5.0);
                 return;
+            }
 
             // Atmosphere suppression — shared by both segment-based and terminal-orbit ghosts.
             // Below the atmosphere boundary, Keplerian orbits are meaningless (drag makes them
@@ -155,6 +243,20 @@ namespace Parsek.Patches
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     if (belowAtmosphere)
                         GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    string reason = belowAtmosphere
+                        ? "below-atmosphere"
+                        : (currentUT > endUT ? "past-segment-end" : "before-segment-start");
+                    LogOrbitLineDecision(
+                        pid,
+                        reason,
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: true,
+                        currentUT,
+                        startUT,
+                        endUT);
                     return;
                 }
 
@@ -162,6 +264,17 @@ namespace Parsek.Patches
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "visible-segment",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere,
+                    hasBounds: true,
+                    currentUT,
+                    startUT,
+                    endUT);
                 return;
             }
 
@@ -171,12 +284,34 @@ namespace Parsek.Patches
                 line.active = false;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "terminal-below-atmosphere",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere,
+                    hasBounds: false,
+                    currentUT,
+                    double.NaN,
+                    double.NaN);
             }
             else
             {
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "terminal-visible",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere,
+                    hasBounds: false,
+                    currentUT,
+                    double.NaN,
+                    double.NaN);
             }
         }
     }

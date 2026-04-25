@@ -4796,9 +4796,22 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
                 return;
             }
-            if (pendingSplitInProgress) return; // split must complete first
+            if (pendingSplitInProgress)
+            {
+                LogSplitSkip(
+                    "OnCrewBoardVessel",
+                    "pendingSplitInProgress",
+                    data.from?.vessel?.persistentId ?? 0u,
+                    data.to?.vessel?.persistentId ?? 0u);
+                return; // split must complete first
+            }
             if (data.to?.vessel == null)
             {
+                LogSplitSkip(
+                    "OnCrewBoardVessel",
+                    "target-vessel-null",
+                    data.from?.vessel?.persistentId ?? 0u,
+                    0u);
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: target vessel is null — ignoring");
                 return;
             }
@@ -4820,12 +4833,25 @@ namespace Parsek
             // Mid-recording EVA: tree branch (replaces legacy chain continuation)
             if (IsRecording)
             {
-                if (pendingSplitInProgress) return; // another split is being processed
+                if (pendingSplitInProgress)
+                {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        "pendingSplitInProgress",
+                        data.from?.vessel?.persistentId ?? 0u,
+                        data.to?.vessel?.persistentId ?? 0u);
+                    return; // another split is being processed
+                }
 
                 // Only trigger if EVA is from the vessel we're recording
                 if (data.from?.vessel == null ||
                     data.from.vessel.persistentId != recorder.RecordingVesselId)
                 {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        data.from?.vessel == null ? "source-vessel-null" : "source-vessel-mismatch",
+                        data.from?.vessel?.persistentId ?? 0u,
+                        data.to?.vessel?.persistentId ?? 0u);
                     return;
                 }
 
@@ -4852,7 +4878,14 @@ namespace Parsek
                 autoRecordOnEvaEnabled: ParsekSettings.Current?.autoRecordOnEva != false))
             {
                 if (!hasSourceVessel)
+                {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        "source-vessel-null",
+                        0u,
+                        data.to?.vessel?.persistentId ?? 0u);
                     ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
+                }
                 else
                     ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
                 return;
@@ -4861,6 +4894,31 @@ namespace Parsek
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
             Log($"EVA detected (sit={data.from.vessel.situation}) — pending auto-record");
+        }
+
+        private void LogSplitSkip(string source, string reason, uint sourcePid, uint targetPid)
+        {
+            string activeRecordingId = activeTree?.ActiveRecordingId;
+            string identity = string.Format(CultureInfo.InvariantCulture,
+                "split-skip-{0}-{1}-{2}-{3}",
+                string.IsNullOrEmpty(source) ? "unknown" : source,
+                string.IsNullOrEmpty(activeRecordingId) ? "none" : activeRecordingId,
+                sourcePid,
+                targetPid);
+            string stateKey = string.Format(CultureInfo.InvariantCulture,
+                "{0}|pending={1}",
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                pendingSplitInProgress ? 1 : 0);
+            ParsekLog.VerboseOnChange("Flight",
+                identity,
+                stateKey,
+                FormatSplitSkipSummary(
+                    source,
+                    reason,
+                    activeRecordingId,
+                    sourcePid,
+                    targetPid,
+                    pendingSplitInProgress));
         }
 
         internal static string ExtractEvaKerbalName(GameEvents.FromToAction<Part, Part> data)
@@ -5016,6 +5074,72 @@ namespace Parsek
             return needsCacheRefresh || currentUT >= nextManifestEvaluationUt;
         }
 
+        internal static string BuildPostSwitchAutoRecordDecisionStateKey(
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool baselineCaptured,
+            bool waitingForSettle,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "suppression={0}|baseline={1}|settle={2}|trigger={3}",
+                suppression,
+                baselineCaptured ? 1 : 0,
+                waitingForSettle ? 1 : 0,
+                trigger);
+        }
+
+        internal static string FormatPostSwitchAutoRecordDecisionSummary(
+            uint armedPid,
+            uint activePid,
+            bool baselineCaptured,
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool waitingForSettle,
+            double comparisonsReadyUt,
+            double currentUt,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch watch decision: pid={0} activePid={1} baseline={2} suppression={3} waitingForSettle={4} readyAt={5:F1} now={6:F1} trigger={7}",
+                armedPid,
+                activePid,
+                baselineCaptured,
+                suppression,
+                waitingForSettle,
+                comparisonsReadyUt,
+                currentUt,
+                trigger);
+        }
+
+        private static void LogPostSwitchAutoRecordDecision(
+            PostSwitchAutoRecordState state,
+            uint activePid,
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool waitingForSettle,
+            double currentUt,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            if (state == null)
+                return;
+
+            string stateKey = BuildPostSwitchAutoRecordDecisionStateKey(
+                suppression,
+                state.BaselineCaptured,
+                waitingForSettle,
+                trigger);
+            ParsekLog.VerboseOnChange("Flight",
+                "post-switch-watch-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                stateKey,
+                FormatPostSwitchAutoRecordDecisionSummary(
+                    state.VesselPid,
+                    activePid,
+                    state.BaselineCaptured,
+                    suppression,
+                    waitingForSettle,
+                    state.ComparisonsReadyUt,
+                    currentUt,
+                    trigger));
+        }
+
         internal static bool HasMeaningfulLandedMotionChange(
             double distanceDeltaMeters,
             double speedMetersPerSecond)
@@ -5092,6 +5216,18 @@ namespace Parsek
             return false;
         }
 
+        internal static int CountMeaningfulCrewDelta(Dictionary<string, int> delta)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (entry.Value != 0)
+                    count++;
+            }
+            return count;
+        }
+
         internal static bool HasMeaningfulResourceDelta(
             Dictionary<string, double> delta,
             double epsilon = PostSwitchResourceDeltaEpsilon)
@@ -5105,6 +5241,20 @@ namespace Parsek
             return false;
         }
 
+        internal static int CountMeaningfulResourceDelta(
+            Dictionary<string, double> delta,
+            double epsilon = PostSwitchResourceDeltaEpsilon)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (Math.Abs(entry.Value) > epsilon)
+                    count++;
+            }
+            return count;
+        }
+
         internal static bool HasMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
         {
             if (delta == null) return false;
@@ -5114,6 +5264,18 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        internal static int CountMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (entry.Value.count != 0 || entry.Value.slotsTaken != 0)
+                    count++;
+            }
+            return count;
         }
 
         internal static bool HasMeaningfulPartStateTokenChange(
@@ -5134,6 +5296,75 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        internal static int CountPartStateTokenDelta(
+            ICollection<string> baselineTokens,
+            ICollection<string> currentTokens)
+        {
+            int baselineCount = baselineTokens != null ? baselineTokens.Count : 0;
+            int currentCount = currentTokens != null ? currentTokens.Count : 0;
+            if (baselineCount == 0)
+                return currentCount;
+            if (currentCount == 0)
+                return baselineCount;
+
+            var baselineSet = baselineTokens as HashSet<string> ?? new HashSet<string>(baselineTokens);
+            var currentSet = currentTokens as HashSet<string> ?? new HashSet<string>(currentTokens);
+            int delta = 0;
+            foreach (string token in currentSet)
+            {
+                if (!baselineSet.Contains(token))
+                    delta++;
+            }
+            foreach (string token in baselineSet)
+            {
+                if (!currentSet.Contains(token))
+                    delta++;
+            }
+            return delta;
+        }
+
+        internal static string FormatPostSwitchManifestDeltaSummary(
+            uint vesselPid,
+            int crewDeltaKeys,
+            int resourceDeltaKeys,
+            int inventoryDeltaKeys,
+            int partStateTokenDelta,
+            bool crewChanged,
+            bool resourceChanged,
+            bool partStateChanged,
+            double nextEvaluationUt)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch manifest delta: pid={0} crewChanged={1} resourceChanged={2} partStateChanged={3} crewDeltaKeys={4} resourceDeltaKeys={5} inventoryDeltaKeys={6} partStateTokenDelta={7} nextEvalUT={8:F1}",
+                vesselPid,
+                crewChanged,
+                resourceChanged,
+                partStateChanged,
+                crewDeltaKeys,
+                resourceDeltaKeys,
+                inventoryDeltaKeys,
+                partStateTokenDelta,
+                nextEvaluationUt);
+        }
+
+        internal static string FormatSplitSkipSummary(
+            string source,
+            string reason,
+            string activeRecordingId,
+            uint sourcePid,
+            uint targetPid,
+            bool pendingSplitInProgress)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0}: split path skipped reason={1} activeRec={2} sourcePid={3} targetPid={4} pendingSplitInProgress={5}",
+                string.IsNullOrEmpty(source) ? "(unknown)" : source,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                string.IsNullOrEmpty(activeRecordingId) ? "(none)" : activeRecordingId,
+                sourcePid,
+                targetPid,
+                pendingSplitInProgress);
         }
 
         internal static bool HasMeaningfulPartStateChange(IEnumerable<PartEventType> changedTypes)
@@ -5675,17 +5906,33 @@ namespace Parsek
                 var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
                 var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
                 var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
-                crewChanged = HasMeaningfulCrewDelta(
-                    CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew));
-                resourceChanged = HasMeaningfulResourceDelta(
-                    ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources));
-                partStateChanged = HasMeaningfulPartStateTokenChange(
+                var crewDelta = CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew);
+                var resourceDelta = ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources);
+                var inventoryDelta = InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory);
+                int crewDeltaKeys = CountMeaningfulCrewDelta(crewDelta);
+                int resourceDeltaKeys = CountMeaningfulResourceDelta(resourceDelta);
+                int inventoryDeltaKeys = CountMeaningfulInventoryDelta(inventoryDelta);
+                int partStateTokenDelta = CountPartStateTokenDelta(
                     state.BaselinePartStateTokens,
-                    currentPartStateTokens)
-                    || HasMeaningfulInventoryDelta(
-                        InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory));
+                    currentPartStateTokens);
+                crewChanged = crewDeltaKeys > 0;
+                resourceChanged = resourceDeltaKeys > 0;
+                partStateChanged = partStateTokenDelta > 0 || inventoryDeltaKeys > 0;
                 state.NextManifestEvaluationUt =
                     currentUT + PostSwitchManifestEvaluationIntervalSeconds;
+                ParsekLog.VerboseRateLimited("Flight",
+                    "post-switch-manifest-delta-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                    FormatPostSwitchManifestDeltaSummary(
+                        state.VesselPid,
+                        crewDeltaKeys,
+                        resourceDeltaKeys,
+                        inventoryDeltaKeys,
+                        partStateTokenDelta,
+                        crewChanged,
+                        resourceChanged,
+                        partStateChanged,
+                        state.NextManifestEvaluationUt),
+                    PostSwitchManifestEvaluationIntervalSeconds);
             }
         }
 
@@ -5838,6 +6085,7 @@ namespace Parsek
                 return;
 
             uint activePid = v != null ? v.persistentId : 0;
+            double currentUT = Planetarium.GetUniversalTime();
             var suppression = EvaluatePostSwitchAutoRecordSuppression(
                 ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                 IsRecording,
@@ -5850,37 +6098,66 @@ namespace Parsek
                 IsAnyWarpActive(),
                 v != null && v.packed);
 
-            ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-watch",
-                $"Post-switch watch: pid={state.VesselPid} activePid={activePid} " +
-                $"baseline={state.BaselineCaptured} suppression={suppression}", 1.0);
-
             if (suppression == PostSwitchAutoRecordSuppressionReason.Disabled
                 || suppression == PostSwitchAutoRecordSuppressionReason.AlreadyRecording)
             {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 DisarmPostSwitchAutoRecord($"suppressed by {suppression}");
                 return;
             }
 
             if (suppression != PostSwitchAutoRecordSuppressionReason.None)
+            {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 return;
+            }
 
-            double currentUT = Planetarium.GetUniversalTime();
             if (!state.BaselineCaptured)
             {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 CapturePostSwitchAutoRecordBaseline(state, v, currentUT);
                 return;
             }
 
             if (currentUT < state.ComparisonsReadyUt)
             {
-                ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-landed-settle",
-                    $"Post-switch watch: waiting for landed settle pid={state.VesselPid} " +
-                    $"readyAt={state.ComparisonsReadyUt:F1} now={currentUT:F1}", 1.0);
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: true,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 return;
             }
 
             PostSwitchAutoRecordTrigger trigger =
                 EvaluatePostSwitchAutoRecordTrigger(v, state, currentUT);
+            LogPostSwitchAutoRecordDecision(
+                state,
+                activePid,
+                suppression,
+                waitingForSettle: false,
+                currentUt: currentUT,
+                trigger: trigger);
             if (trigger == PostSwitchAutoRecordTrigger.None)
                 return;
 

@@ -491,6 +491,26 @@ namespace Parsek.InGameTests
             return test.RequiredScene == HighLogic.LoadedScene;
         }
 
+        internal static string FormatSceneEligibilitySkipSummary(
+            int skipped,
+            GameScenes currentScene,
+            IDictionary<GameScenes, int> skippedByRequiredScene)
+        {
+            var parts = new List<string>();
+            if (skippedByRequiredScene != null)
+            {
+                foreach (var kvp in skippedByRequiredScene.OrderBy(kvp => kvp.Key.ToString()))
+                    parts.Add(kvp.Key + ":" + kvp.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            string byScene = parts.Count > 0 ? string.Join(",", parts) : "(none)";
+            return string.Format(CultureInfo.InvariantCulture,
+                "Scene eligibility skip summary: skipped={0} currentScene={1} byRequiredScene={2}",
+                skipped,
+                currentScene,
+                byScene);
+        }
+
         internal static List<InGameTestInfo> OrderForBatchExecution(IEnumerable<InGameTestInfo> tests)
         {
             return tests
@@ -737,6 +757,8 @@ namespace Parsek.InGameTests
         {
             isRunning = true;
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
+            int sceneEligibilitySkipped = 0;
+            var sceneEligibilitySkipsByRequiredScene = new Dictionary<GameScenes, int>();
 
             foreach (var test in tests)
             {
@@ -755,6 +777,12 @@ namespace Parsek.InGameTests
                 {
                     test.Status = TestStatus.Skipped;
                     test.ErrorMessage = $"Requires {test.RequiredScene} scene";
+                    sceneEligibilitySkipped++;
+                    int count;
+                    sceneEligibilitySkipsByRequiredScene.TryGetValue(test.RequiredScene, out count);
+                    sceneEligibilitySkipsByRequiredScene[test.RequiredScene] = count + 1;
+                    ParsekLog.Verbose(Tag,
+                        $"Scene eligibility skipped: {test.Name} requires={test.RequiredScene} current={HighLogic.LoadedScene}");
                     RecountResults();
                     continue;
                 }
@@ -781,6 +809,14 @@ namespace Parsek.InGameTests
             preserveBatchFlightBaselineArtifacts = false;
             preservedBatchFlightBaselineReason = null;
             activeTestCoroutine = null;
+            if (sceneEligibilitySkipped > 0)
+            {
+                ParsekLog.Info(Tag,
+                    FormatSceneEligibilitySkipSummary(
+                        sceneEligibilitySkipped,
+                        HighLogic.LoadedScene,
+                        sceneEligibilitySkipsByRequiredScene));
+            }
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
                 $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {considered})");

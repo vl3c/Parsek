@@ -6366,6 +6366,29 @@ namespace Parsek
             if (!IsRecording) return;
 
             Vessel v = FindVesselByPid(RecordingVesselId);
+            if (v == null)
+            {
+                string recordingId = ActiveTree?.ActiveRecordingId ?? FinalizationCache?.RecordingId;
+                string vesselName = null;
+                Recording treeRec;
+                if (ActiveTree != null
+                    && ActiveTree.Recordings != null
+                    && !string.IsNullOrEmpty(recordingId)
+                    && ActiveTree.Recordings.TryGetValue(recordingId, out treeRec))
+                {
+                    vesselName = treeRec.VesselName;
+                }
+
+                ParsekLog.Warn("Recorder",
+                    FormatTransitionToBackgroundMissingVesselWarning(
+                        RecordingVesselId,
+                        recordingId,
+                        vesselName,
+                        Recording.Count,
+                        OrbitSegments.Count,
+                        TrackSections.Count,
+                        FinalizationCache));
+            }
 
             // Sample a boundary point if vessel is still accessible
             if (v != null)
@@ -6412,6 +6435,37 @@ namespace Parsek
             // won't fire.
             ParsekLog.Info("Recorder", $"Transitioned to background (pid={RecordingVesselId}, " +
                 $"points={Recording.Count}, orbitSegments={OrbitSegments.Count})");
+        }
+
+        internal static string FormatTransitionToBackgroundMissingVesselWarning(
+            uint vesselPid,
+            string recordingId,
+            string vesselName,
+            int pointCount,
+            int orbitSegmentCount,
+            int trackSectionCount,
+            RecordingFinalizationCache finalizationCache)
+        {
+            string cacheState = finalizationCache == null
+                ? "none"
+                : string.Format(CultureInfo.InvariantCulture,
+                    "status={0} owner={1} terminal={2} cachedUT={3}",
+                    finalizationCache.Status,
+                    finalizationCache.Owner,
+                    finalizationCache.TerminalState?.ToString() ?? "(null)",
+                    double.IsNaN(finalizationCache.CachedAtUT)
+                        ? "NaN"
+                        : finalizationCache.CachedAtUT.ToString("F1", CultureInfo.InvariantCulture));
+
+            return string.Format(CultureInfo.InvariantCulture,
+                "TransitionToBackground: live vessel missing pid={0} recId={1} vessel='{2}' points={3} orbitSegments={4} trackSections={5} finalizerCache={6}",
+                vesselPid,
+                string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId,
+                string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName,
+                pointCount,
+                orbitSegmentCount,
+                trackSectionCount,
+                cacheState);
         }
 
         /// <summary>
