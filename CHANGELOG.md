@@ -41,6 +41,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
+
 - Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
 
 - EVA splits now author a Rewind Point, so a destroyed EVA kerbal becomes an Unfinished Flight with a Re-Fly button. Previously `IsTrackableVessel` only recognised parts with `ModuleCommand`, so the kerbal didn't count as a controllable output, the split classified as single-controllable, and no RP was authored.
@@ -185,6 +187,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
 - Follow-up cleanup to `#431/#432`: retired `MilestoneStore.CurrentEpoch` from production branch filtering. Timeline rows, milestone bundling, reward enrichment, revert bookkeeping, and load-time ledger recovery now exclude abandoned branches through recording-tag visibility plus deterministic discard/unstash behavior instead of epoch stamping/filtering.
 - `#552` Vessel recovery funds now tolerate stock firing `onVesselRecovered` before the paired `FundsChanged(VesselRecovery)` event. Parsek defers the recovery request and pairs it when the funds event arrives, preferring vessel-name matches over nearest-UT, warning on ambiguous ties, and evicting unclaimed requests on scene switches, rewind boundaries, and save loads.
 - `#553` Untagged lifecycle events (contract accept/complete/fail/cancel, tech, part purchase, crew hire, milestone, strategy activate/deactivate, facility upgrade) now forward directly to the ledger even in FLIGHT, so launch-site events that occur before any Parsek recording owner exists do not get stranded only in `GameStateStore`. Tagged FLIGHT teardown events remain protected by the non-empty recording tag gate.
