@@ -310,7 +310,7 @@ occupied at the time of placement.
 
 ---
 
-## 579. LedgerOrchestrator: pending recovery-funds queue overflowed for `Kerbal X Debris`
+## 579. ~~LedgerOrchestrator: pending recovery-funds queue overflowed for `Kerbal X Debris`~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 1× threshold, 1× flush:
@@ -332,7 +332,17 @@ filter.
   `onVesselRecoveryProcessing` funds events by stock; if so, debris should
   not be enqueued at all.
 
-**Status:** Open.
+**Fix:** Debris recoveries now short-circuit before deferred recovery-funds
+queueing when no immediate paired funds event exists: `ParsekScenario` passes the
+recovered `ProtoVessel`'s `VesselType` into `LedgerOrchestrator`, and the
+orchestrator defensively skips the pending queue for `VesselType.Debris`
+callbacks. Stock API docs and decompilation show `onVesselRecoveryProcessing`
+still fires before `onVesselRecovered`, so an already-recorded debris payout can
+still pair immediately; debris-only recoveries that produce no ledger-worthy
+`FundsChanged(VesselRecovery)` should not contribute pending ledger recovery
+entries.
+
+**Status:** ~~Open~~ Done.
 
 ---
 

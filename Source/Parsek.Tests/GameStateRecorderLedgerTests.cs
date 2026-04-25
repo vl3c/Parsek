@@ -425,6 +425,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnVesselRecoveryFunds_DebrisRecovery_DoesNotEnqueueOrWarn()
+        {
+            // #579: debris-only recoveries can arrive without a ledger-worthy paired
+            // FundsChanged(VesselRecovery) event. They must not accumulate in the
+            // pending recovery-funds queue or later flush as stale rewind entries.
+            int before = Ledger.Actions.Count;
+            for (int i = 0; i <= LedgerOrchestrator.PendingRecoveryFundsStaleThreshold; i++)
+            {
+                LedgerOrchestrator.OnVesselRecoveryFunds(
+                    1432.4 + i * 0.01,
+                    "Kerbal X Debris",
+                    fromTrackingStation: true,
+                    vesselType: VesselType.Debris);
+            }
+
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+
+            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Kerbal X Debris") &&
+                l.Contains("Debris") &&
+                l.Contains("skipping deferred recovery-funds pairing"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("pending queue exceeded threshold"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("FlushStalePendingRecoveryFunds"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_DebrisWithPairedFundsEvent_AddsRecoveryAction()
+        {
+            // Stock recovery processing runs before onVesselRecovered. If a debris
+            // recovery really did produce funds, keep pairing it; only the missing-pair
+            // debris path is filtered from the deferred queue.
+            var evt = new GameStateEvent
+            {
+                ut = 2100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 1000.0,
+                valueAfter = 1250.0
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                2100.0,
+                "Kerbal X Debris",
+                fromTrackingStation: true,
+                vesselType: VesselType.Debris);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.True(Ledger.Actions.Count > before);
+            var recovery = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 2100.0) < 0.01);
+            Assert.NotNull(recovery);
+            Assert.Equal(250f, recovery.FundsAwarded);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("skipping deferred recovery-funds pairing"));
+        }
+
+        [Fact]
         public void OnVesselRecoveryFunds_CallbackBeforeFundsEvent_PairsWhenEventIsRecorded()
         {
             LedgerOrchestrator.OnVesselRecoveryFunds(149.53, "r0", fromTrackingStation: false);
