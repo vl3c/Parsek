@@ -40,29 +40,29 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- The Merge to Timeline dialog now shows the re-flight's vessel name + recording duration on a centered headline, followed by a single line "Commit this re-flight attempt permanently to the timeline. This cannot be undone!" — replacing the long supersede / ghost-of-retired-attempt advisory that was misleading on the in-place continuation path.
+- Re-fly merge dialog body trimmed to a centered `<vessel> - <duration>` headline plus "Commit this re-flight attempt permanently to the timeline. This cannot be undone!".
 
-- Regular (non-re-fly) tree-merge dialog drops the "no flight branches produced a vessel that can continue flying" advisory. Crashed / recovered recordings replaying as ghosts is the obvious outcome; the warning was over-explanation in jargon ("branches", "placed").
+- Regular merge dialog drops the spawnable=0 advisory; crashed / recovered recordings replaying as ghosts is the obvious outcome.
 
-- Spawn-death detection now skips while a re-fly session marker is active, so the `PostLoadStripper` killing sibling vessels (upper stage, debris) at re-fly invocation no longer arms a duplicate materialization that spawned a real upper-stage vessel next to the player's re-fly booster.
+- Strip-killing the upper stage during re-fly no longer trips spawn-death respawn, so a duplicate upper-stage vessel doesn't materialise next to the booster.
 
-- Merging an in-place re-fly continuation now reaps the originating Rewind Point and forces the recording to `Immutable` even if the re-flight crashed, so the recording is promoted out of the Unfinished Flights virtual group instead of staying duplicated in both Unfinished Flights and the regular tree row. "Merge to Timeline" is treated as the player's commitment that the re-flight is final regardless of outcome.
+- Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
 
-- Unfinished Flights rows now label their button `Re-Fly` instead of the legacy `R` / `FF` glyph. The action is qualitatively different from a launch rewind — clicking it loads the staging Rewind Point, places you in control of the destroyed sibling vessel, and starts a re-fly session that ends with a merge or discard. `Re-Fly` says exactly that; the legacy `R` (rewind to launch and watch) keeps its short glyph on every other row.
+- Unfinished Flights rows now show a `Re-Fly` button (the action loads a staging Rewind Point — different from the legacy `R` / `FF` time-rewind on every other row).
 
-- Timeline window now shows a row for each staging split that produces a controllable child. While the destroyed sibling is still an Unfinished Flight the row reads `Separation of Unfinished Flight: <vessel>` with a `Fly` button that re-flies it; once the player merges, the row morphs to `Separation: <vessel>` and the Fly button drops away. Debris (uncontrolled fragments) and debris-only booster decoupling are skipped — they bloat the timeline without telling the player anything they didn't already see watching the rocket break apart.
+- Timeline window now lists controllable staging splits as `Separation of Unfinished Flight: <vessel>` (with a `Fly` button) or `Separation: <vessel>` post-merge. Debris splits stay hidden.
 
-- Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
+- Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour.
 
-- Re-fly merges now refuse to write supersede rows when the re-fly recording has no trajectory points or no terminal state, catching the placeholder-as-supersede-target class of bug at commit time instead of silently shipping a zero-trajectory replacement.
+- Re-fly merges refuse supersede rows when the re-fly recording has no trajectory or terminal state, catching the placeholder-as-supersede-target class of bug at commit time.
 
-- Rewind to Staging now re-checks its preconditions when the user clicks Rewind in the confirmation dialog, so a state change between dialog show and confirm (RP marked corrupted, quicksave file removed, another re-fly session activates, scene transition starts) cancels the action with a toast instead of staging a half-written invocation on top of invalid state.
+- Rewind to Staging re-checks preconditions on dialog confirm, cancelling with a toast if state changed between show and click.
 
-- Recordings table no longer renders duplicate rewind-to-launch `R` buttons on tree branches (debris, decouple children, EVA splits) after a normal merge; only the recording that owns the launch save (standalone, or the tree root) shows the legacy `R` button, while branch rows reserve the column slot for layout alignment.
+- Recordings table no longer draws duplicate rewind-to-launch `R` buttons on tree-branch rows; only the recording that owns the launch save renders one.
 
-- Re-fly merges where the Limbo-restore path kept the origin recording alive across the RP-quicksave reload no longer write a self-supersede row that turns the supersede chain into a 1-node cycle; in-place continuations now skip the journaled merge, flip MergeState, and clear the marker, and load-time sweep purges any legacy self-supersede rows from older saves.
+- Re-fly merges with a Limbo-restored origin recording no longer write a self-supersede row, and load-time sweep purges any such rows left from older saves.
 
-- Rewind-to-Staging now warns after post-load strip when a vessel left in the quicksave shares its name with a recording in the re-fly tree, so players can tell an unrelated pre-existing "Kerbal X" in orbit apart from the current flight's ghost.
+- Rewind to Staging warns after Strip when a left-alone vessel shares a name with a tree recording, so players can tell a pre-existing orbital "Kerbal X" apart from the current flight's ghost.
 
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
