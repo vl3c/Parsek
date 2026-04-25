@@ -2507,22 +2507,37 @@ namespace Parsek.InGameTests
                         allowTerminalOrbitFallback: true,
                         logOperationName: "runtime-571-checkpoint-world",
                         ref cachedIndex,
+                        out OrbitSegment resolvedSegment,
                         out _,
-                        out TrajectoryPoint stateVectorPoint,
                         out string skipReason);
 
+                // OrbitalCheckpoint sections coexist with their seed OrbitSegment
+                // (#571 closure). When the segment covers currentUT the resolver
+                // intentionally returns Segment — the densified checkpoint frames
+                // are sampling along that same Keplerian arc, not a competing
+                // source. Compare the existing xUnit pin
+                // ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper.
                 InGameAssert.IsTrue(
-                    source == GhostMapPresence.TrackingStationGhostSource.StateVector,
-                    $"Expected StateVector checkpoint source, got {source}");
+                    source == GhostMapPresence.TrackingStationGhostSource.Segment,
+                    $"Expected Segment checkpoint source, got {source}");
                 InGameAssert.IsTrue(string.IsNullOrEmpty(skipReason),
                     $"Expected no skip reason, got {skipReason ?? "(null)"}");
-                InGameAssert.AreEqual(body.name, stateVectorPoint.bodyName);
+                InGameAssert.AreEqual(body.name, resolvedSegment.bodyName);
 
+                // P3 review pin: also require stateVectorSource=OrbitalCheckpoint
+                // and orbitalCheckpointFallback=reject so the captured-line
+                // predicate proves the resolver actually traversed the
+                // OrbitalCheckpoint section before settling on Segment. Without
+                // these substrings a future regression that silently stops
+                // walking checkpoints would still match `sourceKind=Segment`
+                // and leave this coexistence test green.
                 string line = captured.LastOrDefault(l =>
                     l.Contains("[GhostMap]")
                     && l.Contains("runtime-571-checkpoint-world")
-                    && l.Contains("sourceKind=StateVector"));
-                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
+                    && l.Contains("sourceKind=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
+                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured with stateVectorSource=OrbitalCheckpoint and orbitalCheckpointFallback=reject");
                 InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
                     "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");
             }
@@ -4534,10 +4549,39 @@ namespace Parsek.InGameTests
                 TrajectorySidecarProbe probe;
                 InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
+                InGameAssert.IsTrue(probe.Supported,
+                    $"Current-format recording '{rec.RecordingId}' has unsupported sidecar version " +
+                    $"{probe.FormatVersion}; this build only understands up to v{RecordingStore.CurrentRecordingFormatVersion}");
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
-                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
-                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+
+                // probe.FormatVersion is the on-disk binary-encoding version stamped at the
+                // last .prec write. rec.RecordingFormatVersion is the in-memory semantic
+                // version, which post-load migrations can promote without rewriting the
+                // sidecar. The contract is intentionally narrow: equality is the ordinary
+                // case, and the only allowed lag is the documented v3 -> v4 metadata-only
+                // migration (LaunchToLaunchLoopIntervalFormatVersion changed the meaning of
+                // loopIntervalSeconds without altering binary layout, so a v3 sidecar paired
+                // with a v4-promoted in-memory recording is correct on disk; see
+                // RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration).
+                // Every other lag must fail: v5 added serialized OrbitSegment.isPredicted and
+                // v6 changed RELATIVE TrackSection point semantics, so a v3-or-older sidecar
+                // paired with a v5/v6 recording would mean the binary on disk predates a
+                // contract change and the data is genuinely stale. The probe must always be
+                // a known schema this build understands.
+                InGameAssert.IsTrue(
+                    RecordingStore.IsAcceptableSidecarVersionLag(probe.FormatVersion, rec.RecordingFormatVersion),
+                    $"Current-format recording '{rec.RecordingId}' fails the probe/recording " +
+                    $"version contract: on-disk binary version {probe.FormatVersion} vs " +
+                    $"in-memory recording format version {rec.RecordingFormatVersion}. " +
+                    $"Allowed combinations are equality, or v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion - 1} " +
+                    $"sidecar with v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion} recording " +
+                    $"(the documented metadata-only legacy-loop migration). Anything else " +
+                    $"indicates stale or incomplete trajectory data on disk.");
+                InGameAssert.IsTrue(probe.FormatVersion <= RecordingStore.CurrentRecordingFormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' has on-disk binary version " +
+                    $"{probe.FormatVersion}; latest known schema is " +
+                    $"{RecordingStore.CurrentRecordingFormatVersion}");
                 checkedCount++;
             }
 
@@ -4588,7 +4632,13 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            var roster = HighLogic.CurrentGame.CrewRoster;
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
             int valid = 0;
             var problems = new List<string>();
 
