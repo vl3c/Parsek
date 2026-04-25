@@ -43,6 +43,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
+
 - `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
 
 - `#525` Destroyed loop-cycle boundaries now emit exactly one `OnLoopCameraAction` event (the `ExplosionHoldStart`) instead of also emitting a redundant `RetargetToNewGhost` from the ghost-reuse step. The watch handler already ignored the second event while in explosion-hold state, so camera behaviour is unchanged; the contract clean-up unblocks the in-game terrain-clearance regression that pins the explosion anchor to the same terrain-clamped position the camera holds at.
