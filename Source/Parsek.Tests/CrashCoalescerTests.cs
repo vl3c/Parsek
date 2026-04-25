@@ -859,5 +859,53 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldSkipDeadOnArrivalControlledChild (todo item 20)
+
+        [Fact]
+        public void ShouldSkipDeadOnArrivalControlledChild_DeadAndNoSnapshot_ReturnsTrue()
+        {
+            // Regression: 2026-04-25_1047 playtest "Unknown 0s recording".
+            // When the controllable child's live Vessel is gone AND no
+            // pre-captured snapshot is available, ProcessBreakupEvent must
+            // skip recording creation. Otherwise the table grows a 1-point
+            // "Unknown" row with no playback or replay value.
+            Assert.True(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
+                childVesselIsAlive: false, hasPreCapturedSnapshot: false));
+        }
+
+        [Fact]
+        public void ShouldSkipDeadOnArrivalControlledChild_DeadButHasSnapshot_ReturnsFalse()
+        {
+            // Regression: a dead vessel WITH a pre-captured snapshot still
+            // produces a useful child recording (ghost visuals, start
+            // manifests, terminal-orbit prediction). The skip must NOT fire
+            // — it would silently drop legitimate records of pre-captured
+            // splits whose vessel happened to die during the coalescer
+            // window.
+            Assert.False(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
+                childVesselIsAlive: false, hasPreCapturedSnapshot: true));
+        }
+
+        [Fact]
+        public void ShouldSkipDeadOnArrivalControlledChild_AliveNoSnapshot_ReturnsFalse()
+        {
+            // Regression: an alive vessel with no pre-captured snapshot will
+            // still get its snapshot built from the live Vessel by
+            // SeedBreakupChildSnapshots. The skip must not fire here.
+            Assert.False(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
+                childVesselIsAlive: true, hasPreCapturedSnapshot: false));
+        }
+
+        [Fact]
+        public void ShouldSkipDeadOnArrivalControlledChild_AliveWithSnapshot_ReturnsFalse()
+        {
+            // Regression: the normal happy path — live vessel + pre-captured
+            // snapshot — must always produce a recording.
+            Assert.False(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
+                childVesselIsAlive: true, hasPreCapturedSnapshot: true));
+        }
+
+        #endregion
     }
 }

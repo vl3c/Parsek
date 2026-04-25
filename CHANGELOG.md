@@ -40,6 +40,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Unfinished Flight rows no longer appear twice (once as a top-level tree row, once inside the nested Unfinished Flights subgroup); they render only inside the Unfinished Flights group.
+
+- Controllable split children whose vessel dies before the breakup window expires no longer produce a 0s "Unknown" recording in the table; the parent's BREAKUP branch point already records the split.
+
 - Re-fly merge dialog body trimmed to a centered `<vessel> - <duration>` headline plus "Commit this re-flight attempt permanently to the timeline. This cannot be undone!".
 
 - Regular merge dialog drops the spawnable=0 advisory; crashed / recovered recordings replaying as ghosts is the obvious outcome.

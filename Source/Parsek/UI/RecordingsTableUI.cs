@@ -2174,9 +2174,20 @@ namespace Parsek
             List<int> directMembers;
             grpToRecs.TryGetValue(groupName, out directMembers);
 
-            if (directMembers != null)
+            // When this tree owns Unfinished Flight members (rendered below as
+            // the nested virtual subgroup), exclude them from the regular
+            // member list so the same recording does not appear twice in the
+            // table — once as a top-level tree row and once inside the
+            // Unfinished Flights group. Without this filter the UF row
+            // duplicates because grpToRecs stores raw tree membership and
+            // does not know about the virtual subgroup.
+            List<int> displayMembers = hasNestedUnfinished
+                ? FilterUnfinishedFlightRowsForRegularTree(directMembers, committed, groupName)
+                : directMembers;
+
+            if (displayMembers != null)
             {
-                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
+                var displayBlocks = BuildGroupDisplayBlocks(groupName, displayMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                 {
                     var block = displayBlocks[i];
@@ -2425,9 +2436,12 @@ namespace Parsek
             if (parentUI.InFlightMode)
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
-            // Rewind / FF placeholder — the virtual group has no aggregate
-            // Rewind action because each member maps to a specific child slot.
-            // Individual rows below render the RP-backed Rewind button.
+            // Rewind / Re-Fly placeholder — the virtual group has no
+            // group-level Re-Fly button because Unfinished Flights is a
+            // special system group: each member maps to a specific RP child
+            // slot, so a single aggregate "re-fly all" makes no sense. The
+            // per-row Re-Fly button (DrawUnfinishedFlightRewindButton) is the
+            // only action surface for this group.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
 
             // Hide checkbox — design §7.30: system group cannot be hidden.
@@ -4065,6 +4079,60 @@ namespace Parsek
             }
 
             return "Recording";
+        }
+
+        /// <summary>
+        /// Pure helper: returns a copy of <paramref name="directMembers"/> with
+        /// every recording for which
+        /// <see cref="EffectiveState.IsUnfinishedFlight(Recording)"/> is true
+        /// stripped out. Used by <see cref="DrawGroupTree"/> when a tree
+        /// already nests an Unfinished Flights virtual subgroup so the same
+        /// recording does not render in both places.
+        ///
+        /// <para>
+        /// Out-of-range indices are passed through unchanged (defensive — any
+        /// future caller error stays visible at the row layer instead of
+        /// being silently swallowed by a UF-filter pre-pass). Returns
+        /// <paramref name="directMembers"/> unchanged when no filtering is
+        /// needed (avoids an allocation in the common no-UF case). Emits one
+        /// rate-limited Verbose log line per `<groupName>` flush so the trim
+        /// is auditable without flooding the log.
+        /// </para>
+        /// </summary>
+        internal static List<int> FilterUnfinishedFlightRowsForRegularTree(
+            IList<int> directMembers,
+            IReadOnlyList<Recording> committed,
+            string groupName)
+        {
+            if (directMembers == null) return null;
+            if (committed == null) return directMembers as List<int> ?? new List<int>(directMembers);
+
+            int filtered = 0;
+            var trimmed = new List<int>(directMembers.Count);
+            for (int i = 0; i < directMembers.Count; i++)
+            {
+                int ri = directMembers[i];
+                if (ri < 0 || ri >= committed.Count)
+                {
+                    trimmed.Add(ri);
+                    continue;
+                }
+                if (EffectiveState.IsUnfinishedFlight(committed[ri]))
+                {
+                    filtered++;
+                    continue;
+                }
+                trimmed.Add(ri);
+            }
+
+            if (filtered == 0)
+                return directMembers as List<int> ?? new List<int>(directMembers);
+
+            ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                "uf-filter-out-of-tree-row-" + (groupName ?? "<none>"),
+                $"DrawGroupTree: filtered {filtered} UF row(s) from regular tree '{groupName ?? "<none>"}' " +
+                "(rendered in nested Unfinished Flights subgroup)");
+            return trimmed;
         }
 
         internal static List<GroupDisplayBlock> BuildGroupDisplayBlocks(

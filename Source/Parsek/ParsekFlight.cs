@@ -3668,6 +3668,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: should the controlled-child loop in
+        /// <see cref="ProcessBreakupEvent"/> skip creating a recording for a
+        /// breakup child whose live <see cref="Vessel"/> is gone and which
+        /// has no pre-captured snapshot? Such a child would produce a
+        /// 1-point "Unknown" 0s row with no playback or replay value (no
+        /// ghost visuals, no spawn snapshot, no events). The parent
+        /// recording's BREAKUP branch point already records the split.
+        /// </summary>
+        internal static bool ShouldSkipDeadOnArrivalControlledChild(
+            bool childVesselIsAlive,
+            bool hasPreCapturedSnapshot)
+        {
+            return !childVesselIsAlive && !hasPreCapturedSnapshot;
+        }
+
+        /// <summary>
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
         /// Caller is responsible for BackgroundMap registration and logging.
@@ -3955,6 +3971,28 @@ namespace Parsek
                     // post-split snapshot and can appear spatially ahead on frame 1.
                     ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+
+                    // Skip dead-on-arrival controlled children: when the live
+                    // vessel is gone AND no pre-captured snapshot exists, the
+                    // recording would land in the table as a 1-point "Unknown"
+                    // 0s row with no playback or replay value (no ghost
+                    // visuals, no spawn snapshot, no events). The decoupled
+                    // probe immediately Punch-Through'd subsurface and Unity
+                    // tore the Vessel down before the coalescer window
+                    // expired — there is nothing useful to record. The parent
+                    // recording's BREAKUP branch point already captures that
+                    // the split happened.
+                    if (ShouldSkipDeadOnArrivalControlledChild(
+                            childVesselIsAlive: childVessel != null,
+                            hasPreCapturedSnapshot: ctrlSnap != null))
+                    {
+                        ParsekLog.Info("Coalescer",
+                            $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
+                            $"pid={pid} (vessel destroyed before window expired, no pre-captured snapshot) — " +
+                            "would produce an 'Unknown' 0s row with no playback value");
+                        continue;
+                    }
+
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 

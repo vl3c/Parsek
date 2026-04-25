@@ -1674,6 +1674,161 @@ namespace Parsek.Tests
             Assert.Equal(0, key);
         }
 
+        // ── FilterUnfinishedFlightRowsForRegularTree (todo item 19) ──
+
+        [Fact]
+        public void FilterUnfinishedFlightRowsForRegularTree_RemovesUFMembers_AndLogs()
+        {
+            // Regression: a tree's auto-generated root group must not render
+            // an Unfinished Flight row directly when the nested virtual UF
+            // subgroup is also being drawn — the duplicate appearance was the
+            // 2026-04-25_1047 playtest's "UF appears as main mission also".
+            // The trim helper preserves non-UF members and logs a Verbose
+            // summary keyed by group name.
+            var ufRec = new Recording
+            {
+                RecordingId = "rec_uf",
+                VesselName = "Kerbal X Probe",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_breakup",
+                TreeId = "tree_X"
+            };
+            ufRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            var normalRec = new Recording
+            {
+                RecordingId = "rec_normal",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Recovered,
+                TreeId = "tree_X"
+            };
+            normalRec.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            normalRec.Points.Add(new TrajectoryPoint { ut = 50.0 });
+
+            // Install a scenario whose RewindPoints make ufRec satisfy
+            // IsUnfinishedFlight (terminal=Destroyed AND matching RP).
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_breakup",
+                BranchPointId = "bp_breakup",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_uf") }
+            };
+            InstallScenarioWithRp(rp);
+
+            var committed = new List<Recording> { normalRec, ufRec };
+            var directMembers = new List<int> { 0, 1 };
+
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+
+            var displayMembers = RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree(
+                directMembers, committed, "Kerbal X");
+
+            Assert.NotNull(displayMembers);
+            Assert.Single(displayMembers);
+            Assert.Equal(0, displayMembers[0]); // normalRec survived; ufRec removed
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("filtered 1 UF row(s) from regular tree 'Kerbal X'"));
+        }
+
+        [Fact]
+        public void FilterUnfinishedFlightRowsForRegularTree_NoUFMembers_ReturnsInputUnchanged()
+        {
+            // Regression: in the common (no-UF) case the helper must not
+            // allocate or log — DrawGroupTree calls this on every frame for
+            // every visible tree group. Returning the same list saves
+            // allocations and the log silence keeps the audit trail clean.
+            var rec1 = new Recording
+            {
+                RecordingId = "rec_1",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Recovered,
+                TreeId = "tree_X"
+            };
+            rec1.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            rec1.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            var rec2 = new Recording
+            {
+                RecordingId = "rec_2",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                TreeId = "tree_X"
+            };
+            rec2.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            rec2.Points.Add(new TrajectoryPoint { ut = 75.0 });
+
+            // No RewindPoints → no UF members.
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>(),
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            EffectiveState.ResetCachesForTesting();
+
+            var committed = new List<Recording> { rec1, rec2 };
+            var directMembers = new List<int> { 0, 1 };
+
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+
+            var displayMembers = RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree(
+                directMembers, committed, "Kerbal X");
+
+            Assert.NotNull(displayMembers);
+            Assert.Equal(2, displayMembers.Count);
+            Assert.Equal(0, displayMembers[0]);
+            Assert.Equal(1, displayMembers[1]);
+            // The "filtered N UF row(s)" log line must NOT appear when no
+            // members were removed — otherwise the audit trail is noisy.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("filtered"));
+        }
+
+        [Fact]
+        public void FilterUnfinishedFlightRowsForRegularTree_OutOfRangeIndices_PassThroughUnchanged()
+        {
+            // Defensive: a malformed grpToRecs (negative or out-of-bounds
+            // index) must not silently disappear behind the UF filter.
+            // Pass-through preserves visibility at the row layer where the
+            // bug becomes obvious instead of being swallowed here.
+            var rec = new Recording
+            {
+                RecordingId = "rec_1",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            var committed = new List<Recording> { rec };
+            var directMembers = new List<int> { -1, 0, 99 };
+
+            var displayMembers = RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree(
+                directMembers, committed, "Kerbal X");
+
+            Assert.NotNull(displayMembers);
+            Assert.Equal(3, displayMembers.Count);
+            Assert.Contains(-1, displayMembers);
+            Assert.Contains(0, displayMembers);
+            Assert.Contains(99, displayMembers);
+        }
+
+        [Fact]
+        public void FilterUnfinishedFlightRowsForRegularTree_NullDirectMembers_ReturnsNull()
+        {
+            // Null-safe: callers in DrawGroupTree pass through a TryGetValue
+            // result that may be null when the group has no direct members.
+            var displayMembers = RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree(
+                null, new List<Recording>(), "Kerbal X");
+            Assert.Null(displayMembers);
+        }
+
         [Fact]
         public void CompareRootItemsForSort_GloopsGroupAlwaysSortsFirst()
         {
