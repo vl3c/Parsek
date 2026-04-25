@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -13,15 +14,16 @@ namespace Parsek
     {
         public bool Valid;
         public string Reason;  // populated on invalid
+        public string Details;
 
-        public static MarkerValidationResult Ok()
+        public static MarkerValidationResult Ok(string details = null)
         {
-            return new MarkerValidationResult { Valid = true, Reason = null };
+            return new MarkerValidationResult { Valid = true, Reason = null, Details = details };
         }
 
-        public static MarkerValidationResult Invalid(string reason)
+        public static MarkerValidationResult Invalid(string reason, string details = null)
         {
-            return new MarkerValidationResult { Valid = false, Reason = reason };
+            return new MarkerValidationResult { Valid = false, Reason = reason, Details = details };
         }
     }
 
@@ -47,9 +49,11 @@ namespace Parsek
     ///   resolves to a live entry in
     ///   <see cref="ParsekScenario.RewindPoints"/>.</description></item>
     ///   <item><description><see cref="ReFlySessionMarker.InvokedUT"/>
-    ///   not strictly greater than the current Planetarium UT (set via
-    ///   <see cref="NowUtProvider"/> in tests; <c>Planetarium.GetUniversalTime()</c>
-    ///   in production).</description></item>
+    ///   is a finite, non-negative game UT within Parsek's sanity ceiling.
+    ///   The current Planetarium UT (set via <see cref="NowUtProvider"/>
+    ///   in tests; <c>Planetarium.GetUniversalTime()</c> in production) is
+    ///   captured only for diagnostics because fresh scene loads can report
+    ///   UT 0 before the loaded save's clock is meaningful.</description></item>
     /// </list>
     /// </para>
     ///
@@ -61,13 +65,14 @@ namespace Parsek
     /// </summary>
     internal static class MarkerValidator
     {
+        internal const double MaxReasonableInvokedUT = 1.0e15;
+
         /// <summary>
-        /// Test seam: override the "current UT" used for the future-UT check.
+        /// Test seam: override the "current UT" captured for diagnostics.
         /// Production code leaves this null and the validator falls back to
         /// <c>Planetarium.GetUniversalTime()</c>, guarded so tests that do not
         /// have a Planetarium singleton still work (returns
-        /// <see cref="double.PositiveInfinity"/>, making any finite InvokedUT
-        /// pass the future check).
+        /// <see cref="double.PositiveInfinity"/>).
         /// </summary>
         internal static Func<double> NowUtProvider;
 
@@ -86,27 +91,42 @@ namespace Parsek
         public static MarkerValidationResult Validate(ReFlySessionMarker marker)
         {
             if (marker == null)
-                return MarkerValidationResult.Ok();
+                return MarkerValidationResult.Ok(
+                    "checked=marker-null; accepted because no active re-fly marker is a legitimate load state");
 
             if (string.IsNullOrEmpty(marker.SessionId))
-                return MarkerValidationResult.Invalid("SessionId");
+                return MarkerValidationResult.Invalid(
+                    "SessionId",
+                    "checked=SessionId.nonEmpty; rejected because SessionId is empty");
 
             if (string.IsNullOrEmpty(marker.TreeId))
-                return MarkerValidationResult.Invalid("TreeId");
+                return MarkerValidationResult.Invalid(
+                    "TreeId",
+                    "checked=TreeId.nonEmpty; rejected because TreeId is empty");
             if (!TreeExists(marker.TreeId))
-                return MarkerValidationResult.Invalid("TreeId");
+                return MarkerValidationResult.Invalid(
+                    "TreeId",
+                    "checked=TreeId.exists; rejected because TreeId was not found in RecordingStore.CommittedTrees");
 
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
+                return MarkerValidationResult.Invalid(
+                    "ActiveReFlyRecordingId",
+                    "checked=ActiveReFlyRecordingId.nonEmpty; rejected because ActiveReFlyRecordingId is empty");
             var active = FindRecordingById(marker.ActiveReFlyRecordingId);
             if (active == null)
-                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
+                return MarkerValidationResult.Invalid(
+                    "ActiveReFlyRecordingId",
+                    "checked=ActiveReFlyRecordingId.exists; rejected because active recording was not found in RecordingStore.CommittedRecordings");
 
             if (string.IsNullOrEmpty(marker.OriginChildRecordingId))
-                return MarkerValidationResult.Invalid("OriginChildRecordingId");
+                return MarkerValidationResult.Invalid(
+                    "OriginChildRecordingId",
+                    "checked=OriginChildRecordingId.nonEmpty; rejected because OriginChildRecordingId is empty");
             var origin = FindRecordingById(marker.OriginChildRecordingId);
             if (origin == null)
-                return MarkerValidationResult.Invalid("OriginChildRecordingId");
+                return MarkerValidationResult.Invalid(
+                    "OriginChildRecordingId",
+                    "checked=OriginChildRecordingId.exists; rejected because origin recording was not found in RecordingStore.CommittedRecordings");
 
             // MergeState gate. The placeholder pattern (origin != active)
             // creates a fresh `NotCommitted` recording at re-fly start, so
@@ -134,18 +154,46 @@ namespace Parsek
                     && (active.MergeState == MergeState.CommittedProvisional
                         || active.MergeState == MergeState.Immutable));
             if (!acceptableState)
-                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
+            {
+                return MarkerValidationResult.Invalid(
+                    "ActiveReFlyRecordingId",
+                    "checked=ActiveReFlyRecordingId.mergeState " +
+                    $"state={active.MergeState} inPlace={inPlaceContinuation.ToString()} " +
+                    "expected=NotCommitted-or-inPlace-CommittedProvisional/Immutable; rejected because state/pattern is not valid for a live marker");
+            }
 
             if (string.IsNullOrEmpty(marker.RewindPointId))
-                return MarkerValidationResult.Invalid("RewindPointId");
-            if (!RewindPointExists(marker.RewindPointId))
-                return MarkerValidationResult.Invalid("RewindPointId");
+                return MarkerValidationResult.Invalid(
+                    "RewindPointId",
+                    "checked=RewindPointId.nonEmpty; rejected because RewindPointId is empty");
+            var rewindPoint = FindRewindPointById(marker.RewindPointId);
+            if (rewindPoint == null)
+                return MarkerValidationResult.Invalid(
+                    "RewindPointId",
+                    "checked=RewindPointId.exists; rejected because rewind point was not found in ParsekScenario.RewindPoints");
 
             double now = CurrentUt();
-            if (marker.InvokedUT > now)
-                return MarkerValidationResult.Invalid("InvokedUT");
+            if (!IsFinite(marker.InvokedUT))
+                return MarkerValidationResult.Invalid(
+                    "InvokedUT",
+                    BuildInvokedUtDetails(marker.InvokedUT, now, rewindPoint.UT,
+                        "not-finite",
+                        "rejected because InvokedUT is NaN or Infinity"));
+            if (marker.InvokedUT < 0.0)
+                return MarkerValidationResult.Invalid(
+                    "InvokedUT",
+                    BuildInvokedUtDetails(marker.InvokedUT, now, rewindPoint.UT,
+                        "negative",
+                        "rejected because InvokedUT is less than 0"));
+            if (marker.InvokedUT > MaxReasonableInvokedUT)
+                return MarkerValidationResult.Invalid(
+                    "InvokedUT",
+                    BuildInvokedUtDetails(marker.InvokedUT, now, rewindPoint.UT,
+                        "exceeds-sanity-ceiling",
+                        "rejected because InvokedUT exceeds the 1E+15 sanity ceiling"));
 
-            return MarkerValidationResult.Ok();
+            return MarkerValidationResult.Ok(
+                BuildAcceptedDetails(active, inPlaceContinuation, marker.InvokedUT, now, rewindPoint.UT));
         }
 
         private static bool TreeExists(string treeId)
@@ -179,20 +227,20 @@ namespace Parsek
             return null;
         }
 
-        private static bool RewindPointExists(string rewindPointId)
+        private static RewindPoint FindRewindPointById(string rewindPointId)
         {
             var scenario = ParsekScenario.Instance;
-            if (ReferenceEquals(null, scenario)) return false;
+            if (ReferenceEquals(null, scenario)) return null;
             var rps = scenario.RewindPoints;
-            if (rps == null) return false;
+            if (rps == null) return null;
             for (int i = 0; i < rps.Count; i++)
             {
                 var rp = rps[i];
                 if (rp == null) continue;
                 if (string.Equals(rp.RewindPointId, rewindPointId, StringComparison.Ordinal))
-                    return true;
+                    return rp;
             }
-            return false;
+            return null;
         }
 
         private static double CurrentUt()
@@ -206,11 +254,63 @@ namespace Parsek
             try { return Planetarium.GetUniversalTime(); }
             catch
             {
-                // No Planetarium singleton (unit tests without KSP). Treat
-                // "now" as +infinity so any finite InvokedUT passes — the
-                // future-UT check is only meaningful against a live clock.
+                // No Planetarium singleton (unit tests without KSP). Use
+                // +infinity so diagnostics clearly show the live clock was
+                // unavailable without turning that into a hard rejection.
                 return double.PositiveInfinity;
             }
+        }
+
+        private static string BuildAcceptedDetails(
+            Recording active,
+            bool inPlaceContinuation,
+            double invokedUt,
+            double currentUt,
+            double rewindPointUt)
+        {
+            bool wouldHaveRejectedPreFix = IsFinite(currentUt) && invokedUt > currentUt;
+            return "checked=SessionId.nonEmpty,TreeId.exists,ActiveReFlyRecordingId.exists+mergeState," +
+                "OriginChildRecordingId.exists,RewindPointId.exists,InvokedUT.finite>=0<=1E+15; " +
+                $"activeState={active.MergeState} inPlace={inPlaceContinuation.ToString()} " +
+                BuildInvokedUtComparison(invokedUt, currentUt, rewindPointUt) + " " +
+                $"prePRWouldReject={(wouldHaveRejectedPreFix ? "InvokedUT>currentUT" : "none")}";
+        }
+
+        private static string BuildInvokedUtDetails(
+            double invokedUt,
+            double currentUt,
+            double rewindPointUt,
+            string failure,
+            string explanation)
+        {
+            return "checked=InvokedUT.finite>=0<=1E+15; " +
+                BuildInvokedUtComparison(invokedUt, currentUt, rewindPointUt) + " " +
+                $"failure={failure}; {explanation}";
+        }
+
+        private static string BuildInvokedUtComparison(
+            double invokedUt,
+            double currentUt,
+            double rewindPointUt)
+        {
+            double deltaCurrent = invokedUt - currentUt;
+            double deltaRewindPoint = invokedUt - rewindPointUt;
+            return $"invokedUT={FormatDouble(invokedUt)} " +
+                $"currentUT={FormatDouble(currentUt)} " +
+                $"rpUT={FormatDouble(rewindPointUt)} " +
+                $"deltaCurrent={FormatDouble(deltaCurrent)} " +
+                $"deltaRp={FormatDouble(deltaRewindPoint)} " +
+                $"maxReasonableInvokedUT={FormatDouble(MaxReasonableInvokedUT)}";
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static string FormatDouble(double value)
+        {
+            return value.ToString("R", CultureInfo.InvariantCulture);
         }
     }
 }
