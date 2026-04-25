@@ -111,6 +111,14 @@ load sequence:
 7. load snapshot sidecars
 8. report failure without losing hydrated trajectory state
 
+Implementation should split this owner into at least two commits: save-path
+orchestration first, then load-path orchestration. Do not start this step until
+the save/load split has been reviewed again. Sidecar epoch mutation and
+`FilesDirty` assignment remain owned by the sidecar orchestration layer, not by
+the low-level codecs. During the wrapper phase, existing `RecordingStore`
+methods still expose these calls, but the mutation order must stay exactly
+where the save/load sequence currently performs it.
+
 ### 3. `TrajectoryTextSidecarCodec`
 
 Third owner. It would move text ConfigNode trajectory serialization out of
@@ -132,6 +140,10 @@ batch because many tests and generators call the current wrappers.
 Rejected for this pass: merging text and binary trajectory codecs into one new
 abstraction. The existing binary owner is cohesive; forcing a shared interface
 now would add design risk without reducing behavior risk.
+
+Revisit after `RecordingSidecarStore` and `RecordingManifestCodec` land. At
+that point a narrow `ITrajectorySidecarFormat` dispatcher may be cheaper because
+sidecar orchestration will be the only trajectory sidecar caller.
 
 ### 4. `RecordingManifestCodec`
 
@@ -163,6 +175,15 @@ This is useful, but it should wait until manifest ownership is settled because
 bridge tree metadata, manifest codecs, rewind metadata, UI grouping tags, and
 legacy merge-state migration.
 
+## RecordingStore Target State
+
+After the proposed owners land, `RecordingStore` should still own recording
+store state and store-level operations: committed and pending recordings/trees,
+grouping, tree commit/adoption, optimization, deletion/orphan cleanup, rewind
+entry points, and compatibility wrappers for older call sites. It should not own
+low-level sidecar transactions, trajectory text serialization, snapshot codec
+details, or manifest field serialization.
+
 ## Rejected In This Pass
 
 - No binary `.prec` format redesign.
@@ -180,17 +201,29 @@ legacy merge-state migration.
 1. Extract `SidecarFileCommitBatch`. This is the narrowest cross-file move and
    gives the save path a named transaction owner without changing storage
    policy.
-2. Extract `RecordingSidecarStore` behind `RecordingStore` wrappers. Keep
-   public/internal wrapper signatures stable and preserve `RecordingStore` log
-   tags unless explicitly approved otherwise.
-3. Extract `TrajectoryTextSidecarCodec`, again behind wrappers. Do not merge it
+2. Extract the save-path half of `RecordingSidecarStore` behind
+   `RecordingStore` wrappers. Keep public/internal wrapper signatures stable and
+   preserve `RecordingStore` log tags unless explicitly approved otherwise.
+3. Extract the load-path half of `RecordingSidecarStore` behind wrappers only
+   after separately reviewing sidecar epoch validation, failure flagging,
+   hydrated trajectory preservation, and snapshot fallback order.
+4. Extract `TrajectoryTextSidecarCodec`, again behind wrappers. Before this
+   step, grep `Source/Parsek.Tests/Generators/` for direct `RecordingStore`
+   codec calls so the wrapper surface is known up front. Do not merge it
    with `TrajectorySidecarBinary`.
-4. Extract `RecordingManifestCodec` behind wrappers.
-5. Re-evaluate `RecordingTreeRecordCodec` after the first four steps. Do not
+5. Extract `RecordingManifestCodec` behind wrappers.
+6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
    start it in the same PR as sidecar orchestration.
 
-Each item should be its own commit at minimum. If review risk is high, split
-items 2-5 into separate PRs.
+PR granularity:
+
+- PR 1: `SidecarFileCommitBatch` only.
+- PR 2: `RecordingSidecarStore` only, preferably save and load as separate
+  commits after an explicit pre-review of the split.
+- PR 3: `TrajectoryTextSidecarCodec` and `RecordingManifestCodec` may share a
+  PR only if manifest movement is small and wrappers keep the call surface
+  stable.
+- PR 4: `RecordingTreeRecordCodec` only.
 
 ## Validation Scope
 
@@ -242,3 +275,23 @@ Recommended next implementation, if approved: extract only
 `SidecarFileCommitBatch` first. It is the smallest architectural move with a
 clear owner boundary and the least chance of hidden save/load logic drift.
 
+## Implementation Checkpoint - SidecarFileCommitBatch
+
+Approved first slice completed in this branch:
+
+- Added `Source/Parsek/SidecarFileCommitBatch.cs`.
+- Moved only staged sidecar write/delete commit helpers out of
+  `RecordingStore`.
+- Left save/load orchestration, sidecar epoch mutation, `FilesDirty`,
+  readable mirror policy, snapshot fallback, and codec dispatch in
+  `RecordingStore`.
+- Updated the rollback test to cover `SidecarFileCommitBatch` directly instead
+  of reflecting into old private `RecordingStore` helpers.
+
+Validation:
+
+```powershell
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
+```
