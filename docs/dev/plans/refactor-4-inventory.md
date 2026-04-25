@@ -190,6 +190,79 @@ Examples from the current snapshot: `IncompleteBallisticSceneExitFinalizer.cs`,
 `Patches/GhostVesselLoadPatch.cs`, `RewindPointAuthor.cs`, and
 `GameStateEvent.cs`.
 
+## Mechanical Long-Method Scan
+
+Initial regex/brace scan for methods at least 120 lines long in the largest
+files. This is only a candidate list; each item still needs a real read before
+editing because signatures, nested scopes, comments, and coherent single-purpose
+loops can fool a mechanical scan.
+
+| File | Method | Start line | Lines |
+|------|--------|------------|-------|
+| `BackgroundRecorder.cs` | `HandleBackgroundVesselSplit` | 451 | 179 |
+| `BackgroundRecorder.cs` | `InitializeLoadedState` | 2246 | 147 |
+| `FlightRecorder.cs` | `LogVisualRecordingCoverage` | 2495 | 204 |
+| `LedgerOrchestrator.cs` | `ReconcileEarningsWindow` | 338 | 221 |
+| `LedgerOrchestrator.cs` | `CreateVesselCostActions` | 804 | 148 |
+| `LedgerOrchestrator.cs` | `RecalculateAndPatchCore` | 1421 | 146 |
+| `LedgerOrchestrator.cs` | `MigrateLegacyTreeResources` | 1881 | 199 |
+| `LedgerOrchestrator.cs` | `ClassifyAction` | 4276 | 201 |
+| `LedgerOrchestrator.cs` | `ClassifyPostWalk` | 4844 | 182 |
+| `LedgerOrchestrator.cs` | `ReconcilePostWalk` | 5045 | 120 |
+| `LedgerOrchestrator.cs` | `AggregatePostWalkWindow` | 5798 | 131 |
+| `LedgerOrchestrator.cs` | `NotifyLedgerTreeCommitted` | 6482 | 122 |
+| `GhostMapPresence.cs` | `ResolveMapPresenceGhostSource` | 1135 | 223 |
+| `GhostMapPresence.cs` | `CreateGhostVesselsFromCommittedRecordings` | 2422 | 126 |
+| `GhostMapPresence.cs` | `BuildAndLoadGhostProtoVesselCore` | 3254 | 132 |
+| `GhostPlaybackEngine.cs` | `UpdatePlayback` | 335 | 410 |
+| `GhostPlaybackEngine.cs` | `RenderInRangeGhost` | 750 | 154 |
+| `GhostPlaybackEngine.cs` | `UpdateLoopingPlayback` | 1017 | 224 |
+| `GhostPlaybackEngine.cs` | `UpdateOverlapPlayback` | 1246 | 171 |
+| `GhostPlaybackEngine.cs` | `UpdateReentryFx` | 1991 | 120 |
+| `GhostPlaybackEngine.cs` | `ReusePrimaryGhostAcrossCycle` | 2569 | 136 |
+| `GhostPlaybackEngine.cs` | `TryPopulateGhostVisuals` | 2994 | 200 |
+| `GhostPlaybackLogic.cs` | `PopulateGhostInfoDictionaries` | 992 | 148 |
+| `GhostPlaybackLogic.cs` | `ReapplySpawnTimeModuleBaselinesForLoopCycle` | 1441 | 123 |
+| `GhostPlaybackLogic.cs` | `ApplyPartEvents` | 1712 | 232 |
+| `GhostPlaybackLogic.cs` | `TryGetPendingWatchActivationUT` | 5095 | 132 |
+| `ParsekFlight.cs` | `GetActiveRecordingIdForTagging` | 150 | 120 |
+| `ParsekFlight.cs` | `CapturePostSwitchPartStateTokens` | 5126 | 135 |
+| `ParsekFlight.cs` | `EvaluatePostSwitchAutoRecordTrigger` | 5262 | 155 |
+| `ParsekFlight.cs` | `StartRecording` | 7208 | 130 |
+| `ParsekFlight.cs` | `FinalizeIndividualRecording` | 9064 | 259 |
+| `ParsekFlight.cs` | `CollectNearbySpawnCandidates` | 14162 | 121 |
+| `ParsekScenario.cs` | `LoadRecordingMetadata` | 3660 | 244 |
+| `RecordingStore.cs` | `RunOptimizationPass` | 1912 | 216 |
+| `RecordingStore.cs` | `InitiateRewind` | 3464 | 141 |
+| `RecordingStore.cs` | `ReconcileReadableSidecarMirrors` | 6413 | 128 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingsTableHeader` | 835 | 136 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingsWindow` | 1045 | 232 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingRow` | 1281 | 382 |
+| `UI/RecordingsTableUI.cs` | `DrawGroupTree` | 1740 | 493 |
+| `UI/RecordingsTableUI.cs` | `DrawVirtualUnfinishedFlightsGroup` | 2299 | 209 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingBlock` | 2895 | 137 |
+| `UI/RecordingsTableUI.cs` | `DrawLoopPeriodCell` | 4430 | 129 |
+| `VesselSpawner.cs` | `SpawnOrRecoverIfTooClose` | 1075 | 308 |
+| `VesselSpawner.cs` | `TryRepairSnapshotBodyProvenance` | 3175 | 144 |
+| `WatchModeController.cs` | `EnterWatchMode` | 1349 | 224 |
+
+## Static State Scan Note
+
+A raw regex scan for mutable static fields is too noisy to use directly:
+intentional global stores, test hooks, constants that are not marked readonly,
+and real mutable runtime state all appear together. Pass 0 should replace the
+raw scan with a manual map for the high-risk owners:
+
+- `RecordingStore`
+- `ParsekScenario`
+- `GameStateRecorder`
+- `LedgerOrchestrator`
+- `GhostPlaybackEngine`
+- `WatchModeController`
+- `GameStateStore`
+- `MilestoneStore`
+- rewind/effective-state helpers
+
 ## Immediate Investigation Priorities
 
 1. Re-read `LedgerOrchestrator.cs`. Refactor-3 judged it clean at 900 lines;
