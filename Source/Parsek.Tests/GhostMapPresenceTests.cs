@@ -2177,6 +2177,248 @@ namespace Parsek.Tests
                     && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeFrame));
         }
 
+        // -----------------------------------------------------------------
+        // #583: When the first map-visible UT lands inside a Relative-frame
+        // section, the resolver used to short-circuit to None because
+        // TryResolveStateVectorMapPoint flatly rejected Relative-frame
+        // points and the outer gate was `!HasOrbitSegments` only. The fix
+        // widens the gate (Relative-frame currentUT is also considered for
+        // state-vector resolution) and allows StateVector creation when the
+        // section's anchor vessel is resolvable in the scene; otherwise it
+        // defers with a dedicated "relative-anchor-unresolved" skip reason
+        // so CheckPendingMapVessels retries on the next tick.
+        //
+        // CreateGhostVesselFromStateVectors already has a working Relative
+        // branch (PR #547) that resolves world position via the anchor
+        // pose, so flowing StateVector through gives the existing creator
+        // the right input shape — no new ghost-source kind needed.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_AnchorResolvable_ReturnsStateVector()
+        {
+            var rec = BuildRelativeFrameRecording(
+                anchorVesselId: 999u,
+                pointDz: 0.5,
+                pointSpeed: 0.2);
+
+            // Production path looks anchors up via FlightRecorder.FindVesselByPid.
+            // Override the test seam to simulate "anchor present in scene".
+            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 999u;
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-anchor-ok",
+                ref mapCached,
+                out _,
+                out TrajectoryPoint statePoint,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, source);
+            Assert.Null(skipReason);
+            Assert.Equal("Mun", statePoint.bodyName);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-rel-anchor-ok")
+                    && l.Contains("source=StateVector"));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_AnchorUnresolvable_DefersWithRelativeAnchorUnresolved()
+        {
+            var rec = BuildRelativeFrameRecording(
+                anchorVesselId: 999u,
+                pointDz: 0.5,
+                pointSpeed: 0.2);
+
+            // Anchor PID is set but the scene lookup fails (anchor not yet
+            // loaded into FlightGlobals.Vessels).
+            GhostMapPresence.AnchorResolvableForTesting = pid => false;
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-anchor-missing",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeAnchorUnresolved, skipReason);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-rel-anchor-missing")
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeAnchorUnresolved));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_NoAnchorId_StillSkipsWithRelativeFrame()
+        {
+            // Sections without an anchor id (legacy / synthetic) keep the
+            // pre-#583 skip-reason wording so the path is observably distinct
+            // from "anchor present but not yet resolvable".
+            var rec = BuildRelativeFrameRecording(
+                anchorVesselId: 0u,
+                pointDz: 0.5,
+                pointSpeed: 0.2);
+
+            GhostMapPresence.AnchorResolvableForTesting = pid => true;
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-no-anchor",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeFrame, skipReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_DzBelowAltitudeThreshold_StillReturnsStateVector()
+        {
+            // The whole point of the #583 fix: dz~0 (typical docking offset)
+            // must NOT trip the state-vector altitude threshold for
+            // Relative-frame points — the threshold is meaningful only for
+            // Absolute-frame points where altitude is geographic. Pin the
+            // joint behaviour: an Absolute-frame point with the same numeric
+            // altitude/speed would fail ShouldCreateStateVectorOrbit; the
+            // Relative-frame point must still produce StateVector because
+            // the threshold check is bypassed for that branch.
+            var rec = BuildRelativeFrameRecording(
+                anchorVesselId: 42u,
+                pointDz: 0.5,
+                pointSpeed: 0.2);
+
+            // Sanity: the same numbers as an Absolute-frame state-vector
+            // recording would fall under the airless-body create threshold
+            // (alt > 1500 && speed > 60).
+            Assert.False(GhostMapPresence.ShouldCreateStateVectorOrbit(0.5, 0.2, 0));
+
+            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 42u;
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-dz",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, source);
+            Assert.Null(skipReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_WithOrbitSegmentsElsewhere_StillReachesStateVectorBranch()
+        {
+            // Pre-#583: a recording with OrbitSegments anywhere short-circuited
+            // the state-vector branch (`if (!traj.HasOrbitSegments)`), so a
+            // currentUT inside a Relative section between segments produced
+            // None. The fix widens the gate to also consider state-vector
+            // resolution when IsInRelativeFrame(currentUT) is true.
+            var rec = BuildRelativeFrameRecording(
+                anchorVesselId: 7u,
+                pointDz: 0.5,
+                pointSpeed: 0.2);
+            // Add an unrelated orbit segment far before the Relative section
+            // so HasOrbitSegments=true but it doesn't cover currentUT.
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    startUT = 0,
+                    endUT = 50,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 700000
+                }
+            };
+
+            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 7u;
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-with-segments",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, source);
+            Assert.Null(skipReason);
+        }
+
+        private static Recording BuildRelativeFrameRecording(
+            uint anchorVesselId, double pointDz, double pointSpeed)
+        {
+            return new Recording
+            {
+                RecordingId = "state-vector-relative-anchor",
+                TerminalStateValue = TerminalState.SubOrbital,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Mun",
+                        // In RELATIVE sections the lat/lon/altitude fields are
+                        // anchor-local x/y/z metres, not geographic — name them
+                        // accordingly so future readers don't get confused.
+                        latitude = 0.1,
+                        longitude = 0.2,
+                        altitude = pointDz,
+                        velocity = new UnityEngine.Vector3(0, (float)pointSpeed, 0)
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 300,
+                        bodyName = "Mun",
+                        latitude = 0.3,
+                        longitude = 0.4,
+                        altitude = pointDz,
+                        velocity = new UnityEngine.Vector3(0, (float)pointSpeed, 0)
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100,
+                        endUT = 300,
+                        referenceFrame = ReferenceFrame.Relative,
+                        anchorVesselId = anchorVesselId
+                    }
+                }
+            };
+        }
+
         [Fact]
         public void ResolveMapPresenceGhostSource_NoTerminalFallback_StateVectorFailure_NormalizesSkipReason()
         {

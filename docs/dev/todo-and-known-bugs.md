@@ -699,7 +699,7 @@ being addressed by the sibling
 
 ---
 
-## 583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section
+## ~~583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section~~
 
 **Source:** PR #547 review follow-up — out-of-scope note attached to the
 P1 fix that landed in commit `57aec636` on
@@ -770,9 +770,29 @@ overclaims relative to the resolver gap left here. When the
 implementing PR for #583 lands, add a sibling `#583` line under v0.9.0
 Bug Fixes naming the creation-side fix.
 
-**Status:** Open. Not a regression of any shipped fix; a known remaining
-edge case that was deliberately left out of PR #547's scope (PR #547
-merged 2026-04-25 as commit `8eaebfbb`).
+**Status:** ~~Open~~ Fixed.
+
+**Fix:** `GhostMapPresence.ResolveMapPresenceGhostSource` now considers
+state-vector resolution when the current UT lies inside a Relative-frame
+section even if the trajectory has `OrbitSegments` elsewhere (the gate
+widens from `!HasOrbitSegments` to `!HasOrbitSegments || IsInRelativeFrame`).
+`TryResolveStateVectorMapPoint` was rewritten as a pure helper
+(`TryResolveStateVectorMapPointPure`) that takes a `Func<uint,bool>`
+anchor-resolvability lookup, so xUnit can exercise both branches without
+KSP's `FlightGlobals`. In the Relative branch the helper bypasses the
+`ShouldCreateStateVectorOrbit` altitude/speed threshold (mirroring the
+PR #547 P1 update-path gate, since `point.altitude` is the anchor-local
+dz offset, not geographic altitude) and gates creation on
+`FlightRecorder.FindVesselByPid(anchorVesselId) != null`. When the
+anchor isn't yet loaded, the resolver returns `None` with a new
+dedicated skip reason `relative-anchor-unresolved`; the existing
+`pendingMapVessels` retry loop in `ParsekPlaybackPolicy.CheckPendingMapVessels`
+re-resolves on the next tick. Sections without an anchor id keep the
+legacy `relative-frame` skip wording so that subset is observably
+distinct from "anchor present but not yet resolvable". Five regression
+tests (`ResolveMapPresenceGhostSource_RelativeFrame_AnchorResolvable_*`,
+`_AnchorUnresolvable_*`, `_NoAnchorId_*`, `_DzBelowAltitudeThreshold_*`,
+`_WithOrbitSegmentsElsewhere_*`) pin the new contract.
 
 ---
 
