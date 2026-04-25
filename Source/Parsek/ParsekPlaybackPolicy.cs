@@ -91,16 +91,17 @@ namespace Parsek
         /// runs <see cref="RunSpawnDeathChecks"/> after a plain rewind,
         /// <see cref="ParsekScenario.HandleRewindOnLoad"/> has already
         /// called <see cref="RewindContext.EndRewind"/>, so the flag is
-        /// false. It does NOT close the production duplicate-spawn from
-        /// the 2026-04-25_1314 marker-validator-fix playtest — that
-        /// duplicate fired through <see cref="VesselGhoster.SpawnAtChainTip"/>
-        /// during a warp-deferred chain-tip activation, not through
-        /// the spawn-death-then-respawn loop. The real fix sets
-        /// <see cref="Recording.SpawnSuppressedByRewind"/> on every
-        /// recording in the rewound tree (see
+        /// false. It does NOT close the source duplicate-spawn from the
+        /// #573 playtest — that duplicate fired through
+        /// <see cref="VesselGhoster.SpawnAtChainTip"/> during a
+        /// warp-deferred activation, not through the spawn-death-then-respawn
+        /// loop. The real fix sets scoped
+        /// <see cref="Recording.SpawnSuppressedByRewind"/> metadata only on
+        /// the active/source recording stripped by rewind (see
         /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>),
         /// which <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd"/>
-        /// honours regardless of the rewind flag's state.
+        /// honours regardless of the rewind flag's state. Same-tree future
+        /// recordings remain spawn-eligible for #589.
         /// </para>
         /// </summary>
         internal void RunSpawnDeathChecks()
@@ -120,7 +121,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-rewind",
                     "RunSpawnDeathChecks: defense-in-depth skip during active rewind — " +
                     "production sequence ends rewind before this path runs; " +
-                    "the real plain-rewind fix is SpawnSuppressedByRewind (#573)");
+                    "the real plain-rewind fix is scoped SpawnSuppressedByRewind (#573/#589)");
                 return;
             }
 

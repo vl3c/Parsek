@@ -212,7 +212,7 @@ The actual production duplicate-spawn fires through a different code path. Concr
 5. `[LOG 13:13:19.600] PlaybackCompleted index=15 vessel=Kerbal X ... needsSpawn=True ... Deferred spawn during warp: #15 "Kerbal X"` — recording `2c276b3c6a9c438eb288dc4cbd55a3ee` (chain leaf, terminal Splashed at UT 194195.7, `vesselPersistentId = 2708531065` because chain segments share the source pid) reports `needsSpawn=True` because it has a `VesselSnapshot`, terminal Splashed, and is the effective leaf for that pid.
 6. After the player exits warp the deferred-spawn flush calls `ParsekFlight.SpawnVesselOrChainTipFromPolicy → SpawnAtChainTip → SpawnChainTipWithResolvedState → RespawnVessel(preserveIdentity:true)`. `TryAdoptExistingSourceVesselForSpawn` cannot adopt (no real vessel with pid 2708531065 exists — it was stripped). `RespawnVessel` then materialises a fresh vessel with pid 2708531065 — the user's "real vessel copy of the upper stage". `RunSpawnDeathChecks` never runs on this path because spawn-death only fires AFTER a vessel was successfully tracked, then disappeared; here the vessel is being created from scratch.
 
-**Fix:** introduce `Recording.SpawnSuppressedByRewind` (transient field, persisted in tree mutable state). `ParsekScenario.HandleRewindOnLoad` calls a new helper `MarkRewoundTreeRecordingsAsGhostOnly` after `ResetAllPlaybackState` that walks the committed list and sets the flag on every recording either (a) in the rewound tree (matched by TreeId of the rewind owner from `RewindReplayTargetRecordingId`) or (b) whose `VesselPersistentId` matches the armed `RewindReplayTargetSourcePid` (covers standalone-recording rewind). `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` consults the flag immediately after `TerminalSpawnSupersededByRecordingId` and returns `(false, "spawn suppressed post-rewind (ghost-only past, #573)")`. This blocks every spawn entry-point downstream (`SpawnAtChainTip`, `SpawnOrRecoverIfTooClose`, KSC spawn, tracking-station handoff — all gate on `ShouldSpawnAtRecordingEnd` or its `ShouldSpawnAtKscEnd` / `ShouldSpawnAtTrackingStationEnd` callers). `RecordingStore.ResetRecordingPlaybackFields` clears the flag so a subsequent rewind starts clean. Regression coverage in `RewindTimelineTests`: `ShouldSpawn_PostRewindChainLeafSameSourcePid_ReturnsFalse`, `HandleRewindOnLoad_MarksAllRewoundTreeChainLeavesGhostOnly_AllSpawnRefused` (drives the production sequence end-to-end through the helper and asserts every spawn entry-point refuses), `MarkRewoundTreeRecordingsAsGhostOnly_StandaloneRecording_MarksByPidMatch`, `MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_NoOp`, `ResetAllPlaybackState_ClearsSpawnSuppressedByRewind`.
+**Fix:** introduce scoped `Recording.SpawnSuppressedByRewind` metadata, persisted in tree mutable state as `spawnSuppressedByRewind`, `spawnSuppressedByRewindReason`, and `spawnSuppressedByRewindUT`. `ParsekScenario.HandleRewindOnLoad` calls `MarkRewoundTreeRecordingsAsGhostOnly` after `ResetAllPlaybackState`, but the helper now applies the marker only to the active/source recording (`reason=same-recording`) or a same-source recording whose UT range overlaps the rewind target. Same-tree future recordings are logged as `reason=same-tree-future-recording` and intentionally left spawn-eligible, so #573 no longer turns an entire tree into ghost-only history (#589). `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` still treats `same-recording` as an absolute #573 duplicate-source block, but consumes/clears legacy unscoped markers before continuing through normal spawn-at-end gates. `RecordingStore.ResetRecordingPlaybackFields` clears the marker and metadata so repeated rewinds start clean. Regression coverage in `RewindTimelineTests` and `RewindSpawnSuppressionTests`: same-recording #573 suppression, future same-tree spawn eligibility at `endUT`, legacy marker consumption, repeated-rewind stale-marker clearing, reset lifecycle logging, and log assertions for applied/skipped/cleared decisions.
 
 The `RewindContext.IsRewinding` short-circuit in `RunSpawnDeathChecks` from `c9d257f8` is retained as defense-in-depth (with corrected wording in code + tests calling out that it does NOT cover the production sequence), so a future regression that splits the rewind sequence across update ticks can't trip the spawn-death detector.
 
@@ -1291,7 +1291,7 @@ sibling symptoms in the same playtest.
 
 ---
 
-## 589. Real-vessel spawns at end of mission recordings never materialize after a tree-wide rewind — `SpawnSuppressedByRewind` keeps the entire tree ghost-only forever
+## ~~589. Real-vessel spawns at end of mission recordings never materialize after a tree-wide rewind — `SpawnSuppressedByRewind` keeps the entire tree ghost-only forever~~
 
 **Source:** same playtest as #585. After the booster Re-Fly merge, the
 user issued a second rewind from the recordings table back to
@@ -1347,9 +1347,20 @@ re-flying over), not every recording in the tree.
   `same-tree-future-recording` (the case that needs an `endUT >
   rewindUT` carve-out).
 
-**Status:** Open. User flagged the missing spawns as a separate
-concern from the Mun ghost positioning (#588) but they share the
-playtest and likely overlap in symptom space.
+**Fix:** split the rewind suppression semantics. `reason=same-recording`
+is the #573 strip-kill/source duplicate protection case and remains an
+absolute spawn-at-end block. `reason=same-tree-future-recording` is now
+logged as an intentional skip: recordings whose `StartUT` and `EndUT`
+are ahead of the rewind UT are not marked ghost-only and materialize
+normally when playback reaches their endpoint. New persisted metadata
+(`spawnSuppressedByRewindReason`, `spawnSuppressedByRewindUT`) scopes
+future saves, and the spawn gate consumes/clears legacy unscoped markers
+so broken saves from the whole-tree implementation stop blocking future
+terminal spawns. Diagnostics now distinguish applied #573 protection,
+future same-tree skip, stale marker clear/reset, and spawn allowed despite
+same-tree rewind.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 

@@ -208,6 +208,7 @@ namespace Parsek
             }
 
             tree.RebuildBackgroundMap();
+            NormalizeLegacyRewindSuppressionMarkers(tree);
 
             ParsekLog.Verbose("RecordingTree",
                 $"Load: id={tree.Id} tree='{tree.TreeName}' recordings={tree.Recordings.Count} " +
@@ -241,6 +242,109 @@ namespace Parsek
                     "LedgerOrchestrator.MigrateLegacyTreeResources will reconcile.");
             }
             return tree;
+        }
+
+        private static void NormalizeLegacyRewindSuppressionMarkers(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return;
+
+            int legacyCount = 0;
+            int sourceProtected = 0;
+            int futureEligible = 0;
+            Recording fallbackSource = null;
+            var legacyMarkers = new List<Recording>();
+            string sourceRecordingId = null;
+            // Prefer the saved root over ActiveRecordingId when both exist.
+            // Committed trees can retain ActiveRecordingId as a future leaf, and
+            // treating that as the legacy source would re-block #589 terminal spawns.
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.ContainsKey(tree.RootRecordingId))
+            {
+                sourceRecordingId = tree.RootRecordingId;
+            }
+            else if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && tree.Recordings.ContainsKey(tree.ActiveRecordingId))
+            {
+                sourceRecordingId = tree.ActiveRecordingId;
+            }
+            bool hasKnownSourceCandidate = !string.IsNullOrEmpty(sourceRecordingId);
+            if (hasKnownSourceCandidate
+                && tree.Recordings.TryGetValue(sourceRecordingId, out var existingSource)
+                && existingSource != null
+                && existingSource.SpawnSuppressedByRewind
+                && string.Equals(existingSource.SpawnSuppressedByRewindReason,
+                    ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                    StringComparison.Ordinal))
+            {
+                sourceProtected = 1;
+            }
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null
+                    || !rec.SpawnSuppressedByRewind
+                    || !string.Equals(rec.SpawnSuppressedByRewindReason,
+                        ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                legacyCount++;
+                legacyMarkers.Add(rec);
+                bool isSavedSource = !string.IsNullOrEmpty(sourceRecordingId)
+                    && string.Equals(rec.RecordingId, sourceRecordingId, StringComparison.Ordinal);
+                if (isSavedSource)
+                {
+                    MarkLegacyRewindSuppressionAsSource(rec);
+                    sourceProtected++;
+                    continue;
+                }
+
+                if (fallbackSource == null || CompareRecordingTreeOrder(rec, fallbackSource) < 0)
+                    fallbackSource = rec;
+            }
+
+            if (legacyCount == 0)
+                return;
+
+            if (sourceProtected == 0 && fallbackSource != null && !hasKnownSourceCandidate)
+            {
+                MarkLegacyRewindSuppressionAsSource(fallbackSource);
+                sourceProtected++;
+            }
+
+            for (int i = 0; i < legacyMarkers.Count; i++)
+            {
+                var rec = legacyMarkers[i];
+                if (rec != null
+                    && string.Equals(rec.SpawnSuppressedByRewindReason,
+                        ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped,
+                        StringComparison.Ordinal))
+                {
+                    futureEligible++;
+                }
+            }
+
+            ParsekLog.Info("RecordingTree",
+                $"Legacy SpawnSuppressedByRewind markers normalized: tree='{tree.TreeName}' " +
+                $"id={tree.Id} legacy={legacyCount} sourceProtected={sourceProtected} " +
+                $"futureEligible={futureEligible}");
+        }
+
+        private static void MarkLegacyRewindSuppressionAsSource(Recording rec)
+        {
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            if (double.IsNaN(rec.SpawnSuppressedByRewindUT))
+                rec.SpawnSuppressedByRewindUT = rec.StartUT;
+
+            ParsekLog.Verbose("RecordingTree",
+                $"Legacy SpawnSuppressedByRewind retained as same-recording source: " +
+                $"id={rec.RecordingId} name='{rec.VesselName}' " +
+                $"treeOrder={rec.TreeOrder.ToString(CultureInfo.InvariantCulture)} " +
+                $"rewindUT={ParsekScenario.FormatRewindUT(rec.SpawnSuppressedByRewindUT)}");
         }
 
         private static LegacyResourceResidual LoadLegacyResidual(
@@ -612,10 +716,18 @@ namespace Parsek
                 recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
-            // #573 follow-up to PR #541: persist the rewind ghost-only marker so plain
-            // Rewind-to-Launch suppression survives save/load until commit/discard.
+            // #573/#589: persist scoped rewind suppression metadata. New saves only
+            // write this for the active/source recording; unscoped legacy markers are
+            // recognized at load/spawn time and cleared instead of blocking future
+            // same-tree terminal materialization forever.
             if (rec.SpawnSuppressedByRewind)
+            {
                 recNode.AddValue("spawnSuppressedByRewind", rec.SpawnSuppressedByRewind.ToString());
+                if (!string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
+                    recNode.AddValue("spawnSuppressedByRewindReason", rec.SpawnSuppressedByRewindReason);
+                if (!double.IsNaN(rec.SpawnSuppressedByRewindUT))
+                    recNode.AddValue("spawnSuppressedByRewindUT", rec.SpawnSuppressedByRewindUT.ToString("R", ic));
+            }
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
 
@@ -1039,13 +1151,29 @@ namespace Parsek
                     rec.VesselDestroyed = destroyed;
             }
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
-            // #573 follow-up: load post-rewind ghost-only marker.
+            // #573/#589: load scoped post-rewind suppression marker. Older saves
+            // only contain the bool because the original fix marked whole trees;
+            // tag those as legacy-unscoped so the spawn gate can clear them.
             string spawnSuppressedStr = recNode.GetValue("spawnSuppressedByRewind");
             if (spawnSuppressedStr != null)
             {
                 bool spawnSuppressed;
                 if (bool.TryParse(spawnSuppressedStr, out spawnSuppressed))
                     rec.SpawnSuppressedByRewind = spawnSuppressed;
+            }
+            if (rec.SpawnSuppressedByRewind)
+            {
+                rec.SpawnSuppressedByRewindReason = recNode.GetValue("spawnSuppressedByRewindReason");
+                string spawnSuppressedUTStr = recNode.GetValue("spawnSuppressedByRewindUT");
+                if (spawnSuppressedUTStr != null)
+                {
+                    double spawnSuppressedUT;
+                    if (double.TryParse(spawnSuppressedUTStr, NumberStyles.Float, ic, out spawnSuppressedUT))
+                        rec.SpawnSuppressedByRewindUT = spawnSuppressedUT;
+                }
+
+                if (string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
+                    rec.SpawnSuppressedByRewindReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
             }
             string resIdxStr = recNode.GetValue("lastResIdx");
             if (resIdxStr != null)
