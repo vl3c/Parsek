@@ -224,6 +224,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
+
 - `#574` Already-Destroyed recordings no longer re-run the sub-surface ballistic finalizer on cache refresh. The first Destroyed classification now logs once with body, altitude, and threshold; later refreshes emit a rate-limited skip diagnostic plus refresh summary instead of a repeated WARN storm.
 - `#577` Re-Fly session markers loaded from an earlier game session now survive fresh-load scenes where KSP reports UT 0 during validation. The validator still rejects corrupt `InvokedUT` values and now logs current-UT/RP-UT comparisons for both accepts and rejects.
 
@@ -247,6 +249,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.
 - `#553` Added direct-ledger forwarding predicate coverage for tagged teardown suppression, untagged KSC events, and untagged pre-recording FLIGHT events across tech, part-purchase, crew-hire, milestone, strategy activate/deactivate, and facility upgrade handlers, plus an evt.recordingId-vs-resolver drift test.

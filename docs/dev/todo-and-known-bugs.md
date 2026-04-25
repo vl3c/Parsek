@@ -1083,7 +1083,7 @@ post-swap rebuild contract.
 
 ---
 
-## 586. Ghost map vessel "Set Target" via icon click logs success but does nothing in KSP
+## 586. Ghost map vessel "Set Target" via icon click logs success but does nothing in KSP ~~done~~
 
 **Source:** same playtest as #585. User: "when controlling the booster, I
 tried to click on Set Target on the ghost proto-vessel (the upper stage
@@ -1102,23 +1102,28 @@ Parsek logs the click as if it succeeded, but the user-observable
 behaviour (target marker, distance / velocity readouts on the navball,
 encounter-prediction line to the ghost) never materialises.
 
-**Plausible root causes to confirm:**
+**Root cause confirmed:**
 
-- Ghost map vessels are lightweight ProtoVessel-wrapping `Vessel`
-  instances managed by `GhostMapPresence`. KSP's
-  `FlightGlobals.fetch.SetVesselTarget(...)` may accept the Vessel
-  reference but the very next physics frame finds the ghost is not in
-  `FlightGlobals.Vessels` for targeting purposes (it lives in the
-  tracking-station ProtoVessel set, not the active flight vessel set),
-  so the target is silently dropped.
-- Or: the ghost vessel has no `MapObject` of the right type for
-  KSP's encounter solver, which refuses to chain patched conics to
-  the target and clears the target state.
-- Or: Parsek logs the click before calling `SetVesselTarget`, but the
-  call site is gated by a precondition that fails (e.g. ghost vessel
-  is in a different SOI than the active vessel) — the log says
-  "set as target via icon click" even though SetVesselTarget never
-  actually fired.
+- KSP did accept Parsek's `FlightGlobals.fetch.SetVesselTarget(...)`
+  call, but Parsek had populated the ghost vessel `OrbitDriver` as if
+  it were a body driver: `orbitDriver.celestialBody = Kerbin`. Stock
+  `OrbitTargeter.DropInvalidTargets()` treats any target driver with a
+  `celestialBody` equal to the active vessel's reference body as "the
+  current main body" and clears the target. Normal vessel targets keep
+  identity in `OrbitDriver.vessel` and leave `OrbitDriver.celestialBody`
+  null.
+- Fixed by normalizing ghost orbit-driver target identity after
+  ProtoVessel load and every ghost orbit update: `OrbitDriver.vessel`
+  points at the ghost vessel, `OrbitDriver.celestialBody` stays null,
+  and the reference body remains on the `Orbit`.
+- The Set Target menu paths now capture target state before and
+  immediately after `SetVesselTarget`, then log success only after a
+  delayed KSP-validation check confirms `FlightGlobals.fetch.VesselTarget`
+  still resolves to the ghost vessel. Rejections log a warning with
+  the final reason (`null`, current-main-body, parent-body, wrong
+  vessel, wrong object) plus target type/name/body, active vessel
+  `targetObject`, ghost `MapObject`, orbit-driver identity, and
+  `FlightGlobals.Vessels` registration state.
 
 **Files to investigate:**
 
@@ -1130,8 +1135,11 @@ encounter-prediction line to the ghost) never materialises.
   is a valid KSP target (correct `vesselType`, has a `MapObject`,
   has an `OrbitDriver`, is registered with `FlightGlobals`).
 
-**Status:** Open. Workaround for the user: focus via the Parsek menu
-(`focused via menu` log line shows the click handler that *does* work).
+**Status:** Closed. Tests: `GhostMapTargetingTests` pins the verified
+success/failure logging contract, and
+`GhostMapVesselTargeting_SyntheticSameBodyGhost_Sticks` is an in-game
+runtime canary for production `SetGhostMapNavigationTarget` acceptance
+on a synthetic same-body ghost after stock validation frames.
 
 ---
 
