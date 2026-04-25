@@ -300,7 +300,9 @@ namespace Parsek
             else
             {
                 ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
+                    $"Deferred spawn queue drained — spawned {spawnedCount} deferred spawn(s), " +
+                    $"cleared {flushedSpawnIds.Count} spawn queue item(s), " +
+                    $"cleared {clearedFlagReplayIds.Count} flag replay(s)");
             }
 
             if (pendingSpawnRecordingIds.Count == 0)

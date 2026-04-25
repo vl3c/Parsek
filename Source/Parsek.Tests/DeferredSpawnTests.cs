@@ -206,6 +206,12 @@ namespace Parsek.Tests
                 line.Contains("Bob Kerman") &&
                 line.Contains("spawned 1/1 flag(s)") &&
                 line.Contains("failed=0"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Policy]") &&
+                line.Contains("Deferred spawn queue drained") &&
+                line.Contains("spawned 1 deferred spawn(s)") &&
+                line.Contains("cleared 1 spawn queue item(s)") &&
+                line.Contains("cleared 1 flag replay(s)"));
         }
 
         [Fact]
@@ -250,6 +256,12 @@ namespace Parsek.Tests
             Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
             Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
             Assert.DoesNotContain(logLines, line => line.Contains("Deferred flag replay still failing"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Policy]") &&
+                line.Contains("Deferred spawn queue waiting") &&
+                line.Contains("flushed 1 deferred spawn(s)") &&
+                line.Contains("1 flag replay(s) pending") &&
+                line.Contains("1 total pending"));
 
             policy.FlushDeferredSpawns();
             Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
@@ -301,13 +313,16 @@ namespace Parsek.Tests
             Assert.Contains(rec.RecordingId, policy.pendingSpawnRecordingIds);
             Assert.Single(logLines.FindAll(line =>
                 line.Contains("Deferred spawn queue waiting") &&
-                line.Contains("Distant Kerbal")));
+                line.Contains("Distant Kerbal") &&
+                line.Contains("sample=#0 \"Distant Kerbal\"")));
             Assert.DoesNotContain(logLines, line =>
                 line.Contains("Deferred spawn kept in queue (outside physics bubble)"));
             Assert.DoesNotContain(logLines, line =>
                 line.Contains("Warp ended") &&
                 line.Contains("kept") &&
                 line.Contains("outside"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("Deferred spawn queue drained"));
 
             clock += 6.0;
             policy.FlushDeferredSpawns();
