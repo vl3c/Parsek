@@ -132,19 +132,17 @@ namespace Parsek
                 }
 
                 OrbitSegment segment = section.checkpoints[s];
-                double startUT = Math.Max(section.startUT, segment.startUT);
-                double endUT = Math.Min(section.endUT, segment.endUT);
-                double duration = endUT - startUT;
-                if (duration < MinDensifyDurationSeconds)
+                if (!IsSegmentDensifiable(section, segment, out double startUT, out double endUT, out string rejectReason))
                 {
-                    if (result.Reason == "not-eligible")
-                        result.Reason = "below-duration-threshold";
-                    continue;
-                }
-
-                if (segment.eccentricity < 0.0 || segment.eccentricity >= 1.0 || segment.semiMajorAxis <= 0.0)
-                {
-                    result.Reason = "unsupported-orbit";
+                    if (rejectReason == "below-duration-threshold")
+                    {
+                        if (result.Reason == "not-eligible")
+                            result.Reason = rejectReason;
+                    }
+                    else
+                    {
+                        result.Reason = rejectReason;
+                    }
                     continue;
                 }
 
@@ -156,10 +154,14 @@ namespace Parsek
                     continue;
                 }
 
-                int remainingEligibleSegments = CountRemainingDensifiableSegments(section, s);
-                int segmentPointBudget = remainingEligibleSegments > 0
-                    ? Math.Max(1, remainingPointBudget / remainingEligibleSegments)
-                    : remainingPointBudget;
+                int remainingEligibleSegments = CountRemainingDensifiableSegments(section, s, resolveBody);
+                int segmentPointBudget = AllocateSegmentPointBudget(remainingPointBudget, remainingEligibleSegments);
+                if (segmentPointBudget <= 0)
+                {
+                    result.Capped = true;
+                    continue;
+                }
+
                 List<double> sampleUTs = BuildTrueAnomalySampleUTs(
                     segment,
                     startUT,
@@ -212,7 +214,35 @@ namespace Parsek
             return result;
         }
 
-        private static int CountRemainingDensifiableSegments(TrackSection section, int startIndex)
+        private static bool IsSegmentDensifiable(
+            TrackSection section,
+            OrbitSegment segment,
+            out double startUT,
+            out double endUT,
+            out string rejectReason)
+        {
+            startUT = Math.Max(section.startUT, segment.startUT);
+            endUT = Math.Min(section.endUT, segment.endUT);
+            if (endUT - startUT < MinDensifyDurationSeconds)
+            {
+                rejectReason = "below-duration-threshold";
+                return false;
+            }
+
+            if (segment.eccentricity < 0.0 || segment.eccentricity >= 1.0 || segment.semiMajorAxis <= 0.0)
+            {
+                rejectReason = "unsupported-orbit";
+                return false;
+            }
+
+            rejectReason = null;
+            return true;
+        }
+
+        private static int CountRemainingDensifiableSegments(
+            TrackSection section,
+            int startIndex,
+            TryResolveOrbitalCheckpointBody resolveBody)
         {
             int count = 0;
             if (section.checkpoints == null)
@@ -221,18 +251,35 @@ namespace Parsek
             for (int i = startIndex; i < section.checkpoints.Count; i++)
             {
                 OrbitSegment segment = section.checkpoints[i];
-                double startUT = Math.Max(section.startUT, segment.startUT);
-                double endUT = Math.Min(section.endUT, segment.endUT);
-                if (endUT - startUT < MinDensifyDurationSeconds)
+                if (!IsSegmentDensifiable(section, segment, out _, out _, out _))
                     continue;
 
-                if (segment.eccentricity < 0.0 || segment.eccentricity >= 1.0 || segment.semiMajorAxis <= 0.0)
+                if (resolveBody != null
+                    && (!resolveBody(segment.bodyName, out double bodyRadius, out double gravParameter)
+                        || bodyRadius <= 0.0
+                        || gravParameter <= 0.0))
                     continue;
 
                 count++;
             }
 
             return count;
+        }
+
+        private static int AllocateSegmentPointBudget(int remainingPointBudget, int remainingEligibleSegments)
+        {
+            if (remainingPointBudget <= 0 || remainingEligibleSegments <= 0)
+                return 0;
+
+            if (remainingEligibleSegments == 1)
+                return remainingPointBudget;
+
+            int averageBudget = remainingPointBudget / remainingEligibleSegments;
+            if (averageBudget > 1)
+                return averageBudget;
+
+            // Keep enough budget for the final eligible segment to include both boundary samples.
+            return remainingPointBudget > remainingEligibleSegments ? 1 : 0;
         }
 
         private static List<double> BuildTrueAnomalySampleUTs(

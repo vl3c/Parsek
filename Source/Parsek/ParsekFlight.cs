@@ -13745,11 +13745,11 @@ namespace Parsek
             long rec = Math.Min(CheckpointOrbitCacheMaxRecordingIndex, Math.Max(0, (long)recordingIndex));
             long section = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)sectionIdx));
             long checkpoint = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)checkpointIdx));
-            return
+            return unchecked(
                 CheckpointOrbitCacheBase
                 + rec * CheckpointOrbitCacheRecordingStride
                 + section * CheckpointOrbitCacheSectionStride
-                + checkpoint;
+                + checkpoint);
         }
 
         bool TryGetCheckpointTrackSection(

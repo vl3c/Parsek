@@ -175,6 +175,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ManySegmentCheckpoint_CapBudgetDoesNotFrontLoad()
+        {
+            const int extraSegments = 5;
+            Recording rec = BuildManySegmentCappedRecording(
+                OrbitalCheckpointDensifier.MaxAddedPointsPerSection + extraSegments);
+
+            int added = DensifySynthetic(rec);
+
+            TrackSection section = rec.TrackSections[0];
+            int firstRetainedSegmentIndex = section.checkpoints.Count - (OrbitalCheckpointDensifier.MaxAddedPointsPerSection - 1);
+            Assert.Equal(OrbitalCheckpointDensifier.MaxAddedPointsPerSection, added);
+            Assert.Equal(OrbitalCheckpointDensifier.MaxAddedPointsPerSection, section.frames.Count);
+            Assert.True(section.frames[0].ut >= section.checkpoints[firstRetainedSegmentIndex].startUT - 0.001);
+            Assert.True(section.frames[section.frames.Count - 1].ut >= section.endUT - 0.001);
+            Assert.DoesNotContain(section.frames, point => point.ut < section.checkpoints[firstRetainedSegmentIndex].startUT - 0.001);
+        }
+
+        [Fact]
         public void OptimizerTrimCheckpointFrames_PreservesInterpolatedTrimEndpoint()
         {
             var frames = new List<TrajectoryPoint>
@@ -283,6 +301,47 @@ namespace Parsek.Tests
                 endUT = secondEnd,
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment> { first, second },
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
+            });
+            return rec;
+        }
+
+        private static Recording BuildManySegmentCappedRecording(int segmentCount)
+        {
+            const double sma = 1200000.0;
+            const double segmentDuration = OrbitalCheckpointDensifier.MinDensifyDurationSeconds + 10.0;
+            const double segmentGap = 1.0;
+            double firstStart = LongWarpStartUT;
+
+            var rec = new Recording
+            {
+                RecordingId = "571a-many-segment-budget",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Synthetic many segment checkpoint",
+                ExplicitStartUT = firstStart
+            };
+
+            var checkpoints = new List<OrbitSegment>();
+            for (int i = 0; i < segmentCount; i++)
+            {
+                double startUT = firstStart + i * (segmentDuration + segmentGap);
+                double endUT = startUT + segmentDuration;
+                OrbitSegment segment = BuildCircularSegment(startUT, endUT, sma);
+                rec.OrbitSegments.Add(segment);
+                checkpoints.Add(segment);
+                rec.ExplicitEndUT = endUT;
+            }
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = firstStart,
+                endUT = rec.ExplicitEndUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = checkpoints,
                 minAltitude = float.NaN,
                 maxAltitude = float.NaN
             });
