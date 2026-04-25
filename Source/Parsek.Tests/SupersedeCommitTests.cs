@@ -532,12 +532,15 @@ namespace Parsek.Tests
         /// <summary>
         /// Regression: Limbo-restore kept the origin recording alive across an
         /// RP-quicksave reload, the re-fly continued writing into that SAME
-        /// recording, and after the placeholder-redirect in
-        /// <see cref="MergeDialog.TryCommitReFlySupersede"/> we had
-        /// <c>provisional.RecordingId == marker.OriginChildRecordingId</c>.
-        /// The caller-side guard must detect this in-place-continuation case,
-        /// skip the journaled merge entirely (no self-supersede row), flip
-        /// MergeState, clear the marker, and return Completed.
+        /// recording. Item 11 moved the in-place detection up to
+        /// <see cref="RewindInvoker.AtomicMarkerWrite"/> so the marker now
+        /// points directly at the origin id with no placeholder; at merge
+        /// time <c>provisional.RecordingId == marker.OriginChildRecordingId</c>
+        /// is the natural state, not a redirect outcome. The caller-side
+        /// guard in <see cref="MergeDialog.TryCommitReFlySupersede"/> must
+        /// detect the in-place-continuation case, skip the journaled merge
+        /// entirely (no self-supersede row), flip MergeState, clear the
+        /// marker, and return Completed.
         /// </summary>
         [Fact]
         public void TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes()
@@ -549,8 +552,10 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: TerminalState.Landed,
                 supersedeTargetId: null);
-            // Give it a non-empty trajectory so the placeholder redirect path
-            // is skipped and the self-continuation guard runs directly.
+            // Non-empty trajectory satisfies the supersede-target invariant
+            // (item 10) on the in-place continuation path's defensive
+            // ValidateSupersedeTarget call, even though that invariant is
+            // not reached because the in-place guard short-circuits first.
             origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
             origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
@@ -586,48 +591,17 @@ namespace Parsek.Tests
                 && l.Contains("rec_origin"));
         }
 
-        /// <summary>
-        /// Defense-in-depth: AppendRelations must refuse to write a
-        /// self-supersede row (old==new) even if the caller-side guard is
-        /// bypassed. This guards against future regressions in the ordering
-        /// of the guards and against direct test-only callers.
-        /// </summary>
-        [Fact]
-        public void AppendRelations_SelfSupersede_SkippedAndWarned()
-        {
-            // Origin is alone in its subtree; provisional id matches origin id.
-            var origin = Rec("rec_same", "tree_1");
-            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
-            var tree = new RecordingTree
-            {
-                Id = "tree_1",
-                TreeName = "Test_tree_1",
-                BranchPoints = new List<BranchPoint>(),
-            };
-            tree.AddOrReplaceRecording(origin);
-            RecordingStore.CommittedTrees.Add(tree);
-
-            var provisional = Rec("rec_same", "tree_1",
-                state: MergeState.NotCommitted,
-                terminal: TerminalState.Landed);
-            // Satisfy AppendRelations supersede-target invariant so the
-            // self-supersede defense is the only refusal exercised here.
-            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
-            var marker = Marker("rec_same", "rec_same");
-            var scenario = InstallScenario(marker);
-
-            int countBefore = scenario.RecordingSupersedes.Count;
-            var subtree = SupersedeCommit.AppendRelations(marker, provisional, scenario);
-            int countAfter = scenario.RecordingSupersedes.Count;
-
-            Assert.Equal(countBefore, countAfter);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Supersede]")
-                && l.Contains("refusing to write self-supersede row")
-                && l.Contains("old=rec_same") && l.Contains("new=rec_same"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Supersede]") && l.Contains("selfSkipped=1"));
-        }
+        // The runtime `old==new` self-skip defense in
+        // `SupersedeCommit.AppendRelations` was removed when the placeholder-
+        // and-redirect cascade was retired (item 11). The new design makes
+        // self-supersede impossible at the source: `RewindInvoker.AtomicMarkerWrite`
+        // detects in-place continuation up front and points the marker at the
+        // origin id directly without creating a placeholder; the
+        // `MergeDialog.TryCommitReFlySupersede` in-place-continuation guard
+        // (asserted in `TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes`
+        // above) is the sole path for that case. The matching invariant on
+        // the AtomicMarkerWrite side is asserted in
+        // `AtomicMarkerWriteTests.AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder`.
 
         // ---------- Supersede-target invariant (item 10) -------------------
 

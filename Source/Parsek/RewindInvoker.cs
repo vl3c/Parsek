@@ -686,6 +686,31 @@ namespace Parsek
         /// §6.3 step 4 critical section. Runs synchronously; throws MUST
         /// leave the global state untouched (we roll back the provisional
         /// add before rethrowing). NO yield, NO await, NO deferred save.
+        ///
+        /// <para>
+        /// Two paths, decided up front:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     <b>In-place continuation</b> — when the Limbo-restore path
+        ///     kept the origin recording alive in the restored tree and the
+        ///     active vessel pid (just focused by Strip+Activate) matches the
+        ///     origin's <see cref="Recording.VesselPersistentId"/>, the
+        ///     recorder will append new samples directly to the origin
+        ///     recording. Point <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        ///     at the origin id and create no placeholder. This eliminates
+        ///     the legacy placeholder-then-redirect dance: the marker now
+        ///     points directly at the recording that will receive samples.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <b>New-recording path</b> — origin tree is gone or the active
+        ///     pid does not match the origin's pid. Create a fresh
+        ///     placeholder recording (no trajectory yet), add it via
+        ///     <see cref="RecordingStore.AddProvisional"/>, and point the
+        ///     marker at its id. The recorder will populate this placeholder
+        ///     as the player flies.
+        ///   </description></item>
+        /// </list>
         /// </summary>
         internal static void AtomicMarkerWrite(
             RewindPoint rp, ChildSlot selected,
@@ -700,14 +725,42 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
                 throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
 
-            // Resolve the origin recording so we can clone its lineage metadata.
+            // Resolve the origin recording. If it survived the Limbo-restore
+            // and its VesselPersistentId matches the strip-selected pid, the
+            // recorder will continue writing into THIS recording; we point
+            // the marker at it directly with no placeholder. Otherwise we
+            // build a fresh placeholder.
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+            bool inPlaceContinuation =
+                originChild != null
+                && IsCommittedRecording(originChild)
+                && originChild.VesselPersistentId == stripResult.SelectedPid;
 
-            var provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+            Recording provisional = null;
+            string activeReFlyRecordingId;
+            string treeIdForMarker;
 
-            CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-            RecordingStore.AddProvisional(provisional);
-            CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            if (inPlaceContinuation)
+            {
+                activeReFlyRecordingId = originChild.RecordingId;
+                treeIdForMarker = originChild.TreeId;
+                ParsekLog.Info(InvokeTag,
+                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                    $"{originChild.RecordingId} (no placeholder created)");
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
+            else
+            {
+                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                activeReFlyRecordingId = provisional.RecordingId;
+                treeIdForMarker = provisional.TreeId;
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                RecordingStore.AddProvisional(provisional);
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
 
             ReFlySessionMarker marker;
             try
@@ -715,8 +768,8 @@ namespace Parsek
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
-                    TreeId = provisional.TreeId,
-                    ActiveReFlyRecordingId = provisional.RecordingId,
+                    TreeId = treeIdForMarker,
+                    ActiveReFlyRecordingId = activeReFlyRecordingId,
                     OriginChildRecordingId = selected.OriginChildRecordingId,
                     RewindPointId = rp.RewindPointId,
                     InvokedUT = SafeNow(),
@@ -730,11 +783,15 @@ namespace Parsek
             }
             catch
             {
-                // Roll back the provisional AND the marker so no half-written
-                // pair leaks out of the critical section. Both clears are
-                // idempotent (RemoveCommittedInternal returns false if absent;
-                // marker clear is a null-assignment).
-                RecordingStore.RemoveCommittedInternal(provisional);
+                // Roll back the provisional (when we added one) AND the
+                // marker so no half-written pair leaks out of the critical
+                // section. Both clears are idempotent
+                // (RemoveCommittedInternal returns false if absent; marker
+                // clear is a null-assignment). In-place continuation paths
+                // did not add anything to the committed list, so there's
+                // nothing to roll back on the recording side.
+                if (provisional != null)
+                    RecordingStore.RemoveCommittedInternal(provisional);
                 try
                 {
                     if (ParsekScenario.Instance != null)
@@ -746,9 +803,30 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
-                $"provisional={provisional.RecordingId} " +
+                $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
-                $"tree={provisional.TreeId ?? "<none>"}");
+                $"tree={treeIdForMarker ?? "<none>"} " +
+                $"inPlaceContinuation={inPlaceContinuation}");
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> currently appears in
+        /// <see cref="RecordingStore.CommittedRecordings"/> by reference.
+        /// Used by <see cref="AtomicMarkerWrite"/> to decide between the
+        /// in-place continuation path (origin survived Limbo restore) and
+        /// the placeholder path (origin tree was gone / pid mismatched).
+        /// </summary>
+        private static bool IsCommittedRecording(Recording rec)
+        {
+            if (rec == null) return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (ReferenceEquals(committed[i], rec))
+                    return true;
+            }
+            return false;
         }
 
         internal static Recording BuildProvisionalRecording(
