@@ -352,30 +352,42 @@ session that authored the on-disk marker.
 
 ---
 
-## 578. CrewReservation: 3 orphan placements where pid AND name tiers both fail
+## 578. CrewReservation: 3 orphan placements where pid AND name tiers both fail ~~done~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 3 occurrences of:
 
-- `[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for 'Magdo Kerman' → 'Herfrid Kerman' (snapshot pid=<N> name='mk1-1pod') — stand-in left in roster (attempted pidTier=yes nameTier=yes; cumulative pidHits=<N> nameHitFallbacks=<N>)`
+- `[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for 'Magdo Kerman' → 'Herfrid Kerman' (snapshot pid=<N> name='mk1-3pod') — stand-in left in roster (attempted pidTier=yes nameTier=yes; cumulative pidHits=<N> nameHitFallbacks=<N>)`
 - Same shape for `'Kathrick Kerman' → 'Lomy Kerman'`
 - Same shape for `'Ermore Kerman' → 'Shepry Kerman'`
 
 Both lookup tiers (`pidTier=yes` AND `nameTier=yes`) attempted and both
 failed → stand-in is left in the roster. Three different replacement pairs
-all pointing at the same `mk1-1pod` snapshot suggests the active vessel does
-not actually contain that part type, or all of its mk1-1pod seats are
+all pointing at the same `mk1-3pod` snapshot suggests the active vessel does
+not actually contain that part type, or all of its mk1-3pod seats are
 occupied at the time of placement.
 
 **Files to investigate:**
 
 - `Source/Parsek/CrewReservationManager.cs` — orphan-placement fallback path,
   the pid-tier and name-tier matchers, why neither resolved.
-- `Source/Parsek/GameActions/KerbalsModule.cs` — replacement dispatch.
+- `Source/Parsek/KerbalsModule.cs` — replacement dispatch.
 - This subsystem is flagged as elevated-risk in
   `memory/project_post_v0_8_0_risk_areas.md` after the 6-bug PR #263 mega-fix.
 
-**Status:** Open.
+**Fix:** Confirmed hypothesis (a) for the captured playtest: the orphan-placement
+pass ran while the active vessel lacked the snapshot command-pod part, so the
+old WARN collapsed a wrong-vessel target into a generic no-free-seat failure.
+`CrewReservationManager` now classifies no-match misses with active part,
+free-seat, pid-match, and name-match counters, logs the pass as deferred with
+`reason=active-vessel-missing-snapshot-part`, keeps the stand-in roster entry
+for a later retry, and still rejects the removed tier-3 "any free seat"
+fallback. Regression coverage:
+`CrewReservationNameHitFallbackTests.TryResolveActiveVesselPartForSeat_Bug578_WrongActiveVessel_DiagnosesMissingSnapshotPart`,
+the miss-reason truth-table/log assertions in the same class, and the runtime
+`Bug578_OrphanPlacement_NoMatchingPart_LogsDeferredReason` in-game test.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 
