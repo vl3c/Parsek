@@ -29,6 +29,7 @@ All notable changes to Parsek are documented here.
 - Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Discard Re-fly / Continue Flying) intercepts both `FlightDriver.RevertToLaunch` and `FlightDriver.RevertToPrelaunch` while a session is active. Discard Re-fly is session-scoped: it removes only the current attempt's provisional recording, promotes the origin RP to persistent, reloads the RP quicksave, and transitions to the Space Center (Launch) or VAB/SPH (Prelaunch) — other RPs, supersede relations, and tombstones in the tree are preserved.
 - Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
 - Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
+- Continued refactor-4 (Pass 2) with a behavior-neutral `SidecarFileCommitBatch` extraction: staged sidecar write/delete commit, rollback, and artifact cleanup now live in a focused helper while preserving the `[RecordingStore]` log tag, per-step rollback semantics from `#366`, sidecar epoch ordering, and `FilesDirty` mutation order.
 
 ### Enhancements
 
@@ -40,6 +41,12 @@ All notable changes to Parsek are documented here.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
 
 ### Bug Fixes
+
+- `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
+
+- `#576` PatchedConicSnapshot `solver unavailable` and the paired Extrapolator `patched-conic snapshot failed for ... with NullSolver; falling back to live orbit state` WARNs are now rate-limited per (vessel-name) and per (recording-id, failure-reason) respectively. The 2026-04-25 marker-validator-fix playtest emitted 146 of each — almost all from debris, EVA-kerbals, and probe-debris that have no patched-conic solver by design in stock KSP. Downstream NullSolver semantics (live-orbit fallback for the destroyed-vessel case) are unchanged; only the log-noise floor is trimmed.
+
+- `#581` New "Playback hybrid breakdown" one-shot diagnostic WARN closes the gap between the existing #450 (heaviest spawn ≥ 15 ms) and #460 (mainLoop ≥ 10 ms with spawn < 1 ms) sub-breakdown latches. The 2026-04-25 playtest's only budget-exceeded frame was a hybrid 11.6 ms spike (mainLoop 7.51 ms + spawn 3.44 ms) that fit neither prior latch and produced no Phase-B attribution; the new latch reports per-bucket itemisation plus mainLoop/spawn percent-of-frame fractions on the next such gap-shaped breach.
 
 - `#582` Format-v6 RELATIVE TrackSection position contract is now documented in `AGENTS.md` and `.claude/CLAUDE.md`, and pinned by regression tests so flat `Recording.Points` readers cannot silently misinterpret anchor-local metres as body-fixed lat/lon/alt.
 

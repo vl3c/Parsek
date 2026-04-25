@@ -4792,7 +4792,7 @@ namespace Parsek
                 RewindReservedFunds = RewindReservedFunds,
                 RewindReservedScience = RewindReservedScience,
                 RewindReservedRep = RewindReservedRep,
-                TrackSections = new List<TrackSection>(TrackSections),
+                TrackSections = Parsek.Recording.DeepCopyTrackSections(TrackSections),
                 StartBodyName = StartBodyName,
                 StartBiome = StartBiome,
                 StartSituation = StartSituation,
@@ -4823,9 +4823,12 @@ namespace Parsek
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
 
+            int densifiedCheckpointPoints = OrbitalCheckpointDensifier.DensifyRecording(capture);
+
             ParsekLog.Verbose("Recorder",
                 $"Built capture recording: vessel=\"{vesselName}\", points={capture.Points.Count}, " +
                 $"orbits={capture.OrbitSegments.Count}, partEvents={capture.PartEvents.Count}, " +
+                $"checkpointDensifiedPoints={densifiedCheckpointPoints}, " +
                 $"hasSnapshot={capture.VesselSnapshot != null}");
 
             return capture;
