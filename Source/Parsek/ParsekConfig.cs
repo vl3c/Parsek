@@ -29,7 +29,7 @@ namespace Parsek
         /// <summary>
         /// KSP's loaded-physics envelope around the active vessel. This is the core
         /// spatial boundary that several systems key off: rendering fidelity,
-        /// relative-frame anchoring, spawn scoping, and background sampling.
+        /// relative-frame anchoring, and background sampling.
         /// </summary>
         internal const double PhysicsBubbleMeters = 2300.0;
 

@@ -187,7 +187,6 @@ namespace Parsek.Tests
             {
                 IsWarpActiveOverrideForTesting = () => false,
                 CurrentUTOverrideForTesting = () => 120.0,
-                HasActiveVesselOverrideForTesting = () => false,
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
                 {
                     recording.VesselSpawned = true;
@@ -206,12 +205,6 @@ namespace Parsek.Tests
                 line.Contains("Bob Kerman") &&
                 line.Contains("spawned 1/1 flag(s)") &&
                 line.Contains("failed=0"));
-            Assert.Contains(logLines, line =>
-                line.Contains("[Policy]") &&
-                line.Contains("Deferred spawn queue drained") &&
-                line.Contains("spawned 1 deferred spawn(s)") &&
-                line.Contains("cleared 1 spawn queue item(s)") &&
-                line.Contains("cleared 1 flag replay(s)"));
         }
 
         [Fact]
@@ -243,7 +236,6 @@ namespace Parsek.Tests
             {
                 IsWarpActiveOverrideForTesting = () => false,
                 CurrentUTOverrideForTesting = () => 120.0,
-                HasActiveVesselOverrideForTesting = () => false,
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
                 {
                     recording.VesselSpawned = true;
@@ -256,12 +248,6 @@ namespace Parsek.Tests
             Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
             Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
             Assert.DoesNotContain(logLines, line => line.Contains("Deferred flag replay still failing"));
-            Assert.Contains(logLines, line =>
-                line.Contains("[Policy]") &&
-                line.Contains("Deferred spawn queue waiting") &&
-                line.Contains("flushed 1 deferred spawn(s)") &&
-                line.Contains("1 flag replay(s) pending") &&
-                line.Contains("1 total pending"));
 
             policy.FlushDeferredSpawns();
             Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
@@ -279,60 +265,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FlushDeferredSpawns_OutOfBubbleWait_IsRateLimited()
+        public void FlushDeferredSpawns_SpawnsQueuedSplashedSurvivorAfterWarpEnds()
         {
             var rec = new Recording
             {
-                RecordingId = "rec-outside-bubble",
-                VesselName = "Distant Kerbal",
-                VesselSnapshot = new ConfigNode("VESSEL")
+                RecordingId = "rec-splashed-after-warp",
+                VesselName = "Returned Capsule",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Splashed
             };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            double clock = 100.0;
-            ParsekLog.ClockOverrideForTesting = () => clock;
-
+            int spawnCalls = 0;
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
             var engine = new GhostPlaybackEngine(null);
             var policy = new ParsekPlaybackPolicy(engine, host)
             {
                 IsWarpActiveOverrideForTesting = () => false,
-                CurrentUTOverrideForTesting = () => 120.0,
-                HasActiveVesselOverrideForTesting = () => true,
-                ActiveVesselWorldPosOverrideForTesting = () => Vector3d.zero,
-                ShouldDeferSpawnOutsideBubbleOverrideForTesting = (recording, activePos) => true,
+                CurrentUTOverrideForTesting = () => 200.0,
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
-                    throw new InvalidOperationException("Out-of-bubble spawns must remain queued.")
+                {
+                    spawnCalls++;
+                    recording.VesselSpawned = true;
+                    recording.SpawnedVesselPersistentId = 9898;
+                }
             };
             policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
 
             policy.FlushDeferredSpawns();
-            policy.FlushDeferredSpawns();
-            policy.FlushDeferredSpawns();
 
-            Assert.Contains(rec.RecordingId, policy.pendingSpawnRecordingIds);
-            Assert.Single(logLines.FindAll(line =>
-                line.Contains("Deferred spawn queue waiting") &&
-                line.Contains("Distant Kerbal") &&
-                line.Contains("sample=#0 \"Distant Kerbal\"")));
-            Assert.DoesNotContain(logLines, line =>
-                line.Contains("Deferred spawn kept in queue (outside physics bubble)"));
-            Assert.DoesNotContain(logLines, line =>
-                line.Contains("Warp ended") &&
-                line.Contains("kept") &&
-                line.Contains("outside"));
-            Assert.DoesNotContain(logLines, line =>
-                line.Contains("Deferred spawn queue drained"));
-
-            clock += 6.0;
-            policy.FlushDeferredSpawns();
-
-            Assert.Equal(2, logLines.FindAll(line =>
-                line.Contains("Deferred spawn queue waiting") &&
-                line.Contains("Distant Kerbal")).Count);
+            Assert.Equal(1, spawnCalls);
+            Assert.True(rec.VesselSpawned);
+            Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
             Assert.Contains(logLines, line =>
-                line.Contains("Deferred spawn queue waiting") &&
-                line.Contains("suppressed=2"));
+                line.Contains("[Policy]")
+                && line.Contains("Deferred spawn executing")
+                && line.Contains("Returned Capsule"));
         }
 
         [Fact]
