@@ -664,18 +664,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Adds every committed recording sharing both <c>ChainId</c> and
-        /// <c>ChainBranch</c> with <paramref name="rec"/> to
-        /// <paramref name="result"/> and enqueues them for further BP
+        /// Adds every committed recording sharing <c>TreeId</c>,
+        /// <c>ChainId</c>, AND <c>ChainBranch</c> with <paramref name="rec"/>
+        /// to <paramref name="result"/> and enqueues them for further BP
         /// walking. Idempotent via the <paramref name="result"/> HashSet.
         ///
         /// <para>
-        /// Same-chain / same-branch is the canonical "this is the same vessel
-        /// continued at an env boundary" predicate — see
+        /// Same-tree / same-chain / same-branch is the canonical "this is the
+        /// same vessel continued at an env boundary" predicate — see
         /// <see cref="IsChainMemberOfUnfinishedFlight"/> and
         /// <see cref="ResolveChainTerminalRecording"/>, which use the same
-        /// dual key. Different <c>ChainBranch</c> values are independent
-        /// (parallel ghost-only continuations) and stay out of the closure.
+        /// keys (the terminal-chain resolver scopes by owning tree explicitly;
+        /// this helper enforces it via the <see cref="Recording.TreeId"/>
+        /// field). The owning-tree gate is defense-in-depth: chain segments
+        /// produced by <see cref="RecordingOptimizer.SplitAtSection"/> always
+        /// share <c>TreeId</c> by construction, but if a future clone path,
+        /// import, or legacy save ever produces colliding <c>ChainId</c>s
+        /// across trees, starting a re-fly in one tree must not pull a
+        /// different tree's recordings into the suppressed closure (those
+        /// recordings would also be supersede-rowed and tombstone-scanned).
+        /// Different <c>ChainBranch</c> values stay independent (parallel
+        /// ghost-only continuations).
         /// </para>
         ///
         /// <para>
@@ -694,12 +703,17 @@ namespace Parsek
             ref int siblingsAdded)
         {
             if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return;
+            // Legacy / orphaned recordings without a TreeId: refuse to
+            // chain-expand. We cannot prove the candidate is in the same
+            // tree, and a false-positive crosses tree boundaries silently.
+            if (string.IsNullOrEmpty(rec.TreeId)) return;
 
             foreach (var cand in recById.Values)
             {
                 if (cand == null) continue;
                 if (ReferenceEquals(cand, rec)) continue;
                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(cand.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
                 if (cand.ChainBranch != rec.ChainBranch) continue;
                 if (result.Contains(cand.RecordingId)) continue;

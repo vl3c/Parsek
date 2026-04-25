@@ -407,6 +407,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ChainExpansion_DifferentTree_Excluded()
+        {
+            // Defense-in-depth: a recording carrying the same ChainId +
+            // ChainBranch but a DIFFERENT TreeId must NOT be pulled into
+            // the closure. SplitAtSection always emits same-tree chain
+            // segments by construction (RecordingStore.cs sets
+            // second.TreeId = original.TreeId at line 1992), but a future
+            // clone path / import / legacy save could collide ChainIds
+            // across trees, and supersede + tombstone consumers reuse
+            // this closure — silently crossing tree boundaries would hide
+            // unrelated recordings or retire kerbal-death actions stamped
+            // against another mission.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1");
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+            var foreign = Rec("rec_foreign", "tree_2");
+            foreign.ChainId = "chain_a";    // colliding ChainId
+            foreign.ChainBranch = 0;        // colliding ChainBranch
+            foreign.ChainIndex = 0;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            // Multi-tree install: tree_1 owns head+tip, tree_2 owns foreign.
+            var tree1 = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint> { bp_split }
+            };
+            tree1.AddOrReplaceRecording(head);
+            tree1.AddOrReplaceRecording(tip);
+            var tree2 = new RecordingTree
+            {
+                Id = "tree_2",
+                TreeName = "Test_tree_2",
+                BranchPoints = new List<BranchPoint>()
+            };
+            tree2.AddOrReplaceRecording(foreign);
+
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(foreign, "tree_2");
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                trees.RemoveAt(i);
+            trees.Add(tree1);
+            trees.Add(tree2);
+
+            InstallScenario(Marker("rec_head"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_head"));
+
+            Assert.Contains("rec_head", closure);
+            Assert.Contains("rec_tip", closure);
+            Assert.DoesNotContain("rec_foreign", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
         public void ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded()
         {
             // After SplitAtSection, the TIP receives the moved
