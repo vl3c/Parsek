@@ -5886,8 +5886,17 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
 
-            ParsekLog.Verbose("Checkpoint",
-                $"Time warp rate changed to {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x " +
+            // Bug #592: KSP fires onTimeWarpRateChanged very chattily — a single
+            // playtest produced ~1090 events at 1.0x without any actual rate change
+            // (scene transitions, warp-to-here, etc. retrigger the GameEvent).
+            // Rate-limit by warpRate so transitions between distinct rates still log
+            // immediately, but a burst of redundant 1x->1x fires collapses into one
+            // line per window.
+            string warpRateKey = warpRate.ToString("F1",
+                System.Globalization.CultureInfo.InvariantCulture);
+            ParsekLog.VerboseRateLimited("Checkpoint",
+                $"warp-rate-changed-{warpRateKey}",
+                $"Time warp rate changed to {warpRateKey}x " +
                 $"at UT={ut:F2} — checkpointing all background vessels");
 
             // Checkpoint background vessels first (before any state changes)
@@ -5896,7 +5905,8 @@ namespace Parsek
             // The active vessel's orbit segments are already handled by
             // onVesselGoOnRails/onVesselGoOffRails events which fire when
             // time warp transitions between physics and rails modes.
-            ParsekLog.Verbose("Checkpoint",
+            ParsekLog.VerboseRateLimited("Checkpoint",
+                $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
         }
 
@@ -13867,6 +13877,13 @@ namespace Parsek
                     point.Value.velocity.magnitude)
                 : "pointUT=(none) body=(none) alt=0 speed=0";
 
+            // Bug #595: the previous 1.0s rate-limit window was tight enough that
+            // a long-playing OrbitalCheckpoint section still emitted ~14
+            // lines/min per (rec, section) pair (413 lines in a single 30-min
+            // session). Use the default 5s window to keep one line per section
+            // per (typical) rate-limit window without losing the section-change
+            // signal — the key is per-(recId, sectionIdx) so a new section
+            // still logs immediately on first frame.
             ParsekLog.VerboseRateLimited(
                 "Playback",
                 string.Format(
@@ -13884,8 +13901,7 @@ namespace Parsek
                     section.endUT,
                     pointDetail,
                     FormatVector3d(worldPos),
-                    section.frames?.Count ?? 0),
-                1.0);
+                    section.frames?.Count ?? 0));
         }
 
         bool TryResolvePlaybackWorldPosition(

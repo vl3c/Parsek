@@ -2081,7 +2081,16 @@ namespace Parsek
                 checkpointed++;
             }
 
-            ParsekLog.Verbose("BgRecorder",
+            // Bug #592: this summary fires once per onTimeWarpRateChanged, which KSP
+            // can re-emit hundreds of times at the same rate during a single session.
+            // Rate-limit per "shape" of the result so changes in checkpoint counts still
+            // surface (we want to see the moment behavior changes), but identical
+            // no-op summaries during a quiet warp burst collapse into one line.
+            string key = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "checkpoint-all-{0}-{1}-{2}",
+                checkpointed, skippedNotOrbital, skippedNoVessel);
+            ParsekLog.VerboseRateLimited("BgRecorder", key,
                 $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
                 $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
         }

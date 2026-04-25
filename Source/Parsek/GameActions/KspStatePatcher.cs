@@ -688,11 +688,27 @@ namespace Parsek
                     $"{targetLevel.ToString(IC)} (destroyed={state.Destroyed.ToString(IC)})");
             }
 
-            ParsekLog.Info(Tag,
-                $"PatchFacilities: levels patched={patchedCount.ToString(IC)}, " +
-                $"skipped={skippedCount.ToString(IC)}, " +
-                $"notFound={notFoundCount.ToString(IC)}, " +
-                $"total={allFacilities.Count}");
+            // Bug #596: this summary previously fired at INFO on every recalc
+            // even when there was nothing to do, producing dozens of identical
+            // "patched=0, skipped=0, notFound=0, total=0" lines per session.
+            // Promote the no-work case to a rate-limited Verbose line (so the
+            // diagnostic is still available when somebody is investigating an
+            // empty facilities module) and keep INFO for the case that
+            // actually changed game state or hit a notFound diagnostic.
+            int totalWork = patchedCount + skippedCount + notFoundCount;
+            if (totalWork == 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "patch-facilities-empty",
+                    $"PatchFacilities: nothing to patch (total={allFacilities.Count})");
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchFacilities: levels patched={patchedCount.ToString(IC)}, " +
+                    $"skipped={skippedCount.ToString(IC)}, " +
+                    $"notFound={notFoundCount.ToString(IC)}, " +
+                    $"total={allFacilities.Count}");
+            }
 
             // Patch destruction state via DestructibleBuilding components.
             // Collect all destructibles once (expensive FindObjectsOfType call),
@@ -985,7 +1001,16 @@ namespace Parsek
                         if (milestones.IsMilestoneCredited(nodeId))
                         {
                             shouldBeAchieved = true;
-                            ParsekLog.Verbose(Tag,
+                            // Bug #594: this diagnostic fires every recalc walk for the
+                            // same (nodeId, qualifiedId) pair — once a fallback match
+                            // exists for an old recording, every walk re-emits the
+                            // same line. Rate-limit per pair so the diagnostic still
+                            // surfaces when a new fallback path appears, without
+                            // flooding the log on steady-state walks.
+                            string fallbackKey = string.Format(IC,
+                                "patch-milestones-fallback-{0}-{1}",
+                                nodeId, qualifiedId);
+                            ParsekLog.VerboseRateLimited(Tag, fallbackKey,
                                 $"PatchMilestones: bare-Id fallback match for '{nodeId}' " +
                                 $"(qualified='{qualifiedId}' not found — old recording?)");
                         }

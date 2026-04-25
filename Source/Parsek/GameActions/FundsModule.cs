@@ -343,9 +343,20 @@ namespace Parsek
             runningBalance += amount;
             totalEarnings += amount;
 
-            ParsekLog.Verbose(Tag,
+            // Bug #593: this fires every recalc walk for every effective
+            // record-milestone (RecordsSpeed/Altitude/Distance), producing 170+
+            // identical lines per session. The state being logged is steady — the
+            // amount, milestoneId, and recordingId don't change between walks — so
+            // rate-limit per (milestoneId, recordingId) pair to keep one line per
+            // distinct application per window.
+            string key = string.Format(IC,
+                "milestone-funds-{0}-{1}",
+                action.MilestoneId ?? "(none)",
+                action.RecordingId ?? "(none)");
+            ParsekLog.VerboseRateLimited(Tag, key,
                 $"Milestone funds: +{amount.ToString("R", IC)}, " +
                 $"milestoneId={action.MilestoneId ?? "(none)"}, " +
+                $"recordingId={action.RecordingId ?? "(none)"}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}, " +
                 $"totalEarnings={totalEarnings.ToString("R", IC)}");
         }

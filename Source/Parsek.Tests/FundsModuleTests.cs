@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -836,6 +837,32 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Funds]") && l.Contains("Milestone") && l.Contains("FirstLaunch"));
+        }
+
+        [Fact]
+        public void MilestoneEarning_RepeatedSamePair_RateLimitedToOneLine()
+        {
+            // Bug #593: ProcessMilestoneEarning is called once per
+            // (milestoneId, recordingId) pair on every recalc walk. In a single
+            // playtest the recalculation engine fired ~57 times, producing 170
+            // identical "Milestone funds: +N, milestoneId=RecordsSpeed, ..."
+            // lines per repeatable record-milestone (510 total across Speed/
+            // Altitude/Distance). The branch now routes through
+            // VerboseRateLimited keyed by (milestoneId, recordingId) so a
+            // steady recalc loop emits at most one line per pair per window.
+            for (int i = 0; i < 100; i++)
+            {
+                module.ProcessAction(MakeMilestone(
+                    50 + i * 0.001, "RecordsSpeed", 5000f,
+                    recordingId: "rec-pair-1", effective: true));
+            }
+
+            int speedLines = logLines.Count(l =>
+                l.Contains("[Funds]") &&
+                l.Contains("Milestone funds:") &&
+                l.Contains("RecordsSpeed") &&
+                l.Contains("rec-pair-1"));
+            Assert.Equal(1, speedLines);
         }
 
         [Fact]

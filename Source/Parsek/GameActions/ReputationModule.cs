@@ -147,8 +147,16 @@ namespace Parsek
             action.EffectiveRep = result.actualDelta;
             runningRep = result.newRep;
 
-            ParsekLog.Verbose(Tag,
+            // Bug #593: every effective milestone re-emits this line on every
+            // recalc walk, even though milestoneId/recordingId/nominal don't
+            // change between walks. Rate-limit per (milestoneId, recordingId).
+            string key = string.Format(IC,
+                "milestone-rep-{0}-{1}",
+                action.MilestoneId ?? "null",
+                action.RecordingId ?? "(none)");
+            ParsekLog.VerboseRateLimited(Tag, key,
                 $"Milestone rep at UT={action.UT.ToString("F1", IC)}: milestoneId={action.MilestoneId ?? "null"}, " +
+                $"recordingId={action.RecordingId ?? "(none)"}, " +
                 $"nominal={nominal.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
                 $"runningRep={runningRep.ToString("F2", IC)}");
         }

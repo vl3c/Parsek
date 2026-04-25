@@ -1304,6 +1304,192 @@ state transitions in the log when grepping for `OnVesselSwitchComplete`.
 
 ---
 
+## ~~592. Log spam: time-warp rate-change checkpoint logs fire ~3300 times per session from KSP's chatty `onTimeWarpRateChanged` GameEvent~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1122 ×
+`[BgRecorder] CheckpointAllVessels at UT=...`, 1121 ×
+`[Checkpoint] Time warp rate changed to N x at UT=... — checkpointing
+all background vessels`, and 1121 × `[Checkpoint] Active vessel orbit
+segments handled by on-rails events`. ~3364 lines total — the single
+biggest log-spam source not already in #591 / #160.
+
+**Diagnosis (2026-04-25):** of the 1121 rate-change events, 1090 were
+`1.0x` and only 248 unique UT values were seen — KSP's
+`GameEvents.onTimeWarpRateChanged` re-fires aggressively at the same
+rate during scene transitions, warp-to-here, and similar transients.
+Three `Verbose` log lines were emitted per event with no rate-limit,
+plus the underlying `CheckpointAllVessels` walk did real work each
+time even though closing+reopening an orbit segment at the same UT is
+idempotent.
+
+**Fix:** all three log calls in `ParsekFlight.OnTimeWarpRateChanged`
+(`ParsekFlight.cs:5889` / `:5899`) and the summary in
+`BackgroundRecorder.CheckpointAllVessels`
+(`BackgroundRecorder.cs:2084`) now route through
+`ParsekLog.VerboseRateLimited`. The two `Checkpoint` lines are keyed
+per warp-rate string (so transitions between distinct rates still log
+on the first event), and the BgRecorder summary is keyed by the
+`(checkpointed, skippedNotOrbital, skippedNoVessel)` shape so a
+genuine count change still surfaces immediately. Regression
+`BackgroundRecorderTests.CheckpointAllVessels_RepeatedCallsSameShape_RateLimitedToOneLine`
+calls 50x with the same shape and asserts a single emitted summary
+line.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Log-only fix; the
+underlying "KSP fires rate-change at 1x ~4x more often than there are
+real rate changes" concern is tracked separately as #597.
+
+---
+
+## ~~593. Log spam: repeatable record milestones (`RecordsSpeed`/`RecordsAltitude`/`RecordsDistance`) re-emit the same `Milestone funds` / `stays effective` / `Milestone rep at UT` line on every recalc walk~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — ~1190 lines:
+- 510 × `[Milestones] Repeatable record milestone '<id>' stays
+  effective at UT=...` (170 each for Speed / Altitude / Distance).
+- 510 × `[Funds] Milestone funds: +N, milestoneId=Records...,
+  runningBalance=...` (170 each).
+- 393 × `[Reputation] Milestone rep at UT=...: milestoneId=Records...,
+  ...`.
+
+**Diagnosis (2026-04-25):** `MilestonesModule.ProcessMilestoneAchievement`
+walks every committed action in the ledger on every recalc; for the
+three repeatable record-milestone IDs the credit is established on
+the first hit and every subsequent walk re-takes the
+`isRepeatableRecordMilestone` branch with identical milestoneId,
+recordingId, fundsAwarded and repAwarded, producing structurally
+identical log lines. With ~57 recalcs in a 30-min session times three
+record-milestones, that produces ~170 lines per branch.
+
+**Fix:** `MilestonesModule.ProcessMilestoneAchievement` (the repeatable
+"stays effective" branch), `FundsModule.ProcessMilestoneEarning`, and
+`ReputationModule.ProcessMilestoneRep` now all route through
+`ParsekLog.VerboseRateLimited` with the key
+`(milestoneId, recordingId)` so each unique pair logs at most once
+per rate-limit window. Regressions
+`FundsModuleTests.MilestoneEarning_RepeatedSamePair_RateLimitedToOneLine`
+and
+`MilestonesModuleTests.RepeatableRecordMilestone_RepeatedSamePair_RateLimitedToOneLine`
+call 100x with the same `(milestoneId, recordingId)` pair and assert a
+single emitted line.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~594. Log spam: `KspStatePatcher.PatchMilestones` bare-Id fallback fires per recalc for the same `(nodeId, qualifiedId)` pair~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 221 ×
+`[KspStatePatcher] PatchMilestones: bare-Id fallback match for 'Orbit'
+(qualified='...' not found — old recording?)`.
+
+**Diagnosis (2026-04-25):** the bare-Id fallback diagnostic exists to
+flag old-format recordings whose milestones stored the bare body-
+specific node ID (`Landing`) instead of the qualified path
+(`Mun/Landing`). Once such a fallback exists, every recalc walk
+re-emits the same line because the recording's milestone-credit
+state is steady. Useful as a one-shot "old recording detected" hint;
+useless and noisy as a per-recalc line.
+
+**Fix:** the `Verbose` call at `KspStatePatcher.cs:988` now routes
+through `VerboseRateLimited` keyed by `(nodeId, qualifiedId)` so each
+distinct fallback pair logs at most once per rate-limit window; new
+fallback pairs surface immediately on first match.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~595. Log spam: `OrbitalCheckpoint point playback` and `Recorder Sample skipped` rate-limit windows were too tight~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 413 ×
+`[Playback] OrbitalCheckpoint point playback: rec=<HEX> currentUT=...`
+and 197 × `[Recorder] Sample skipped at ut=...; waiting for motion/
+attitude trigger`. Both lines were already routed through
+`VerboseRateLimited`, but with custom 1.0s and 2.0s windows
+respectively — tight enough that long-playing OrbitalCheckpoint
+sections still emitted ~14 lines/min per `(recId, sectionIdx)` and
+stationary recordings ~7 lines/min.
+
+**Diagnosis (2026-04-25):** both lines convey steady-state telemetry
+(per-section ghost playback / "still stationary, no sample taken"),
+not state transitions, so the rate-limit window can safely widen to
+the project default 5s without losing diagnostic value — the per-key
+identity (`recId+sectionIdx` for OrbitalCheckpoint, single shared key
+for Sample skipped) means new sections / new recorders still log on
+their first frame.
+
+**Fix:** both call sites (`ParsekFlight.cs:13870` and
+`FlightRecorder.cs:5458`) now use the default 5s rate-limit window
+inherited from `ParsekLog.DefaultRateLimitSeconds`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~596. Log spam: `KspStatePatcher.PatchFacilities` emits an INFO summary on every recalc even when there is nothing to patch~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 42 ×
+`[KspStatePatcher] PatchFacilities: levels patched=0, skipped=0,
+notFound=0, total=0`. Earlier playtests (the same KSP.log around lines
+26791-27996) showed several thousand of these once the recalculation
+engine churned the same empty `FacilitiesModule` repeatedly — the
+no-op summary fires unconditionally at INFO on every PatchFacilities
+call.
+
+**Diagnosis (2026-04-25):** the summary's purpose is to make
+"facility patching ran" visible at INFO when it actually did
+something (level change, level mismatch skipped, or `notFound`
+diagnostic). When all three counts are zero, the summary is pure
+noise; INFO is the wrong tier for "we processed an empty list".
+
+**Fix:** `KspStatePatcher.PatchFacilities` (`KspStatePatcher.cs:691`)
+now branches on `patched + skipped + notFound > 0`. The work case
+keeps the existing INFO summary unchanged. The no-work case routes
+to `VerboseRateLimited` with key `patch-facilities-empty` so the
+diagnostic is still available when somebody is investigating an
+empty FacilitiesModule, without flooding INFO at steady state.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
+events were `1.0x`, but only 248 unique UT values appeared, and many
+of those 248 had multiple sub-second-apart 1.0x events (e.g.
+`19:08:26.557` and `19:08:26.567` both at UT≈21526.10). KSP fires the
+event spuriously across scene transitions, warp-to-here, save/load
+boundaries, and similar transients.
+
+**Why it matters:** Bug #592 only addresses the LOG noise. The
+underlying `BackgroundRecorder.CheckpointAllVessels` call still runs
+every event, closing and re-opening the same orbit segment at the
+same UT for every background vessel. The work is idempotent (same
+UT → identical segment shape → no observable behaviour change), so
+it has not produced a known correctness defect, but it is wasted
+work scaling with `backgroundVesselCount × eventCount` and could
+mask a real correctness regression in the future ("why is this orbit
+segment getting reopened mid-flight?").
+
+**Files to investigate:**
+
+- `Source/Parsek/ParsekFlight.cs:5842` — `OnTimeWarpRateChanged`. Add
+  a `lastSeenWarpRate` field and short-circuit when both the rate and
+  the UT have not advanced past the last invocation. Care needed
+  because the warp-start / warp-end branch above this call also
+  depends on the event firing.
+- `Source/Parsek/BackgroundRecorder.cs:2030` — `CheckpointAllVessels`.
+  An alternate fix is to make this method itself idempotent at the
+  same UT (skip the close+reopen if the segment is already closed
+  at this exact UT).
+
+**Status:** Open. Performance / hygiene; no observed correctness
+defect. Defer until a measurable hot-path latency or a specific
+ghost-orbit anomaly points at it.
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
@@ -1609,6 +1795,21 @@ so each vessel logs at most once per window. Regression
 `EffectiveStateTests.IsUnfinishedFlight_RepeatedCallsSameRec_RateLimitedToOneLine`
 calls the predicate 100x with the same recording and asserts a single emitted
 line.
+
+2026-04-25 update (post-#591 second-tier cleanup): the `2026-04-25_1933_refly-bugs`
+KSP.log surfaced six more spam sources, addressed as numbered bugs #592-#596
+(closed in this commit) plus #597 (open underlying-logic concern). #592 covers
+the ~3300 `Time warp rate changed` / `CheckpointAllVessels` / `Active vessel
+orbit segments handled` lines from KSP's chatty `onTimeWarpRateChanged`
+GameEvent. #593 covers ~1190 lines from repeatable record milestones
+(`Records*` IDs) re-emitting the same `Milestone funds` / `stays effective` /
+`Milestone rep at UT` line on every recalc walk. #594 covers 221 KspStatePatcher
+bare-Id fallback lines. #595 widens the OrbitalCheckpoint playback and Recorder
+sample-skipped rate-limit windows from 1-2s to the default 5s. #596 gates the
+PatchFacilities INFO summary on having actual work. #597 tracks the underlying
+"KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
+a separate open todo (performance / hygiene only — no observed correctness
+defect).
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 

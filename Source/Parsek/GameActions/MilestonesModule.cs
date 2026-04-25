@@ -80,7 +80,17 @@ namespace Parsek
                     effectiveMilestoneCounts[milestoneId] = currentCount + 1;
                 else
                     effectiveMilestoneCounts[milestoneId] = 1;
-                ParsekLog.Verbose("Milestones",
+                // Bug #593: repeatable record milestones (RecordsSpeed/Altitude/
+                // Distance) hit this branch on every recalc walk for every
+                // committed record-grant action, producing 170+ identical
+                // "stays effective" lines per session. Rate-limit per
+                // (milestoneId, recordingId) so each distinct repeated grant
+                // logs at most once per window.
+                string key = string.Format(IC,
+                    "milestone-stays-effective-{0}-{1}",
+                    milestoneId,
+                    action.RecordingId ?? "(none)");
+                ParsekLog.VerboseRateLimited("Milestones", key,
                     $"Repeatable record milestone '{milestoneId}' stays effective at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +

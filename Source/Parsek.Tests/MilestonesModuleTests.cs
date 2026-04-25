@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -210,6 +211,42 @@ namespace Parsek.Tests
             Assert.True(module.IsMilestoneCredited("RecordsDistance"));
             Assert.Equal(1, module.GetCreditedCount());
             Assert.Equal(2, module.GetEffectiveMilestoneCount("RecordsDistance"));
+        }
+
+        [Fact]
+        public void RepeatableRecordMilestone_RepeatedSamePair_RateLimitedToOneLine()
+        {
+            // Bug #593: ProcessMilestoneAchievement runs through the
+            // "Repeatable record milestone stays effective" branch on every
+            // recalc walk for every committed RecordsSpeed/Altitude/Distance
+            // grant. A single 30-min playtest produced 510 identical "stays
+            // effective" lines (170 per record-milestone) because the credit
+            // is established on the first hit and every subsequent walk just
+            // re-emits the same line. The branch now routes through
+            // VerboseRateLimited keyed by (milestoneId, recordingId) so a
+            // steady recalc loop emits at most one line per pair per window.
+
+            // Seed credit for RecordsDistance with a separate recording so
+            // subsequent same-recording hits go through the repeatable branch
+            // (which only triggers after the milestone is already credited).
+            module.ProcessAction(MakeMilestone("RecordsDistance", 0,
+                recordingId: "rec-seed", fundsAwarded: 100f));
+            logLines.Clear();
+
+            for (int i = 0; i < 100; i++)
+            {
+                var action = MakeMilestone("RecordsDistance", 100 + i * 0.001,
+                    recordingId: "rec-spam", fundsAwarded: 100f);
+                module.ProcessAction(action);
+                Assert.True(action.Effective);
+            }
+
+            int staysEffectiveLines = logLines.Count(l =>
+                l.Contains("[Milestones]") &&
+                l.Contains("Repeatable record milestone") &&
+                l.Contains("RecordsDistance") &&
+                l.Contains("rec-spam"));
+            Assert.Equal(1, staysEffectiveLines);
         }
 
         // ================================================================
