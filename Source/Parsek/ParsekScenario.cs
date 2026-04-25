@@ -2480,6 +2480,19 @@ namespace Parsek
 
                 int salvagedHydrationFailures = RestoreHydrationFailedRecordingsFromPendingTree(tree);
 
+                // Bug #601: Re-Fly load preserves post-RP merge tree mutations.
+                // The RP's frozen .sfs snapshots the tree state AT RP creation time.
+                // If a merge / SplitAtSection ran between RP creation and Re-Fly invocation,
+                // the in-memory committed tree has post-split recording IDs (and updated
+                // BranchPoint parent refs) that the loaded .sfs does NOT know about. The
+                // .prec sidecars for the post-split halves still exist on disk, but they're
+                // orphaned because the loaded tree never lists them. Splice those recordings
+                // (and any committed-tree-only BranchPoints / parent-id updates) back into
+                // the loaded tree BEFORE RemoveCommittedTreeById destroys the in-memory copy.
+                // The spliced recordings are deep-cloned and marked dirty so the next OnSave
+                // rewrites the .sfs + .prec with fresh sidecar epochs and the live shape.
+                int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(tree);
+
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then
                 // quickloaded — the in-memory committedTrees retains the T3 version even
@@ -2542,6 +2555,9 @@ namespace Parsek
                           (salvagedHydrationFailures > 0
                               ? $", salvaged {salvagedHydrationFailures} from pending"
                               : "")
+                        : "") +
+                    (splicedFromCommitted > 0
+                        ? $", spliced {splicedFromCommitted} post-RP recording(s) from committed tree"
                         : ""));
                 ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
@@ -3022,6 +3038,208 @@ namespace Parsek
             }
 
             return restored;
+        }
+
+        /// <summary>
+        /// Bug #601: Re-Fly load preserves post-RP merge tree mutations.
+        ///
+        /// <para>
+        /// The Rewind Point's frozen <c>.sfs</c> snapshots the recording tree at the
+        /// moment the RP was authored. If <c>RecordingOptimizer.SplitAtSection</c>
+        /// (or any other tree-shape mutation) ran AFTER RP creation but BEFORE the
+        /// player invoked Re-Fly, the in-memory <see cref="RecordingStore.CommittedTrees"/>
+        /// has post-mutation recording IDs (and updated BranchPoint parent refs)
+        /// that the loaded RP <c>.sfs</c> does NOT know about. Their <c>.prec</c>
+        /// sidecars remain on disk but are orphaned because the loaded tree's
+        /// <c>RECORDING_TREE</c> ConfigNode doesn't list them.
+        /// </para>
+        ///
+        /// <para>
+        /// This helper splices any recording present in the in-memory committed
+        /// tree but missing from the loaded tree into the loaded tree as a
+        /// deep-cloned, files-dirty copy, so the next <c>OnSave</c> rewrites the
+        /// <c>.sfs</c> + <c>.prec</c> with fresh sidecar epochs and the correct
+        /// merged shape. BranchPoints follow the same rule: any committed-tree-only
+        /// BP is cloned in, and any loaded BP whose Id matches a committed BP gets
+        /// its <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> overwritten
+        /// from the committed copy (the post-merge truth).
+        /// </para>
+        ///
+        /// <para>
+        /// MUST be called before <see cref="RecordingStore.RemoveCommittedTreeById"/>,
+        /// otherwise the in-memory committed copy (the splice source) is gone.
+        /// Returns the number of recordings spliced. Always logs a structured
+        /// <see cref="ParsekLog.Info"/> line so the decision is auditable even when
+        /// the splice count is zero.
+        /// </para>
+        /// </summary>
+        internal static int SpliceMissingCommittedRecordingsIntoLoadedTree(RecordingTree loadedTree)
+        {
+            if (loadedTree == null || string.IsNullOrEmpty(loadedTree.Id))
+                return 0;
+
+            RecordingTree committedTree = FindCommittedTreeById(loadedTree.Id, exclude: loadedTree);
+            if (committedTree == null)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"SpliceMissingCommittedRecordings: tree id={loadedTree.Id} has no in-memory " +
+                    $"committed counterpart — nothing to splice");
+                return 0;
+            }
+
+            int loadedBefore = loadedTree.Recordings != null ? loadedTree.Recordings.Count : 0;
+            int committedCount = committedTree.Recordings != null ? committedTree.Recordings.Count : 0;
+
+            int splicedRecordings = 0;
+            int splicedBranchPoints = 0;
+            int updatedBranchPoints = 0;
+            var splicedRecordingIds = new List<string>();
+
+            if (committedTree.Recordings != null && committedTree.Recordings.Count > 0)
+            {
+                foreach (var kvp in committedTree.Recordings)
+                {
+                    string recId = kvp.Key;
+                    Recording committedRec = kvp.Value;
+                    if (string.IsNullOrEmpty(recId) || committedRec == null)
+                        continue;
+                    if (loadedTree.Recordings != null && loadedTree.Recordings.ContainsKey(recId))
+                        continue;
+
+                    Recording clone = Recording.DeepClone(committedRec);
+                    RecordingStore.ClearSidecarLoadFailure(clone);
+                    // Mark dirty so the next OnSave rewrites the .sfs with the
+                    // spliced shape AND advances the .prec sidecar epoch in
+                    // lockstep — otherwise the committed-but-not-loaded recording
+                    // would resurface as a "stale-sidecar-epoch" warning on a
+                    // future scene reload (bug #270's mismatch detector).
+                    clone.MarkFilesDirty();
+                    loadedTree.AddOrReplaceRecording(clone);
+                    splicedRecordings++;
+                    splicedRecordingIds.Add(recId);
+                }
+            }
+
+            if (committedTree.BranchPoints != null && committedTree.BranchPoints.Count > 0)
+            {
+                if (loadedTree.BranchPoints == null)
+                    loadedTree.BranchPoints = new List<BranchPoint>();
+
+                var loadedBpIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+                for (int i = 0; i < loadedTree.BranchPoints.Count; i++)
+                {
+                    BranchPoint loadedBp = loadedTree.BranchPoints[i];
+                    if (loadedBp != null && !string.IsNullOrEmpty(loadedBp.Id))
+                        loadedBpIndex[loadedBp.Id] = i;
+                }
+
+                for (int b = 0; b < committedTree.BranchPoints.Count; b++)
+                {
+                    BranchPoint committedBp = committedTree.BranchPoints[b];
+                    if (committedBp == null || string.IsNullOrEmpty(committedBp.Id))
+                        continue;
+
+                    if (!loadedBpIndex.TryGetValue(committedBp.Id, out int existingIdx))
+                    {
+                        // Brand-new BranchPoint authored after the RP snapshot.
+                        BranchPoint clonedBp = CloneBranchPoint(committedBp);
+                        loadedTree.BranchPoints.Add(clonedBp);
+                        splicedBranchPoints++;
+                        continue;
+                    }
+
+                    // Existing BP — overwrite parent/child id lists if the post-merge
+                    // committed version diverges from the .sfs version. This is what
+                    // catches the "Split: updated BranchPoint ParentRecordingIds:
+                    // X -> Y" case where the parent BP id is unchanged but its
+                    // ParentRecordingIds was rewritten to point at the new split
+                    // half. Copying the lists also covers any future BP-edit path
+                    // that doesn't change the BP id.
+                    BranchPoint loadedBp = loadedTree.BranchPoints[existingIdx];
+                    if (loadedBp == null) continue;
+                    bool listsDiverged =
+                        !StringListsEqual(loadedBp.ParentRecordingIds, committedBp.ParentRecordingIds)
+                        || !StringListsEqual(loadedBp.ChildRecordingIds, committedBp.ChildRecordingIds);
+                    if (listsDiverged)
+                    {
+                        loadedBp.ParentRecordingIds = committedBp.ParentRecordingIds != null
+                            ? new List<string>(committedBp.ParentRecordingIds)
+                            : new List<string>();
+                        loadedBp.ChildRecordingIds = committedBp.ChildRecordingIds != null
+                            ? new List<string>(committedBp.ChildRecordingIds)
+                            : new List<string>();
+                        updatedBranchPoints++;
+                    }
+                }
+            }
+
+            int loadedAfter = loadedTree.Recordings != null ? loadedTree.Recordings.Count : 0;
+
+            if (splicedRecordings > 0 || splicedBranchPoints > 0 || updatedBranchPoints > 0)
+            {
+                loadedTree.RebuildBackgroundMap();
+                ParsekLog.Info("Scenario",
+                    $"SpliceMissingCommittedRecordings: tree '{loadedTree.TreeName}' (id={loadedTree.Id}) " +
+                    $"loadedBefore={loadedBefore} committed={committedCount} after={loadedAfter} " +
+                    $"splicedRecordings={splicedRecordings} splicedBranchPoints={splicedBranchPoints} " +
+                    $"updatedBranchPoints={updatedBranchPoints} " +
+                    $"source=committed-tree-in-memory");
+                if (splicedRecordings > 0)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"SpliceMissingCommittedRecordings: spliced ids=[{string.Join(",", splicedRecordingIds)}]");
+                }
+            }
+            else
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"SpliceMissingCommittedRecordings: tree '{loadedTree.TreeName}' (id={loadedTree.Id}) " +
+                    $"loaded={loadedBefore} committed={committedCount} — already in sync, nothing to splice");
+            }
+
+            return splicedRecordings;
+        }
+
+        private static BranchPoint CloneBranchPoint(BranchPoint source)
+        {
+            if (source == null) return null;
+            var clone = new BranchPoint
+            {
+                Id = source.Id,
+                UT = source.UT,
+                Type = source.Type,
+                ParentRecordingIds = source.ParentRecordingIds != null
+                    ? new List<string>(source.ParentRecordingIds)
+                    : new List<string>(),
+                ChildRecordingIds = source.ChildRecordingIds != null
+                    ? new List<string>(source.ChildRecordingIds)
+                    : new List<string>(),
+                SplitCause = source.SplitCause,
+                DecouplerPartId = source.DecouplerPartId,
+                BreakupCause = source.BreakupCause,
+                BreakupDuration = source.BreakupDuration,
+                DebrisCount = source.DebrisCount,
+                CoalesceWindow = source.CoalesceWindow,
+                MergeCause = source.MergeCause,
+                TargetVesselPersistentId = source.TargetVesselPersistentId,
+                TerminalCause = source.TerminalCause,
+                RewindPointId = source.RewindPointId,
+            };
+            return clone;
+        }
+
+        private static bool StringListsEqual(List<string> a, List<string> b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            int aCount = a != null ? a.Count : 0;
+            int bCount = b != null ? b.Count : 0;
+            if (aCount != bCount) return false;
+            for (int i = 0; i < aCount; i++)
+            {
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
         }
 
         private static RecordingTree FindCommittedTreeById(string treeId, RecordingTree exclude = null)

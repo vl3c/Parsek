@@ -1802,6 +1802,25 @@ case that reduces to equality.
 
 ---
 
+## ~~601. Re-Fly load drops post-RP merge tree mutations (atmo/exo split halves vanish after Re-Fly)~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log`. User report: "the map view trajectory of the upper stage capsule was completely wrong, position around Kerbin was wrong, also there was only an in-atmo recording of the launch, but no exo recording of the upper stage — something definitely went wrong".
+
+**Reproduction:**
+
+1. RP `rp_129e07d7553e4695bf22541bec581f8a` was authored at booster decoupling (UT=159.24, `KSP.log:10777-10853`). The frozen `.sfs` snapshots the tree state at this point — 8 recordings.
+2. The user committed the regular tree-merge dialog at 23:28:30. `RecordingOptimizer.SplitAtSection` ran on the capsule recording (`66be32fa...` -> atmo + new `b66cc068b7f84469b0cbb2d7a3960f6e` exo half) and the booster recording (`5ef9ecb7...` -> atmo + new `1c999fccf63b49edacc531473672ccca` exo half). Tree size grew from 8 to 10 recordings; both new halves got their own `.prec` sidecars on disk (`KSP.log:11865-11876`).
+3. User invoked Re-Fly at 23:28:42 (`KSP.log:12544`). Re-Fly load read the RP's frozen `.sfs`, which still listed only the pre-split 8 recordings. The 2 post-split exo halves were absent from the loaded `RECORDING_TREE` ConfigNode.
+4. `[Parsek][INFO][RecordingStore] TryRestoreActiveTreeNode: removed committed tree 'Kerbal X' (id=4dd8eafbdfa4406fb051966c8c59c863, 10 recording(s))` (`KSP.log:12662`) — the in-memory copy with all 10 recordings was destroyed. The replacement Limbo tree had 8 (`KSP.log:12663`). The capsule's exo half was never re-recorded post-Re-Fly (the user only re-flew the booster), so the upper-stage exo trajectory is lost.
+
+**Cause:** the RP's `.sfs` is a static snapshot of the tree at RP authoring time. Any post-RP tree-shape mutation (`SplitAtSection`, supersede, branch-point edit) updates `RecordingStore.CommittedTrees` and writes new `.prec` sidecars but does NOT rewrite the historical RP `.sfs`. When Re-Fly later loads that `.sfs`, the loaded tree is the pre-mutation shape; `TryRestoreActiveTreeNode` then calls `RemoveCommittedTreeById`, dropping the only in-memory record of the post-mutation recordings.
+
+**Fix:** Inserted `ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree` between the pending-tree salvage step and `RemoveCommittedTreeById` in `TryRestoreActiveTreeNode`. The helper looks up the in-memory committed tree by id, deep-clones any recording whose id is missing from the loaded tree (calling `MarkFilesDirty()` so the next `OnSave` rewrites the `.sfs` + advances the `.prec` sidecar epoch in lockstep), copies any committed-only `BranchPoint`, and overwrites `ParentRecordingIds` / `ChildRecordingIds` for any BranchPoint whose id matches but whose parent/child id lists diverge (the case where `SplitAtSection` rewrote the parent-id-list of an existing BP). Structured `[Scenario][INFO]` log line reports `loadedBefore=N committed=N after=N splicedRecordings=N splicedBranchPoints=N updatedBranchPoints=N source=committed-tree-in-memory`. Regression coverage in `Bug601ReFlyPostMergeSplitPreservationTests.cs` (5 tests). Design note: `docs/dev/plans/refly-rp-predates-merge-split-fix.md`.
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
 ## ~~600. Stationary surface ghosts are hidden above 50x warp even though their mesh does not need per-frame motion~~
 
 **Source:** User investigation request on 2026-04-25: high-warp playback hides all ghost vessels in KSC and flight view for performance, but vessels that are actually standing still should remain visible at any warp speed.
