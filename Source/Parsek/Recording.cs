@@ -80,6 +80,21 @@ namespace Parsek
         [NonSerialized] internal bool SidecarLoadFailed;
         [NonSerialized] internal string SidecarLoadFailureReason;
 
+        // Bug #572 follow-up (PR after #572). Transient marker set by
+        // ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording when
+        // an active-tree record is repaired from the matching committed tree
+        // because its sidecar hydration failed. The immediately-following
+        // FinalizeTreeRecordings on scene exit must NOT infer Landed/Splashed
+        // from this recording's last trajectory point — the trajectory came
+        // from the same committed copy that already lacked a terminal state,
+        // so the "vessel was alive when unloaded" assumption that justifies
+        // surface inference does not apply. The Re-Fly strip path makes the
+        // missing live vessel a deliberate kill, not an unload. See
+        // ParsekFlight.FinalizeIndividualRecording / EnsureActiveRecordingTerminalState
+        // and docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md for
+        // rationale. NotSerialized so a fresh session always reads false.
+        [NonSerialized] internal bool RestoredFromCommittedTreeThisFrame;
+
         /// <summary>
         /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
         /// on the next <c>OnSave</c>. MUST be called after any mutation to
