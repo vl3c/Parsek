@@ -205,6 +205,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - Added regressions for pending-tree marker validation, active-marker RP preservation during reap, Re-Fly pending-invocation timeline playback gating, and committed-tree repair of hydration-failed active-tree sidecars.
+- Added observability guardrails: a `scripts/analyze-log-signal.ps1` retained-log summary tool, post-hoc validation failures for malformed Parsek lines / invalid levels / redundant WARN prefixes, and `collect-logs.py` failure artifacts when validation times out or errors before producing `log-validation.txt`.
 
 - `#527` In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` now drives `CommitTreeFlight` to land its launch recording in the timeline before staging the rewind, replacing the earlier `StopRecording`-then-wait pattern that timed out because stop alone never commits.
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
