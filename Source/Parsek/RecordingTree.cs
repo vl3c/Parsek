@@ -612,6 +612,10 @@ namespace Parsek
                 recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+            // #573 follow-up to PR #541: persist the rewind ghost-only marker so plain
+            // Rewind-to-Launch suppression survives save/load until commit/discard.
+            if (rec.SpawnSuppressedByRewind)
+                recNode.AddValue("spawnSuppressedByRewind", rec.SpawnSuppressedByRewind.ToString());
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
 
@@ -1035,6 +1039,14 @@ namespace Parsek
                     rec.VesselDestroyed = destroyed;
             }
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
+            // #573 follow-up: load post-rewind ghost-only marker.
+            string spawnSuppressedStr = recNode.GetValue("spawnSuppressedByRewind");
+            if (spawnSuppressedStr != null)
+            {
+                bool spawnSuppressed;
+                if (bool.TryParse(spawnSuppressedStr, out spawnSuppressed))
+                    rec.SpawnSuppressedByRewind = spawnSuppressed;
+            }
             string resIdxStr = recNode.GetValue("lastResIdx");
             if (resIdxStr != null)
             {
