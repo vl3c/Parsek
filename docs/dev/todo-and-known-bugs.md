@@ -374,7 +374,7 @@ though the referenced RP was from the same UT neighborhood.
 
 **Fix:** `InvokedUT` validation now rejects only corrupt values (NaN/Infinity,
 negative, or above the `1E+15` sanity ceiling); current UT is diagnostic-only
-and accept logs call out `prePRWouldReject=InvokedUT>currentUT` when the old rule
+and accept logs call out `legacyFutureUtCheck=triggered` when the old rule
 would have wiped the marker. Load-time marker accept/reject logs include the
 six durable fields plus the specific validation details, including `currentUT`,
 `rpUT`, and deltas for `InvokedUT`. Regressions:

@@ -65,7 +65,15 @@ namespace Parsek
     /// </summary>
     internal static class MarkerValidator
     {
+        // 1e15 seconds is ~31.7 million years: far beyond any legitimate
+        // KSP campaign, while still catching overflow/garbage marker values.
         internal const double MaxReasonableInvokedUT = 1.0e15;
+
+        // Log-facing summary only. Keep in sync with the accept path below so
+        // "Marker valid" lines do not drift from the actual validator rules.
+        private const string AcceptedMarkerCheckPaths =
+            "SessionId.nonEmpty,TreeId.exists,ActiveReFlyRecordingId.exists+mergeState," +
+            "OriginChildRecordingId.exists,RewindPointId.exists,InvokedUT.finite>=0<=1E+15";
 
         /// <summary>
         /// Test seam: override the "current UT" captured for diagnostics.
@@ -91,8 +99,7 @@ namespace Parsek
         public static MarkerValidationResult Validate(ReFlySessionMarker marker)
         {
             if (marker == null)
-                return MarkerValidationResult.Ok(
-                    "checked=marker-null; accepted because no active re-fly marker is a legitimate load state");
+                return MarkerValidationResult.Ok();
 
             if (string.IsNullOrEmpty(marker.SessionId))
                 return MarkerValidationResult.Invalid(
@@ -158,7 +165,7 @@ namespace Parsek
                 return MarkerValidationResult.Invalid(
                     "ActiveReFlyRecordingId",
                     "checked=ActiveReFlyRecordingId.mergeState " +
-                    $"state={active.MergeState} inPlace={inPlaceContinuation.ToString()} " +
+                    $"state={active.MergeState} inPlace={inPlaceContinuation} " +
                     "expected=NotCommitted-or-inPlace-CommittedProvisional/Immutable; rejected because state/pattern is not valid for a live marker");
             }
 
@@ -268,12 +275,11 @@ namespace Parsek
             double currentUt,
             double rewindPointUt)
         {
-            bool wouldHaveRejectedPreFix = IsFinite(currentUt) && invokedUt > currentUt;
-            return "checked=SessionId.nonEmpty,TreeId.exists,ActiveReFlyRecordingId.exists+mergeState," +
-                "OriginChildRecordingId.exists,RewindPointId.exists,InvokedUT.finite>=0<=1E+15; " +
-                $"activeState={active.MergeState} inPlace={inPlaceContinuation.ToString()} " +
+            bool legacyFutureUtCheckTriggered = IsFinite(currentUt) && invokedUt > currentUt;
+            return $"checked={AcceptedMarkerCheckPaths}; " +
+                $"activeState={active.MergeState} inPlace={inPlaceContinuation} " +
                 BuildInvokedUtComparison(invokedUt, currentUt, rewindPointUt) + " " +
-                $"prePRWouldReject={(wouldHaveRejectedPreFix ? "InvokedUT>currentUT" : "none")}";
+                $"legacyFutureUtCheck={(legacyFutureUtCheckTriggered ? "triggered" : "none")}";
         }
 
         private static string BuildInvokedUtDetails(

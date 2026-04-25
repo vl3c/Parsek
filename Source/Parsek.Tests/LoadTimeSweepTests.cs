@@ -42,10 +42,9 @@ namespace Parsek.Tests
             MarkerValidator.ResetTestOverrides();
             RewindPointReaper.ResetTestOverrides();
 
-            // Keep the "current UT" finite so InvokedUT comparisons are
-            // deterministic (tests opt into a specific value via the
-            // NowUtProvider seam when they need to exercise the future-UT
-            // path).
+            // Keep the diagnostic "current UT" finite so marker-validation
+            // log assertions are deterministic. Individual tests override it
+            // when they need to exercise fresh-load clock behavior.
             MarkerValidator.NowUtProvider = () => 1_000_000.0;
         }
 
@@ -371,7 +370,7 @@ namespace Parsek.Tests
                 l.Contains("invokedUT=578.13180328350882") &&
                 l.Contains("currentUT=0") &&
                 l.Contains("rpUT=577.5") &&
-                l.Contains("prePRWouldReject=InvokedUT>currentUT"));
+                l.Contains("legacyFutureUtCheck=triggered"));
         }
 
         [Fact]
