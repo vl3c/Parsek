@@ -1306,7 +1306,8 @@ namespace Parsek
             GhostPlaybackState primaryState,
             double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
-            bool suppressVisualFx, bool suppressOverlapGhosts = false)
+            bool suppressVisualFx, bool suppressOverlapGhosts = false,
+            bool stopAfterSuppressOverlapGhostsForTesting = false)
         {
             if (ctx.currentUT < scheduleStartUT)
             {
@@ -1347,6 +1348,8 @@ namespace Parsek
             {
                 DestroyAllOverlapGhosts(index);
             }
+            if (suppressOverlapGhosts && stopAfterSuppressOverlapGhostsForTesting)
+                return;
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
@@ -3083,7 +3086,9 @@ namespace Parsek
 
         internal void UpdateOverlapPlaybackForTesting(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
-            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx)
+            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx,
+            bool suppressOverlapGhosts = false,
+            bool stopAfterSuppressOverlapGhosts = false)
         {
             if (!TryResolveLoopSchedule(
                     traj, ctx.autoLoopIntervalSeconds, index,
@@ -3094,7 +3099,8 @@ namespace Parsek
                 return;
 
             UpdateOverlapPlayback(index, traj, flags, ctx, primaryState,
-                intervalSeconds, duration, playbackStartUT, scheduleStartUT, suppressVisualFx);
+                intervalSeconds, duration, playbackStartUT, scheduleStartUT,
+                suppressVisualFx, suppressOverlapGhosts, stopAfterSuppressOverlapGhosts);
         }
 
         private GhostVisualLoadStatus TryPopulateGhostVisuals(

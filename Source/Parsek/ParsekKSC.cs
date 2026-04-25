@@ -651,6 +651,8 @@ namespace Parsek
 
             if (suppressGhosts)
             {
+                DestroyAllKscOverlapGhosts(recIdx);
+
                 if (GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                         warpRate, rec, primaryLoopUT))
                 {
@@ -660,26 +662,25 @@ namespace Parsek
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.GhostHide}x");
                     }
-                    DestroyAllKscOverlapGhosts(recIdx);
                     return;
                 }
 
-                // Keep the newest stationary mesh only during high warp.
-                DestroyAllKscOverlapGhosts(recIdx);
+                // Keep the newest stationary primary mesh only during high warp.
             }
 
             if (primaryCycleChanged)
             {
-                // Move old primary to overlap list (don't destroy — it keeps playing)
                 if (primaryActive)
                 {
                     kscGhosts.Remove(recIdx);
                     if (suppressGhosts)
                     {
+                        // Do not accumulate overlap clones while high-warp culling is active.
                         DestroyKscGhost(primaryState, recIdx);
                     }
                     else
                     {
+                        // Move old primary to the overlap list so it keeps playing.
                         overlaps.Add(primaryState);
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");

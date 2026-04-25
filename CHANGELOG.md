@@ -43,7 +43,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#599` Stationary surface ghosts now stay visible above the 50x high-warp mesh-hide threshold. Flight and KSC playback still hide moving ghosts and overlap clones for performance, and still suppress FX/audio above the existing FX threshold, but `SurfaceStationary` track sections keep their primary mesh active because the ghost is not chasing a high-rate trajectory.
+- `#599` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
 
 - `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
 
