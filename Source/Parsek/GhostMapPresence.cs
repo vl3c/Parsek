@@ -1455,11 +1455,21 @@ namespace Parsek
 
         internal static bool IsVesselRegistered(Vessel vessel)
         {
-            if (vessel == null || FlightGlobals.fetch == null || FlightGlobals.Vessels == null)
+            if (vessel == null || FlightGlobals.fetch == null)
+                return false;
+
+            // O(1) persistent-id lookup against FlightGlobals.PersistentVesselIds
+            // (stock FlightGlobals.FindVessel is a thin wrapper around it).
+            if (vessel.persistentId != 0u)
+                return FlightGlobals.FindVessel(vessel.persistentId, out _);
+
+            // pid==0 vessels (unregistered / mid-construction) fall back to an
+            // identity scan so callers still get a meaningful answer.
+            if (FlightGlobals.Vessels == null)
                 return false;
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
-                if (IsSameVessel(FlightGlobals.Vessels[i], vessel))
+                if (ReferenceEquals(FlightGlobals.Vessels[i], vessel))
                     return true;
             }
             return false;
@@ -2288,14 +2298,21 @@ namespace Parsek
                 srf.TerminalSma = traj?.TerminalOrbitSemiMajorAxis ?? double.NaN;
                 srf.TerminalEcc = traj?.TerminalOrbitEccentricity ?? double.NaN;
             }
-            ParsekLog.VerboseRateLimited(
+            // State-change-driven so a stuck (source, reason) decision doesn't
+            // re-emit on a wall-clock cadence. Identity scopes the cache per
+            // (operation, recording); the state key encodes (source, reason)
+            // so any decision flip reopens the gate.
+            ParsekLog.VerboseOnChange(
                 Tag,
                 string.Format(ic,
                     "gm-source-resolve-{0}-{1}",
-                    recId,
-                    source),
-                BuildGhostMapDecisionLine(srf),
-                5.0);
+                    logOperationName ?? "(none)",
+                    recId),
+                string.Format(ic,
+                    "{0}|{1}",
+                    source,
+                    string.IsNullOrEmpty(reason) ? "none" : reason),
+                BuildGhostMapDecisionLine(srf));
         }
 
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
@@ -2344,12 +2361,21 @@ namespace Parsek
                         resolvedStatePoint));
                 if (!string.IsNullOrEmpty(logOperationName))
                 {
-                    ParsekLog.VerboseRateLimited(
+                    // Per-frame caller — emit only when the (source, reason) decision
+                    // flips for this (operation, recording) pair. A stable
+                    // (None, state-vector-threshold) loop in the pending-create queue
+                    // would otherwise pour ~one line per recording per second; here
+                    // we emit once on entry into the state and again only when the
+                    // state actually changes. Suppressed-count is preserved on the
+                    // next emission so post-hoc audits can reconstruct the volume.
+                    ParsekLog.VerboseOnChange(
                         Tag,
                         string.Format(ic,
-                            "map-ghost-source-{0}-{1}-{2}-{3}",
+                            "map-ghost-source-{0}-{1}",
                             logOperationName,
-                            recId,
+                            recId),
+                        string.Format(ic,
+                            "{0}|{1}",
                             source,
                             reason ?? "none"),
                         string.Format(ic,
