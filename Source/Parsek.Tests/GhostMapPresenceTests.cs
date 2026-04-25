@@ -2205,6 +2205,160 @@ namespace Parsek.Tests
             Assert.Equal("no-orbit-data", skipReason);
         }
 
+        [Fact]
+        public void ResolveMapPresenceGhostSource_TerminalFallback_FillsSparseOrbitGapBeforeEnd()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "sparse-orbit-gap",
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 4070696,
+                TerminalOrbitEccentricity = 0.844672,
+                TerminalOrbitInclination = 0.7638,
+                TerminalOrbitLAN = 12.0,
+                TerminalOrbitArgumentOfPeriapsis = 188.999,
+                TerminalOrbitMeanAnomalyAtEpoch = 1.185624,
+                TerminalOrbitEpoch = 171496.6,
+                EndpointBodyName = "Kerbin",
+                ExplicitStartUT = 1658.9,
+                ExplicitEndUT = 193774.6,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 1658.9,
+                        endUT = 1668.1,
+                        referenceFrame = ReferenceFrame.Relative,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 1658.9, bodyName = "Kerbin" },
+                            new TrajectoryPoint { ut = 1668.1, bodyName = "Kerbin" }
+                        }
+                    },
+                    new TrackSection
+                    {
+                        startUT = 171496.6,
+                        endUT = 193774.6,
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        checkpoints = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                startUT = 171496.6,
+                                endUT = 193774.6,
+                                bodyName = "Kerbin",
+                                semiMajorAxis = 4070696,
+                                eccentricity = 0.844672
+                            }
+                        }
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 171496.6,
+                        endUT = 193774.6,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 4070696,
+                        eccentricity = 0.844672
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                112557.6,
+                true,
+                "test-sparse-gap",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, source);
+            Assert.Null(skipReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_TerminalFallback_DoesNotOverrideRecordedPreOrbitCoverage()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "covered-pre-orbit",
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.01,
+                TerminalOrbitEpoch = 500,
+                EndpointBodyName = "Kerbin",
+                ExplicitStartUT = 100,
+                ExplicitEndUT = 1000,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100,
+                        endUT = 400,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                            new TrajectoryPoint { ut = 400, bodyName = "Kerbin" }
+                        }
+                    },
+                    new TrackSection
+                    {
+                        startUT = 500,
+                        endUT = 1000,
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        checkpoints = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                startUT = 500,
+                                endUT = 1000,
+                                bodyName = "Kerbin",
+                                semiMajorAxis = 700000,
+                                eccentricity = 0.01
+                            }
+                        }
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 500,
+                        endUT = 1000,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 700000,
+                        eccentricity = 0.01
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                300,
+                true,
+                "test-covered-pre-orbit",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("before-terminal-orbit", skipReason);
+        }
+
         #endregion
 
         #region Endpoint-Aligned Orbit Seeds

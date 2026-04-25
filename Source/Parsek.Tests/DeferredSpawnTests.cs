@@ -185,7 +185,6 @@ namespace Parsek.Tests
             {
                 IsWarpActiveOverrideForTesting = () => false,
                 CurrentUTOverrideForTesting = () => 120.0,
-                HasActiveVesselOverrideForTesting = () => false,
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
                 {
                     recording.VesselSpawned = true;
@@ -235,7 +234,6 @@ namespace Parsek.Tests
             {
                 IsWarpActiveOverrideForTesting = () => false,
                 CurrentUTOverrideForTesting = () => 120.0,
-                HasActiveVesselOverrideForTesting = () => false,
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
                 {
                     recording.VesselSpawned = true;
@@ -262,6 +260,45 @@ namespace Parsek.Tests
             policy.FlushDeferredSpawns();
             Assert.DoesNotContain(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
             Assert.Equal(4, spawnAttempts);
+        }
+
+        [Fact]
+        public void FlushDeferredSpawns_SpawnsQueuedSplashedSurvivorAfterWarpEnds()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-splashed-after-warp",
+                VesselName = "Returned Capsule",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Splashed
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            int spawnCalls = 0;
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentUTOverrideForTesting = () => 200.0,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
+                {
+                    spawnCalls++;
+                    recording.VesselSpawned = true;
+                    recording.SpawnedVesselPersistentId = 9898;
+                }
+            };
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+
+            policy.FlushDeferredSpawns();
+
+            Assert.Equal(1, spawnCalls);
+            Assert.True(rec.VesselSpawned);
+            Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Policy]")
+                && line.Contains("Deferred spawn executing")
+                && line.Contains("Returned Capsule"));
         }
 
         [Fact]

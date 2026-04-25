@@ -1073,6 +1073,33 @@ namespace Parsek
                 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
         }
 
+        internal static bool HasRecordedTrackCoverageAtUT(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj == null)
+                return false;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < traj.TrackSections.Count; i++)
+                {
+                    TrackSection section = traj.TrackSections[i];
+                    if (ut >= section.startUT && ut <= section.endUT)
+                        return true;
+                }
+
+                return false;
+            }
+
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                double firstUT = traj.Points[0].ut;
+                double lastUT = traj.Points[traj.Points.Count - 1].ut;
+                return ut >= firstUT && ut <= lastUT;
+            }
+
+            return false;
+        }
+
         internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
         {
             if (!traj.HasOrbitSegments)
@@ -1249,7 +1276,12 @@ namespace Parsek
                     string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
             }
 
-            if (currentUT < traj.EndUT)
+            bool allowSparseOrbitGapFallback =
+                traj.HasOrbitSegments
+                && currentUT >= activationStartUT
+                && currentUT < traj.EndUT
+                && !HasRecordedTrackCoverageAtUT(traj, currentUT);
+            if (currentUT < traj.EndUT && !allowSparseOrbitGapFallback)
             {
                 skipReason = "before-terminal-orbit";
                 return ReturnDecision(
@@ -1295,6 +1327,45 @@ namespace Parsek
                     seedDiagnostics.Source ?? "(none)",
                     seedDiagnostics.EndpointBodyName ?? "(none)",
                     seedDiagnostics.FallbackReason ?? "(none)"));
+        }
+
+        internal static bool TryBuildTerminalOrbitSegmentForMapPresence(
+            IPlaybackTrajectory traj,
+            out OrbitSegment segment)
+        {
+            segment = default(OrbitSegment);
+            if (traj == null)
+                return false;
+
+            if (!TryResolveGhostProtoOrbitSeed(
+                traj,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName,
+                out _))
+            {
+                return false;
+            }
+
+            segment = new OrbitSegment
+            {
+                startUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj),
+                endUT = traj.EndUT,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = bodyName
+            };
+            return true;
         }
 
         private static string BuildTrackingStationGhostSourceDetail(
