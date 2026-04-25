@@ -256,7 +256,7 @@ namespace Parsek
                 ? "Deferred spawn queue drained"
                 : "Deferred spawn queue waiting";
             ParsekLog.Info("Policy",
-                $"{queueState} — spawned {spawnedCount} deferred spawn(s), " +
+                $"Warp ended — {queueState} — spawned {spawnedCount} deferred spawn(s), " +
                 $"cleared {flushedSpawnIds.Count} spawn queue item(s), " +
                 $"cleared {clearedFlagReplayIds.Count} flag replay(s), " +
                 $"{remainingCount} pending");
