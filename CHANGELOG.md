@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 - Merging an in-place re-fly continuation now reaps the originating Rewind Point and forces the recording to `Immutable` even if the re-flight crashed, so the recording is promoted out of the Unfinished Flights virtual group instead of staying duplicated in both Unfinished Flights and the regular tree row. "Merge to Timeline" is treated as the player's commitment that the re-flight is final regardless of outcome.
 
-- Unfinished Flights rows now use the same `R` / `FF` button glyph as every other recording row (was the longer `Rewind` label), so the Rewind/FF column lines up consistently across the table.
+- Unfinished Flights rows now label their button `Re-Fly` instead of the legacy `R` / `FF` glyph. The action is qualitatively different from a launch rewind — clicking it loads the staging Rewind Point, places you in control of the destroyed sibling vessel, and starts a re-fly session that ends with a merge or discard. `Re-Fly` says exactly that; the legacy `R` (rewind to launch and watch) keeps its short glyph on every other row.
 
 - Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
 

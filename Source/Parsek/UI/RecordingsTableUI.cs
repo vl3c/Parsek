@@ -2535,13 +2535,22 @@ namespace Parsek
                 return false;
             }
 
-            bool isFuture = now < rec.StartUT;
-            string rewindLabel = isFuture ? "FF" : "R";
+            // Always "Re-Fly" — the action is qualitatively different from
+            // the legacy R / FF buttons (rewind time and watch playback).
+            // Clicking this loads a Rewind Point quicksave, places the
+            // player in control of the destroyed sibling vessel, and
+            // starts a re-fly session (marker, supersede tracking, merge
+            // dialog later). Past-vs-future relative to current UT is
+            // irrelevant for the user-facing label: the action is "go to
+            // the breakup point and re-fly" in either direction. `now` is
+            // kept on the signature for future per-row state if needed.
+            const string kReFlyLabel = "Re-Fly";
+            _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
             {
                 DrawDisabledUnfinishedFlightRewindButton(
-                    rec, ri, rewindLabel, routeReason ?? "Rewind point slot not found");
+                    rec, ri, routeReason ?? "Rewind point slot not found");
                 return true;
             }
 
@@ -2549,7 +2558,7 @@ namespace Parsek
                 || slotListIndex >= rp.ChildSlots.Count)
             {
                 DrawDisabledUnfinishedFlightRewindButton(
-                    rec, ri, rewindLabel, "Rewind point slot not found");
+                    rec, ri, "Rewind point slot not found");
                 return true;
             }
 
@@ -2564,17 +2573,15 @@ namespace Parsek
             {
                 lastCanInvoke[invokeKey] = canInvoke;
                 ParsekLog.Verbose("RewindUI",
-                    $"Rewind #{ri} rp={rpKey} slot={slotId}: " +
+                    $"Re-Fly #{ri} rp={rpKey} slot={slotId}: " +
                     $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
             }
 
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? (isFuture
-                    ? "Fast-forward to the split that produced this unfinished flight"
-                    : "Rewind to the split that produced this unfinished flight")
-                : (reason ?? "Rewind unavailable");
-            if (DrawBodyCenteredButton(new GUIContent(rewindLabel, tooltip), ColW_Rewind))
+                ? "Re-fly the destroyed sibling from the staging split"
+                : (reason ?? "Re-Fly unavailable");
+            if (DrawBodyCenteredButton(new GUIContent(kReFlyLabel, tooltip), ColW_Rewind))
             {
                 ParsekLog.Info("RewindUI",
                     $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
@@ -2585,9 +2592,9 @@ namespace Parsek
         }
 
         private void DrawDisabledUnfinishedFlightRewindButton(
-            Recording rec, int ri, string label, string reason)
+            Recording rec, int ri, string reason)
         {
-            reason = string.IsNullOrEmpty(reason) ? "Rewind unavailable" : reason;
+            reason = string.IsNullOrEmpty(reason) ? "Re-Fly unavailable" : reason;
             string recId = rec?.RecordingId ?? "<no-id>";
             string key = "disabled/" + recId + "/" + reason;
             bool prev;
@@ -2595,11 +2602,11 @@ namespace Parsek
             {
                 lastCanInvoke[key] = false;
                 ParsekLog.Verbose("RewindUI",
-                    $"Rewind #{ri} rec={recId} disabled — {reason}");
+                    $"Re-Fly #{ri} rec={recId} disabled — {reason}");
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent(label ?? "R", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent("Re-Fly", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 
