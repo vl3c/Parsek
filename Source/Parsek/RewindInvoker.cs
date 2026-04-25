@@ -553,6 +553,16 @@ namespace Parsek
                     $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
                     $"slot={slotIdx} activePid={stripResult.SelectedPid}");
 
+                // Bug #587: pre-existing debris-vessel-supplement to PostLoadStripper.Strip.
+                // Runs AFTER AtomicMarkerWrite so the marker-aware short-circuit in
+                // ParsekPlaybackPolicy.RunSpawnDeathChecks is engaged and our Die()
+                // calls cannot leak back into the policy as "spawned vessel died,
+                // please re-spawn" (#573 contract). Pure no-op when the marker is
+                // not in-place continuation (placeholder pattern keeps the live
+                // pre-rewind active vessel in scene; killing matching debris there
+                // would risk taking the player's actively-re-flown vessel).
+                StripPreExistingDebrisForInPlaceContinuation(stripResult);
+
                 // Diagnostic hint: a pre-existing quicksave vessel whose name
                 // matches a recording in the re-fly tree produces two
                 // identical-looking objects in the scene (real orbital relic +
@@ -998,6 +1008,204 @@ namespace Parsek
                 if (rec == null) continue;
                 string name = rec.VesselName;
                 if (!string.IsNullOrEmpty(name)) yield return name;
+            }
+        }
+
+        /// <summary>
+        /// Bug #587: pre-existing debris-vessel-supplement to <see cref="PostLoadStripper.Strip"/>
+        /// for the in-place continuation Re-Fly path. <see cref="PostLoadStripper.Strip"/>
+        /// keys on <see cref="RewindPoint.PidSlotMap"/> and only kills siblings registered in
+        /// that map; pre-existing debris vessels carried in the rewind quicksave's
+        /// <c>protoVessels</c> from prior career flights are left in scene by design.
+        /// For an in-place continuation Re-Fly, however, those leftover vessels can share a
+        /// name with a Destroyed-terminal recording in the actively re-flown tree, and
+        /// KSP-stock patched-conics treats them as encounter candidates -- producing the
+        /// phantom "Kerbin Encounter T+" + 50x warp cap that the playtest captured.
+        /// <para>
+        /// Returns the list of left-alone PIDs that should be killed: vessels whose
+        /// <c>persistentId</c> is in <paramref name="leftAlonePids"/> AND whose name
+        /// matches a Destroyed-terminal recording in the marker's tree. The
+        /// <paramref name="protectedPids"/> parameter excludes the actively re-flown
+        /// vessel + the marker's recording vessel pid so #573's strip-kill protection
+        /// is preserved.
+        /// </para>
+        /// <para>
+        /// Pure static; the caller is responsible for the actual <c>Vessel.Die()</c>
+        /// invocations. The decision is keyed on (a) marker is in-place continuation,
+        /// (b) recording is in the marker's tree, (c) recording's terminal state is
+        /// Destroyed -- so a future career run with an alive "Kerbal X Debris" in
+        /// orbit at rewind-point time cannot trip the kill (the recording would not
+        /// be Destroyed-terminal there).
+        /// </para>
+        /// </summary>
+        /// <param name="marker">Live re-fly marker. Returns empty list when null or not in-place.</param>
+        /// <param name="trees">Committed trees from <c>RecordingStore.CommittedTrees</c>.</param>
+        /// <param name="leftAlonePids">Pids of left-alone vessels with their names.</param>
+        /// <param name="protectedPids">Pids that must NOT be killed (selected vessel + marker active).</param>
+        internal static List<uint> ResolveInPlaceContinuationDebrisToKill(
+            ReFlySessionMarker marker,
+            IReadOnlyList<RecordingTree> trees,
+            IReadOnlyList<(uint pid, string vesselName)> leftAlonePids,
+            HashSet<uint> protectedPids)
+        {
+            var kill = new List<uint>();
+            if (marker == null) return kill;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return kill;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+                return kill; // placeholder pattern -- skip; the active vessel is alive in scene
+            if (string.IsNullOrEmpty(marker.TreeId)) return kill;
+            if (trees == null || trees.Count == 0) return kill;
+            if (leftAlonePids == null || leftAlonePids.Count == 0) return kill;
+
+            // Locate the marker's tree.
+            RecordingTree markerTree = null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i] == null) continue;
+                if (string.Equals(trees[i].Id, marker.TreeId, StringComparison.Ordinal))
+                {
+                    markerTree = trees[i];
+                    break;
+                }
+            }
+            if (markerTree == null) return kill;
+
+            // Build the Destroyed-terminal name set.
+            var destroyedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rec in markerTree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                if (rec.TerminalStateValue != TerminalState.Destroyed) continue;
+                if (string.IsNullOrEmpty(rec.VesselName)) continue;
+                destroyedNames.Add(rec.VesselName);
+            }
+            if (destroyedNames.Count == 0) return kill;
+
+            for (int i = 0; i < leftAlonePids.Count; i++)
+            {
+                var (pid, name) = leftAlonePids[i];
+                if (pid == 0u) continue;
+                if (string.IsNullOrEmpty(name)) continue;
+                if (protectedPids != null && protectedPids.Contains(pid)) continue;
+                if (!destroyedNames.Contains(name)) continue;
+                kill.Add(pid);
+            }
+            return kill;
+        }
+
+        /// <summary>
+        /// Bug #587: production caller for <see cref="ResolveInPlaceContinuationDebrisToKill"/>.
+        /// Runs after <see cref="AtomicMarkerWrite"/> (so the marker is set + the
+        /// re-fly-active short-circuit in <c>RunSpawnDeathChecks</c> is engaged) and
+        /// kills pre-existing debris that would confuse KSP-stock patched conics.
+        /// Each <c>Vessel.Die()</c> runs inside a <see cref="SuppressionGuard.Crew"/>
+        /// to mirror <c>PostLoadStripper.StripVessel</c>'s silent-removal contract --
+        /// no CrewKilled / CrewRemoved fanout into the ledger from this cleanup.
+        /// </summary>
+        internal static void StripPreExistingDebrisForInPlaceContinuation(
+            PostLoadStripResult stripResult)
+        {
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null) return;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return;
+
+            // Build the leftAlone (pid, name) pairs from live FlightGlobals because
+            // the strip result only retains names; we need pids to issue Die() calls.
+            // The strip already enumerated FlightGlobals, but did not pair pid+name
+            // in the public surface. Re-enumerate.
+            IList<Vessel> liveVessels;
+            try { liveVessels = FlightGlobals.Vessels; }
+            catch { liveVessels = null; }
+            if (liveVessels == null || liveVessels.Count == 0) return;
+
+            var leftAlonePidNames = new List<(uint, string)>();
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                var v = liveVessels[i];
+                if (v == null) continue;
+                uint pid = v.persistentId;
+                if (pid == 0u) continue;
+                if (GhostMapPresence.IsGhostMapVessel(pid)) continue;
+                // Skip vessels we just stripped (already dead) or selected.
+                if (stripResult.StrippedPids != null
+                    && stripResult.StrippedPids.Contains(pid)) continue;
+                if (stripResult.SelectedPid == pid) continue;
+                string name = v.vesselName;
+                if (string.IsNullOrEmpty(name)) continue;
+                leftAlonePidNames.Add((pid, name));
+            }
+
+            // Protect the selected slot vessel + the marker's active recording's pid
+            // (#573 contract: never kill the actively re-flown vessel).
+            var protectedPids = new HashSet<uint>();
+            if (stripResult.SelectedPid != 0u)
+                protectedPids.Add(stripResult.SelectedPid);
+            // Also resolve the active recording's vessel pid from the committed list
+            // -- same pid as Selected for in-place continuation, but defensive against
+            // a future code-path that diverges them.
+            var committedRecs = RecordingStore.CommittedRecordings;
+            if (committedRecs != null && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                for (int i = 0; i < committedRecs.Count; i++)
+                {
+                    var rec = committedRecs[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        if (rec.VesselPersistentId != 0u)
+                            protectedPids.Add(rec.VesselPersistentId);
+                        break;
+                    }
+                }
+            }
+
+            var kill = ResolveInPlaceContinuationDebrisToKill(
+                marker,
+                RecordingStore.CommittedTrees,
+                leftAlonePidNames,
+                protectedPids);
+            if (kill.Count == 0) return;
+
+            int killed = 0;
+            var killedNames = new List<string>();
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                var v = liveVessels[i];
+                if (v == null) continue;
+                if (!kill.Contains(v.persistentId)) continue;
+                string name = v.vesselName ?? "<unnamed>";
+                try
+                {
+                    using (SuppressionGuard.Crew())
+                    {
+                        v.Die();
+                    }
+                    killed++;
+                    killedNames.Add(name);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Strip post-supplement: Die() threw for v={v.persistentId} " +
+                        $"name='{name}': {ex.Message}");
+                }
+            }
+
+            if (killed > 0)
+            {
+                string joined = string.Join(", ", killedNames.ToArray());
+                ParsekLog.Warn(InvokeTag,
+                    $"Strip post-supplement: killed {killed} pre-existing debris vessel(s) " +
+                    $"for in-place continuation re-fly: [{joined}] " +
+                    $"(name matches a Destroyed-terminal recording in tree '{marker.TreeId}'; " +
+                    $"left in scene by PostLoadStripper because no PidSlotMap entry; " +
+                    $"would otherwise trip KSP patched conics into a phantom encounter -- bug #587)");
             }
         }
 

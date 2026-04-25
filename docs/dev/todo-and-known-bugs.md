@@ -882,7 +882,7 @@ structured GhostMap observability).
 
 ---
 
-## 585. In-place continuation Re-Fly leaves the active tree in Limbo, the booster recording un-merged, and the merge dialog shows the recording as 0s
+## ~~585. In-place continuation Re-Fly leaves the active tree in Limbo, the booster recording un-merged, and the merge dialog shows the recording as 0s~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — playtest where the
 user re-flew the `Kerbal X Probe` booster (recording
@@ -998,8 +998,33 @@ vessel unreachable.
   underlying restore is fixed the dialog should render real duration +
   spawnable count.
 
-**Status:** Open — the user's #1 game-breaking symptom from the
-2026-04-25 Re-Fly cascade.
+**Resolution (2026-04-26):** Fixed in `fix/585-inplace-continuation-limbo`
+by teaching `RestoreActiveTreeFromPending` to consult the live
+`ReFlySessionMarker`. When the marker is in-place continuation
+(`OriginChildRecordingId == ActiveReFlyRecordingId`) and its recording
+id is present in the freshly-popped tree, the coroutine swaps the
+wait target to the marker's recording id, vessel name, and pid before
+the 3s wait loop. The pure-static decision lives in
+`ReFlySessionMarker.ResolveInPlaceContinuationTarget`. A companion
+gate in `ParsekFlight.OnVesselSwitchComplete`
+(`IsInPlaceContinuationArrivalForMarker`) suppresses the misleading
+"vessel switch to outsider while idle" arming for the same in-place
+case, so the post-switch watcher cannot race the restore coroutine.
+The sidecar epoch mismatch error surface is unchanged: bug #270's
+mitigation still drops the trajectory for stale sidecars, the empty
+trajectory list is the resumed recording's expected pre-rewind shape,
+and the recorder repopulates it on the first frame after binding;
+the existing `StashActiveTreeAsPendingLimbo` null-snapshot recapture
+path covers `hasSnapshot=False` at scene exit. Design note in
+`docs/dev/plans/refly-inplace-continuation-tree-restore.md` (closes
+#590) lays out the three contract questions and the
+deferred-snapshot-only-rescue follow-up. Tests:
+`Bug585InPlaceContinuationRestoreTests` (15 cases covering marker
+absence, placeholder pattern, tree-id mismatch, missing-from-tree,
+already-pointing-at-marker, pid-match-vs-pid-mismatch, post-fix
+merge dialog rendering with `canPersist=True`).
+
+**Status:** CLOSED 2026-04-26.
 
 ---
 
@@ -1055,7 +1080,7 @@ encounter-prediction line to the ghost) never materialises.
 
 ---
 
-## 587. KSP shows a phantom "Kerbin Encounter T+" prediction and limits warp to 50× during booster Re-Fly
+## ~~587. KSP shows a phantom "Kerbin Encounter T+" prediction and limits warp to 50× during booster Re-Fly~~
 
 **Source:** same playtest as #585. User: "the kerbalx probe booster
 (when I flew the real booster after Re-Fly, in map view) had sections
@@ -1096,8 +1121,34 @@ sub-orbital / orbital flight there should be no Kerbin encounter at all.
   the strip not kill the upper-stage ghost during re-fly, but did not
   rule on residual debris.
 
-**Status:** Open. May be the same root cause as #585 (Limbo tree means
-strip walked the wrong recording set).
+**Resolution (2026-04-26):** Fixed in `fix/585-inplace-continuation-limbo`
+by adding a strip-pass supplement
+(`RewindInvoker.StripPreExistingDebrisForInPlaceContinuation`) that
+runs after `AtomicMarkerWrite`. For an in-place continuation
+re-fly, leftover debris vessels carried in the rewind quicksave's
+protoVessels (e.g., the playtest's three pre-existing
+`Kerbal X Debris` instances at pids 3749279177 / 2427828411 /
+526847698) get killed via `Vessel.Die()` inside a
+`SuppressionGuard.Crew()` when (a) the vessel name matches a
+Destroyed-terminal recording in the marker's tree and (b) the pid
+is NOT in the protected set (selected slot vessel + marker's
+ActiveReFlyRecordingId vessel pid). #573's strip-kill protection
+is preserved by the protected-pid exclusion, and the post-strip
+spawn-death short-circuit in `ParsekPlaybackPolicy.RunSpawnDeathChecks`
+already skips during an active re-fly session so the new kills do
+not leak into the policy as "spawned vessel died, please re-spawn".
+Pure decision in
+`RewindInvoker.ResolveInPlaceContinuationDebrisToKill`. Tests:
+`Bug587StripPreExistingDebrisTests` (8 cases covering null-marker,
+placeholder pattern, tree-id mismatch, no-Destroyed-recordings,
+matching-debris-killed, name-matches-Orbiting-recording (kept
+alive), protected-pid-not-killed, empty-leftAlone). The
+warn-and-continue diagnostic via
+`WarnOnLeftAloneNameCollisions` still fires for the
+non-in-place-continuation path so the original heads-up message
+about prior-career relics is preserved.
+
+**Status:** CLOSED 2026-04-26.
 
 ---
 
@@ -1225,7 +1276,7 @@ playtest and likely overlap in symptom space.
 
 ---
 
-## 590. Tree restore Limbo + sidecar hydration failure pattern needs a unified diagnosis
+## ~~590. Tree restore Limbo + sidecar hydration failure pattern needs a unified diagnosis~~
 
 **Source:** umbrella for the diagnoses that fed #585. Listed separately
 because the underlying invariants — "tree restore from rewind quicksave
@@ -1250,9 +1301,33 @@ files together and write a short design note answering:
   re-record from rewind UT, or to refuse the rewind and surface a
   user-facing error?
 
-**Status:** Tracked here so the umbrella isn't lost when #585 ships.
-Likely closes alongside #585 if the design note answers all three
-questions consistently.
+**Resolution (2026-04-26):** Closed alongside #585. Design note
+[`docs/dev/plans/refly-inplace-continuation-tree-restore.md`](plans/refly-inplace-continuation-tree-restore.md)
+answers all three questions:
+
+1. The marker's `ActiveReFlyRecordingId` is authoritative for the
+   in-place continuation Re-Fly's expected active vessel; the rewind
+   quicksave's `ActiveRecordingId` is stale. Carve-out lives in
+   `ReFlySessionMarker.ResolveInPlaceContinuationTarget` and is
+   consumed by `ParsekFlight.RestoreActiveTreeFromPending` before the
+   3s wait loop.
+2. For an in-place continuation, neither side is fully authoritative:
+   the rewind quicksave's `.sfs` epoch is correct for trajectory POINTS
+   (which we re-record from rewind UT anyway) and the on-disk `.prec`
+   is correct for the SNAPSHOT (which the player landed/staged with
+   at end of original mission). Bug #270's drop-on-mismatch stays the
+   default; the fix lives in the marker-aware coroutine, not in the
+   sidecar load path. The deferred snapshot-only-rescue (when
+   on-disk `.prec` epoch > `.sfs` expected epoch) is filed as a
+   future invariant-tightening pass — `StashActiveTreeAsPendingLimbo`
+   already re-captures null-snapshot leaves at scene exit, which
+   covers the playtest's `hasSnapshot=False` symptom in practice.
+3. The Limbo error surface is correct as the default; the empty
+   trajectory list IS the resumed recording's expected shape.
+   Bug #270's safety net stays intact for non-in-place-continuation
+   cases (corrupt save, half-written file, etc).
+
+**Status:** CLOSED 2026-04-26.
 
 ---
 

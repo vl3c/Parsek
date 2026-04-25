@@ -2009,6 +2009,29 @@ namespace Parsek
                     newVesselIsGhost,
                     newVessel.isEVA),
                 trackedInActiveTree);
+
+            // Bug #585: in-place continuation Re-Fly suppression. When the live
+            // marker pins the new active vessel as the in-place continuation
+            // target, the restore coroutine fired by OnFlightReady will resume
+            // into the marker's recording. Arming the post-switch outsider
+            // watcher here would log a misleading "outsider while idle" line
+            // and risk a brief race where the watcher's first physics frame
+            // captures a baseline before the coroutine binds the recorder.
+            // The watcher already gates on IsRecording / restoringActiveTree
+            // via EvaluatePostSwitchAutoRecordSuppression, so this is mostly a
+            // diagnostics-clarity fix: we explicitly skip arming and log the
+            // marker reason so the post-mortem in KSP.log reads as expected.
+            if (armDecision != PostSwitchAutoRecordArmDecision.None
+                && IsInPlaceContinuationArrivalForMarker(newPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"Post-switch auto-record suppressed: vessel='{newVessel.vesselName ?? "<unnamed>"}' " +
+                    $"pid={newPid} reason=marker-in-place-continuation " +
+                    $"sess={ParsekScenario.Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
+                ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+                return;
+            }
+
             switch (armDecision)
             {
                 case PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember:
@@ -2028,6 +2051,60 @@ namespace Parsek
                     break;
             }
             ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+        }
+
+        /// <summary>
+        /// Bug #585: returns true when the live <see cref="ReFlySessionMarker"/>
+        /// indicates an in-place continuation Re-Fly AND the just-activated
+        /// vessel's <c>persistentId</c> matches the marker's active recording.
+        /// In that state, post-switch auto-record arming is a no-op at best and
+        /// a diagnostics nuisance at worst -- the
+        /// <see cref="RestoreActiveTreeFromPending"/> coroutine will bind the
+        /// recorder to the marker's recording once <see cref="OnFlightReady"/>
+        /// fires.
+        /// </summary>
+        private bool IsInPlaceContinuationArrivalForMarker(uint newPid)
+        {
+            return IsInPlaceContinuationArrivalForMarker(
+                newPid,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                RecordingStore.CommittedRecordings);
+        }
+
+        /// <summary>
+        /// Pure-static overload for unit testing: caller injects the marker
+        /// and committed-recordings list rather than reading from
+        /// <see cref="ParsekScenario.Instance"/> + <see cref="RecordingStore.CommittedRecordings"/>.
+        /// Use raw committed-recordings read because the marker resolution at
+        /// this point is a physical-identity correlation, not a supersede-aware
+        /// ERS query (RewindInvoker.cs has the same ERS-exempt pattern in its
+        /// FindRecordingById helper).
+        /// </summary>
+        internal static bool IsInPlaceContinuationArrivalForMarker(
+            uint newPid,
+            ReFlySessionMarker marker,
+            System.Collections.Generic.IReadOnlyList<Recording> committedRecordings)
+        {
+            if (newPid == 0u) return false;
+            if (marker == null) return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+                return false;
+            if (committedRecordings == null) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    continue;
+                return rec.VesselPersistentId == newPid;
+            }
+            return false;
         }
 
         /// <summary>
@@ -7854,6 +7931,53 @@ namespace Parsek
 
             var tree = RecordingStore.PendingTree;
             string activeRecId = tree.ActiveRecordingId;
+
+            // Bug #585: in-place continuation Re-Fly carve-out. The rewind
+            // quicksave's ActiveRecordingId still points at the pre-rewind
+            // active vessel (just killed by PostLoadStripper). The live
+            // ReFlySessionMarker pins the recording the player wants to keep
+            // recording into; for an in-place continuation
+            // (OriginChildRecordingId == ActiveReFlyRecordingId) we must swap
+            // the wait target to the marker's recording. Without the swap the
+            // wait loop targets a dead pid, times out at 3s, and the tree
+            // stays in Limbo for the rest of the session.
+            string preMarkerActiveRecId = activeRecId;
+            string preMarkerActiveName = activeRecId != null
+                && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec)
+                ? preMarkerActiveRec?.VesselName : null;
+            uint preMarkerActivePid = activeRecId != null
+                && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
+                ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            var markerSwap = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
+                marker,
+                tree.Id,
+                activeRecId,
+                recId =>
+                {
+                    if (string.IsNullOrEmpty(recId)) return null;
+                    if (!tree.Recordings.TryGetValue(recId, out var rec) || rec == null)
+                        return null;
+                    return (rec.VesselName, rec.VesselPersistentId);
+                });
+            if (markerSwap.ShouldSwap)
+            {
+                tree.ActiveRecordingId = markerSwap.TargetRecordingId;
+                activeRecId = markerSwap.TargetRecordingId;
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: in-place continuation marker swapped target " +
+                    $"rec='{preMarkerActiveRecId ?? "<null>"}'->\'{markerSwap.TargetRecordingId}\' " +
+                    $"vessel='{preMarkerActiveName ?? "<null>"}'->\'{markerSwap.TargetVesselName ?? "<null>"}\' " +
+                    $"pid={preMarkerActivePid}->{markerSwap.TargetVesselPersistentId} " +
+                    $"sess={marker?.SessionId ?? "<no-id>"}");
+            }
+            else if (marker != null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RestoreActiveTreeFromPending: marker present but no swap " +
+                    $"(reason={markerSwap.Reason ?? "<none>"} sess={marker.SessionId ?? "<no-id>"})");
+            }
+
             if (string.IsNullOrEmpty(activeRecId)
                 || !tree.Recordings.TryGetValue(activeRecId, out var activeRec))
             {
