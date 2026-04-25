@@ -2081,6 +2081,90 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 
 ---
 
+## doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13201`.
+After the in-place-continuation Re-Fly of the booster, with the
+`#587` and `#587 follow-up` strip fixes already applied, the user
+still reported seeing a clickable, real vessel of the upper-stage
+("Kerbal X") a few metres from the booster. The user clarified
+that this is a *separate* vessel from the legitimate
+`GhostPlaybackEngine` ghost (Ghost #0, 35 parts, audio, full
+visuals) which they want to keep — the bug is that a real
+KSP `Vessel` is also being created for the same recording.
+
+```
+[INFO][GhostMap] Created ghost vessel 'Ghost: Kerbal X' ghostPid=1130130569
+type=Ship body=Kerbin sma=2 for recording #0 (state vectors alt=0 spd=2185.7
+frame=relative) orbitSource=state-vector-fallback
+stateBody=Kerbin stateUT=159.5 stateAlt=0 stateSpeed=2185.7 frame=relative
+anchorPid=2676381515 ... orbit=True mapObj=True orbitRenderer=True registered=True
+```
+
+The capsule recording (`66be32fafffe49a7a4bc82467c5ee600`) is the
+parent of the active Re-Fly recording in the same tree, with its
+current `TrackSection` in `ReferenceFrame.Relative` anchored to
+the live booster's pid (= the active Re-Fly target). The
+state-vector-fallback path resolves a world position by
+multiplying the anchor's transform by the recording's
+anchor-local offset — placing the synthesised ProtoVessel right
+next to the booster. The orbit synthesised at altitude=0
+atmospheric ascent state is also degenerate (`sma=2 ecc=0.999999`).
+
+**Why this is the third facet of `#587`:** the previous two
+fixes targeted the *strip* side — pre-existing in-scene vessels
+that survived `PostLoadStripper`. This one is on the
+**`GhostMapPresence` create side**: the `Ghost: <name>`
+ProtoVessel is *born* during Re-Fly (after strip ran), so the
+strip-side guards never see it. The capsule recording is the
+parent of the Re-Fly origin, so it is *outside*
+`EffectiveState.ComputeSessionSuppressedSubtree`'s child-ward
+closure and outside `IsSuppressedByActiveSession`'s gate too.
+
+**Resolution (2026-04-25):** added the pure predicate
+`GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
+and gated the create site in
+`GhostMapPresence.CreateGhostVesselFromStateVectors` on it. The
+predicate suppresses when (a) a `ReFlySessionMarker` is active,
+(b) the marker is in the in-place-continuation pattern
+(`origin == active`, mirroring `#587`'s placeholder carve-out),
+(c) the resolution branch is `relative`, (d) the resolution's
+`anchorPid` matches the active Re-Fly target's
+`Recording.VesselPersistentId`, and (e) the recording being
+mapped is in the active Re-Fly recording's parent chain (per
+PR #574 review P2: scope to the parent BranchPoint topology so
+legitimate `#583` / `#584` docking/rendezvous map ghosts whose
+anchor happens to be the active vessel are NOT suppressed). The
+predicate also signals retry-later semantics back through the
+new `out bool retryLater` parameter on
+`CreateGhostVesselFromStateVectors` /
+`CreateGhostVesselFromSource`; the flight-scene caller
+`ParsekPlaybackPolicy.CheckPendingMapVessels` keeps its
+pending-map entry alive when this gate fires, so a recording
+that is mid-Relative-section during Re-Fly is retried next
+tick rather than permanently dropped from the queue. A new
+structured INFO log line
+`create-state-vector-suppressed: ... reason=refly-relative-anchor=active relationship=parent ... retryLater=true`
+gives playtest logs a unique grep target. The
+`GhostPlaybackEngine` in-physics-zone ghost is untouched —
+exactly the one the user wants kept. Tests:
+`Bug587ThirdFacetDoubledGhostMapTests` covers the user's exact
+case (parent capsule recording during in-place Re-Fly of
+booster) plus 17 defensive negatives — no-marker, placeholder
+pattern, absolute branch, anchor-is-different-vessel,
+zero-anchor, missing/zero pid in committed list, null
+committed list, empty marker fields, `no-section` and
+`orbital-checkpoint` branches, structured-log-line shape,
+docking-target sibling (PR #574 P2 not-parent gate),
+multi-hop grandparent walk, victim-is-active idempotency,
+null/missing tree topology, null victim id, and direct
+`IsRecordingInParentChainOfActiveReFly` coverage including
+the BP-cycle bail.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15

@@ -906,7 +906,23 @@ namespace Parsek
                                 toCreate[i].source,
                                 toCreate[i].segment,
                                 toCreate[i].point,
-                                currentUT);
+                                currentUT,
+                                out bool retryLater);
+                            // PR #574 review P2 (retry-later semantics): keep
+                            // the pending entry alive when the active-Re-Fly
+                            // suppression gate fires — otherwise a parent
+                            // recording mid-flight in a Relative-anchored
+                            // section would be permanently dropped from the
+                            // pending-map queue and never re-attempt after
+                            // the Re-Fly session ends.
+                            if (retryLater && ghost == null)
+                            {
+                                ParsekLog.Verbose("Policy", string.Format(CultureInfo.InvariantCulture,
+                                    "CheckPendingMapVessels: kept pending entry for #{0} \"{1}\" — " +
+                                    "active-Re-Fly suppression in effect, will retry next tick",
+                                    idx, traj.VesselName ?? "(null)"));
+                                continue;
+                            }
                             pendingMapVessels.Remove(idx);
 
                             if (ghost != null)
