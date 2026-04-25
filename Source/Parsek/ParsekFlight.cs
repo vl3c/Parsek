@@ -12070,11 +12070,28 @@ namespace Parsek
 
                 bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
 
-                // Log spawn suppression reason for non-debris recordings (diagnostic)
+                // Log spawn suppression reason for non-debris recordings (diagnostic).
+                // Emit only when the suppression reason flips for this recording —
+                // stable per-frame repeats (e.g., "no vessel snapshot" for the entire
+                // session) are coalesced into the suppressed counter and surfaced
+                // on the next reason change. Identity is keyed on the stable
+                // RecordingId rather than the bare list index because the committed
+                // list is dense — when a recording is discarded, later recordings
+                // shift down and the same index gets reused for a different
+                // recording. Keying on index alone would let the new occupant
+                // inherit the prior recording's cached state and mask its first
+                // emission (or surface a stale suppressed counter on the next
+                // flip). The index still appears in the message body so audits
+                // can resolve recordings post-hoc.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
                     string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
-                    ParsekLog.VerboseRateLimited("Spawner", "spawn-suppressed-" + i,
+                    string identity = "spawn-suppressed|"
+                        + (!string.IsNullOrEmpty(rec.RecordingId) ? rec.RecordingId : "idx-" + i);
+                    ParsekLog.VerboseOnChange(
+                        "Spawner",
+                        identity,
+                        reason ?? "(none)",
                         $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
                 }
 

@@ -43,6 +43,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Map-vessel source-resolve and spawn-suppression diagnostics no longer storm `KSP.log` when the same per-frame decision repeats every tick. Stable `(source, reason)` tuples now emit once per recording and stay quiet until the decision flips, with the suppressed count surfaced as `| suppressed=N` on the next state change.
+
 - In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
 
 - `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.

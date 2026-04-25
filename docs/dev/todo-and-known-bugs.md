@@ -1625,6 +1625,77 @@ inherited from `ParsekLog.DefaultRateLimitSeconds`.
 
 ---
 
+## ~~Log spam: `[GhostMap] map-presence-{pending,initial}-create` and `[Spawner] Spawn suppressed: no vessel snapshot` re-emit on every frame across stable per-frame decisions~~
+
+**Source:** `logs/2026-04-25_2147/` (KSP.log + Player.log mirror the
+same Parsek output — counts below are per-file; sum across both is
+the same number doubled) — 228k Parsek lines in a 27-minute playtest,
+~13,719 of which were `[GhostMap] map-presence-pending-create` (9,950)
+/ `map-presence-initial-create` (3,769) verbose lines, plus 14,487
+`[Spawner] Spawn suppressed for #X "Y": <reason>` lines spanning 286
+distinct `(idx, vessel)` tuples. Reproduce with:
+
+```bash
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/Player.log
+grep -h "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log \
+    logs/2026-04-25_2147/Player.log \
+    | grep -oE '#[0-9]+ "[^"]+"' | sort -u | wc -l
+```
+
+**Diagnosis (2026-04-25):** `GhostMapPresence.ResolveMapPresenceGhostSource`
+fires from two per-frame call sites (`ParsekPlaybackPolicy.cs:867` for
+the pending queue and `:758` for initial create) and emits two verbose
+diagnostic lines per call. The previous wiring used
+`VerboseRateLimited` with the default 5s window keyed on
+`(operation, recId, source, reason)`, so a recording stuck in
+`source=None reason=state-vector-threshold` for the entire session
+still emitted ~one line per recording per 5 seconds (50 recordings ×
+324 5-second windows ≈ 16,200 emissions). `ParsekFlight.ComputePlaybackFlags`
+emitted `Spawn suppressed for #X "Y": <reason>` keyed by `idx` only
+(no reason in the key), so a recording whose suppression reason
+flipped between e.g. `"no vessel snapshot"` and `"chain-suppressed"`
+mid-session would only surface one of them per 5s window.
+
+**Fix:** added `ParsekLog.VerboseOnChange(subsystem, identity,
+stateKey, message)` — emits only when `stateKey` flips for the given
+`identity`, surfacing the suppressed count as `| suppressed=N` on the
+next change. Per-frame stable streaks coalesce into a single emission
+on entry plus one on exit, regardless of duration. Three call sites
+now route through the helper:
+
+- `GhostMapPresence.ResolveMapPresenceGhostSource.ReturnDecision`
+  (`GhostMapPresence.cs:2357`) — identity `map-ghost-source-<op>-<recId>`,
+  state key `(source, reason)`.
+- `GhostMapPresence.EmitSourceResolveLine` (`GhostMapPresence.cs:2301`)
+  — identity `gm-source-resolve-<op>-<recId>`, state key
+  `(source, reason)`.
+- `ParsekFlight.ComputePlaybackFlags` (`ParsekFlight.cs:12070`) —
+  identity `spawn-suppressed|<rec.RecordingId>` (with `idx-<i>`
+  fallback when RecordingId is null/empty), state key is the
+  suppression reason itself. The 2026-04-25_2147 logs show index 294
+  reused across recordings as discards reshuffle the committed list,
+  so keying on `RecordingId` rather than the bare index keeps each
+  recording's first-emission line and suppressed counter independent.
+  The bare index still appears in the message body so audits can
+  resolve recordings post-hoc.
+
+**Tests:** `ParsekLogTests.VerboseOnChange_*` (8 cases covering first
+emission, stable suppression, key flip with suppressed counter,
+independent identities, suppressed-count reset, verbose disabled, null
+state key, empty identity fallback) plus
+`LogSpamRateLimitTests.GhostMapSourceResolve_*` and
+`LogSpamRateLimitTests.Spawner_*` for the call-site integration. The
+index-reuse-across-recordings case is pinned by
+`LogSpamRateLimitTests.SpawnSuppression_IndexReuseAcrossRecordings_KeepsIndependentState`
+(plus `_StableReasonStillCoalescesPerRecording` and
+`_NullRecordingId_FallsBackToIndexInIdentity`).
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Reproduced from the
+`logs/2026-04-25_2147` playtest folder.
+
+---
+
 ## ~~596. Log spam: `KspStatePatcher.PatchFacilities` emits an INFO summary on every recalc even when there is nothing to patch~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 42 ×
