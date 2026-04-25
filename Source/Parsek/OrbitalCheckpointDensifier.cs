@@ -124,6 +124,13 @@ namespace Parsek
 
             for (int s = 0; s < section.checkpoints.Count; s++)
             {
+                int remainingPointBudget = MaxAddedPointsPerSection - result.AddedPoints;
+                if (remainingPointBudget <= 0)
+                {
+                    result.Capped = true;
+                    break;
+                }
+
                 OrbitSegment segment = section.checkpoints[s];
                 double startUT = Math.Max(section.startUT, segment.startUT);
                 double endUT = Math.Min(section.endUT, segment.endUT);
@@ -149,11 +156,16 @@ namespace Parsek
                     continue;
                 }
 
+                int remainingEligibleSegments = CountRemainingDensifiableSegments(section, s);
+                int segmentPointBudget = remainingEligibleSegments > 0
+                    ? Math.Max(1, remainingPointBudget / remainingEligibleSegments)
+                    : remainingPointBudget;
                 List<double> sampleUTs = BuildTrueAnomalySampleUTs(
                     segment,
                     startUT,
                     endUT,
                     gravParameter,
+                    segmentPointBudget,
                     out double anomalySpanDegrees,
                     out bool capped);
                 result.AnomalySpanDegrees += anomalySpanDegrees;
@@ -200,18 +212,42 @@ namespace Parsek
             return result;
         }
 
+        private static int CountRemainingDensifiableSegments(TrackSection section, int startIndex)
+        {
+            int count = 0;
+            if (section.checkpoints == null)
+                return 0;
+
+            for (int i = startIndex; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment segment = section.checkpoints[i];
+                double startUT = Math.Max(section.startUT, segment.startUT);
+                double endUT = Math.Min(section.endUT, segment.endUT);
+                if (endUT - startUT < MinDensifyDurationSeconds)
+                    continue;
+
+                if (segment.eccentricity < 0.0 || segment.eccentricity >= 1.0 || segment.semiMajorAxis <= 0.0)
+                    continue;
+
+                count++;
+            }
+
+            return count;
+        }
+
         private static List<double> BuildTrueAnomalySampleUTs(
             OrbitSegment segment,
             double startUT,
             double endUT,
             double gravParameter,
+            int maxSamples,
             out double anomalySpanDegrees,
             out bool capped)
         {
             capped = false;
             anomalySpanDegrees = 0.0;
             var samples = new List<double>();
-            if (endUT <= startUT || segment.semiMajorAxis <= 0.0 || gravParameter <= 0.0)
+            if (endUT <= startUT || segment.semiMajorAxis <= 0.0 || gravParameter <= 0.0 || maxSamples <= 0)
                 return samples;
 
             double meanMotion = Math.Sqrt(gravParameter / (segment.semiMajorAxis * segment.semiMajorAxis * segment.semiMajorAxis));
@@ -230,23 +266,59 @@ namespace Parsek
             anomalySpanDegrees = (endNu - startNu) * 180.0 / Math.PI;
             int firstStep = (int)Math.Floor(startNu / step) + 1;
             int lastStep = (int)Math.Floor(endNu / step);
-            int candidateCount = Math.Max(0, lastStep - firstStep + 1);
-            int stride = 1;
-            int interiorLimit = Math.Max(0, MaxAddedPointsPerSection - 2);
-            if (candidateCount > interiorLimit && interiorLimit > 0)
+            while (firstStep <= lastStep)
             {
-                stride = (int)Math.Ceiling(candidateCount / (double)interiorLimit);
+                double targetNu = firstStep * step;
+                double sampleUT = UTAtTrueAnomaly(segment, targetNu, meanMotion, epochMeanAnomaly);
+                if (sampleUT > startUT + DuplicateUtTolerance)
+                    break;
+                firstStep++;
+            }
+
+            while (lastStep >= firstStep)
+            {
+                double targetNu = lastStep * step;
+                double sampleUT = UTAtTrueAnomaly(segment, targetNu, meanMotion, epochMeanAnomaly);
+                if (sampleUT < endUT - DuplicateUtTolerance)
+                    break;
+                lastStep--;
+            }
+
+            int candidateCount = Math.Max(0, lastStep - firstStep + 1);
+            int interiorLimit = Math.Max(0, maxSamples - 2);
+            int interiorSampleCount = candidateCount;
+            if (candidateCount > interiorLimit)
+            {
                 capped = true;
+                interiorSampleCount = interiorLimit;
             }
 
             samples.Add(startUT);
-            for (int k = firstStep; k <= lastStep; k += stride)
+            if (maxSamples == 1)
+                return samples;
+
+            if (interiorSampleCount > 0)
             {
-                double targetNu = k * step;
-                double sampleUT = UTAtTrueAnomaly(segment, targetNu, meanMotion, epochMeanAnomaly);
-                if (sampleUT <= startUT + DuplicateUtTolerance || sampleUT >= endUT - DuplicateUtTolerance)
-                    continue;
-                samples.Add(sampleUT);
+                if (candidateCount <= interiorSampleCount)
+                {
+                    for (int k = firstStep; k <= lastStep; k++)
+                    {
+                        double targetNu = k * step;
+                        samples.Add(UTAtTrueAnomaly(segment, targetNu, meanMotion, epochMeanAnomaly));
+                    }
+                }
+                else
+                {
+                    for (int n = 0; n < interiorSampleCount; n++)
+                    {
+                        int sourceOffset = interiorSampleCount == 1
+                            ? candidateCount / 2
+                            : (int)Math.Round(n * (candidateCount - 1) / (double)(interiorSampleCount - 1));
+                        int sourceStep = firstStep + sourceOffset;
+                        double targetNu = sourceStep * step;
+                        samples.Add(UTAtTrueAnomaly(segment, targetNu, meanMotion, epochMeanAnomaly));
+                    }
+                }
             }
             samples.Add(endUT);
 
@@ -420,6 +492,8 @@ namespace Parsek
                     rotation = Quaternion.identity,
                     velocity = velocity,
                     bodyName = body.name,
+                    // Densified checkpoints are derived at capture finalization, so economy
+                    // fields reflect the build-time snapshot rather than a historical per-UT sample.
                     funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0,
                     science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0f,
                     reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0f

@@ -310,7 +310,7 @@ namespace Parsek
 
 
             // Orbit fields
-            public int orbitCacheKey;
+            public long orbitCacheKey;
             public double orbitUT;
 
             // Orbital rotation fields (Phase: orbital-rotation)
@@ -586,8 +586,8 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        private HashSet<int> loggedOrbitSegments = new HashSet<int>();
-        private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
+        private HashSet<long> loggedOrbitSegments = new HashSet<long>();
+        private HashSet<long> loggedOrbitRotationSegments = new HashSet<long>();
 
         // Anchor vessel tracking moved to engine (T25).
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
@@ -13204,9 +13204,9 @@ namespace Parsek
         }
 
         // Cache to avoid reconstructing Orbit objects every frame
-        private Dictionary<int, Orbit> orbitCache = new Dictionary<int, Orbit>();
+        private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
-        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, int cacheKey)
+        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
@@ -13289,7 +13289,7 @@ namespace Parsek
 
         internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(
             OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
-            Vector3d bodyPosition, Quaternion currentRotation, int cacheKey, bool hasOfr, bool spinning)
+            Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning)
         {
             Quaternion ghostRot = currentRotation; // preserve current if no update
             Quaternion boundaryWorldRot = Quaternion.identity;
@@ -13337,7 +13337,7 @@ namespace Parsek
         /// null for current-time context.
         /// </summary>
         private static Quaternion SafeOrbitalLookRotation(
-            Vector3 velocity, Vector3 radialOut, int cacheKey, string suffix)
+            Vector3 velocity, Vector3 radialOut, long cacheKey, string suffix)
         {
             if (Mathf.Abs(Vector3.Dot(velocity.normalized, radialOut.normalized)) > 0.99f)
             {
@@ -13566,7 +13566,7 @@ namespace Parsek
             if (!TryFindCheckpointOrbitSegment(section, playbackUT, out OrbitSegment segment, out int checkpointIdx))
                 return false;
 
-            int cacheKey = BuildCheckpointOrbitCacheKey(recordingIndex, sectionIdx, checkpointIdx);
+            long cacheKey = BuildCheckpointOrbitCacheKey(recordingIndex, sectionIdx, checkpointIdx);
             if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody orbitBody))
                 return false;
 
@@ -13609,7 +13609,7 @@ namespace Parsek
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
-            var (ghostRot, boundaryWorldRot) = ComputeOrbitalRotation(
+            var (ghostRot, _) = ComputeOrbitalRotation(
                 segment,
                 orbit,
                 playbackUT,
@@ -13648,8 +13648,7 @@ namespace Parsek
                 orbitBody = orbitBody,
                 orbitAngularVelocity = segment.angularVelocity,
                 isSpinning = spinning,
-                orbitSegmentStartUT = segment.startUT,
-                boundaryWorldRot = boundaryWorldRot
+                orbitSegmentStartUT = segment.startUT
             });
 
             interpResult = new InterpolationResult(
@@ -13661,7 +13660,7 @@ namespace Parsek
 
         private bool TryGetOrbitForSegment(
             OrbitSegment segment,
-            int cacheKey,
+            long cacheKey,
             out Orbit orbit,
             out CelestialBody body)
         {
@@ -13729,12 +13728,28 @@ namespace Parsek
                 out t);
         }
 
-        private static int BuildCheckpointOrbitCacheKey(
+        private const long CheckpointOrbitCacheBase = long.MinValue;
+        private const long CheckpointOrbitCacheRecordingStride = 1000000000000L;
+        private const long CheckpointOrbitCacheSectionStride = 1000000L;
+        private const long CheckpointOrbitCacheMaxRecordingIndex =
+            (long.MaxValue - CheckpointOrbitCacheRecordingStride + 1) / CheckpointOrbitCacheRecordingStride;
+
+        private static long BuildCheckpointOrbitCacheKey(
             int recordingIndex,
             int sectionIdx,
             int checkpointIdx)
         {
-            return unchecked(-1000000000 + recordingIndex * 10000 + sectionIdx * 100 + checkpointIdx);
+            // Regular orbit playback cache keys are non-negative int-derived values.
+            // Checkpoint keys live in a negative long namespace with explicit strides
+            // so section/checkpoint growth cannot alias the ordinary segment cache.
+            long rec = Math.Min(CheckpointOrbitCacheMaxRecordingIndex, Math.Max(0, (long)recordingIndex));
+            long section = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)sectionIdx));
+            long checkpoint = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)checkpointIdx));
+            return
+                CheckpointOrbitCacheBase
+                + rec * CheckpointOrbitCacheRecordingStride
+                + section * CheckpointOrbitCacheSectionStride
+                + checkpoint;
         }
 
         bool TryGetCheckpointTrackSection(

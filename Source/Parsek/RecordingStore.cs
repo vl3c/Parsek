@@ -4112,6 +4112,8 @@ namespace Parsek
             int dedupedBoundaryCopies = 0;
             for (int t = 0; t < tracks.Count; t++)
             {
+                // OrbitalCheckpoint frames are derived samples used for dense playback;
+                // they intentionally participate in the flat Points compatibility view.
                 if (tracks[t].frames == null)
                     continue;
 

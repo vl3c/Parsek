@@ -154,6 +154,54 @@ namespace Parsek.Tests
                 && line.Contains("world="));
         }
 
+        [Fact]
+        public void LongMultiSegmentCheckpoint_DensificationCapIsSpreadToSectionEnd()
+        {
+            Recording rec = BuildCappedMultiSegmentRecording();
+
+            int added = DensifySynthetic(rec);
+
+            TrackSection section = rec.TrackSections[0];
+            Assert.Equal(OrbitalCheckpointDensifier.MaxAddedPointsPerSection, added);
+            Assert.Equal(OrbitalCheckpointDensifier.MaxAddedPointsPerSection, section.frames.Count);
+            Assert.True(section.frames[section.frames.Count - 1].ut >= section.endUT - 0.001);
+            Assert.Contains(section.frames, p => p.ut > section.checkpoints[1].startUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Recorder]")
+                && line.Contains("OrbitalCheckpoint densified")
+                && line.Contains("rec=571a-capped-multi-segment")
+                && line.Contains("addedPoints=360")
+                && line.Contains("capped=True"));
+        }
+
+        [Fact]
+        public void OptimizerTrimCheckpointFrames_PreservesInterpolatedTrimEndpoint()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                BuildPointForTrim(100.0, 10.0, 20.0, 1000.0, 10.0, 1.0f, 2.0f, Quaternion.identity),
+                BuildPointForTrim(200.0, 30.0, 60.0, 3000.0, 30.0, 5.0f, 6.0f, new Quaternion(0f, 1f, 0f, 0f)),
+                BuildPointForTrim(250.0, 50.0, 90.0, 5000.0, 50.0, 9.0f, 10.0f, new Quaternion(0f, 1f, 0f, 0f))
+            };
+
+            RecordingOptimizer.TrimCheckpointFramesAtUT(frames, 150.0);
+
+            Assert.Equal(2, frames.Count);
+            Assert.Equal(100.0, frames[0].ut, precision: 3);
+            TrajectoryPoint trimmed = frames[1];
+            Assert.Equal(150.0, trimmed.ut, precision: 3);
+            Assert.Equal(20.0, trimmed.latitude, precision: 3);
+            Assert.Equal(40.0, trimmed.longitude, precision: 3);
+            Assert.Equal(2000.0, trimmed.altitude, precision: 3);
+            Assert.Equal(20.0, trimmed.funds, precision: 3);
+            Assert.Equal(3.0f, trimmed.science, precision: 3);
+            Assert.Equal(4.0f, trimmed.reputation, precision: 3);
+            Assert.Equal("Kerbin", trimmed.bodyName);
+            Assert.Equal(150f, trimmed.velocity.x, precision: 3);
+            Assert.True(trimmed.rotation.y > 0.6f, "trim endpoint should slerp rotation toward the after frame");
+            Assert.True(trimmed.rotation.w > 0.6f, "trim endpoint should keep a normalized halfway rotation");
+        }
+
         private static int DensifySynthetic(Recording rec)
         {
             return OrbitalCheckpointDensifier.DensifyRecording(
@@ -202,6 +250,85 @@ namespace Parsek.Tests
                 maxAltitude = float.NaN
             });
             return rec;
+        }
+
+        private static Recording BuildCappedMultiSegmentRecording()
+        {
+            const double sma = 1200000.0;
+            double period = 2.0 * Math.PI * Math.Sqrt((sma * sma * sma) / KerbinMu);
+            double firstStart = LongWarpStartUT;
+            double firstEnd = firstStart + period * 10.0;
+            double secondStart = firstEnd + 10.0;
+            double secondEnd = secondStart + period * 10.0;
+
+            OrbitSegment first = BuildCircularSegment(firstStart, firstEnd, sma);
+            OrbitSegment second = BuildCircularSegment(secondStart, secondEnd, sma);
+
+            var rec = new Recording
+            {
+                RecordingId = "571a-capped-multi-segment",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Synthetic capped checkpoint",
+                ExplicitStartUT = firstStart,
+                ExplicitEndUT = secondEnd
+            };
+            rec.OrbitSegments.Add(first);
+            rec.OrbitSegments.Add(second);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = firstStart,
+                endUT = secondEnd,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment> { first, second },
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
+            });
+            return rec;
+        }
+
+        private static OrbitSegment BuildCircularSegment(double startUT, double endUT, double semiMajorAxis)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 0.0,
+                eccentricity = 0.0,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                bodyName = "Kerbin"
+            };
+        }
+
+        private static TrajectoryPoint BuildPointForTrim(
+            double ut,
+            double latitude,
+            double longitude,
+            double altitude,
+            double funds,
+            float science,
+            float reputation,
+            Quaternion rotation)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude,
+                rotation = rotation,
+                velocity = new Vector3((float)ut, 1f, 2f),
+                bodyName = "Kerbin",
+                funds = funds,
+                science = science,
+                reputation = reputation
+            };
         }
 
         private static bool ResolveSyntheticBody(

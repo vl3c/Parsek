@@ -1220,6 +1220,8 @@ namespace Parsek
                     string.Format(ic, "terminal={0}", terminal.Value));
             }
 
+            // Dense OrbitalCheckpoint frames are derived from the matching OrbitSegment,
+            // but they are the higher-fidelity source for map icons during the checkpoint window.
             if (TryResolveCheckpointStateVectorMapPoint(
                 traj,
                 currentUT,
@@ -1572,9 +1574,10 @@ namespace Parsek
                 ? FormatWorldPosition(worldPos)
                 : "(unresolved)";
             return string.Format(ic,
-                "sourceKind=StateVector rec={0} body={1} sourceUT={2:F1} pointUT={2:F1} alt={3:F0} speed={4:F1} world={5}",
+                "sourceKind=StateVector rec={0} body={1} sourceUT={2:F1} pointUT={3:F1} alt={4:F0} speed={5:F1} world={6}",
                 recId,
                 point.bodyName ?? "(null)",
+                point.ut,
                 point.ut,
                 point.altitude,
                 point.velocity.magnitude,

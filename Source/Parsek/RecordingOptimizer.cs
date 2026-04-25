@@ -1619,7 +1619,7 @@ namespace Parsek
             }
         }
 
-        private static void TrimCheckpointFramesAtUT(List<TrajectoryPoint> frames, double trimUT)
+        internal static void TrimCheckpointFramesAtUT(List<TrajectoryPoint> frames, double trimUT)
         {
             if (frames == null || frames.Count == 0)
                 return;
@@ -1670,13 +1670,53 @@ namespace Parsek
                 latitude = before.latitude + (after.latitude - before.latitude) * t,
                 longitude = before.longitude + (after.longitude - before.longitude) * t,
                 altitude = before.altitude + (after.altitude - before.altitude) * t,
-                rotation = Quaternion.Slerp(before.rotation, after.rotation, tf),
+                rotation = SlerpQuaternionManaged(before.rotation, after.rotation, tf),
                 velocity = Vector3.Lerp(before.velocity, after.velocity, tf),
                 bodyName = !string.IsNullOrEmpty(after.bodyName) ? after.bodyName : before.bodyName,
                 funds = before.funds + (after.funds - before.funds) * t,
                 science = before.science + (after.science - before.science) * tf,
                 reputation = before.reputation + (after.reputation - before.reputation) * tf
             };
+        }
+
+        private static Quaternion SlerpQuaternionManaged(Quaternion from, Quaternion to, float t)
+        {
+            from = TrajectoryMath.SanitizeQuaternion(from);
+            to = TrajectoryMath.SanitizeQuaternion(to);
+            if (t <= 0f) return from;
+            if (t >= 1f) return to;
+
+            float dot = from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w;
+            if (dot < 0f)
+            {
+                to = new Quaternion(-to.x, -to.y, -to.z, -to.w);
+                dot = -dot;
+            }
+
+            if (dot > 0.9995f)
+            {
+                return TrajectoryMath.PureNormalize(new Quaternion(
+                    from.x + (to.x - from.x) * t,
+                    from.y + (to.y - from.y) * t,
+                    from.z + (to.z - from.z) * t,
+                    from.w + (to.w - from.w) * t));
+            }
+
+            double theta0 = Math.Acos(Math.Max(-1.0, Math.Min(1.0, dot)));
+            double sinTheta0 = Math.Sin(theta0);
+            if (sinTheta0 < 1e-6)
+                return from;
+
+            double theta = theta0 * t;
+            double sinTheta = Math.Sin(theta);
+            double s0 = Math.Cos(theta) - dot * sinTheta / sinTheta0;
+            double s1 = sinTheta / sinTheta0;
+
+            return TrajectoryMath.PureNormalize(new Quaternion(
+                (float)(from.x * s0 + to.x * s1),
+                (float)(from.y * s0 + to.y * s1),
+                (float)(from.z * s0 + to.z * s1),
+                (float)(from.w * s0 + to.w * s1)));
         }
 
         #endregion
