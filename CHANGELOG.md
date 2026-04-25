@@ -294,6 +294,7 @@ All notable changes to Parsek are documented here.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 ### Documentation
 
+- Added refactor-4 planning docs covering the zero-logic-change workflow, hotspot inventory, Pass 1 extraction results, and Pass 2 architectural deferrals for visual/UI/math/optimizer/serialization/playback/rewind candidates.
 - Added `docs/parsek-recording-finalization-design.md` and `docs/dev/done/plans/recording-finalization-reliability.md`. Specifies the terminal-state/synthetic-tail reliability contract for scene exit, crash, vessel unload/delete, and background recording end paths that Rewind-to-Staging depends on.
 - Added the Tracking Station audit action plan (`#551`-`#556`) covering Map View lifecycle parity, a TS control surface, safe ghost actions, TS runtime coverage, orbit-source diagnostics, and the broad `buildVesselsList` finalizer.
 - `#558` Updated the game-actions design document to define top-bar funds/science as current-UT cashflow-projected spendable resources and to clarify that rewound R&D state locks future tech nodes while keeping their future costs in the projection.
