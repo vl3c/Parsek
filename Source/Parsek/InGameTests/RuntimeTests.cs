@@ -4515,7 +4515,7 @@ namespace Parsek.InGameTests
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
-                if (rec == null || rec.RecordingFormatVersion < 2 || string.IsNullOrEmpty(rec.RecordingId))
+                if (rec == null || rec.RecordingFormatVersion < 3 || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
 
                 // Recordings with no trajectory points have no .prec sidecar on disk — structural
@@ -4536,8 +4536,10 @@ namespace Parsek.InGameTests
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
-                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
-                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+                InGameAssert.IsTrue(
+                    IsCompatibleCurrentBinarySidecarVersion(rec.RecordingFormatVersion, probe.FormatVersion),
+                    $"Current-format recording '{rec.RecordingId}' metadata version {rec.RecordingFormatVersion} " +
+                    $"should have a compatible BinaryV3 header version, got {probe.FormatVersion}");
                 checkedCount++;
             }
 
@@ -4551,6 +4553,21 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"Binary sidecar check: verified {checkedCount} current-format recording(s), {skippedRoots} tree root(s) skipped");
+        }
+
+        private static bool IsCompatibleCurrentBinarySidecarVersion(
+            int recordingFormatVersion,
+            int sidecarFormatVersion)
+        {
+            if (recordingFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
+            {
+                // v4 is a metadata-only loop-interval semantic bump; legacy v3 sidecar bytes
+                // remain compatible and are intentionally not demoted on load (#411).
+                return sidecarFormatVersion == 3
+                    || sidecarFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
+            }
+
+            return sidecarFormatVersion == recordingFormatVersion;
         }
     }
 
