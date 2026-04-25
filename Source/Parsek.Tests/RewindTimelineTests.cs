@@ -993,12 +993,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Idempotency: an already-suppressed source recording is retained
-        /// without incrementing the newly-marked count, and missing legacy
-        /// metadata is refreshed to the scoped same-recording reason.
+        /// Idempotency: an already-suppressed source recording is retained in
+        /// the protected-source count, and missing legacy metadata is refreshed
+        /// to the scoped same-recording reason.
         /// </summary>
         [Fact]
-        public void MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_NoOp()
+        public void MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_ReturnsRetainedSource()
         {
             const uint kSourcePid = 7777u;
             var rec = new Recording
@@ -1017,9 +1017,9 @@ namespace Parsek.Tests
 
             try
             {
-                int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+                int protectedCount = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(recordings);
 
-                Assert.Equal(0, marked);
+                Assert.Equal(1, protectedCount);
                 Assert.True(rec.SpawnSuppressedByRewind);
                 Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
                     rec.SpawnSuppressedByRewindReason);

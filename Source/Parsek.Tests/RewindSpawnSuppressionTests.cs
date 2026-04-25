@@ -235,6 +235,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingTree_LoadStraySuppressionMetadataWithoutBool_IgnoresReasonAndUT()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("id", "stray-metadata");
+            node.AddValue("spawnSuppressedByRewindReason",
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording);
+            node.AddValue("spawnSuppressedByRewindUT", "12.5");
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.False(loaded.SpawnSuppressedByRewind);
+            Assert.Null(loaded.SpawnSuppressedByRewindReason);
+            Assert.True(double.IsNaN(loaded.SpawnSuppressedByRewindUT));
+        }
+
+        [Fact]
         public void RecordingTree_LoadLegacyWholeTreeMarkers_PreservesProbableSourceAndAllowsFuture()
         {
             var source = MakeRecording(
@@ -332,6 +349,8 @@ namespace Parsek.Tests
             {
                 Id = "legacy-tree-active-case",
                 TreeName = "Legacy Tree Active Case",
+                // ActiveRecordingId can persist as a future terminal leaf on committed
+                // legacy trees, so normalization must prefer the root when both exist.
                 RootRecordingId = source.RecordingId,
                 ActiveRecordingId = activeFutureLeaf.RecordingId,
             };
@@ -368,6 +387,63 @@ namespace Parsek.Tests
                 treeContext: reloadedTree);
             Assert.True(futureResult.needsSpawn);
             Assert.False(reloadedFuture.SpawnSuppressedByRewind);
+        }
+
+        [Fact]
+        public void ShouldApplyRewindSpawnSuppression_BoundaryOverlapUsesEpsilonOnly()
+        {
+            const uint sourcePid = 888u;
+            const string treeId = "boundary-tree";
+            const double rewindUT = 100.0;
+
+            var endsExactlyAtRewind = MakeRecording(
+                "ends-exactly",
+                "Boundary Exact",
+                sourcePid,
+                treeId,
+                startUT: 0.0,
+                endUT: rewindUT);
+            var endsWithinBoundaryEpsilon = MakeRecording(
+                "ends-within-epsilon",
+                "Boundary Within",
+                sourcePid,
+                treeId,
+                startUT: 0.0,
+                endUT: rewindUT - 0.0005);
+            var endedBeforeBoundary = MakeRecording(
+                "ended-before",
+                "Boundary Before",
+                sourcePid,
+                treeId,
+                startUT: 0.0,
+                endUT: rewindUT - 0.01);
+
+            Assert.True(ParsekScenario.ShouldApplyRewindSpawnSuppression(
+                endsExactlyAtRewind,
+                rewindRecordingId: "different-source",
+                rewindSourcePid: sourcePid,
+                rewoundTreeId: treeId,
+                rewindUT: rewindUT,
+                out string exactReason));
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording, exactReason);
+
+            Assert.True(ParsekScenario.ShouldApplyRewindSpawnSuppression(
+                endsWithinBoundaryEpsilon,
+                rewindRecordingId: "different-source",
+                rewindSourcePid: sourcePid,
+                rewoundTreeId: treeId,
+                rewindUT: rewindUT,
+                out string withinReason));
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording, withinReason);
+
+            Assert.False(ParsekScenario.ShouldApplyRewindSpawnSuppression(
+                endedBeforeBoundary,
+                rewindRecordingId: "different-source",
+                rewindSourcePid: sourcePid,
+                rewoundTreeId: treeId,
+                rewindUT: rewindUT,
+                out string beforeReason));
+            Assert.Null(beforeReason);
         }
 
         private static Recording MakeRecording(

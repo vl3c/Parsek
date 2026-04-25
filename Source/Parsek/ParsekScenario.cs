@@ -1919,11 +1919,10 @@ namespace Parsek
             // from flightState. Same-tree future recordings remain spawn-eligible so
             // their normal terminal materialization can happen after playback reaches
             // their EndUT (#589), while #573 still blocks the source duplicate.
-            int suppressedCount = MarkRewoundTreeRecordingsAsGhostOnly(recordings);
-            if (suppressedCount > 0)
-                ParsekLog.Info("Rewind",
-                    $"OnLoad: SpawnSuppressedByRewind=true on {suppressedCount} active/source recording(s) — " +
-                    $"same-tree future recordings remain spawn-eligible (#573/#589)");
+            int protectedCount = MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+            ParsekLog.Info("Rewind",
+                $"OnLoad: SpawnSuppressedByRewind scope evaluated — " +
+                $"protectedActiveSource={protectedCount}; same-tree future recordings remain spawn-eligible (#573/#589)");
 
             // Strip ALL vessels matching recording names from flightState.
             // The rewind save was preprocessed to strip the recorded vessel,
@@ -3660,7 +3659,7 @@ namespace Parsek
                 $"cleared={cleared} futureAllowed={futureAllowed} skipped={skipped} " +
                 $"rewindRec={rewindRecId ?? "<null>"} tree={rewoundTreeId ?? "<none>"} " +
                 $"rewindUT={FormatRewindUT(rewindUT)}");
-            return marked;
+            return marked + retained;
         }
 
         internal static bool ShouldApplyRewindSpawnSuppression(
