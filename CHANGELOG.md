@@ -45,6 +45,8 @@ All notable changes to Parsek are documented here.
 
 - `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
 
+- `#525` Destroyed loop-cycle boundaries now emit exactly one `OnLoopCameraAction` event (the `ExplosionHoldStart`) instead of also emitting a redundant `RetargetToNewGhost` from the ghost-reuse step. The watch handler already ignored the second event while in explosion-hold state, so camera behaviour is unchanged; the contract clean-up unblocks the in-game terrain-clearance regression that pins the explosion anchor to the same terrain-clamped position the camera holds at.
+
 - In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` now passes again: the stable-terminal re-snapshot Info log line emitted by `FinalizeIndividualRecording` carries the `[#289]` tag the test scans for.
 
 - In-game test `CrewReservationTests.ReplacementsAreValid` no longer NREs in MAINMENU when no save is loaded; it now skips cleanly when `HighLogic.CurrentGame` is null, mirroring the sibling `ReservedCrewNotAssigned` guard.
