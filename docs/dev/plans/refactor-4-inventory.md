@@ -45,7 +45,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
-| `Source/Parsek/RecordingStore.cs` | 5,998 | Pass2-Done for `SidecarFileCommitBatch` and save/load-path `RecordingSidecarStore`; codec work deferred |
+| `Source/Parsek/RecordingStore.cs` | 6,002 | Pass2-Done for `SidecarFileCommitBatch` and save/load-path `RecordingSidecarStore`; codec work deferred |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
@@ -71,7 +71,7 @@ These deltas compare files that also existed in
 |------|------------------|---------------|-------|
 | `LedgerOrchestrator.cs` | 900 | 6,976 | +6,076 |
 | `ParsekFlight.cs` | 8,765 | 14,503 | +5,738 |
-| `RecordingStore.cs` | 2,958 | 5,998 | +3,040 |
+| `RecordingStore.cs` | 2,958 | 6,002 | +3,044 |
 | `GhostPlaybackLogic.cs` | 2,589 | 5,343 | +2,754 |
 | `VesselSpawner.cs` | 1,473 | 4,166 | +2,693 |
 | `GhostPlaybackEngine.cs` | 1,770 | 4,312 | +2,542 |
