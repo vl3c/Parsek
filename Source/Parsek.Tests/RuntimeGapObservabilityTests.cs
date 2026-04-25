@@ -90,6 +90,14 @@ namespace Parsek.Tests
                 baselineCaptured: true,
                 waitingForSettle: false,
                 ParsekFlight.PostSwitchAutoRecordTrigger.None);
+            string manifestStateKey = ParsekFlight.BuildPostSwitchManifestDeltaStateKey(
+                crewDeltaKeys: 1,
+                resourceDeltaKeys: 2,
+                inventoryDeltaKeys: 3,
+                partStateTokenDelta: 4,
+                crewChanged: true,
+                resourceChanged: true,
+                partStateChanged: true);
             string decision = ParsekFlight.FormatPostSwitchAutoRecordDecisionSummary(
                 armedPid: 42,
                 activePid: 42,
@@ -111,6 +119,10 @@ namespace Parsek.Tests
                 nextEvaluationUt: 22.0);
 
             Assert.Contains("suppression=WarpActive", stateKey);
+            Assert.Contains("crew=1", manifestStateKey);
+            Assert.Contains("resource=2", manifestStateKey);
+            Assert.Contains("inventory=3", manifestStateKey);
+            Assert.DoesNotContain("nextEval", manifestStateKey);
             Assert.Contains("pid=42", decision);
             Assert.Contains("suppression=WarpActive", decision);
             Assert.Contains("trigger=None", decision);
@@ -198,7 +210,9 @@ namespace Parsek.Tests
                 drawIcons: OrbitRendererBase.DrawIcons.NONE,
                 iconSuppressed: true,
                 reason: "below-atmosphere",
-                hasBounds: true);
+                hasBounds: true,
+                startUT: 10.0,
+                endUT: 90.0);
             string line = GhostOrbitLinePatch.FormatGhostOrbitLineDecision(
                 vesselPid: 123,
                 reason: "below-atmosphere",
@@ -212,6 +226,7 @@ namespace Parsek.Tests
                 endUT: 90.0);
 
             Assert.Contains("reason=below-atmosphere", stateKey);
+            Assert.Contains("bounds=10.0-90.0", stateKey);
             Assert.Contains("pid=123", line);
             Assert.Contains("lineActive=False", line);
             Assert.Contains("iconSuppressed=True", line);

@@ -1242,9 +1242,17 @@ namespace Parsek
             if (tree == null || tree.BackgroundMap == null)
                 return;
 
-            if (lastBackgroundStateDriftCheckUT != double.MinValue
-                && currentUT - lastBackgroundStateDriftCheckUT < BackgroundStateDriftCheckInterval)
-                return;
+            if (lastBackgroundStateDriftCheckUT != double.MinValue)
+            {
+                if (currentUT < lastBackgroundStateDriftCheckUT)
+                {
+                    lastBackgroundStateDriftCheckUT = double.MinValue;
+                }
+                else if (currentUT - lastBackgroundStateDriftCheckUT < BackgroundStateDriftCheckInterval)
+                {
+                    return;
+                }
+            }
             lastBackgroundStateDriftCheckUT = currentUT;
 
             var summary = BuildBackgroundStateDriftSummary();

@@ -5088,6 +5088,26 @@ namespace Parsek
                 trigger);
         }
 
+        internal static string BuildPostSwitchManifestDeltaStateKey(
+            int crewDeltaKeys,
+            int resourceDeltaKeys,
+            int inventoryDeltaKeys,
+            int partStateTokenDelta,
+            bool crewChanged,
+            bool resourceChanged,
+            bool partStateChanged)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "crew={0}|resource={1}|inventory={2}|partState={3}|crewChanged={4}|resourceChanged={5}|partStateChanged={6}",
+                crewDeltaKeys,
+                resourceDeltaKeys,
+                inventoryDeltaKeys,
+                partStateTokenDelta,
+                crewChanged ? 1 : 0,
+                resourceChanged ? 1 : 0,
+                partStateChanged ? 1 : 0);
+        }
+
         internal static string FormatPostSwitchAutoRecordDecisionSummary(
             uint armedPid,
             uint activePid,
@@ -5920,8 +5940,16 @@ namespace Parsek
                 partStateChanged = partStateTokenDelta > 0 || inventoryDeltaKeys > 0;
                 state.NextManifestEvaluationUt =
                     currentUT + PostSwitchManifestEvaluationIntervalSeconds;
-                ParsekLog.VerboseRateLimited("Flight",
+                ParsekLog.VerboseOnChange("Flight",
                     "post-switch-manifest-delta-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                    BuildPostSwitchManifestDeltaStateKey(
+                        crewDeltaKeys,
+                        resourceDeltaKeys,
+                        inventoryDeltaKeys,
+                        partStateTokenDelta,
+                        crewChanged,
+                        resourceChanged,
+                        partStateChanged),
                     FormatPostSwitchManifestDeltaSummary(
                         state.VesselPid,
                         crewDeltaKeys,
@@ -5931,8 +5959,7 @@ namespace Parsek
                         crewChanged,
                         resourceChanged,
                         partStateChanged,
-                        state.NextManifestEvaluationUt),
-                    PostSwitchManifestEvaluationIntervalSeconds);
+                        state.NextManifestEvaluationUt));
             }
         }
 

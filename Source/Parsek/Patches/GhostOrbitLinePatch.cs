@@ -129,15 +129,20 @@ namespace Parsek.Patches
             OrbitRendererBase.DrawIcons drawIcons,
             bool iconSuppressed,
             string reason,
-            bool hasBounds)
+            bool hasBounds,
+            double startUT,
+            double endUT)
         {
+            string boundsKey = hasBounds
+                ? string.Format(CultureInfo.InvariantCulture, "{0:F1}-{1:F1}", startUT, endUT)
+                : "none";
             return string.Format(CultureInfo.InvariantCulture,
                 "active={0}|icons={1}|suppressed={2}|reason={3}|bounds={4}",
                 lineActive ? 1 : 0,
                 drawIcons,
                 iconSuppressed ? 1 : 0,
                 string.IsNullOrEmpty(reason) ? "unspecified" : reason,
-                hasBounds ? 1 : 0);
+                boundsKey);
         }
 
         internal static string FormatGhostOrbitLineDecision(
@@ -186,7 +191,9 @@ namespace Parsek.Patches
                     drawIcons,
                     iconSuppressed,
                     reason,
-                    hasBounds),
+                    hasBounds,
+                    startUT,
+                    endUT),
                 FormatGhostOrbitLineDecision(
                     vesselPid,
                     reason,
