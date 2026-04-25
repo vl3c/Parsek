@@ -169,8 +169,10 @@ candidates include same-file phase helpers in
 private same-file coverage accumulation and logging helpers.
 `GhostPlaybackLogic.ApplyPartEvents` has also been completed for destructive
 part events, parachute cleanup, and inventory visibility updates. Central files
-such as `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates,
-but each needs its own focused validation and review before editing.
+such as `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates;
+the post-switch trigger extraction has now been completed with focused
+validation. Remaining central candidates still need their own focused validation
+and review before editing.
 
 ### Tier 1 - Sequential
 

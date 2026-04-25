@@ -41,7 +41,7 @@ locked KSP process/log condition above; the build itself succeeds.
 
 | File | Lines | Initial status |
 |------|-------|----------------|
-| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass0-Done; same-file candidates in post-switch auto-recording and finalization |
+| `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Partial; post-switch auto-record trigger helpers extracted, finalization remains |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass0-Done; same-file candidates exist, cross-file split deferred |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
@@ -339,6 +339,20 @@ activity, and manifest-diff checks. The strongest Pass 1 same-file candidate is
 `EvaluatePostSwitchAutoRecordTrigger`, which has clear ordered phases for cache
 refresh, engine/RCS transition scans, attitude debounce, manifest diff, landed
 and orbit guards, and final trigger selection.
+
+Pass 1 completed:
+
+- Extracted `EvaluatePostSwitchAutoRecordTrigger` phases into same-file helpers
+  for cache refresh, engine activity, RCS activity, attitude debounce, manifest
+  diff, landed motion, and orbit change checks. Trigger priority still flows
+  through the existing pure `EvaluatePostSwitchAutoRecordTrigger(...)`
+  overload.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~PostSwitchAutoRecordTests|FullyQualifiedName~AutoRecordDecisionTests|FullyQualifiedName~VesselSwitchTreeTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 `CapturePostSwitchPartStateTokens` is long but repetitive. It can be revisited
 after the auto-record trigger extraction, but extracting every module case may
