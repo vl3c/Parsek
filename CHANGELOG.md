@@ -48,7 +48,13 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#582` Format-v6 RELATIVE TrackSection position contract is now documented in `AGENTS.md` and `.claude/CLAUDE.md`, and pinned by regression tests so flat `Recording.Points` readers cannot silently misinterpret anchor-local metres as body-fixed lat/lon/alt.
+
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
+
+- `#584` Map-view state-vector ghosts now honour the originating track section's reference frame, so a ghost that traverses a Relative-frame docking/rendezvous segment stays attached to its anchor vessel instead of snapping to the body surface at a meaningless lat/lon. Ghost-map create / position / update / destroy paths now emit a single structured `[GhostMap]` decision line (action, source, branch, body, world position, anchor, segment / terminal-orbit / state-vector data, scene) so a future "ghost icon went weird in map mode" report can be reconstructed from the KSP.log alone.
+
+- `#584` Flight-scene state-vector update path no longer thresholds a Relative-frame point's anchor-local dz as if it were geographic altitude, so a ghost in a docking/rendezvous Relative section is no longer wrongly removed and re-deferred (review follow-up). Source-resolve decision lines now carry the real recording index (`-1` sentinel when unknown) instead of misleadingly logging every entry as `idx=0`.
 
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.
 
@@ -199,6 +205,9 @@ All notable changes to Parsek are documented here.
 - Kerbals window Mission Outcomes fold headers now bold only the main kerbal name next to the fold arrow, leaving the arrow and folded mission summary in normal weight.
 
 ### Bug Fixes
+
+- `#574` Already-Destroyed recordings no longer re-run the sub-surface ballistic finalizer on cache refresh. The first Destroyed classification now logs once with body, altitude, and threshold; later refreshes emit a rate-limited skip diagnostic plus refresh summary instead of a repeated WARN storm.
+- `#577` Re-Fly session markers loaded from an earlier game session now survive fresh-load scenes where KSP reports UT 0 during validation. The validator still rejects corrupt `InvokedUT` values and now logs current-UT/RP-UT comparisons for both accepts and rejects.
 
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
 - Follow-up cleanup to `#431/#432`: retired `MilestoneStore.CurrentEpoch` from production branch filtering. Timeline rows, milestone bundling, reward enrichment, revert bookkeeping, and load-time ledger recovery now exclude abandoned branches through recording-tag visibility plus deterministic discard/unstash behavior instead of epoch stamping/filtering.

@@ -217,7 +217,7 @@ The `RewindContext.IsRewinding` short-circuit in `RunSpawnDeathChecks` from `c9d
 
 ---
 
-## 574. Extrapolator: 146 sub-surface state rejections classified as Destroyed for the same recordings
+## ~~574. Extrapolator: 146 sub-surface state rejections classified as Destroyed for the same recordings~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 146 occurrences each of:
@@ -242,9 +242,25 @@ an hour-long session suggests the same recording is being finalized repeatedly
 - Cross-reference with bug #571 (weird map trajectories) — sub-surface
   reclassification feeds the orbit data that drives the map vessel preview.
 
-**Status:** Open. Already on `bug/extrapolator-destroyed-on-subsurface`
-([PR #514](https://github.com/vl3c/Parsek/pull/514) review thread); this entry
-captures the symptom for cross-reference.
+**Diagnosis (2026-04-25):** the normal finalisation-cache producer path was
+recording-state harmless after the first Destroyed terminal because the cache
+appliers reject already-finalized recordings, but it still rebuilt a failed
+finalization cache and re-emitted the NullSolver/sub-surface logs every 5s.
+The lower-level `IncompleteBallisticSceneExitFinalizer.TryApply` path was not
+strictly idempotent if invoked directly: a second call could re-run the
+delegate and overwrite terminal UT/orbit fields. No downstream ERS,
+GhostMapPresence, timeline, or Re-Fly merge path needed the repeated
+classification once `TerminalState=Destroyed` was already known.
+
+**Fix:** already-Destroyed recordings now short-circuit before the live-orbit
+fallback/default ballistic finalizer. The live-orbit origin-adjacent
+`NullSolver` fallback remains a trusted first-time Destroyed signal; the first
+sub-surface transition logs the recording id, terminalUT, body, altitude, and
+threshold once, while later cache refreshes emit a per-recording
+`VerboseRateLimited` skip diagnostic and an INFO refresh summary with
+`recordingsExamined`, `alreadyClassified`, and `newlyClassified`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.8.3.
 
 ---
 
@@ -336,7 +352,7 @@ for an expected-on-startup or transient-during-soi-transition condition.
 
 ---
 
-## 577. ReFlySession marker invalidated on the `InvokedUT` field on a fresh load
+## ~~577. ReFlySession marker invalidated on the `InvokedUT` field on a fresh load~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` line 8889:
 
@@ -365,8 +381,25 @@ fresh start. The cause may be a stale-marker survival problem, a too-strict
 - `Source/Parsek/ReFlySessionMarker.cs` — when `InvokedUT` is allowed to be
   null/zero and when it must be non-zero.
 
-**Status:** Open. Single occurrence in this log; reproducer needs the prior
-session that authored the on-disk marker.
+**Diagnosis (2026-04-25):** `InvokedUT` is Planetarium game UT; `InvokedRealTime`
+is the wall-clock UTC timestamp. The marker was rejected because the pre-fix
+validator compared `marker.InvokedUT > CurrentUt()`: the cited fresh
+SPACECENTER load reported current UT 0 in the scenario summary, so the valid
+prior-session `invokedUT=578.13180328350882` looked like a future value even
+though the referenced RP was from the same UT neighborhood.
+
+**Fix:** `InvokedUT` validation now rejects only corrupt values (NaN/Infinity,
+negative, or above the `1E+15` sanity ceiling); current UT is diagnostic-only
+and accept logs call out `legacyFutureUtCheck=triggered` when the old rule
+would have wiped the marker. Load-time marker accept/reject logs include the
+six durable fields plus the specific validation details, including `currentUT`,
+`rpUT`, and deltas for `InvokedUT`. Regressions:
+`MarkerValid_PriorSessionInvokedUtAfterFreshLoadUt_PreservedAndLogged`,
+`MarkerInvalid_InvokedUtNaN_ClearedWithDiagnostic`,
+`MarkerInvalid_InvokedUtNegative_ClearedWithDiagnostic`, and
+`MarkerInvalid_InvokedUtExtremeFuture_ClearedWithDiagnostic`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.8.3.
 
 ---
 
@@ -494,6 +527,295 @@ breakdown.
   one-shot line.
 
 **Status:** Open. Low priority unless reproducible at higher frequency.
+
+---
+
+## ~~582. RELATIVE-frame trajectory points carry anchor-local metres in lat/lon/alt fields — recorder data is correct, contract was under-documented~~
+
+**Source:** in-game observation by user during the
+`logs/2026-04-25_1314_marker-validator-fix` playtest. *"the ghost icon started
+going inside the planet while following the trajectory points (icon only ghost,
+not proto-vessel ghost with trajectory line); please check the recordings
+trajectory points, something might be wrong there."*
+
+The user pointed at the recorded data because the first `TRACK_SECTION` of
+`Recordings/b85acd51ea7f4005bb5d879207749e8c.prec.txt` (ref=Relative,
+UT=1658.96-1668.14, anchorPid=95506284) stores values that look obviously
+wrong if read as body-fixed lat/lon/alt:
+
+```
+POINT { ut=1658.96 lat=-270.69 lon=-149.22 alt=-0.089 ... }
+POINT { ut=1668.14 lat=-376.49 lon=-186.21 alt=-0.114 ... }
+```
+
+`lat=-270.69` is outside the legitimate `[-90, 90]` range; `alt=-0.089`
+is sub-surface; vessel velocity (~2920 m/s world-frame) implies ~26 km of
+displacement over the 9.18 s section, but the field deltas are metre-scale.
+
+**Diagnosis (2026-04-25):** the recorder data is correct under the documented
+format-v6 RELATIVE-frame contract. The fields are NOT body-fixed lat/lon/alt
+in v6 RELATIVE sections — they store the anchor-local Cartesian offset in
+metres, computed as `Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos)`.
+
+**Evidence chain:**
+
+- `FlightRecorder.cs:5502-5543` (`ApplyRelativeOffset`) overrides the
+  `BuildTrajectoryPoint`-seeded body-fixed lat/lon/alt with anchor-local
+  Cartesian dx/dy/dz when `isRelativeMode == true` and the recording's
+  format version reports `UsesRelativeLocalFrameContract`. The dx/dy/dz
+  are written into `point.latitude`, `point.longitude`, `point.altitude`
+  (lines 5533-5535), with a verbose log
+  `RELATIVE sample: contract=anchor-local version=6 dx=… dy=… dz=… anchorPid=… |offset|=…m`.
+- `TrajectoryMath.ComputeRelativeLocalOffset` (recorder side) and
+  `TrajectoryMath.ApplyRelativeLocalOffset` /
+  `TrajectoryMath.ResolveRelativePlaybackPosition` (playback side) use the
+  symmetric pair: rotate the world-frame separation into the anchor's local
+  frame for storage; rotate it back for replay.
+- The captured KSP.log shows the recorder logging consistent metres-scale
+  offsets through the relative section, e.g.
+  `RELATIVE sample: contract=anchor-local version=6 dx=-111.11 dy=-43.38 dz=-0.27 anchorPid=95506284 |offset|=119.28m`
+  (line 11083). The recorded vessel (focus pid=2708531065) and anchor
+  (pid=95506284) both came from a controllable split at UT=1627.16
+  (line 10866 — `CreateBreakupChildRecording: pid=95506284`), so they
+  co-orbit at nearly identical world velocity; the anchor-local offset
+  stays small (a few hundred metres) even while world-frame velocity is
+  ~2920 m/s. That matches the file values.
+- The dual-write at `FlightRecorder.cs:5584` + `:5596` puts the same
+  modified point into both the flat `Recording.Points` list and the
+  current `TrackSection.frames`. The flat list is therefore frame-blind:
+  any caller iterating `Recording.Points` MUST also resolve the
+  enclosing `TrackSection.referenceFrame` for that UT before interpreting
+  `point.latitude/longitude/altitude` — calling
+  `body.GetWorldSurfacePosition(point.lat, point.lon, point.alt)` on a
+  RELATIVE-frame flat point places the icon deep underground because
+  metre-scale dx/dy/dz are interpreted as degrees-of-latitude plus
+  metres-of-altitude.
+- Playback resolution is consistent: `ParsekFlight.TryResolvePlaybackWorldPosition`
+  (line 13432) checks the section's reference frame at line 13446 and
+  dispatches to `TryResolveRelativeWorldPosition` /
+  `TryResolveRelativeOffsetWorldPosition` (line 13604-13685), which
+  correctly call `ResolveRelativePlaybackPosition` with the anchor's
+  current world position and rotation. The flat-point bypass paths in
+  `GhostMapPresence.cs` (lines 1979 and 2047) protect themselves with
+  `IsInRelativeFrame` guards at lines 1495 and 1733 before calling
+  `body.GetWorldSurfacePosition`. The state-vector frame-blindness fix
+  the sibling agent in `Parsek-fix-ghostmap-relative-frame` is shipping
+  hardens additional flat-point read sites that were missed.
+
+**Outcome (A) — not a recorder bug, contract documentation gap.** The
+icon-going-inside-planet symptom belongs to a downstream playback path,
+not to the recorded data. The recorded values match the format-v6 contract
+exactly; any path that misreads them is a frame-blindness bug at the
+read site.
+
+**Fix:** documentation + regression tests pinning the v6 RELATIVE position
+contract.
+
+- `.claude/CLAUDE.md` "Rotation / world frame" section now covers the
+  POSITION contract alongside the existing rotation note: anchor-local
+  Cartesian metres in `latitude`/`longitude`/`altitude`, with explicit
+  warning that any flat-`Recording.Points` reader must dispatch on
+  `TrackSection.referenceFrame` before calling
+  `body.GetWorldSurfacePosition`.
+- `Source/Parsek.Tests/RelativeRecordingTests.cs` regressions:
+  - `RecorderContract_V6RelativeStoresAnchorLocalOffset_ReplaysToFocusWorldPos`
+    pins the round-trip recorder→storage→playback path.
+  - `RecorderContract_V6RelativeOffsetIndependentOfAnchorWorldVelocity`
+    pins the "anchor world position must not leak into the stored offset"
+    property — a moving anchor at orbital velocity must produce the same
+    stored value for the same anchor->focus relative displacement.
+  - `RecorderContract_V6RelativeFieldsAreNotBodyFixedLatLonAlt` is a
+    tripwire that pins values commonly fall outside `[-90, 90]` for
+    legitimate RELATIVE-mode separations, so any future code that treats
+    a flat-point's `latitude` as degrees will fail loudly.
+
+**Status:** CLOSED 2026-04-25 (data correct; contract now documented; the
+playback-side icon-underground symptom is a separate frame-blindness bug
+being addressed by the sibling
+`fix/ghostmap-state-vector-relative-frame` branch).
+
+---
+
+## 583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section
+
+**Source:** PR #547 review follow-up — out-of-scope note attached to the
+P1 fix that landed in commit `57aec636` on
+`fix/ghostmap-state-vector-relative-frame` (now merged into main as
+`8eaebfbb`). Distinct from PR #547's P1 review item ("flight-scene update
+path thresholds dz as altitude") which covered the *"ghost already
+exists, then enters Relative section"* case.
+
+**Concern:** the create / pending-create resolver path still treats a
+Relative-frame current UT as "no map-visible source" and returns
+`TrackingStationGhostSource.None`. After the PR #547 P1 follow-up, an
+existing map ghost survives a Relative section and stays attached to its
+anchor through `UpdateGhostOrbitFromStateVectors`'s Relative branch. But
+the symmetric "no ghost exists yet, and the first map-visible source is
+inside a Relative section" case still produces missing map presence —
+the resolver never picks `StateVector` for a Relative-frame point, so
+`CreateGhostVesselFromStateVectors` (which already has a working
+Relative branch since PR #547) never gets called for that path.
+
+This is a missing-ghost defect, not a wrong-position one — the #584 fix
+(merged via PR #547) already prevents the icon-deep-inside-planet
+outcome for ghosts that get created. Likeliest player-visible scenario:
+a docking / rendezvous recording whose first map-visible UT is inside
+the docking-relative section never gets a map vessel until the
+trajectory crosses out of the Relative section (e.g., undock + re-enter
+Absolute or OrbitalCheckpoint frame).
+
+**Files to investigate:**
+
+- `Source/Parsek/GhostMapPresence.cs` — `ResolveMapPresenceGhostSource`
+  (line 1619). Specifically the `if (!traj.HasOrbitSegments)` branch
+  around line 1741 that gates state-vector resolution: a Relative-frame
+  current UT short-circuits there because the trajectory may have
+  OrbitalCheckpoint segments elsewhere. Decide whether to: (a) extend
+  the state-vector branch to fire when the current UT is in a Relative
+  section regardless of `HasOrbitSegments`, gated on anchor-resolvability;
+  or (b) introduce a new `TrackingStationGhostSource.Relative` source
+  kind that flows through to `CreateGhostVesselFromStateVectors`'s
+  existing Relative branch.
+- `Source/Parsek/ParsekPlaybackPolicy.cs:795-870` — `CheckPendingMapVessels`
+  pending-create flow. Whatever the resolver returns must dispatch
+  cleanly through `CreateGhostVesselFromSource`.
+- `Source/Parsek/GhostMapPresence.cs:2861` —
+  `CreateGhostVesselFromStateVectors`. Already dispatches on
+  `referenceFrame` (#584). Verify it handles the "anchor unresolvable
+  at create-time" case sensibly (defer? skip with VERBOSE? warn?).
+
+**Design questions to answer in the implementing PR:**
+
+- When the anchor vessel for a Relative-frame point is not resolvable
+  at create-time (e.g., anchor not yet in `FlightGlobals.Vessels`), what
+  should happen? Re-defer until the next tick? Skip silently? Skip with
+  WARN? Fall back to terminal-orbit if available?
+- If the recording is mid-section and the anchor disappears mid-flight
+  (vessel destroyed), should the existing ghost stay parked at last
+  known position, or be removed? Today
+  `UpdateGhostOrbitFromStateVectors`'s Relative branch presumably
+  already handles this — the create-side decision needs to match.
+
+**Coordination note:** PR #547 (which closed #584) is already merged
+into `main`. The two `CHANGELOG.md` lines under v0.9.0 Bug Fixes that
+prefix `#584` describe the existing-ghost path: *"a ghost that
+traverses a Relative-frame docking/rendezvous segment stays attached
+to its anchor vessel"* and *"a ghost in a docking/rendezvous Relative
+section is no longer wrongly removed and re-deferred"*. Both are
+existing-ghost claims, not "all map creation" claims, so neither
+overclaims relative to the resolver gap left here. When the
+implementing PR for #583 lands, add a sibling `#583` line under v0.9.0
+Bug Fixes naming the creation-side fix.
+
+**Status:** Open. Not a regression of any shipped fix; a known remaining
+edge case that was deliberately left out of PR #547's scope (PR #547
+merged 2026-04-25 as commit `8eaebfbb`).
+
+---
+
+## ~~584. State-vector ghost map paths fed RELATIVE-frame anchor offsets into `body.GetWorldSurfacePosition`~~
+
+**Source:** code-review observation while triaging #571. Latent in
+`logs/2026-04-25_1314_marker-validator-fix` — every state-vector creation
+attempt that session was rejected (`reason=state-vector-threshold`,
+`no-state-vector-point`), so the bug did NOT fire in the captured playtest.
+Visible symptom when it would fire: a ghost map vessel transitions through a
+RELATIVE `TrackSection` (Phase 3b docking / rendezvous) while above the
+state-vector threshold; the ghost icon snaps to the body surface at a
+horizontally-meaningless lat/lon ("ghost icon goes inside the planet" —
+contributes to #571's symptom family).
+
+**Cause:** `GhostMapPresence.CreateGhostVesselFromStateVectors`
+(`Source/Parsek/GhostMapPresence.cs:1979`) and
+`GhostMapPresence.UpdateGhostOrbitFromStateVectors`
+(`Source/Parsek/GhostMapPresence.cs:2047`) called
+`body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude)`
+unconditionally. The `TrajectoryPoint.latitude/longitude/altitude` fields
+(`Source/Parsek/TrajectoryPoint.cs:13-15`) are reused as anchor-local XYZ
+offsets when the originating section uses `ReferenceFrame.Relative`
+(`Source/Parsek/TrackSection.cs:34-38`). Feeding offsets into
+`GetWorldSurfacePosition` silently produces a meaningless body-surface
+position. The flight-scene playback path
+(`ParsekFlight.InterpolateAndPositionRelative`, line 13751) and the
+diagnostic summary at `GhostPlaybackEngine.cs:3771` already honour the
+contract; only these two map-presence paths skipped it.
+
+The tracking-station orbit-update path pre-gates on `IsInRelativeFrame`
+(`GhostMapPresence.cs:1733`) and therefore did not fire the bug. The
+flight-scene update path in `ParsekPlaybackPolicy.cs:1019` had no such gate,
+so the latent defect was actually reachable there.
+
+**Fix:** added a pure-static helper
+`GhostMapPresence.ResolveStateVectorWorldPositionPure` that branches on the
+section's `referenceFrame`. Absolute keeps the surface lookup; Relative
+resolves through `TrajectoryMath.ResolveRelativePlaybackPosition` (the same
+contract `InterpolateAndPositionRelative` uses for flight-scene playback)
+using the anchor vessel's `GetWorldPos3D()` + `transform.rotation`;
+OrbitalCheckpoint and missing-anchor return an unresolved result that the
+wrappers convert into a WARN log and a skip. Both call sites now log a branch
+tag (`absolute` / `relative` / `orbital-checkpoint` / `no-section`) so post-hoc
+audits can confirm the path that fired. `UpdateGhostOrbitFromStateVectors`
+gained an `IPlaybackTrajectory traj` parameter; both call sites in
+`GhostMapPresence.UpdateTrackingStationGhostLifecycle` and
+`ParsekPlaybackPolicy.CheckPendingMapVessels` were updated.
+
+**Tests:** `Source/Parsek.Tests/StateVectorWorldFrameTests.cs` covers all
+four branches of the pure helper (absolute, relative v6, relative legacy v5,
+orbital-checkpoint, no-section) plus an explicit discriminator test that
+identical point data in Absolute vs Relative sections produces divergent
+world positions. `Source/Parsek.Tests/GhostMapObservabilityTests.cs`
+(32 tests) covers the structured decision-line builder, the lifecycle-summary
+helper, the resolution-branch translator, and the per-branch coordinate
+contract.
+
+**Observability (post-fix logging contract):** every create / position /
+update / destroy decision in `Source/Parsek/GhostMapPresence.cs` emits a
+single structured line via `BuildGhostMapDecisionLine` so a future KSP.log
+filtered on `[Parsek][INFO][GhostMap]` / `[Parsek][VERBOSE][GhostMap]`
+reconstructs the full per-recording lifecycle without cross-file lookups.
+Producers fill `GhostMapDecisionFields` (set NaN sentinels via
+`NewDecisionFields(action)`) and call the builder. Standard fields always
+present: `action`, `rec`, `idx`, `vessel`, `source`, `branch`, `body`,
+`scene`. Optional slots appear only when set: `worldPos`, `ghostPid`,
+`segmentBody / segmentUT / sma / ecc / inc / mna / epoch`,
+`terminalOrbitBody / terminalSma / terminalEcc`, `stateVecAlt /
+stateVecSpeed`, `anchorPid / anchorPos / localOffset`, `ut`, `reason`.
+
+Canonical actions (use these names for new lines so existing greps keep
+working): `create-segment-intent`, `create-segment-done`,
+`create-terminal-orbit-intent`, `create-terminal-orbit-done`,
+`create-state-vector-intent`, `create-state-vector-done`,
+`create-state-vector-skip`, `create-state-vector-miss`,
+`create-dispatch`, `create-chain-intent`, `create-chain-done`,
+`update-segment`, `update-state-vector`, `update-state-vector-soi-change`,
+`update-state-vector-skip`, `update-state-vector-miss`,
+`update-terminal-orbit-fallback`, `update-chain-segment`,
+`destroy`, `destroy-chain`, `source-resolve`. The branch tag uses the
+capitalised forms (`Absolute` / `Relative` / `OrbitalCheckpoint` /
+`no-section` / `(n/a)`) — convert from the resolver via
+`MapResolutionBranch`. Per-frame update paths route through
+`ParsekLog.VerboseRateLimited` keyed on `recId` (5 s window) so a long warp
+pass leaves a readable trace without spam. Both lifecycle drivers
+(`UpdateTrackingStationGhostLifecycle`,
+`ParsekPlaybackPolicy.CheckPendingMapVessels`) call
+`EmitLifecycleSummary(scope, currentUT)` once per tick, which logs
+`vesselsTracked / created / destroyed / updated` and resets the per-tick
+counters. Future agents extending GhostMap should pick an existing action
+name when the decision shape matches, and add a new entry to the canonical
+list above when adding a new decision point — duplicating the line shape is
+the goal.
+
+**Renumber note:** this entry was originally numbered `#582` while in
+flight on `fix/ghostmap-state-vector-relative-frame`, but PR #546 (the
+adjacent recorder-side contract documentation) merged first and took the
+`#582` slot. Renumbered to `#584` during the rebase merge of `origin/main`
+into this branch. CHANGELOG.md was updated to match. The follow-up entry
+`#583` (Relative-frame state-vector ghost CREATION still skips for first
+activation inside a Relative section) covers the remaining edge case left
+open by this fix's `UPDATE`-side scope.
+
+**Status:** Fixed in PR #547 (state-vector RELATIVE-frame contract +
+structured GhostMap observability).
 
 ---
 

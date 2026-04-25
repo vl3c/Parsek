@@ -1102,6 +1102,85 @@ namespace Parsek.Tests
             Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 300));
         }
 
+        // -----------------------------------------------------------------
+        // P1 review fix (#547): the flight-scene state-vector update path
+        // must NOT feed a Relative-frame TrajectoryPoint.altitude (which is
+        // the anchor-local dz, typically near 0) into
+        // ShouldRemoveStateVectorOrbit. Pre-fix, dz=-0.4 + small-velocity
+        // tripped the threshold and re-deferred the ghost; pending-create
+        // then could not re-create it for a Relative section and the ghost
+        // disappeared. The gate combination tested below documents the
+        // joint behaviour the fix relies on.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RelativeFrameGuard_DzBelowAltitudeThreshold_WouldTripRemovalWithoutGate()
+        {
+            // Synthetic recording matching the captured 2026-04-25_1314
+            // playtest's first Relative TrackSection: dz ~ -0.4 m, world-
+            // frame velocity ~2920 m/s. The dz value, when treated as
+            // geographic altitude, is below every CreateStateVector
+            // threshold AND below the airless-body removal threshold,
+            // proving the threshold WOULD remove the ghost if the gate
+            // weren't bypassed.
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 1658.96,
+                        endUT = 1668.14
+                    }
+                }
+            };
+            const double currentUT = 1662.0;
+            const double dzAsAltitude = -0.31; // anchor-local dz, NOT geographic alt
+            const double worldVelocityMag = 2920.0;
+            const double airlessAtmosphereDepth = 0;
+
+            Assert.True(
+                ParsekPlaybackPolicy.IsInRelativeFrame(traj, currentUT),
+                "current UT lies inside the Relative-frame section");
+            Assert.True(
+                ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(
+                    dzAsAltitude, worldVelocityMag, airlessAtmosphereDepth),
+                "without the IsInRelativeFrame gate, dz~0 would trip the " +
+                "altitude threshold even though the vessel is mid-flight " +
+                "at 2920 m/s — this is the bug shape the gate suppresses");
+        }
+
+        [Fact]
+        public void RelativeFrameGuard_AbsoluteFrame_StillEvaluatesThreshold()
+        {
+            // Discriminator: an Absolute-frame point with the same low alt
+            // legitimately trips the threshold. The gate's job is to skip
+            // the threshold ONLY for Relative frames; Absolute behaviour
+            // must be unchanged.
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 1658.96,
+                        endUT = 1668.14
+                    }
+                }
+            };
+            const double currentUT = 1662.0;
+
+            Assert.False(
+                ParsekPlaybackPolicy.IsInRelativeFrame(traj, currentUT),
+                "Absolute section: gate must NOT bypass the threshold check");
+            Assert.True(
+                ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(
+                    altitude: -0.31, speed: 2920.0, atmosphereDepth: 0),
+                "Absolute frame: alt~0 below threshold legitimately removes");
+        }
+
         #endregion
     }
 }
