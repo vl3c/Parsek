@@ -113,7 +113,7 @@ post-#570 main and check whether the symptom reproduces.
 
 ---
 
-## 573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly
+## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the
 `logs/2026-04-25_1314_marker-validator-fix` playtest. "when I did the Re-Fly,
@@ -153,7 +153,17 @@ user saw must come from a third path.
   log around `[LOG 13:10:15.508]` removes 5 orphaned spawned vessels before the
   rewind FLIGHT load; verify the upper-stage `pid` is included.
 
-**Status:** Open. User flagged as recurrence of an earlier "fixed" symptom.
+**Diagnosis (2026-04-25):** the prior "Strip-killing the upper stage during re-fly no longer trips spawn-death respawn" fix (commit `9845c065`) gates `ParsekPlaybackPolicy.RunSpawnDeathChecks` only when `ParsekScenario.Instance.ActiveReFlySessionMarker != null`. The user's "Re-Fly" in this playtest was actually a plain Rewind-to-Launch (R-button click on the `Kerbal X` group root, log line 13:10:04.276 `Group 'Kerbal X' R button: #0 "Kerbal X"`); plain rewinds do NOT author a re-fly marker (every checkpoint shows `Marker loaded: none` post-rewind). With the guard inactive, the post-rewind strip — `[LOG 13:10:15.508] StripOrphanedSpawnedVessels: removed 5 vessel(s) from flightState` covering Ermore, two Kerbal X Debris, the splashed Kerbal X, and the orbiting Kerbal X Probe — fed `RunSpawnDeathChecks` the "spawned vessel disappeared" signal for every stripped recording. The detector reset `VesselSpawned=false` and `SpawnedVesselPersistentId=0` for the upper-stage chain segment, arming a duplicate spawn that materialized once the player launched the booster and the chain tip's activation UT arrived in FLIGHT.
+
+**Fix:** `ParsekPlaybackPolicy.RunSpawnDeathChecks` now also short-circuits when `RewindContext.IsRewinding` is true (set by `RewindContext.BeginRewind` and cleared by `RewindContext.EndRewind`, covering the entire window where intentional strip kills happen). The skip emits a distinct rate-limited `RunSpawnDeathChecks: skipped during active rewind` log line so the two skip-reasons (re-fly marker vs plain rewind) are separable in post-hoc audits. Regressions
+`DeferredSpawnTests.RunSpawnDeathChecks_SkippedWhileRewindContextIsRewinding` and
+`DeferredSpawnTests.RunSpawnDeathChecks_RunsAfterRewindContextCleared` pin the
+new behaviour and the post-rewind release boundary respectively.
+
+**Out of scope (separate follow-up):** the diagnosis pass also flagged
+`VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay` (`Source/Parsek/VesselSpawner.cs:99-141`) as deserving a sanity audit — its #226 replay/revert duplicate-spawn exception bypasses the adoption guard whenever the source PID matches the scene-entry active vessel, which expanded scope beyond the booster-respawn intent during this playtest. Not changed in this PR; track as a separate concern.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 

@@ -78,16 +78,22 @@ namespace Parsek
         /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
         ///
         /// <para>
-        /// Skipped during an active re-fly session. <see cref="PostLoadStripper.Strip"/>
-        /// kills sibling vessels (selected vessel's siblings from the original
-        /// timeline) on purpose, and the §6.4 contract is that those kills are
-        /// silent — they must not feed back into the policy as "spawned vessel
-        /// died, please re-spawn". Without this guard the policy resets
-        /// <c>VesselSpawned=false</c> on every recording whose previously-
-        /// materialized vessel was just stripped, arming a duplicate spawn
-        /// that materializes a real upper-stage / debris next to the player's
-        /// re-fly vessel (observed in the 10:47 playtest). Spawn-death
-        /// detection resumes after the marker is cleared (merge or discard).
+        /// Skipped during an active re-fly session OR a plain rewind (#573).
+        /// <see cref="PostLoadStripper.Strip"/> kills sibling vessels on purpose,
+        /// and <see cref="ParsekScenario.StripOrphanedSpawnedVessels"/> kills the
+        /// rewound timeline's previously-materialized survivors on purpose; the
+        /// §6.4 contract is that those kills are silent — they must not feed
+        /// back into the policy as "spawned vessel died, please re-spawn".
+        /// Without this guard the policy resets <c>VesselSpawned=false</c> on
+        /// every recording whose previously-materialized vessel was just
+        /// stripped, arming a duplicate spawn that materializes a real
+        /// upper-stage / debris next to the player's re-flown vessel
+        /// (observed in the 10:47 re-fly playtest, then again in the
+        /// 2026-04-25_1314 marker-validator-fix playtest after a plain
+        /// Rewind-to-Launch click — the original guard only covered the
+        /// re-fly marker case). Detection resumes after the marker is
+        /// cleared (merge or discard) and after <see cref="RewindContext.EndRewind"/>
+        /// fires.
         /// </para>
         /// </summary>
         internal void RunSpawnDeathChecks()
@@ -100,6 +106,13 @@ namespace Parsek
                     $"RunSpawnDeathChecks: skipped during active re-fly session " +
                     $"sess={scenario.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} — " +
                     "Strip kills are intentional and must not trigger respawn");
+                return;
+            }
+            if (RewindContext.IsRewinding)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-rewind",
+                    "RunSpawnDeathChecks: skipped during active rewind — " +
+                    "StripOrphanedSpawnedVessels kills are intentional and must not trigger respawn");
                 return;
             }
 
