@@ -7,6 +7,7 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class SelectiveSpawnUITests : System.IDisposable
     {
+        private const double Radius = 250.0;
         private const double MaxRelSpeed = 2.0;
         private readonly List<string> logLines = new List<string>();
 
@@ -213,7 +214,7 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { recordingIndex = 2, vesselName = "C", endUT = 200 }
             };
 
-            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed);
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed);
 
             Assert.NotNull(result);
             Assert.Equal("B", result.Value.vesselName);
@@ -228,20 +229,20 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { endUT = 80 }
             };
 
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed));
         }
 
         [Fact]
         public void FindNextSpawnCandidate_Empty_ReturnsNull()
         {
             Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(
-                new List<NearbySpawnCandidate>(), 100, MaxRelSpeed));
+                new List<NearbySpawnCandidate>(), 100, Radius, MaxRelSpeed));
         }
 
         [Fact]
         public void FindNextSpawnCandidate_Null_ReturnsNull()
         {
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(null, 100, MaxRelSpeed));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(null, 100, Radius, MaxRelSpeed));
         }
 
         [Fact]
@@ -252,7 +253,56 @@ namespace Parsek.Tests
                 new NearbySpawnCandidate { endUT = 100 }
             };
 
-            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, MaxRelSpeed));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed));
+        }
+
+        [Fact]
+        public void FindNextSpawnCandidate_FarButSlow_SkippedInFavorOfInnerCandidate()
+        {
+            // Slow ghost at 500m sits inside the wider "show in list" envelope but outside the
+            // 250m FF radius — the bottom-bar "Warp to Next Real Spawn" must not pick it.
+            // The closer slow ghost (within both gates) wins even though its endUT is later.
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate
+                {
+                    vesselName = "FarSlow",
+                    distance = 500,        // > Radius (250)
+                    relativeSpeed = 0.5,   // <= MaxRelSpeed
+                    endUT = 200            // earlier
+                },
+                new NearbySpawnCandidate
+                {
+                    vesselName = "NearSlow",
+                    distance = 100,        // <= Radius
+                    relativeSpeed = 0.5,
+                    endUT = 400            // later
+                }
+            };
+
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed);
+
+            Assert.NotNull(result);
+            Assert.Equal("NearSlow", result.Value.vesselName);
+        }
+
+        [Fact]
+        public void FindNextSpawnCandidate_OnlyFarSlowCandidate_ReturnsNull()
+        {
+            // Lone slow-but-distant ghost: window shows it (red distance text, FF disabled),
+            // bottom-bar "Warp to Next Real Spawn" stays disabled.
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate
+                {
+                    vesselName = "FarSlow",
+                    distance = 500,
+                    relativeSpeed = 0.5,
+                    endUT = 200
+                }
+            };
+
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed));
         }
 
         // ── FormatTimeDelta ──

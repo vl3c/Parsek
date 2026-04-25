@@ -426,7 +426,7 @@ namespace Parsek.Tests
                     willDepart = false
                 }
             };
-            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 2.0);
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 250.0, 2.0);
             Assert.NotNull(result);
             Assert.Equal("A", result.Value.vesselName);
         }
@@ -450,7 +450,7 @@ namespace Parsek.Tests
                     willDepart = false
                 }
             };
-            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 2.0);
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 250.0, 2.0);
             Assert.NotNull(result);
             Assert.Equal("B", result.Value.vesselName);
         }
@@ -472,7 +472,7 @@ namespace Parsek.Tests
                     willDepart = false
                 }
             };
-            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 2.0);
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000, 250.0, 2.0);
             Assert.NotNull(result);
             Assert.Equal("B", result.Value.vesselName);
         }

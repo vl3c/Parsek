@@ -14466,7 +14466,7 @@ namespace Parsek
         internal void WarpToNextCraftSpawn()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT, MaxRelativeSpeed);
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT, NearbySpawnRadius, MaxRelativeSpeed);
             if (next == null)
             {
                 ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");

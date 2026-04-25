@@ -288,7 +288,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             GUILayout.BeginHorizontal();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT, ParsekFlight.MaxRelativeSpeed);
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed);
             GUI.enabled = next != null;
             string tooltip = next != null
                 ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";

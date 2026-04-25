@@ -100,12 +100,14 @@ namespace Parsek
         /// Pure: find the candidate with the earliest effective UT in the future.
         /// For departing candidates, the effective UT is departureUT (when the ghost leaves).
         /// For non-departing candidates, the effective UT is endUT (when it spawns).
-        /// Skips candidates whose relative speed exceeds maxRelativeSpeed — the proximity scan
-        /// admits too-fast rows for display, but they are not warp-eligible.
+        /// Skips candidates whose distance exceeds proximityRadius or whose relative speed
+        /// exceeds maxRelativeSpeed — the proximity scan admits ghosts out to a wider "show in
+        /// list" envelope, but only inner-gate candidates are warp-eligible.
         /// Returns null if no candidates qualify.
         /// </summary>
         internal static NearbySpawnCandidate? FindNextSpawnCandidate(
-            List<NearbySpawnCandidate> candidates, double currentUT, double maxRelativeSpeed)
+            List<NearbySpawnCandidate> candidates, double currentUT,
+            double proximityRadius, double maxRelativeSpeed)
         {
             if (candidates == null || candidates.Count == 0)
                 return null;
@@ -115,6 +117,8 @@ namespace Parsek
             for (int i = 0; i < candidates.Count; i++)
             {
                 var c = candidates[i];
+                if (c.distance > proximityRadius)
+                    continue;
                 if (c.relativeSpeed > maxRelativeSpeed)
                     continue;
                 // Departing candidates use departureUT (when the ghost leaves its current orbit),
