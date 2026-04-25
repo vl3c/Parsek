@@ -13,6 +13,18 @@ namespace Parsek.Tests
         private const double MaxRelSpeed = 2.0;
 
         [Fact]
+        public void RealSpawnControl_ListBounds_ExceedFFGate()
+        {
+            // The outer "show in list" bounds must always be at least as permissive as the
+            // inner FF-enable gates; otherwise the two-tier logic collapses and ghosts that
+            // fail the FF gate would not have a chance to appear in the list at all.
+            Assert.True(Parsek.ParsekFlight.NearbySpawnListRadius >= Parsek.ParsekFlight.NearbySpawnRadius,
+                "List radius must be >= FF radius");
+            Assert.True(Parsek.ParsekFlight.MaxListRelativeSpeed >= Parsek.ParsekFlight.MaxRelativeSpeed,
+                "List rel-speed cap must be >= FF rel-speed cap");
+        }
+
+        [Fact]
         public void SortCandidates_ByNameAscending_UsesCaseInsensitiveOrder()
         {
             var sorted = SpawnControlPresentation.SortCandidates(
