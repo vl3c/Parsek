@@ -17,7 +17,7 @@ namespace Parsek.Tests
     ///   1. pid-hit beats name-hit when both are possible
     ///   2. name-hit with a unique match succeeds
     ///   3. name-hit with multiple matches picks the minimum-free-seats part
-    ///   4. no-match (pid and name both miss) returns -1 / None
+    ///   4. no-match (pid and name both miss) returns -1 / None with a reason
     ///   5. pid=100000 coincidence: a pid-hit still wins, no name-hit false positive
     ///   6. log-assertion: the summary line contains nameHitFallbacks=... counter
     ///
@@ -154,6 +154,51 @@ namespace Parsek.Tests
 
             Assert.Equal(-1, idx);
             Assert.Equal(CrewReservationManager.SeatMatchKind.None, kind);
+        }
+
+        [Fact]
+        public void TryResolveActiveVesselPartForSeat_Bug578_WrongActiveVessel_DiagnosesMissingSnapshotPart()
+        {
+            // Regression shape from #578: the snapshot resolves to a command pod
+            // seat, but the active vessel is a different craft with no matching
+            // part name. Even if an unrelated live part has a free crew seat, the
+            // removed tier-3 "any seat" fallback must stay rejected.
+            var snapshot = new ConfigNode("VESSEL");
+            var snapshotPart = snapshot.AddNode("PART");
+            snapshotPart.AddValue("name", "mk1-3pod");
+            snapshotPart.AddValue("persistentId", "10668187");
+            snapshotPart.AddValue("crew", "Magdo Kerman");
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Magdo Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+
+            var activeParts = new List<CrewReservationManager.ActivePartSeat>
+            {
+                Seat(pid: 95506284u, name: "probeCoreHex.v2", freeSeats: 0),
+                Seat(pid: 95506285u, name: "crewCabin", freeSeats: 2),
+            };
+
+            int idx = CrewReservationManager.TryResolveActiveVesselPartForSeat(
+                snapshotPartPid: seat.PartPid,
+                snapshotPartName: seat.PartName,
+                activeParts: activeParts,
+                out CrewReservationManager.SeatMatchKind kind,
+                out CrewReservationManager.SeatMatchMissDiagnostic diagnostic);
+
+            Assert.Equal(-1, idx);
+            Assert.Equal(CrewReservationManager.SeatMatchKind.None, kind);
+            Assert.Equal(
+                CrewReservationManager.SeatMatchMissReason.ActiveVesselMissingSnapshotPart,
+                diagnostic.Reason);
+            Assert.Equal(2, diagnostic.ActivePartCount);
+            Assert.Equal(1, diagnostic.FreeSeatPartCount);
+            Assert.Equal(0, diagnostic.PidMatchCount);
+            Assert.Equal(0, diagnostic.NameMatchCount);
+            string formatted = CrewReservationManager.FormatSeatMatchMissDiagnostic(diagnostic);
+            Assert.Contains("reason=active-vessel-missing-snapshot-part", formatted);
+            Assert.Contains("freeSeatParts=1", formatted);
+            Assert.Contains("nameMatches=0", formatted);
         }
 
         [Fact]
@@ -306,10 +351,16 @@ namespace Parsek.Tests
                 snapshotPartPid: 100000u,
                 snapshotPartName: "mk1pod.v2",
                 activeParts: parts,
-                out CrewReservationManager.SeatMatchKind kind);
+                out CrewReservationManager.SeatMatchKind kind,
+                out CrewReservationManager.SeatMatchMissDiagnostic diagnostic);
 
             Assert.Equal(-1, idx);
             Assert.Equal(CrewReservationManager.SeatMatchKind.None, kind);
+            Assert.Equal(
+                CrewReservationManager.SeatMatchMissReason.SnapshotPartSeatsFull,
+                diagnostic.Reason);
+            Assert.Equal(1, diagnostic.NameMatchCount);
+            Assert.Equal(0, diagnostic.NameFreeSeatCount);
         }
 
         // ────────────────────────────────────────────────────────
