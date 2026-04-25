@@ -439,27 +439,14 @@ namespace Parsek
                 // to fix. The tightest-fit rule keeps that guarantee even when
                 // multiple parts share the snapshot part name (the cockpit typically
                 // has fewer seats than a passenger cabin).
-                string attemptDiagnostic = FormatSeatMatchAttemptDiagnostic(
-                    seat.PartPid, seat.PartName);
                 Part target = FindTargetPartForOrphan(
                     seat.PartPid, seat.PartName, out SeatMatchKind matchKind,
                     out SeatMatchMissDiagnostic missDiagnostic);
                 if (target == null)
                 {
-                    // Preserve the distinctive "snapshot pid=0" signal (bug #413):
-                    // a future regression where the capture site drops the real
-                    // persistentId will still show up here with pid=0 and a valid
-                    // part name, so it's callable out by log-grep.
-                    string pidDiagnostic = seat.PartPid == 0
-                        ? "pid=0 (suspicious: snapshot missing persistentId)"
-                        : $"pid={seat.PartPid}";
-                    ParsekLog.Warn("CrewReservation",
-                        $"Orphan placement deferred: no matching part with free seat in active vessel for " +
-                        $"'{originalName}' → '{replacementName}' " +
-                        $"(snapshot {pidDiagnostic} name='{seat.PartName}') — " +
-                        $"stand-in kept in roster; {FormatSeatMatchMissDiagnostic(missDiagnostic)} " +
-                        $"({attemptDiagnostic}; cumulative pidHits={pidHits} " +
-                        $"nameHitFallbacks={nameHitFallbacks})");
+                    LogOrphanPlacementDeferred(originalName, replacementName,
+                        seat.PartPid, seat.PartName, missDiagnostic,
+                        pidHits, nameHitFallbacks);
                     skippedNoMatchingPart++;
                     continue;
                 }
@@ -870,7 +857,6 @@ namespace Parsek
             SnapshotPartSeatsFull = 4,
             SnapshotPidPartSeatsFull = 5,
             ActiveVesselMissingSnapshotPid = 6,
-            NoMatchingFreeSeat = 7,
         }
 
         /// <summary>
@@ -936,11 +922,36 @@ namespace Parsek
                     return "snapshot-pid-part-seats-full";
                 case SeatMatchMissReason.ActiveVesselMissingSnapshotPid:
                     return "active-vessel-missing-snapshot-pid";
-                case SeatMatchMissReason.NoMatchingFreeSeat:
-                    return "no-matching-free-seat";
                 default:
                     return "none";
             }
+        }
+
+        internal static void LogOrphanPlacementDeferred(
+            string originalName,
+            string replacementName,
+            uint snapshotPartPid,
+            string snapshotPartName,
+            SeatMatchMissDiagnostic missDiagnostic,
+            int pidHits,
+            int nameHitFallbacks)
+        {
+            // Preserve the distinctive "snapshot pid=0" signal (bug #413):
+            // a future regression where the capture site drops the real
+            // persistentId will still show up here with pid=0 and a valid part
+            // name, so it's callable out by log-grep.
+            string pidDiagnostic = snapshotPartPid == 0
+                ? "pid=0 (suspicious: snapshot missing persistentId)"
+                : $"pid={snapshotPartPid}";
+            string attemptDiagnostic = FormatSeatMatchAttemptDiagnostic(
+                snapshotPartPid, snapshotPartName);
+            ParsekLog.Warn("CrewReservation",
+                $"Orphan placement deferred: no matching part with free seat in active vessel for " +
+                $"'{originalName}' → '{replacementName}' " +
+                $"(snapshot {pidDiagnostic} name='{snapshotPartName}') — " +
+                $"stand-in kept in roster; {FormatSeatMatchMissDiagnostic(missDiagnostic)} " +
+                $"({attemptDiagnostic}; cumulative pidHits={pidHits} " +
+                $"nameHitFallbacks={nameHitFallbacks})");
         }
 
         /// <summary>
@@ -996,32 +1007,20 @@ namespace Parsek
                 return -1;
             }
 
-            // Tier 1: pid-hit.
-            if (snapshotPartPid != 0)
+            for (int i = 0; i < activeParts.Count; i++)
             {
-                for (int i = 0; i < activeParts.Count; i++)
-                {
-                    var p = activeParts[i];
-                    if (p.FreeSeats > 0)
-                        missDiagnostic.FreeSeatPartCount++;
-                    if (p.PersistentId != snapshotPartPid)
-                        continue;
+                var p = activeParts[i];
+                if (p.FreeSeats > 0)
+                    missDiagnostic.FreeSeatPartCount++;
+                if (snapshotPartPid == 0 || p.PersistentId != snapshotPartPid)
+                    continue;
 
-                    missDiagnostic.PidMatchCount++;
-                    if (p.FreeSeats > 0)
-                    {
-                        missDiagnostic.PidFreeSeatCount++;
-                        matchKind = SeatMatchKind.PidHit;
-                        return i;
-                    }
-                }
-            }
-            else
-            {
-                for (int i = 0; i < activeParts.Count; i++)
+                missDiagnostic.PidMatchCount++;
+                if (p.FreeSeats > 0)
                 {
-                    if (activeParts[i].FreeSeats > 0)
-                        missDiagnostic.FreeSeatPartCount++;
+                    missDiagnostic.PidFreeSeatCount++;
+                    matchKind = SeatMatchKind.PidHit;
+                    return i;
                 }
             }
 
@@ -1069,6 +1068,12 @@ namespace Parsek
             if (!attemptedPid && !attemptedName)
                 return SeatMatchMissReason.NoSnapshotLookupTier;
 
+            if (attemptedName)
+            {
+                if (diagnostic.NameMatchCount == 0)
+                    return SeatMatchMissReason.ActiveVesselMissingSnapshotPart;
+            }
+
             if (attemptedPid &&
                 diagnostic.PidMatchCount > 0 &&
                 diagnostic.PidFreeSeatCount == 0)
@@ -1076,8 +1081,6 @@ namespace Parsek
 
             if (attemptedName)
             {
-                if (diagnostic.NameMatchCount == 0)
-                    return SeatMatchMissReason.ActiveVesselMissingSnapshotPart;
                 if (diagnostic.NameFreeSeatCount == 0)
                     return SeatMatchMissReason.SnapshotPartSeatsFull;
             }
@@ -1088,7 +1091,7 @@ namespace Parsek
                     return SeatMatchMissReason.ActiveVesselMissingSnapshotPid;
             }
 
-            return SeatMatchMissReason.NoMatchingFreeSeat;
+            return SeatMatchMissReason.None;
         }
 
         /// <summary>

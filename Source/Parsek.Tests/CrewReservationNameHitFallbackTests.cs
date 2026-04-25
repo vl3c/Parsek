@@ -20,6 +20,7 @@ namespace Parsek.Tests
     ///   4. no-match (pid and name both miss) returns -1 / None with a reason
     ///   5. pid=100000 coincidence: a pid-hit still wins, no name-hit false positive
     ///   6. log-assertion: the summary line contains nameHitFallbacks=... counter
+    ///   7. no-match WARN line includes the miss reason and retry semantics
     ///
     /// Live AddCrewmember placement is covered by the in-game test
     /// `Bug456_OrphanPlacement_NameHitFallback_PlacesStandin` in
@@ -62,6 +63,24 @@ namespace Parsek.Tests
                 PartName = name,
                 FreeSeats = freeSeats
             };
+        }
+
+        private static void AssertMissReason(
+            uint snapshotPartPid,
+            string snapshotPartName,
+            IList<CrewReservationManager.ActivePartSeat> parts,
+            CrewReservationManager.SeatMatchMissReason expected)
+        {
+            int idx = CrewReservationManager.TryResolveActiveVesselPartForSeat(
+                snapshotPartPid,
+                snapshotPartName,
+                parts,
+                out CrewReservationManager.SeatMatchKind kind,
+                out CrewReservationManager.SeatMatchMissDiagnostic diagnostic);
+
+            Assert.Equal(-1, idx);
+            Assert.Equal(CrewReservationManager.SeatMatchKind.None, kind);
+            Assert.Equal(expected, diagnostic.Reason);
         }
 
         // ────────────────────────────────────────────────────────
@@ -199,6 +218,127 @@ namespace Parsek.Tests
             Assert.Contains("reason=active-vessel-missing-snapshot-part", formatted);
             Assert.Contains("freeSeatParts=1", formatted);
             Assert.Contains("nameMatches=0", formatted);
+        }
+
+        [Fact]
+        public void TryResolveActiveVesselPartForSeat_MissReasons_CoverAllReachableBranches()
+        {
+            AssertMissReason(
+                10668187u,
+                "mk1-3pod",
+                null,
+                CrewReservationManager.SeatMatchMissReason.ActiveVesselHasNoParts);
+
+            AssertMissReason(
+                0u,
+                null,
+                new List<CrewReservationManager.ActivePartSeat>
+                {
+                    Seat(pid: 95506285u, name: "crewCabin", freeSeats: 2),
+                },
+                CrewReservationManager.SeatMatchMissReason.NoSnapshotLookupTier);
+
+            AssertMissReason(
+                10668187u,
+                "mk1-3pod",
+                new List<CrewReservationManager.ActivePartSeat>
+                {
+                    Seat(pid: 95506284u, name: "probeCoreHex.v2", freeSeats: 0),
+                    Seat(pid: 95506285u, name: "crewCabin", freeSeats: 2),
+                },
+                CrewReservationManager.SeatMatchMissReason.ActiveVesselMissingSnapshotPart);
+
+            AssertMissReason(
+                100000u,
+                "mk1pod.v2",
+                new List<CrewReservationManager.ActivePartSeat>
+                {
+                    Seat(pid: 18900260u, name: "mk1pod.v2", freeSeats: 0),
+                },
+                CrewReservationManager.SeatMatchMissReason.SnapshotPartSeatsFull);
+
+            AssertMissReason(
+                18900260u,
+                null,
+                new List<CrewReservationManager.ActivePartSeat>
+                {
+                    Seat(pid: 18900260u, name: "mk1pod.v2", freeSeats: 0),
+                    Seat(pid: 18900261u, name: "crewCabin", freeSeats: 2),
+                },
+                CrewReservationManager.SeatMatchMissReason.SnapshotPidPartSeatsFull);
+
+            AssertMissReason(
+                18900260u,
+                null,
+                new List<CrewReservationManager.ActivePartSeat>
+                {
+                    Seat(pid: 18900261u, name: "crewCabin", freeSeats: 2),
+                },
+                CrewReservationManager.SeatMatchMissReason.ActiveVesselMissingSnapshotPid);
+        }
+
+        [Fact]
+        public void TryResolveActiveVesselPartForSeat_PidCollisionWrongVessel_ReportsMissingSnapshotPart()
+        {
+            // If an active vessel happens to have the snapshot pid on an
+            // unrelated full part, the absent snapshot part name is the more
+            // actionable wrong-vessel signal.
+            var parts = new List<CrewReservationManager.ActivePartSeat>
+            {
+                Seat(pid: 10668187u, name: "probeCoreHex.v2", freeSeats: 0),
+                Seat(pid: 95506285u, name: "crewCabin", freeSeats: 2),
+            };
+
+            int idx = CrewReservationManager.TryResolveActiveVesselPartForSeat(
+                snapshotPartPid: 10668187u,
+                snapshotPartName: "mk1-3pod",
+                activeParts: parts,
+                out CrewReservationManager.SeatMatchKind kind,
+                out CrewReservationManager.SeatMatchMissDiagnostic diagnostic);
+
+            Assert.Equal(-1, idx);
+            Assert.Equal(CrewReservationManager.SeatMatchKind.None, kind);
+            Assert.Equal(
+                CrewReservationManager.SeatMatchMissReason.ActiveVesselMissingSnapshotPart,
+                diagnostic.Reason);
+            Assert.Equal(1, diagnostic.PidMatchCount);
+            Assert.Equal(0, diagnostic.PidFreeSeatCount);
+            Assert.Equal(0, diagnostic.NameMatchCount);
+        }
+
+        [Fact]
+        public void LogOrphanPlacementDeferred_EmitsReasonAndStandInRetrySemantics()
+        {
+            var diagnostic = new CrewReservationManager.SeatMatchMissDiagnostic
+            {
+                Reason = CrewReservationManager.SeatMatchMissReason.ActiveVesselMissingSnapshotPart,
+                ActivePartCount = 2,
+                FreeSeatPartCount = 1,
+                PidMatchCount = 0,
+                PidFreeSeatCount = 0,
+                NameMatchCount = 0,
+                NameFreeSeatCount = 0,
+            };
+
+            CrewReservationManager.LogOrphanPlacementDeferred(
+                "Magdo Kerman",
+                "Herfrid Kerman",
+                10668187u,
+                "mk1-3pod",
+                diagnostic,
+                pidHits: 0,
+                nameHitFallbacks: 0);
+
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][CrewReservation] Orphan placement deferred:") &&
+                line.Contains("'Magdo Kerman' → 'Herfrid Kerman'") &&
+                line.Contains("(snapshot pid=10668187 name='mk1-3pod')") &&
+                line.Contains("stand-in kept in roster") &&
+                line.Contains("reason=active-vessel-missing-snapshot-part") &&
+                line.Contains("activeParts=2") &&
+                line.Contains("freeSeatParts=1") &&
+                line.Contains("attempted pidTier=yes nameTier=yes") &&
+                line.Contains("cumulative pidHits=0 nameHitFallbacks=0"));
         }
 
         [Fact]

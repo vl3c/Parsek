@@ -314,7 +314,9 @@ free-seat, pid-match, and name-match counters, logs the pass as deferred with
 `reason=active-vessel-missing-snapshot-part`, keeps the stand-in roster entry
 for a later retry, and still rejects the removed tier-3 "any free seat"
 fallback. Regression coverage:
-`CrewReservationNameHitFallbackTests.TryResolveActiveVesselPartForSeat_Bug578_WrongActiveVessel_DiagnosesMissingSnapshotPart`.
+`CrewReservationNameHitFallbackTests.TryResolveActiveVesselPartForSeat_Bug578_WrongActiveVessel_DiagnosesMissingSnapshotPart`,
+the miss-reason truth-table/log assertions in the same class, and the runtime
+`Bug578_OrphanPlacement_NoMatchingPart_LogsDeferredReason` in-game test.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 

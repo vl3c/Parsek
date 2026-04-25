@@ -5044,6 +5044,179 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #578: PlaceOrphanedReplacements logs wrong-active-vessel no-match diagnostics without using an unrelated free seat")]
+        public void Bug578_OrphanPlacement_NoMatchingPart_LogsDeferredReason()
+        {
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            Part unrelatedFreeSeatPart = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    unrelatedFreeSeatPart = p;
+                    break;
+                }
+            }
+            if (unrelatedFreeSeatPart == null)
+            {
+                InGameAssert.Skip("Active vessel has no unrelated free crew seat to prove tier-3 fallback stays rejected");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            uint missingPid = 4000000000u;
+            bool pidCollision;
+            do
+            {
+                pidCollision = false;
+                for (int i = 0; i < av.parts.Count; i++)
+                {
+                    if (av.parts[i] != null && av.parts[i].persistentId == missingPid)
+                    {
+                        pidCollision = true;
+                        missingPid--;
+                        break;
+                    }
+                }
+            } while (pidCollision);
+
+            string missingPartName = "bug578_missing_part_" +
+                System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string fakeOriginal = "Bug578Test_" +
+                System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = unrelatedFreeSeatPart.protoModuleCrew.Count;
+
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            var logLines = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => logLines.Add(line);
+            try
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", missingPartName);
+                partNode.AddValue("persistentId", missingPid.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-578-" +
+                        System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug578WrongActiveVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
+                RecordingStore.AddCommittedInternal(syntheticRecording);
+                addedToCommitted = true;
+
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                InGameAssert.AreEqual(0, placed,
+                    $"PlaceOrphanedReplacements should defer when pid and name both miss (placed={placed})");
+                InGameAssert.IsFalse(swappedOriginals.Contains(fakeOriginal),
+                    "Deferred orphan placement must not mark the original as swapped");
+                InGameAssert.IsFalse(unrelatedFreeSeatPart.protoModuleCrew.Contains(standIn),
+                    $"Stand-in '{standIn.name}' must not be placed into unrelated free part '{unrelatedFreeSeatPart.partInfo.title}'");
+                InGameAssert.AreEqual(beforeCrewCount, unrelatedFreeSeatPart.protoModuleCrew.Count,
+                    "Unrelated free-seat part crew count changed despite no pid/name match");
+
+                bool sawDeferredReason = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("Orphan placement deferred:")
+                        && line.Contains("stand-in kept in roster")
+                        && line.Contains("reason=active-vessel-missing-snapshot-part")
+                        && line.Contains("attempted pidTier=yes nameTier=yes"))
+                    {
+                        sawDeferredReason = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawDeferredReason,
+                    "Expected deferred orphan-placement WARN with reason=active-vessel-missing-snapshot-part");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug578 end-to-end: orphan placement deferred '{fakeOriginal}' → '{standIn.name}' " +
+                    $"with missing snapshot part '{missingPartName}' despite unrelated free seat in '{unrelatedFreeSeatPart.partInfo.title}'");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                if (addedToCommitted)
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
+                InGameAssert.AreEqual(beforeCrewCount, unrelatedFreeSeatPart.protoModuleCrew.Count,
+                    $"Rollback failed: unrelated free-seat part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={unrelatedFreeSeatPart.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
+
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.SPACECENTER,
             Description = "#308 CrewAutoAssignPatch.ApplyCrewAssignmentSwaps replaces reserved crew with stand-ins in a VesselCrewManifest")]
         public void CrewAutoAssignPatch_SwapsReservedCrew()
