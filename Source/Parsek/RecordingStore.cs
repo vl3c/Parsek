@@ -5964,20 +5964,31 @@ namespace Parsek
             }
 
             ClearSidecarLoadFailure(rec);
+            string precPath = null;
+            string vesselPath = null;
+            string ghostPath = null;
             try
             {
-                string precPath = RecordingPaths.ResolveSaveScopedPath(
+                precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-                string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                vesselPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-                string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
                 return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
             }
             catch (Exception ex)
             {
                 MarkSidecarLoadFailure(rec, "exception:" + ex.GetType().Name);
-                Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles failed {FormatSidecarContext(rec)} fileKind=trajectory+snapshots " +
+                        $"trajectoryPath='{FormatPathForSidecarLog(precPath)}' " +
+                        $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
+                        $"ghostPath='{FormatPathForSidecarLog(ghostPath)}' " +
+                        $"ex={FormatExceptionForSidecarLog(ex)}");
+                }
                 return false;
             }
         }
@@ -6718,11 +6729,11 @@ namespace Parsek
             catch (Exception ex)
             {
                 SidecarFileCommitBatch.CleanupStagedArtifacts(changes, () => SuppressLogging);
-                string failureContext = FormatSidecarContext(rec, ghostSnapshotMode);
                 // Keep .sfs metadata authoritative if the sidecar write set did not
                 // complete after an OnSave-triggered epoch bump.
                 rec.SidecarEpoch = originalSidecarEpoch;
                 rec.GhostSnapshotMode = originalGhostSnapshotMode;
+                string failureContext = FormatSidecarContext(rec, rec.GhostSnapshotMode);
                 if (!SuppressLogging)
                 {
                     ParsekLog.Error("RecordingStore",

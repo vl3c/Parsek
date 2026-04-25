@@ -2850,7 +2850,9 @@ namespace Parsek
                 return false;
             }
 
-            return RewindInvoker.CanInvoke(rp, out reason);
+            bool canInvoke = RewindInvoker.CanInvoke(rp, out reason);
+            LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke, reason, slot);
+            return canInvoke;
         }
 
         private static void LogRewindSlotCanInvokeDecision(
@@ -2865,7 +2867,9 @@ namespace Parsek
                 : rp.RewindPointId;
             string normalizedReason = string.IsNullOrEmpty(reason) ? "<none>" : reason;
             string identity = $"CanInvokeSlot|{rpId}|{slotListIndex}";
-            string stateKey = canInvoke ? "slot-ok" : "slot-disabled|" + normalizedReason;
+            bool slotDisabled = slot != null && slot.Disabled;
+            string blockedKind = slotDisabled ? "slot-disabled" : "global-blocked";
+            string stateKey = canInvoke ? "slot-ok" : blockedKind + "|" + normalizedReason;
             string slotOrigin = slot == null || string.IsNullOrEmpty(slot.OriginChildRecordingId)
                 ? "<none>"
                 : slot.OriginChildRecordingId;
@@ -2877,7 +2881,7 @@ namespace Parsek
                 stateKey,
                 canInvoke
                     ? $"CanInvokeSlot: slot-ok rp={rpId} slot={slotId} listIndex={slotListIndex} origin={slotOrigin}"
-                    : $"CanInvokeSlot: disabled rp={rpId} slot={slotId} listIndex={slotListIndex} " +
+                    : $"CanInvokeSlot: {blockedKind} rp={rpId} slot={slotId} listIndex={slotListIndex} " +
                       $"origin={slotOrigin} reason='{normalizedReason}'");
         }
 

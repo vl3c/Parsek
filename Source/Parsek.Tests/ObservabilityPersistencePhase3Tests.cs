@@ -204,7 +204,7 @@ namespace Parsek.Tests
                 line.Contains("SaveRecordingFiles failed"));
             Assert.NotNull(failureLine);
             Assert.Contains("id=rec_save", failureLine);
-            Assert.Contains("epoch=", failureLine);
+            Assert.Contains("epoch=4", failureLine);
             Assert.Contains("stagedFiles=", failureLine);
             Assert.Contains("trajectoryPath=", failureLine);
             Assert.Contains(invalidFinalPath, failureLine);
@@ -213,6 +213,7 @@ namespace Parsek.Tests
             Assert.Contains("ghostPath=", failureLine);
             Assert.Contains(ghostPath, failureLine);
             Assert.Contains("ex=", failureLine);
+            Assert.Equal(4, rec.SidecarEpoch);
         }
 
         [Fact]
@@ -336,10 +337,45 @@ namespace Parsek.Tests
 
             var slotLines = LogLinesContaining("CanInvokeSlot:");
             Assert.Single(slotLines);
-            Assert.Contains("disabled rp=rp_slot", slotLines[0]);
+            Assert.Contains("slot-disabled rp=rp_slot", slotLines[0]);
             Assert.Contains("slot=3", slotLines[0]);
             Assert.Contains("origin=rec_child", slotLines[0]);
             Assert.Contains("reason='rewind slot disabled: no-live-vessel'", slotLines[0]);
+        }
+
+        [Fact]
+        public void RewindSlotCanInvoke_LogsSlotOkAndGlobalFailureContext()
+        {
+            string quicksavePath = WriteQuicksave("GAME\n{\n  FLIGHTSTATE\n  {\n  }\n}\n");
+            var slot = new ChildSlot
+            {
+                SlotIndex = 7,
+                OriginChildRecordingId = "rec_child"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_slot_ok",
+                QuicksaveFilename = "Parsek/RewindPoints/rp_slot_ok.sfs",
+                ChildSlots = new List<ChildSlot> { slot }
+            };
+            RewindInvoker.ResolveAbsoluteQuicksavePathOverrideForTesting = _ => quicksavePath;
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+
+            Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out string reason));
+            Assert.Null(reason);
+
+            rp.Corrupted = true;
+            Assert.False(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out reason));
+            Assert.Equal("Rewind point is marked corrupted", reason);
+
+            var slotLines = LogLinesContaining("CanInvokeSlot:");
+            Assert.Equal(2, slotLines.Count);
+            Assert.Contains("slot-ok rp=rp_slot_ok", slotLines[0]);
+            Assert.Contains("slot=7", slotLines[0]);
+            Assert.Contains("origin=rec_child", slotLines[0]);
+            Assert.Contains("global-blocked rp=rp_slot_ok", slotLines[1]);
+            Assert.Contains("listIndex=0", slotLines[1]);
+            Assert.Contains("reason='Rewind point is marked corrupted'", slotLines[1]);
         }
 
         private string WriteQuicksave(string contents)

@@ -72,7 +72,8 @@ namespace Parsek
                     "ensure-recordings-missing-context",
                     null,
                     out string root,
-                    out string saveFolder))
+                    out string saveFolder,
+                    allowNullRelativePath: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -126,7 +127,8 @@ namespace Parsek
                     "ensure-rewindpoints-missing-context",
                     null,
                     out string root,
-                    out string saveFolder))
+                    out string saveFolder,
+                    allowNullRelativePath: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -144,7 +146,8 @@ namespace Parsek
                     "ensure-rewindsaves-missing-context",
                     null,
                     out string root,
-                    out string saveFolder))
+                    out string saveFolder,
+                    allowNullRelativePath: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -173,7 +176,8 @@ namespace Parsek
                     "ensure-gamestate-missing-context",
                     null,
                     out string root,
-                    out string saveFolder))
+                    out string saveFolder,
+                    allowNullRelativePath: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -191,7 +195,8 @@ namespace Parsek
                     "resolve-gamestate-missing-context",
                     null,
                     out string root,
-                    out string saveFolder))
+                    out string saveFolder,
+                    allowNullRelativePath: true))
                 return null;
 
             try
@@ -257,7 +262,8 @@ namespace Parsek
             string rateLimitKey,
             string relativePath,
             out string root,
-            out string saveFolder)
+            out string saveFolder,
+            bool allowNullRelativePath = false)
         {
             string rootError = null;
             string saveError = null;
@@ -277,7 +283,9 @@ namespace Parsek
 
             bool rootSet = !string.IsNullOrEmpty(root);
             bool saveSet = !string.IsNullOrEmpty(saveFolder);
-            bool relativeSet = relativePath == null || !string.IsNullOrEmpty(relativePath);
+            bool relativeSet = allowNullRelativePath
+                ? relativePath == null || !string.IsNullOrEmpty(relativePath)
+                : !string.IsNullOrEmpty(relativePath);
             if (rootSet && saveSet && relativeSet)
                 return true;
 
