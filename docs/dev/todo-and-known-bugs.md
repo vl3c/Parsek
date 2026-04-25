@@ -2027,6 +2027,76 @@ section. Test pins:
 
 ---
 
+## ~~572-followup. FinalizeTreeRecordings clobbers a Re-Fly-stripped recording's terminal state on scene exit~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:15829`.
+Second-order data-loss companion to PR #572's
+`RestoreHydrationFailedRecordingsFromCommittedTree`. After the
+in-place-continuation Re-Fly's strip killed the capsule
+(`Strip stripped=[2708531065]` at line 12821), `SaveActiveTreeIfAny`
+on the next scene exit ran `RestoreHydrationFailedRecordingsFromCommittedTree`
+to repair the capsule's active-tree record from the committed tree
+(line 15767, restored 1 recording). The very next `FinalizeTreeRecordings`
+pass (line 15828-15832) saw that the capsule's live pid was no longer
+in `FlightGlobals.Vessels`, fell into the
+`vessel pid=… not found on scene exit … inferred Landed from trajectory
+(vessel was alive when unloaded)` branch in
+`ParsekFlight.FinalizeIndividualRecording`, looked at the recording's
+last trajectory point at altitude=10.6m (an early atmospheric
+ascent point — the post-orbit data was pruned at chain segmentation
+when the new probe child was created), and stamped `terminal=Landed`
+onto the just-restored recording. The repair at line 15767 was
+silently bulldozed.
+
+User-visible symptom from the playtest: "the map view trajectory of
+the upper stage capsule was completely wrong, position around Kerbin
+was wrong" — `terminal=Landed` plus a populated `TerminalPosition`
+caused the spawn-at-end safety net to materialize a vessel at
+launch-site coordinates instead of leaving the orbit to play back as
+a ghost.
+
+**Cause:** the surface inference's working assumption is "vessel was
+alive when unloaded" (player flew to Space Center while the vessel
+remained in physics range). For a Re-Fly strip casualty whose
+recording was repaired from a committed copy that was committed
+mid-flight without a terminal state, that assumption is wrong — the
+missing live pid is a deliberate kill, and the trajectory's last
+point is whatever the committed copy carried, not a current "where
+the vessel is right now" hint.
+
+**Resolution (2026-04-28):** added a transient
+`[NonSerialized] Recording.RestoredFromCommittedTreeThisFrame`
+flag set by `ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording`
+on every record it repairs from the committed tree. New
+`ParsekFlight.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording`
+helper consults the flag in both
+`FinalizeIndividualRecording`'s leaf scene-exit branch and
+`EnsureActiveRecordingTerminalState`'s active-non-leaf scene-exit
+branch; when the flag is set, the inference is skipped, the flag is
+cleared on read, the existing
+`PopulateTerminalOrbitFromLastSegment` orbit-metadata recovery still
+runs (so the orbit fingerprint survives for ghost-map playback), and a
+structured `FinalizeTreeRecordings: skipping Landed/Splashed inference
+for '<id>' (vessel pid=<pid>) — repaired from committed tree this frame
+… (lastPtAlt=<alt>m maxDist=<m> orbitSegs=<n>)` INFO line is emitted.
+The orbit-then-land legitimate Landed-inference path
+(`Bug278FinalizeLimboTests.EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`,
+`SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog`)
+is unchanged because the flag is only set by the repair helper.
+
+Tests: `Bug572FollowupFinalizeRestoredTests` (5 cases — leaf strip
+casualty, active-non-leaf strip casualty, normal unloaded landing
+regression guard, orbit-then-land regression guard, and an
+end-to-end pin that the flag is cleared on read so a downstream
+finalize call cannot accidentally re-trigger).
+
+Plan in
+`docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md`.
+
+**Status:** CLOSED 2026-04-28.
+
+---
+
 ## ~~587-followup. Re-Fly post-supplement strip leaves non-Destroyed phantom vessels in scene~~
 
 **Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log:13590`. After

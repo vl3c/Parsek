@@ -3134,6 +3134,19 @@ namespace Parsek
             target.CreatingSessionId = creatingSessionId;
             target.SupersedeTargetId = supersedeTargetId;
             target.ProvisionalForRpId = provisionalForRpId;
+
+            // PR #572 second-order data-loss companion: the trajectory just
+            // copied over came from a committed recording that, in the
+            // Re-Fly in-place-continuation case, was committed mid-flight
+            // with TerminalStateValue=none. The immediately-following
+            // FinalizeTreeRecordings on scene exit would otherwise treat
+            // `vessel pid=… not found on scene exit` + last-point altitude<50m
+            // as evidence of a fresh landing and stamp Landed/Splashed onto
+            // a recording that actually represents a stripped Re-Fly origin
+            // vessel. The transient marker tells the finalize path to skip
+            // the surface inference for this recording on this frame —
+            // [NonSerialized] so a fresh session never sees it.
+            target.RestoredFromCommittedTreeThisFrame = true;
         }
 
         private static bool ShouldSkipActiveTreeEmptySidecarOverwrite(Recording rec)
