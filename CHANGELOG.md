@@ -47,7 +47,7 @@ All notable changes to Parsek are documented here.
 
 - `#602` `FinalizerCache refresh summary` periodic no-op passes (no fresh classification) now log at Verbose instead of Info, so the 156× `recordingsExamined=1 alreadyClassified=0 newlyClassified=0` per session no longer drowns real classification milestones. Every 64th consecutive no-delta pass still emits at Info as a long-session backstop.
 
-- `#603` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys live `FlightGlobals.Vessels` at warn time, so it no longer reports stale pre-kill counts after the post-supplement strip drained the colliding set, and stops conflating instance counts with deduped name counts.
+- `#603` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys at warn time scoped to the (pid, name) pairs the stripper actually left alone, with belt-and-suspenders exclusion of the actively re-flown vessel, freshly stripped pids, and any GhostMap ProtoVessel — so the WARN can no longer be tripped by the active vessel, a ghost, or a same-name vessel from a parallel flight, and the structured payload now carries `leftAlonePidsAlive=N excludedSelected=N excludedStripped=N excludedGhostMap=N`.
 
 - `#600` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
 

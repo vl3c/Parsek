@@ -962,7 +962,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAloneNames"/>
+        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAlonePidNames"/>
         /// against the committed-recording vessel names in the scenario's
         /// trees. A match means the player has a pre-existing quicksave
         /// vessel sharing a name with a recording in the active tree — they
@@ -972,53 +972,71 @@ namespace Parsek
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The 2026-04-25 playtest exposed two bugs in the original wiring:
+        /// Three playtest-driven bug fixes are layered into this helper:
         /// </para>
         /// <list type="bullet">
         /// <item><description>
         /// <see cref="PostLoadStripper.FindTreeNameCollisions"/> dedupes by
         /// name, so 3 actual <c>Kerbal X Debris</c> instances were summarized
         /// as <c>Strip left 1 pre-existing vessel(s)</c> — wrong instance
-        /// count.
+        /// count. Fixed by reporting vessel-instance and unique-name counts
+        /// separately.
         /// </description></item>
         /// <item><description>
         /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/> runs
         /// before this WARN and may have killed every colliding vessel via
         /// <see cref="Vessel.Die"/>; the WARN still emitted because it read
         /// the original pre-kill <c>LeftAloneNames</c> list, falsely
-        /// reporting collisions that no longer exist.
+        /// reporting collisions that no longer exist. Fixed by re-checking
+        /// pid liveness against <see cref="FlightGlobals.Vessels"/> before
+        /// counting.
+        /// </description></item>
+        /// <item><description>
+        /// PR #577 P2 review: a name-only re-survey of <c>FlightGlobals.Vessels</c>
+        /// counts EVERY live vessel whose name lands in the colliding set —
+        /// including the actively re-flown vessel (<c>SelectedPid</c>),
+        /// any vessel the strip just killed but whose death event hasn't
+        /// drained from the list, and ghost ProtoVessels created by
+        /// <see cref="GhostMapPresence"/>. Any of those producing a name
+        /// collision would re-introduce the misleading WARN this very fix
+        /// is trying to suppress. Fixed by scoping the resurvey to the
+        /// (pid, name) pairs the stripper actually left alone, and
+        /// belt-and-suspenders excluding <c>SelectedPid</c>,
+        /// <c>StrippedPids</c>, and any pid that
+        /// <see cref="GhostMapPresence.IsGhostMapVessel(uint)"/> reports.
         /// </description></item>
         /// </list>
-        /// <para>
-        /// This implementation requeries <see cref="FlightGlobals.Vessels"/>
-        /// at warn time, intersects with the colliding name set, and reports
-        /// vessel-instance and name counts separately. It also short-circuits
-        /// when the post-supplement strip already cleared every colliding
-        /// vessel.
-        /// </para>
         /// </remarks>
         internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
         {
-            if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
+            if (stripResult.LeftAlonePidNames == null || stripResult.LeftAlonePidNames.Count == 0)
                 return;
 
+            // Project to names for the tree-collision intersection. This is
+            // still a name-keyed match against committed recordings — the
+            // pid scope only constrains the live-survey step downstream.
             IEnumerable<string> treeNames = EnumerateCommittedVesselNames();
             var collisions = PostLoadStripper.FindTreeNameCollisions(
-                stripResult.LeftAloneNames, treeNames);
+                ProjectLeftAloneNames(stripResult.LeftAlonePidNames), treeNames);
             if (collisions == null || collisions.Count == 0)
                 return;
 
-            // Recount instances against the live FlightGlobals.Vessels list
-            // because StripPreExistingDebrisForInPlaceContinuation runs
-            // earlier and may have killed every colliding vessel between the
-            // strip and this warn. stripResult.LeftAloneNames is a stale
-            // snapshot of the pre-kill set; reading it directly produces
-            // misleading "Strip left N" counts in both directions.
+            // PR #577 P2 review: do NOT walk the full live FlightGlobals list
+            // when counting survivors. Instead, take the (pid, name) pairs
+            // the stripper deliberately left alone (the only set that can
+            // legitimately produce a "Strip left N" survivor) and
+            // belt-and-suspenders strip out the active re-fly vessel,
+            // freshly-stripped pids, and any GhostMap ProtoVessel pid.
             var collisionSet = new HashSet<string>(collisions, StringComparer.Ordinal);
-            IEnumerable<string> liveNames = EnumerateLiveVesselNames();
-            int liveVesselCount = CountLiveCollidingVessels(
-                collisionSet, liveNames, out var stillPresentNames);
-            EmitStripLeftAloneWarn(collisions, liveVesselCount, stillPresentNames);
+            HashSet<uint> liveVesselPids = SnapshotLiveVesselPids();
+            var survey = SurveyLiveLeftAloneCollisions(
+                stripResult.LeftAlonePidNames,
+                collisionSet,
+                liveVesselPids,
+                stripResult.SelectedPid,
+                stripResult.StrippedPids,
+                static pid => GhostMapPresence.IsGhostMapVessel(pid));
+            EmitStripLeftAloneWarn(collisions, survey);
         }
 
         /// <summary>
@@ -1029,82 +1047,185 @@ namespace Parsek
         /// </summary>
         internal static void EmitStripLeftAloneWarn(
             List<string> collidingNames,
-            int liveVesselCount,
-            List<string> stillPresentNames)
+            LeftAloneSurveyResult survey)
         {
             if (collidingNames == null || collidingNames.Count == 0)
                 return;
+            int liveVesselCount = survey.LiveCollidingVesselCount;
             if (liveVesselCount <= 0)
             {
-                // Post-supplement kill drained every match. Verbose is the
-                // right tier for a "nothing to warn about" diagnostic — keeps
-                // a trail without pretending there is an issue.
+                // Post-supplement kill drained every match (or every
+                // surviving leftAlone pid was excluded as the active re-fly
+                // vessel / freshly stripped / a ghost ProtoVessel). Verbose
+                // is the right tier for a "nothing to warn about"
+                // diagnostic — keeps a trail without pretending there is
+                // an issue.
                 ParsekLog.Verbose(InvokeTag,
                     $"Strip left no live pre-existing vessel(s) whose name matches a tree recording " +
                     $"(post-supplement kill drained the colliding set): collidingNames={collidingNames.Count} " +
-                    $"[{string.Join(", ", collidingNames.ToArray())}]");
+                    $"[{string.Join(", ", collidingNames.ToArray())}] " +
+                    $"(leftAlonePidsAlive={survey.LeftAlonePidsAliveCount} " +
+                    $"excludedSelected={survey.ExcludedSelectedCount} " +
+                    $"excludedStripped={survey.ExcludedStrippedCount} " +
+                    $"excludedGhostMap={survey.ExcludedGhostMapCount})");
                 return;
             }
 
-            stillPresentNames = stillPresentNames ?? new List<string>();
+            var stillPresentNames = survey.StillPresentNames ?? new List<string>();
             string joinedLiveNames = string.Join(", ", stillPresentNames.ToArray());
             ParsekLog.Warn(InvokeTag,
-                $"Strip left vessels={liveVesselCount} collidingNames={stillPresentNames.Count} pre-existing " +
-                $"vessel(s) whose name matches a tree recording: [{joinedLiveNames}] — not related to the " +
-                $"re-fly, will appear as second Kerbal X-shaped object in scene");
+                $"Strip left vessels={liveVesselCount} collidingNames={stillPresentNames.Count} " +
+                $"(leftAlonePidsAlive={survey.LeftAlonePidsAliveCount} " +
+                $"excludedSelected={survey.ExcludedSelectedCount} " +
+                $"excludedStripped={survey.ExcludedStrippedCount} " +
+                $"excludedGhostMap={survey.ExcludedGhostMapCount}) " +
+                $"pre-existing vessel(s) whose name matches a tree recording: [{joinedLiveNames}] — not " +
+                $"related to the re-fly, will appear as second Kerbal X-shaped object in scene");
             ShowUserError(
                 $"Heads up: pre-existing vessel(s) [{joinedLiveNames}] share a name with your re-fly " +
                 $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
         }
 
         /// <summary>
-        /// Pure helper: count vessel-name occurrences in
-        /// <paramref name="liveVesselNames"/> that match
-        /// <paramref name="collisionNames"/>. Outputs the deduped list of
-        /// names actually present.
+        /// Result of <see cref="SurveyLiveLeftAloneCollisions"/>: the
+        /// post-supplement, defense-filtered survivor count plus exclusion
+        /// counters that ride along into the structured log.
         /// </summary>
-        /// <remarks>
-        /// <c>vessels=N</c> in the strip-left-alone WARN is the total
-        /// instance count (3 Kerbal X Debris ⇒ 3); <c>collidingNames=M</c> is
-        /// the unique name count (1 distinct name). The 2026-04-25 playtest
-        /// captured the original WARN reporting only <c>collisions.Count</c>,
-        /// which conflated the two.
-        /// </remarks>
-        internal static int CountLiveCollidingVessels(
-            HashSet<string> collisionNames,
-            IEnumerable<string> liveVesselNames,
-            out List<string> stillPresentNames)
+        internal struct LeftAloneSurveyResult
         {
-            stillPresentNames = new List<string>();
-            if (collisionNames == null || collisionNames.Count == 0)
-                return 0;
-            if (liveVesselNames == null)
-                return 0;
+            /// <summary>Total leftAlone vessel instances still alive AND in the colliding-name set.</summary>
+            public int LiveCollidingVesselCount;
 
-            int instanceCount = 0;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string name in liveVesselNames)
-            {
-                if (string.IsNullOrEmpty(name)) continue;
-                if (!collisionNames.Contains(name)) continue;
-                instanceCount++;
-                if (seen.Add(name)) stillPresentNames.Add(name);
-            }
-            return instanceCount;
+            /// <summary>Distinct names that still have at least one live colliding instance.</summary>
+            public List<string> StillPresentNames;
+
+            /// <summary>Count of leftAlone pids still in <see cref="FlightGlobals.Vessels"/> after defensive exclusions.</summary>
+            public int LeftAlonePidsAliveCount;
+
+            /// <summary>Count of leftAlone entries excluded because they matched <see cref="PostLoadStripResult.SelectedPid"/>.</summary>
+            public int ExcludedSelectedCount;
+
+            /// <summary>Count of leftAlone entries excluded because they matched <see cref="PostLoadStripResult.StrippedPids"/>.</summary>
+            public int ExcludedStrippedCount;
+
+            /// <summary>Count of leftAlone entries excluded because <see cref="GhostMapPresence.IsGhostMapVessel(uint)"/> returned true.</summary>
+            public int ExcludedGhostMapCount;
         }
 
-        private static IEnumerable<string> EnumerateLiveVesselNames()
+        /// <summary>
+        /// Pure helper: walk the leftAlone (pid, name) pairs from
+        /// <see cref="PostLoadStripResult.LeftAlonePidNames"/>, drop entries
+        /// matching the selected/stripped/ghost-map exclusion sets, then
+        /// intersect the survivors with the colliding-name set against the
+        /// live-pid snapshot. Yields the per-name instance count and the
+        /// exclusion counters used in the WARN's structured payload.
+        /// </summary>
+        /// <param name="leftAlonePidNames">The (pid, name) pairs the stripper left alone.</param>
+        /// <param name="collisionNames">Names that match a committed-recording in the re-fly tree.</param>
+        /// <param name="liveVesselPids">Pids currently in <c>FlightGlobals.Vessels</c>.</param>
+        /// <param name="selectedPid">PR #577 P2 defense: the actively re-flown vessel pid is never a "leftover".</param>
+        /// <param name="strippedPids">PR #577 P2 defense: pids the stripper just killed (death may lag the live list by a frame).</param>
+        /// <param name="isGhostMapVessel">PR #577 P2 defense: GhostMap ProtoVessel pid predicate (delegate-injected for unit tests).</param>
+        internal static LeftAloneSurveyResult SurveyLiveLeftAloneCollisions(
+            IReadOnlyList<(uint pid, string name)> leftAlonePidNames,
+            HashSet<string> collisionNames,
+            HashSet<uint> liveVesselPids,
+            uint selectedPid,
+            IList<uint> strippedPids,
+            Func<uint, bool> isGhostMapVessel)
         {
+            var result = new LeftAloneSurveyResult
+            {
+                LiveCollidingVesselCount = 0,
+                StillPresentNames = new List<string>(),
+                LeftAlonePidsAliveCount = 0,
+                ExcludedSelectedCount = 0,
+                ExcludedStrippedCount = 0,
+                ExcludedGhostMapCount = 0,
+            };
+            if (leftAlonePidNames == null || leftAlonePidNames.Count == 0)
+                return result;
+
+            HashSet<uint> strippedSet = null;
+            if (strippedPids != null && strippedPids.Count > 0)
+            {
+                strippedSet = new HashSet<uint>();
+                for (int i = 0; i < strippedPids.Count; i++) strippedSet.Add(strippedPids[i]);
+            }
+
+            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < leftAlonePidNames.Count; i++)
+            {
+                var (pid, name) = leftAlonePidNames[i];
+                if (pid == 0u) continue;
+                if (string.IsNullOrEmpty(name)) continue;
+
+                // Defensive exclusions (PR #577 P2 review). All three are
+                // belt-and-suspenders: the stripper does not put any of these
+                // pids into LeftAlonePidNames in the first place. But if a
+                // future code path leaks one in — e.g. selected slot match
+                // ambiguity, or strip ordering with a delayed Die() — these
+                // explicit filters keep the WARN honest.
+                if (selectedPid != 0u && pid == selectedPid)
+                {
+                    result.ExcludedSelectedCount++;
+                    continue;
+                }
+                if (strippedSet != null && strippedSet.Contains(pid))
+                {
+                    result.ExcludedStrippedCount++;
+                    continue;
+                }
+                if (isGhostMapVessel != null && isGhostMapVessel(pid))
+                {
+                    result.ExcludedGhostMapCount++;
+                    continue;
+                }
+
+                // Liveness check: is this leftAlone pid still in the live
+                // vessel list? StripPreExistingDebrisForInPlaceContinuation
+                // may have killed it between Strip and this WARN.
+                if (liveVesselPids == null || !liveVesselPids.Contains(pid))
+                    continue;
+
+                result.LeftAlonePidsAliveCount++;
+
+                if (collisionNames == null || !collisionNames.Contains(name))
+                    continue;
+
+                result.LiveCollidingVesselCount++;
+                if (seenNames.Add(name)) result.StillPresentNames.Add(name);
+            }
+            return result;
+        }
+
+        private static IEnumerable<string> ProjectLeftAloneNames(
+            IList<(uint pid, string name)> leftAlonePidNames)
+        {
+            if (leftAlonePidNames == null) yield break;
+            for (int i = 0; i < leftAlonePidNames.Count; i++)
+            {
+                string n = leftAlonePidNames[i].name;
+                if (!string.IsNullOrEmpty(n)) yield return n;
+            }
+        }
+
+        private static HashSet<uint> SnapshotLiveVesselPids()
+        {
+            var pids = new HashSet<uint>();
             IList<Vessel> liveVessels;
             try { liveVessels = FlightGlobals.Vessels; }
             catch { liveVessels = null; }
-            if (liveVessels == null) yield break;
+            if (liveVessels == null) return pids;
             for (int i = 0; i < liveVessels.Count; i++)
             {
                 var v = liveVessels[i];
                 if (v == null) continue;
-                yield return v.vesselName;
+                uint pid = 0u;
+                try { pid = v.persistentId; } catch { /* defensive */ }
+                if (pid != 0u) pids.Add(pid);
             }
+            return pids;
         }
 
         private static IEnumerable<string> EnumerateCommittedVesselNames()

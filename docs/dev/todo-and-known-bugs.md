@@ -1862,7 +1862,45 @@ diagnostic) when the colliding set has been fully drained. Helpers
 `EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors`,
 `EmitStripLeftAloneWarn_NoCollidingNames_NoLog`.
 
-**Status:** CLOSED 2026-04-26.
+**P2 review follow-up (PR #577):** the original re-survey walked
+every live vessel name and counted every match — including the
+actively re-flown vessel (`SelectedPid`), GhostMap ProtoVessels,
+freshly stripped pids whose `Die()` event hadn't drained from the
+live list, and any other legitimate same-name vessel from a parallel
+flight. Any of those producing a name match would re-emit the
+misleading WARN this fix was supposed to suppress.
+
+**Resolution (2026-04-25):** Renamed
+`PostLoadStripResult.LeftAloneNames` (`List<string>`) →
+`LeftAlonePidNames` (`List<(uint pid, string name)>`) so the strip
+phase persists the pid alongside the name. The new pure helper
+`RewindInvoker.SurveyLiveLeftAloneCollisions` walks ONLY the
+`LeftAlonePidNames` set, defensively drops entries matching
+`SelectedPid` / `StrippedPids` / `GhostMapPresence.IsGhostMapVessel`,
+verifies pid liveness against a `FlightGlobals.Vessels` snapshot,
+and only then counts collisions. The `liveVesselCount` is now
+bounded by the pre-strip leftAlone set, so a same-name active vessel
+or a ghost ProtoVessel can no longer be miscounted as a "leftover".
+The structured WARN payload gained `leftAlonePidsAlive=N
+excludedSelected=N excludedStripped=N excludedGhostMap=N` so the
+exclusion path is post-mortem visible.
+
+New tests in `Bug587StripPreExistingDebrisTests` (replacing the
+`CountLiveCollidingVessels_*` cases):
+`SurveyLiveLeftAloneCollisions_AllLeftAlonePidsKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_PartialKill_ReportsSurvivorInstanceAndNameCount`,
+`SurveyLiveLeftAloneCollisions_MultipleInstancesSameName_CountsInstancesNotNames`,
+`SurveyLiveLeftAloneCollisions_SelectedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_StrippedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_GhostMapPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_AllExcludedAndAllKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_NullInputs_AreDefensive`,
+plus `EmitStripLeftAloneWarn_AllExcluded_LogsVerboseWithExclusionCounters`
+to pin the structured-log shape.
+`PostLoadStripperTests.Strip_CapturesLeftAlonePidNamesForCollisionDetection`
+flipped to assert `(pid, name)` tuples are captured.
+
+**Status:** CLOSED 2026-04-25 (PR #577 P2 follow-up).
 
 ---
 
