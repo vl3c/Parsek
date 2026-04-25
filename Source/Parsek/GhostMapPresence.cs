@@ -1643,7 +1643,10 @@ namespace Parsek
             // local function can read the resolved segment / state point at the
             // moment a decision is finalised. C# 7 forbids capturing `out` /
             // `ref` parameters in nested closures, so we keep these locals in sync
-            // immediately before each ReturnDecision call.
+            // immediately before each ReturnDecision call. Both the unstructured
+            // diagnostic summary (CombineSourceDetails / BuildGhostSourceStructuredDetail)
+            // and the structured GhostMap decision-line emission
+            // (EmitSourceResolveLine) read these mirrors.
             OrbitSegment resolvedSegment = default(OrbitSegment);
             TrajectoryPoint resolvedStatePoint = default(TrajectoryPoint);
 
@@ -1652,6 +1655,14 @@ namespace Parsek
                 string reason,
                 string detail = null)
             {
+                string combinedDetail = CombineSourceDetails(
+                    detail,
+                    BuildGhostSourceStructuredDetail(
+                        traj,
+                        currentUT,
+                        source,
+                        resolvedSegment,
+                        resolvedStatePoint));
                 if (!string.IsNullOrEmpty(logOperationName))
                 {
                     ParsekLog.VerboseRateLimited(
@@ -1669,7 +1680,7 @@ namespace Parsek
                             currentUT,
                             source,
                             reason ?? "(none)",
-                            string.IsNullOrEmpty(detail) ? string.Empty : " " + detail));
+                            string.IsNullOrEmpty(combinedDetail) ? string.Empty : " " + combinedDetail));
 
                     // Structured-line emission so the post-hoc reader can grep one
                     // canonical shape across every decision in this file. Local
@@ -1723,6 +1734,30 @@ namespace Parsek
                     TrackingStationGhostSource.None,
                     skipReason,
                     string.Format(ic, "terminal={0}", terminal.Value));
+            }
+
+            // Dense OrbitalCheckpoint frames are derived from the matching OrbitSegment,
+            // but they are the higher-fidelity source for map icons during the checkpoint window.
+            if (TryResolveCheckpointStateVectorMapPoint(
+                traj,
+                currentUT,
+                ref stateVectorCachedIndex,
+                out stateVectorPoint,
+                out _,
+                out TrackSection checkpointSection))
+            {
+                resolvedStatePoint = stateVectorPoint;
+                return ReturnDecision(
+                    TrackingStationGhostSource.StateVector,
+                    skipReason,
+                    string.Format(ic,
+                        "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1}",
+                        checkpointSection.startUT,
+                        checkpointSection.endUT,
+                        stateVectorPoint.ut,
+                        stateVectorPoint.bodyName ?? "(null)",
+                        stateVectorPoint.altitude,
+                        stateVectorPoint.velocity.magnitude));
             }
 
             if (traj.HasOrbitSegments)
@@ -1883,23 +1918,34 @@ namespace Parsek
             TrajectoryPoint stateVectorPoint)
         {
             if (rec == null)
-                return "null recording";
+                return "null recording sourceKind=None rec=(null) body=(none) sourceUT=(none) world=(none)";
+
+            string structuredDetail = BuildGhostSourceStructuredDetail(
+                rec,
+                currentUT,
+                source,
+                segment,
+                stateVectorPoint);
+            string WithStructured(string detail)
+            {
+                return CombineSourceDetails(detail, structuredDetail);
+            }
 
             switch (source)
             {
                 case TrackingStationGhostSource.Segment:
-                    return string.Format(ic,
+                    return WithStructured(string.Format(ic,
                         "segmentBody={0} segmentUT={1:F1}-{2:F1}",
                         segment.bodyName ?? "(null)",
                         segment.startUT,
-                        segment.endUT);
+                        segment.endUT));
 
                 case TrackingStationGhostSource.StateVector:
-                    return string.Format(ic,
+                    return WithStructured(string.Format(ic,
                         "stateVectorBody={0} alt={1:F0} speed={2:F1}",
                         stateVectorPoint.bodyName ?? "(null)",
                         stateVectorPoint.altitude,
-                        stateVectorPoint.velocity.magnitude);
+                        stateVectorPoint.velocity.magnitude));
 
                 case TrackingStationGhostSource.TerminalOrbit:
                     if (TryResolveGhostProtoOrbitSeed(
@@ -1914,14 +1960,14 @@ namespace Parsek
                         out string seedBodyName,
                         out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
                     {
-                        return string.Format(ic,
+                        return WithStructured(string.Format(ic,
                             "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
                             rec.TerminalOrbitBody ?? "(null)",
                             rec.EndUT,
                             seedBodyName ?? "(null)",
                             seedDiagnostics.Source ?? "(none)",
                             seedDiagnostics.EndpointBodyName ?? "(none)",
-                            seedDiagnostics.FallbackReason ?? "(none)");
+                            seedDiagnostics.FallbackReason ?? "(none)"));
                     }
                     break;
             }
@@ -1929,16 +1975,16 @@ namespace Parsek
             switch (skipReason)
             {
                 case "debris":
-                    return "isDebris=True";
+                    return WithStructured("isDebris=True");
                 case TrackingStationGhostSkipSuppressed:
-                    return "isSuppressed=True";
+                    return WithStructured("isSuppressed=True");
                 case TrackingStationGhostSkipAlreadySpawned:
-                    return "already materialized";
+                    return WithStructured("already materialized");
                 case "before-activation":
-                    return string.Format(ic, "activationStartUT={0:F1}",
-                        PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec));
+                    return WithStructured(string.Format(ic, "activationStartUT={0:F1}",
+                        PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec)));
                 case "before-terminal-orbit":
-                    return string.Format(ic, "endUT={0:F1}", rec.EndUT);
+                    return WithStructured(string.Format(ic, "endUT={0:F1}", rec.EndUT));
                 case TrackingStationGhostSkipEndpointConflict:
                 case TrackingStationGhostSkipUnseedableTerminalOrbit:
                     TryResolveGhostProtoOrbitSeed(
@@ -1952,31 +1998,176 @@ namespace Parsek
                         out _,
                         out _,
                         out GhostProtoOrbitSeedDiagnostics seedDiagnostics);
-                    return string.Format(ic,
+                    return WithStructured(string.Format(ic,
                         "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
                         rec.TerminalOrbitBody ?? "(null)",
                         rec.EndUT,
                         seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)");
+                        seedDiagnostics.EndpointBodyName ?? "(none)"));
             }
 
             if (skipReason != null && skipReason.StartsWith("terminal"))
-                return string.Format(ic, "terminal={0}",
-                    rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)");
+                return WithStructured(string.Format(ic, "terminal={0}",
+                    rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)"));
 
             if (skipReason == "no-current-segment" || skipReason == "no-orbit-data")
-                return string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments);
+                return WithStructured(string.Format(ic, "hasOrbitSegments={0}", rec.HasOrbitSegments));
 
             if (skipReason == TrackingStationGhostSkipStateVectorThreshold)
-                return string.Format(ic, "hasOrbitSegments={0} stateVectorThreshold=True", rec.HasOrbitSegments);
+                return WithStructured(string.Format(ic, "hasOrbitSegments={0} stateVectorThreshold=True", rec.HasOrbitSegments));
 
             if (skipReason == TrackingStationGhostSkipRelativeFrame)
-                return "relativeFrame=True";
+                return WithStructured("relativeFrame=True");
 
             if (skipReason == "no-state-vector-point")
-                return string.Format(ic, "stateVectorPointMissing=True hasOrbitSegments={0}", rec.HasOrbitSegments);
+                return WithStructured(string.Format(ic, "stateVectorPointMissing=True hasOrbitSegments={0}", rec.HasOrbitSegments));
 
-            return null;
+            return structuredDetail;
+        }
+
+        private static string CombineSourceDetails(string detail, string structuredDetail)
+        {
+            if (string.IsNullOrEmpty(detail))
+                return structuredDetail;
+            if (string.IsNullOrEmpty(structuredDetail))
+                return detail;
+            return detail + " " + structuredDetail;
+        }
+
+        private static string BuildGhostSourceStructuredDetail(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            TrajectoryPoint stateVectorPoint)
+        {
+            string recId = traj?.RecordingId ?? "(null)";
+            switch (source)
+            {
+                case TrackingStationGhostSource.Segment:
+                    return BuildOrbitSourceStructuredDetail("Segment", recId, currentUT, segment);
+
+                case TrackingStationGhostSource.TerminalOrbit:
+                    return BuildOrbitSourceStructuredDetail("TerminalOrbit", recId, currentUT, segment);
+
+                case TrackingStationGhostSource.StateVector:
+                    return BuildStateVectorSourceStructuredDetail(recId, stateVectorPoint);
+
+                default:
+                    return string.Format(ic,
+                        "sourceKind=None rec={0} body=(none) sourceUT=(none) world=(none)",
+                        recId);
+            }
+        }
+
+        private static string BuildOrbitSourceStructuredDetail(
+            string sourceKind,
+            string recId,
+            double currentUT,
+            OrbitSegment segment)
+        {
+            string world = TryResolveOrbitWorldPosition(segment, currentUT, out Vector3d worldPos)
+                ? FormatWorldPosition(worldPos)
+                : "(unresolved)";
+            return string.Format(ic,
+                "sourceKind={0} rec={1} body={2} sourceUT={3:F1}-{4:F1} epoch={5:F1} sma={6:F0} ecc={7:F6} world={8}",
+                sourceKind,
+                recId,
+                segment.bodyName ?? "(null)",
+                segment.startUT,
+                segment.endUT,
+                segment.epoch,
+                segment.semiMajorAxis,
+                segment.eccentricity,
+                world);
+        }
+
+        private static string BuildStateVectorSourceStructuredDetail(
+            string recId,
+            TrajectoryPoint point)
+        {
+            string world = TryResolvePointWorldPosition(point, out Vector3d worldPos)
+                ? FormatWorldPosition(worldPos)
+                : "(unresolved)";
+            return string.Format(ic,
+                "sourceKind=StateVector rec={0} body={1} sourceUT={2:F1} pointUT={3:F1} alt={4:F0} speed={5:F1} world={6}",
+                recId,
+                point.bodyName ?? "(null)",
+                point.ut,
+                point.ut,
+                point.altitude,
+                point.velocity.magnitude,
+                world);
+        }
+
+        private static bool TryResolveOrbitWorldPosition(
+            OrbitSegment segment,
+            double currentUT,
+            out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            try
+            {
+                CelestialBody body = FindBodyByName(segment.bodyName);
+                if (body == null)
+                    return false;
+
+                Orbit orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                worldPos = orbit.getPositionAtUT(currentUT);
+                return IsFinite(worldPos);
+            }
+            catch (Exception)
+            {
+                worldPos = Vector3d.zero;
+                return false;
+            }
+        }
+
+        private static bool TryResolvePointWorldPosition(
+            TrajectoryPoint point,
+            out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            try
+            {
+                CelestialBody body = FindBodyByName(point.bodyName);
+                if (body == null)
+                    return false;
+
+                worldPos = body.GetWorldSurfacePosition(
+                    point.latitude,
+                    point.longitude,
+                    point.altitude);
+                return IsFinite(worldPos);
+            }
+            catch (Exception)
+            {
+                worldPos = Vector3d.zero;
+                return false;
+            }
+        }
+
+        private static string FormatWorldPosition(Vector3d value)
+        {
+            return string.Format(ic,
+                "({0:F1},{1:F1},{2:F1})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
+                || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
         }
 
         private static string NormalizeStateVectorSkipReasonForNoOrbit(string stateVectorSkipReason)
@@ -1985,6 +2176,58 @@ namespace Parsek
                 || stateVectorSkipReason == "no-points"
                     ? "no-orbit-data"
                     : stateVectorSkipReason;
+        }
+
+        private static bool TryResolveCheckpointStateVectorMapPoint(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref int cachedIndex,
+            out TrajectoryPoint point,
+            out string skipReason,
+            out TrackSection section)
+        {
+            point = default(TrajectoryPoint);
+            skipReason = null;
+            section = default(TrackSection);
+
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+            {
+                skipReason = "no-track-sections";
+                return false;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, currentUT);
+            if (sectionIdx < 0)
+            {
+                skipReason = "no-current-section";
+                return false;
+            }
+
+            section = traj.TrackSections[sectionIdx];
+            if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+            {
+                skipReason = "not-orbital-checkpoint";
+                return false;
+            }
+
+            if (section.frames == null || section.frames.Count == 0)
+            {
+                skipReason = "no-checkpoint-points";
+                return false;
+            }
+
+            TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
+                section.frames,
+                currentUT,
+                ref cachedIndex);
+            if (!pt.HasValue)
+            {
+                skipReason = "no-checkpoint-state-vector-point";
+                return false;
+            }
+
+            point = pt.Value;
+            return true;
         }
 
         private static bool TryResolveStateVectorMapPoint(
@@ -2259,8 +2502,24 @@ namespace Parsek
                 bool isStateVector =
                     trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
 
+                int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
+                    ? cached
+                    : -1;
+                bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
+                    rec,
+                    currentUT,
+                    ref cachedStateVectorIndex,
+                    out TrajectoryPoint checkpointPoint,
+                    out _,
+                    out _);
+
                 string removeReason = GetTrackingStationGhostRemovalReason(
-                    rec, isSuppressed, alreadyMaterialized, hasOrbitBounds, isStateVector, currentUT);
+                    rec,
+                    isSuppressed,
+                    alreadyMaterialized,
+                    hasOrbitBounds,
+                    isStateVector || fromCheckpoint,
+                    currentUT);
                 if (removeReason != null)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
@@ -2268,11 +2527,15 @@ namespace Parsek
                     continue;
                 }
 
+                if (fromCheckpoint)
+                {
+                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                    UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT);
+                    continue;
+                }
+
                 if (isStateVector)
                 {
-                    int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
-                        ? cached
-                        : -1;
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
                         rec.Points,
                         currentUT,
@@ -2305,6 +2568,12 @@ namespace Parsek
                     continue;
 
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                if (!seg.HasValue)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, "tracking-station-expired"));
+                    continue;
+                }
                 if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
                     UpdateGhostOrbitForRecording(idx, seg.Value);
             }

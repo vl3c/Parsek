@@ -289,7 +289,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
 
         private struct GhostPosEntry
         {
@@ -310,7 +310,7 @@ namespace Parsek
 
 
             // Orbit fields
-            public int orbitCacheKey;
+            public long orbitCacheKey;
             public double orbitUT;
 
             // Orbital rotation fields (Phase: orbital-rotation)
@@ -586,8 +586,8 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        private HashSet<int> loggedOrbitSegments = new HashSet<int>();
-        private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
+        private HashSet<long> loggedOrbitSegments = new HashSet<long>();
+        private HashSet<long> loggedOrbitRotationSegments = new HashSet<long>();
 
         // Anchor vessel tracking moved to engine (T25).
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
@@ -1068,6 +1068,75 @@ namespace Parsek
                                 // Prograde fallback (old recordings)
                                 e.ghost.transform.rotation = Quaternion.LookRotation(vel);
                             }
+                        }
+                        break;
+                    }
+                    case GhostPosMode.CheckpointPoint:
+                    {
+                        if (e.bodyBefore == null || e.bodyAfter == null) break;
+                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                            e.latAfter, e.lonAfter, e.altAfter);
+                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        e.ghost.transform.position = pos;
+
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+                        {
+                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+
+                            if (e.isSpinning)
+                            {
+                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrameAtStart;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                                    else
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
+                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                                }
+                                else if (vel.sqrMagnitude > 0.001)
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                }
+                            }
+                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                            {
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrame;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                                    else
+                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
+                                }
+                                else
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                }
+                            }
+                            else if (vel.sqrMagnitude > 0.001)
+                            {
+                                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                            }
+                        }
+                        else
+                        {
+                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         }
                         break;
                     }
@@ -12661,8 +12730,23 @@ namespace Parsek
         {
             if (state?.ghost == null || traj?.Points == null) return;
             int playbackIdx = state.playbackIndex;
-            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
             InterpolationResult interpResult;
+
+            if (TryInterpolateAndPositionCheckpointSection(
+                index,
+                traj,
+                state.ghost,
+                ref playbackIdx,
+                ut,
+                ShouldAutoActivateGhost(state),
+                out interpResult))
+            {
+                state.SetInterpolated(interpResult);
+                state.playbackIndex = playbackIdx;
+                return;
+            }
+
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
@@ -13188,9 +13272,9 @@ namespace Parsek
         }
 
         // Cache to avoid reconstructing Orbit objects every frame
-        private Dictionary<int, Orbit> orbitCache = new Dictionary<int, Orbit>();
+        private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
-        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, int cacheKey)
+        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
@@ -13273,7 +13357,7 @@ namespace Parsek
 
         internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(
             OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
-            Vector3d bodyPosition, Quaternion currentRotation, int cacheKey, bool hasOfr, bool spinning)
+            Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning)
         {
             Quaternion ghostRot = currentRotation; // preserve current if no update
             Quaternion boundaryWorldRot = Quaternion.identity;
@@ -13321,7 +13405,7 @@ namespace Parsek
         /// null for current-time context.
         /// </summary>
         private static Quaternion SafeOrbitalLookRotation(
-            Vector3 velocity, Vector3 radialOut, int cacheKey, string suffix)
+            Vector3 velocity, Vector3 radialOut, long cacheKey, string suffix)
         {
             if (Mathf.Abs(Vector3.Dot(velocity.normalized, radialOut.normalized)) > 0.99f)
             {
@@ -13497,6 +13581,313 @@ namespace Parsek
             return double.NaN;
         }
 
+        bool TryInterpolateAndPositionCheckpointSection(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            GameObject ghost,
+            ref int playbackIdx,
+            double playbackUT,
+            bool allowActivation,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!TryGetCheckpointTrackSection(traj, playbackUT, out int sectionIdx, out TrackSection section))
+                return false;
+
+            if (!TryInterpolateAndPositionCheckpointSectionWithOrbitRotation(
+                    recordingIndex,
+                    sectionIdx,
+                    section,
+                    ghost,
+                    ref playbackIdx,
+                    playbackUT,
+                    allowActivation,
+                    out interpResult))
+            {
+                InterpolateAndPosition(
+                    ghost,
+                    section.frames,
+                    ref playbackIdx,
+                    playbackUT,
+                    allowActivation,
+                    out interpResult);
+            }
+
+            int logIndex = playbackIdx;
+            if (TryResolvePointWorldPosition(section.frames, ref logIndex, playbackUT, out Vector3d worldPos))
+                LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
+
+            return true;
+        }
+
+        bool TryInterpolateAndPositionCheckpointSectionWithOrbitRotation(
+            int recordingIndex,
+            int sectionIdx,
+            TrackSection section,
+            GameObject ghost,
+            ref int playbackIdx,
+            double playbackUT,
+            bool allowActivation,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!TryFindCheckpointOrbitSegment(section, playbackUT, out OrbitSegment segment, out int checkpointIdx))
+                return false;
+
+            long cacheKey = BuildCheckpointOrbitCacheKey(recordingIndex, sectionIdx, checkpointIdx);
+            if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody orbitBody))
+                return false;
+
+            bool hasPointInterpolation = TryResolveCheckpointPointInterpolation(
+                section.frames,
+                ref playbackIdx,
+                playbackUT,
+                out TrajectoryPoint before,
+                out TrajectoryPoint after,
+                out float t);
+            if (!hasPointInterpolation)
+            {
+                if (section.frames == null || section.frames.Count == 0)
+                {
+                    ghost.SetActive(false);
+                    return true;
+                }
+
+                before = section.frames[0];
+                after = before;
+                t = 0f;
+            }
+
+            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            if (bodyBefore == null || bodyAfter == null)
+                return false;
+
+            if (allowActivation && !ghost.activeSelf)
+                ghost.SetActive(true);
+
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
+                before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
+                after.latitude, after.longitude, after.altitude);
+            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
+            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
+                interpolatedPos = posBefore;
+
+            Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
+            bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
+            bool spinning = TrajectoryMath.IsSpinning(segment);
+            var (ghostRot, _) = ComputeOrbitalRotation(
+                segment,
+                orbit,
+                playbackUT,
+                velocity,
+                interpolatedPos,
+                orbitBody.position,
+                ghost.transform.rotation,
+                cacheKey,
+                hasOfr,
+                spinning);
+
+            ghost.transform.position = interpolatedPos;
+            ghost.transform.rotation = ghostRot;
+
+            Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
+            pointRot = TrajectoryMath.SanitizeQuaternion(pointRot);
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.CheckpointPoint,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude,
+                lonBefore = before.longitude,
+                altBefore = before.altitude,
+                latAfter = after.latitude,
+                lonAfter = after.longitude,
+                altAfter = after.altitude,
+                t = t,
+                pointUT = playbackUT,
+                interpolatedRot = pointRot,
+                orbitCacheKey = cacheKey,
+                orbitUT = playbackUT,
+                orbitFrameRot = segment.orbitalFrameRotation,
+                hasOrbitFrameRot = hasOfr,
+                orbitBody = orbitBody,
+                orbitAngularVelocity = segment.angularVelocity,
+                isSpinning = spinning,
+                orbitSegmentStartUT = segment.startUT
+            });
+
+            interpResult = new InterpolationResult(
+                (Vector3)velocity,
+                segment.bodyName,
+                TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            return true;
+        }
+
+        private bool TryGetOrbitForSegment(
+            OrbitSegment segment,
+            long cacheKey,
+            out Orbit orbit,
+            out CelestialBody body)
+        {
+            orbit = null;
+            body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            if (body == null)
+                return false;
+
+            if (!orbitCache.TryGetValue(cacheKey, out orbit))
+            {
+                orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                orbitCache[cacheKey] = orbit;
+            }
+
+            return true;
+        }
+
+        private static bool TryFindCheckpointOrbitSegment(
+            TrackSection section,
+            double playbackUT,
+            out OrbitSegment segment,
+            out int checkpointIdx)
+        {
+            segment = default(OrbitSegment);
+            checkpointIdx = -1;
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            for (int i = 0; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment candidate = section.checkpoints[i];
+                if (playbackUT >= candidate.startUT && playbackUT <= candidate.endUT)
+                {
+                    segment = candidate;
+                    checkpointIdx = i;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveCheckpointPointInterpolation(
+            List<TrajectoryPoint> frames,
+            ref int playbackIdx,
+            double playbackUT,
+            out TrajectoryPoint before,
+            out TrajectoryPoint after,
+            out float t)
+        {
+            return TrajectoryMath.InterpolatePoints(
+                frames,
+                ref playbackIdx,
+                playbackUT,
+                out before,
+                out after,
+                out t);
+        }
+
+        private const long CheckpointOrbitCacheBase = long.MinValue;
+        private const long CheckpointOrbitCacheRecordingStride = 1000000000000L;
+        private const long CheckpointOrbitCacheSectionStride = 1000000L;
+        private const long CheckpointOrbitCacheMaxRecordingIndex =
+            (long.MaxValue - CheckpointOrbitCacheRecordingStride + 1) / CheckpointOrbitCacheRecordingStride;
+
+        private static long BuildCheckpointOrbitCacheKey(
+            int recordingIndex,
+            int sectionIdx,
+            int checkpointIdx)
+        {
+            // Regular orbit playback cache keys are non-negative int-derived values.
+            // Checkpoint keys live in a negative long namespace with explicit strides
+            // so section/checkpoint growth cannot alias the ordinary segment cache.
+            long rec = Math.Min(CheckpointOrbitCacheMaxRecordingIndex, Math.Max(0, (long)recordingIndex));
+            long section = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)sectionIdx));
+            long checkpoint = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)checkpointIdx));
+            return unchecked(
+                CheckpointOrbitCacheBase
+                + rec * CheckpointOrbitCacheRecordingStride
+                + section * CheckpointOrbitCacheSectionStride
+                + checkpoint);
+        }
+
+        bool TryGetCheckpointTrackSection(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out int sectionIdx,
+            out TrackSection section)
+        {
+            sectionIdx = -1;
+            section = default(TrackSection);
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0)
+                return false;
+
+            section = traj.TrackSections[sectionIdx];
+            return section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && section.frames != null
+                && section.frames.Count > 0;
+        }
+
+        void LogCheckpointPointPlayback(
+            IPlaybackTrajectory traj,
+            int sectionIdx,
+            TrackSection section,
+            double playbackUT,
+            Vector3d worldPos)
+        {
+            int pointIdx = 0;
+            TrajectoryPoint? point = TrajectoryMath.BracketPointAtUT(
+                section.frames,
+                playbackUT,
+                ref pointIdx);
+            if (!point.HasValue && section.frames != null && section.frames.Count > 0)
+                point = section.frames[0];
+
+            string recId = string.IsNullOrEmpty(traj?.RecordingId) ? "(null)" : traj.RecordingId;
+            string pointDetail = point.HasValue
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "pointUT={0:F1} body={1} alt={2:F0} speed={3:F1}",
+                    point.Value.ut,
+                    point.Value.bodyName ?? "(null)",
+                    point.Value.altitude,
+                    point.Value.velocity.magnitude)
+                : "pointUT=(none) body=(none) alt=0 speed=0";
+
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "orbital-checkpoint-point-{0}-{1}",
+                    recId,
+                    sectionIdx),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "OrbitalCheckpoint point playback: rec={0} currentUT={1:F1} section[{2}] sectionUT={3:F1}-{4:F1} {5} world={6} frames={7}",
+                    recId,
+                    playbackUT,
+                    sectionIdx,
+                    section.startUT,
+                    section.endUT,
+                    pointDetail,
+                    FormatVector3d(worldPos),
+                    section.frames?.Count ?? 0),
+                1.0);
+        }
+
         bool TryResolvePlaybackWorldPosition(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
             double playbackUT, out Vector3d worldPos)
@@ -13505,6 +13896,7 @@ namespace Parsek
             if (traj == null)
                 return false;
 
+            int cachedIndex = state != null ? state.playbackIndex : 0;
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
@@ -13526,11 +13918,22 @@ namespace Parsek
                             return true;
                         }
                     }
+                    else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                        && section.frames != null
+                        && section.frames.Count > 0
+                        && TryResolvePointWorldPosition(
+                            section.frames,
+                            ref cachedIndex,
+                            playbackUT,
+                            out worldPos))
+                    {
+                        LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
+                        return true;
+                    }
                 }
             }
 
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
-            int cachedIndex = state != null ? state.playbackIndex : 0;
             if (TryResolveInterpolatedWorldPosition(
                     traj.Points, traj.OrbitSegments, ref cachedIndex,
                     playbackUT, index * 10000, surfaceSkip, out worldPos))
@@ -13780,6 +14183,18 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
+            if (TryInterpolateAndPositionCheckpointSection(
+                recIdx,
+                rec,
+                ghost,
+                ref playbackIdx,
+                loopUT,
+                allowActivation,
+                out interpResult))
+            {
+                return;
+            }
+
             if (useAnchor)
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
