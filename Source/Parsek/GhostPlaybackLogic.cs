@@ -126,6 +126,30 @@ namespace Parsek
             return currentWarpRate > WarpThresholds.GhostHide;
         }
 
+        internal static bool ShouldSuppressGhostMeshAtWarp(
+            float currentWarpRate, IPlaybackTrajectory traj, double playbackUT)
+        {
+            return ShouldSuppressGhosts(currentWarpRate)
+                && !IsSurfaceStationaryAtPlaybackUT(traj, playbackUT);
+        }
+
+        internal static bool IsSurfaceStationaryAtPlaybackUT(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj == null)
+                return false;
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx >= 0)
+                return traj.TrackSections[sectionIdx].environment == SegmentEnvironment.SurfaceStationary;
+
+            // Surface-only trajectories have no moving payload to replay; keep their
+            // already-static mesh visible even when no TrackSections are available.
+            return traj.SurfacePos.HasValue
+                && (traj.Points == null || traj.Points.Count == 0)
+                && !traj.HasOrbitSegments;
+        }
+
         /// <summary>
         /// Returns true if a ghost should be exempt from zone-based hiding during time warp.
         /// Orbital ghosts travel far from the player during warp; hiding them at 120km causes
@@ -257,6 +281,47 @@ namespace Parsek
             if (phase < 0) phase = 0;
             if (phase > duration) phase = duration;
             return playbackStartUT + phase;
+        }
+
+        internal static bool TryComputeNewestOverlapPlaybackUT(
+            double currentUT,
+            double intervalSeconds,
+            double duration,
+            double playbackStartUT,
+            double scheduleStartUT,
+            out double playbackUT,
+            out long cycleIndex)
+        {
+            playbackUT = playbackStartUT;
+            cycleIndex = 0;
+
+            if (currentUT < scheduleStartUT)
+                return false;
+
+            double effectiveCadence = ComputeEffectiveLaunchCadence(
+                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
+
+            long firstCycle;
+            long lastCycle;
+            GetActiveCycles(
+                currentUT,
+                scheduleStartUT,
+                scheduleStartUT + duration,
+                effectiveCadence,
+                GhostPlayback.MaxOverlapGhostsPerRecording,
+                out firstCycle,
+                out lastCycle);
+
+            cycleIndex = lastCycle;
+            playbackUT = ComputeOverlapCyclePlaybackUT(
+                currentUT,
+                scheduleStartUT,
+                playbackStartUT,
+                duration,
+                cycleDuration,
+                lastCycle);
+            return true;
         }
 
         internal static bool TryComputeLoopPlaybackPhase(

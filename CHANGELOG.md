@@ -43,6 +43,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#599` Stationary surface ghosts now stay visible above the 50x high-warp mesh-hide threshold. Flight and KSC playback still hide moving ghosts and overlap clones for performance, and still suppress FX/audio above the existing FX threshold, but `SurfaceStationary` track sections keep their primary mesh active because the ghost is not chasing a high-rate trajectory.
+
 - `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
 
 - `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.

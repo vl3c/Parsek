@@ -200,6 +200,21 @@ namespace Parsek.Tests
 
     public class Bug290_WarpSuppressionMapViewTests
     {
+        private static MockTrajectory MakeSectionTrajectory(SegmentEnvironment environment)
+        {
+            var traj = new MockTrajectory().WithTimeRange(0.0, 100.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                environment = environment,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 100.0,
+                frames = traj.Points,
+                source = TrackSectionSource.Active
+            });
+            return traj;
+        }
+
         [Fact]
         public void ShouldSuppressGhosts_HighWarp_ReturnsTrue()
         {
@@ -242,6 +257,81 @@ namespace Parsek.Tests
             bool suppress = !mapViewEnabled
                 && GhostPlaybackLogic.ShouldSuppressGhosts(lowWarp);
             Assert.False(suppress);
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_SurfaceStationarySection_ReturnsFalse()
+        {
+            var traj = MakeSectionTrajectory(SegmentEnvironment.SurfaceStationary);
+
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(100f, traj, 50.0));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_SurfaceMobileSection_ReturnsTrue()
+        {
+            var traj = MakeSectionTrajectory(SegmentEnvironment.SurfaceMobile);
+
+            Assert.True(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(100f, traj, 50.0));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_SurfaceOnlyTrajectory_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                SurfacePos = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    situation = SurfaceSituation.Landed
+                }
+            };
+
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(100f, traj, 50.0));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_LowWarpMovingSection_ReturnsFalse()
+        {
+            var traj = MakeSectionTrajectory(SegmentEnvironment.Atmospheric);
+
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(10f, traj, 50.0));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_NewestStationaryOverlapCycle_ReturnsFalse()
+        {
+            var traj = MakeSectionTrajectory(SegmentEnvironment.SurfaceStationary);
+
+            Assert.True(GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                currentUT: 65.0,
+                intervalSeconds: 30.0,
+                duration: 100.0,
+                playbackStartUT: 0.0,
+                scheduleStartUT: 0.0,
+                out double playbackUT,
+                out long cycleIndex));
+            Assert.Equal(2, cycleIndex);
+            Assert.Equal(5.0, playbackUT, 6);
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                100f, traj, playbackUT));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhostMeshAtWarp_NewestMovingOverlapCycle_ReturnsTrue()
+        {
+            var traj = MakeSectionTrajectory(SegmentEnvironment.SurfaceMobile);
+
+            Assert.True(GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                currentUT: 65.0,
+                intervalSeconds: 30.0,
+                duration: 100.0,
+                playbackStartUT: 0.0,
+                scheduleStartUT: 0.0,
+                out double playbackUT,
+                out _));
+            Assert.True(GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                100f, traj, playbackUT));
         }
     }
 }
