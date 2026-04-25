@@ -4536,8 +4536,27 @@ namespace Parsek.InGameTests
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
-                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
-                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+
+                // probe.FormatVersion is the on-disk binary-encoding version stamped at the
+                // last .prec write. rec.RecordingFormatVersion is the in-memory semantic
+                // version, which post-load migrations (e.g. the v4 launch-to-launch loop
+                // interval bump in MigrateLegacyLoopIntervalAfterHydration) can promote
+                // without rewriting the sidecar — the v4 change was a metadata semantic
+                // change, not a binary-layout change. The contract is therefore:
+                //   probe.FormatVersion <= rec.RecordingFormatVersion (never higher; see
+                //     TrajectorySidecarBinary.Read promote-only branch), AND
+                //   probe.FormatVersion <= CurrentRecordingFormatVersion (must be a known
+                //     schema this build understands).
+                // Strict equality would flag every legacy-loop-migrated recording whose
+                // .prec hasn't yet been rewritten, even though the file is correct.
+                InGameAssert.IsTrue(probe.FormatVersion <= rec.RecordingFormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' has on-disk binary version " +
+                    $"{probe.FormatVersion} > in-memory recording format version " +
+                    $"{rec.RecordingFormatVersion}; probe should never exceed the recording");
+                InGameAssert.IsTrue(probe.FormatVersion <= RecordingStore.CurrentRecordingFormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' has on-disk binary version " +
+                    $"{probe.FormatVersion}; latest known schema is " +
+                    $"{RecordingStore.CurrentRecordingFormatVersion}");
                 checkedCount++;
             }
 

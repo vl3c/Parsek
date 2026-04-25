@@ -1653,6 +1653,41 @@ in-game during the next playtest pass instead of an xUnit canary.
 
 ---
 
+## ~~In-game test: `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` failed for legacy-loop-migrated recording in every scene~~
+
+**Source:** `logs/2026-04-25_2147` playtest. The in-game test failed for
+recording `1bbb50cf98654a23a60b3248848b0301` ("Learstar A1") in EDITOR /
+FLIGHT / MAINMENU / SPACECENTER / TRACKSTATION with
+`Current-format recording '…' should keep its on-disk format version`.
+
+**Diagnosis (2026-04-25):** the recording loaded at `formatVersion=3`
+(`Player.log:31418`). `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
+then ran (`Player.log:31487`) and called
+`NormalizeRecordingFormatVersionAfterLegacyLoopMigration`, which bumps the
+in-memory `RecordingFormatVersion` to v4 (the launch-to-launch loop interval
+semantic). The `.prec` sidecar stayed at `BinaryV3 version=3` because v4 was
+metadata-only — the binary layout is byte-identical to v3 and no rewrite was
+required. The test asserted `AreEqual(rec.RecordingFormatVersion,
+probe.FormatVersion)`, treating two distinct concepts (on-disk binary-encoding
+version vs. in-memory semantic version) as the same number. They diverge by
+design at v4 and above whenever a legacy save loads.
+
+**Fix:** `RuntimeTests.CurrentFormatTrajectorySidecarsProbeAsBinary` now
+asserts the asymmetric contract `probe.FormatVersion <=
+rec.RecordingFormatVersion <= CurrentRecordingFormatVersion`, with an inline
+comment documenting the on-disk-binary vs. in-memory-semantic split. The
+production read path in `TrajectorySidecarBinary.Read` already uses
+promote-only (`if (rec.RecordingFormatVersion < probe.FormatVersion)`), so no
+production code change was needed. New xUnit regression
+`TrajectorySidecarProbeVersionContractTests` builds a recording at v3, writes
+the sidecar, simulates the legacy-loop migration, and pins the asymmetric
+contract; the matching freshly-written-at-current-version case pins that the
+contract reduces to equality when the sidecar is up to date.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
 ## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
