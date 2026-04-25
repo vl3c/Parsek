@@ -171,6 +171,90 @@ already pins this case.
 
 ---
 
+## ~~610. Quickload-resume tail trim destroys other vessels' continued recordings during Re-Fly load~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. Same
+playtest as `#609`. The user reported "the exo recording of the upper
+stage again disappeared after booster Re-Fly" — even though `#601`
+(PR #575) was supposed to splice post-RP recordings back from the
+committed tree before the committed copy is detached.
+
+The splice DID run correctly:
+
+- `01:11:28.092` `SpliceMissingCommittedRecordings: tree 'Kerbal X'
+  loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2`
+- spliced ids = `2f1ac072` (capsule exo half) + `223cc6e2` (booster exo
+  half); refreshed ids = `0b394bb5` (capsule atmo, root) + `3a9f8573`
+  (booster atmo, the in-place continuation target).
+- After splice the tree had all 10 recordings — including the capsule's
+  exo half whose data spans `UT 279.7 → 696.17`.
+
+But ~1.5 seconds later, the quickload-resume path still destroyed it:
+
+- `01:11:29.555` `Quickload tree trim: tree='Kerbal X' cutoffUT=203.12
+  trimmedRecordings=4/10 prunedFutureRecordings=2 prunedBranchPoints=1`
+- The 2 future-only recordings pruned were exactly the 2 spliced exo
+  halves (`StartUT >= 203.12`). The 4 trimmed recordings had their
+  `Points/PartEvents/TrackSections` past `203.12` removed AND
+  `ExplicitEndUT` clipped to `203.12`. The capsule atmo (`0b394bb5`)
+  on disk now ends at `203.12` instead of its real terminal at
+  `279.7` — the 76 seconds between the cutoff and the atmo→exo
+  boundary are gone too.
+
+**Cause (`Source/Parsek/FlightRecorder.cs:267-302` →
+`Source/Parsek/ParsekScenario.cs:2619-2656`):**
+`PrepareQuickloadResumeStateIfNeeded` always called
+`TrimRecordingTreePastUT(ActiveTree, resumeUT)`, which clips every
+recording in the tree to the cutoff UT and prunes recordings that
+start past it. That contract is correct for F9 quickload (the world
+genuinely rewound and every recording's post-cutoff data is stale)
+but wrong for Re-Fly: the splice has just re-installed other-vessel
+post-RP recordings as preserved forks, and the in-place continuation
+only needs to scrub the active recording's tail so the recorder can
+append fresh post-cutoff samples.
+
+**Fix:** added a pure-function
+`ChooseQuickloadTrimScope(treeId, marker, out reason)` on
+`ParsekScenario` that returns `ActiveRecOnly` when
+`ParsekScenario.Instance.ActiveReFlySessionMarker` pins this same
+tree, and `TreeWide` otherwise (no marker, marker has no tree id,
+or marker pins a different tree). `PrepareQuickloadResumeStateIfNeeded`
+now consults the helper and calls `TrimRecordingPastUT(activeRec, ...)`
+in the `ActiveRecOnly` branch (only the in-place continuation target's
+tail is touched; siblings remain untouched as fork timelines). The
+chosen scope + reason are appended to the `Quickload resume prep:`
+log line — `trimScope=ActiveRecOnly (refly-active sess=… markerTree=… originRec=…)`
+or `trimScope=TreeWide (no-active-refly-marker | refly-marker-tree-mismatch …)`
+— so the branch is auditable from `KSP.log` alone.
+
+**Unity-overload trap:** the natural `if (ParsekScenario.Instance != null)`
+check returns false in unit tests because `ParsekScenario` is a
+`UnityEngine.MonoBehaviour` whose overloaded `==` operator treats
+non-Awake'd instances as fake-destroyed. Production used `?.` which
+the C# spec defines as reference-equality; we mirrored that
+(`var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;`)
+so the integration test for the `ActiveRecOnly` branch actually
+exercises the marker path.
+
+**Tests:** 8 new cases in `QuickloadResumeTests` —
+`ChooseQuickloadTrimScope_NoMarker_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerWithoutTreeId_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerForDifferentTree_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerForThisTree_ReturnsActiveRecOnly`,
+`ChooseQuickloadTrimScope_NullResumeTreeId_ReturnsTreeWide`,
+`PrepareQuickloadResumeStateIfNeeded_ReFlyActive_TrimsActiveOnlyKeepsSibling`
+(reproduces the production shape — sibling recording starting past
+cutoff is preserved with all its data + track sections + part events),
+`PrepareQuickloadResumeStateIfNeeded_NoReFlyMarker_KeepsTreeWideTrim`
+(sanity for F9 quickload), and
+`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim`
+(stale/unrelated marker can't accidentally protect a different
+tree). All 8947 tests pass.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~609. Re-Fly doubled-vessel suppression silently fails when active tree is in PendingTree (load window)~~
 
 **Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. After
