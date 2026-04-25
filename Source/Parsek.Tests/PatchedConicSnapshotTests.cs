@@ -182,7 +182,53 @@ namespace Parsek.Tests
             Assert.Null(result.LastCapturedBodyName);
             Assert.Contains(logLines, line =>
                 line.Contains("[PatchedSnapshot]") &&
-                line.Contains("missing-reference-body"));
+                line.Contains("missing-reference-body") &&
+                line.Contains("aborting predicted snapshot capture"));
+        }
+
+        /// <summary>
+        /// Regression for #575: when patch 0 is valid but a later patch has a
+        /// null body, the captured prefix must be preserved instead of the
+        /// whole result being reset. The 2026-04-25_1314 marker-validator-fix
+        /// playtest emitted this pattern 153× — every entry had
+        /// <c>patchIndex=1</c>, never 0 — so the previous discard-everything
+        /// policy threw away every valid first patch and starved the
+        /// recording's predicted tail. With partial preservation the
+        /// downstream <see cref="IncompleteBallisticSceneExitFinalizer"/>
+        /// applies the captured segment via its existing
+        /// <c>snapshot.Segments.Count &gt; 0</c> branch and skips the
+        /// transient-ascent bail-out (which gates on
+        /// <c>appendedSegments.Count == 0</c>).
+        /// </summary>
+        [Fact]
+        public void Snapshot_MissingPatchBodyAfterValidPrefix_KeepsPartialResult()
+        {
+            var nullBodyPatch = MakePatch(200, 320, body: null,
+                transition: PatchedConicTransitionType.Encounter);
+            var firstPatch = MakePatch(100, 200, body: "Kerbin",
+                transition: PatchedConicTransitionType.Encounter);
+            firstPatch.NextPatch = nullBodyPatch;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = firstPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Truncated Ascent Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.MissingPatchBody, result.FailureReason);
+            Assert.Single(result.Segments);
+            Assert.Equal("Kerbin", result.Segments[0].bodyName);
+            Assert.Equal(1, result.CapturedPatchCount);
+            Assert.True(result.HasTruncatedTail);
+            Assert.Equal("Kerbin", result.LastCapturedBodyName);
+            Assert.Equal(4, source.PatchLimit);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("truncated chain after 1 valid patch(es), keeping partial result"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("aborting predicted snapshot capture"));
         }
 
         [Fact]

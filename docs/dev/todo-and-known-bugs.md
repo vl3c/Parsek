@@ -188,7 +188,7 @@ captures the symptom for cross-reference.
 
 ---
 
-## 575. PatchedSnapshot: MissingPatchBody warning floor of 153/session for the same recordings
+## ~~575. PatchedSnapshot: MissingPatchBody warning floor of 153/session for the same recordings~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 153 occurrences each of:
@@ -206,15 +206,42 @@ per recording over a single session. Either:
 - The "transient" classifier is firing for non-transient cases too;
 - WARN is the wrong level for an expected condition that fires by design.
 
-**Files to investigate:**
+**Diagnosis (2026-04-25):** `PatchedConicSnapshot.SnapshotPatchedConicChain`
+(`Source/Parsek/PatchedConicSnapshot.cs:151-162`) walked the stock patched-conic
+chain and called `ResetFailedResult` the moment any patch returned an empty
+`BodyName`, throwing away every previously-captured patch in the same chain.
+In the captured log every entry was `patchIndex=1`, never `patchIndex=0` —
+patch 0 was always valid, only the *next* patch occasionally had a transient
+`referenceBody == null` that KSP's stock solver fixes a few frames later.
+With the discard-everything policy the recording therefore had no
+patched-conic augmentation, and the downstream
+`IncompleteBallisticSceneExitFinalizer` (`Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:287-296`)
+took the "transient early-ascent state, not a destroyed vessel" skip path on
+every refresh because `appendedSegments.Count == 0`.
 
-- `Source/Parsek/PatchedConicSnapshot.cs` — `SnapshotPatchedConicChain`,
-  `missing-reference-body` branch.
-- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs` — `TryFinalizeRecording`,
-  the `MissingPatchBody` failure-mode-to-fallback dispatch and the "transient
-  early-ascent" classifier.
+**Fix:** preserve the partial chain captured before the first null-body patch
+when `failedPatchIndex > 0` — set `FailureReason = MissingPatchBody`,
+`HasTruncatedTail = true`, log a single rate-of-context VERBOSE truncation
+note ("truncated chain after N valid patch(es), keeping partial result"), and
+break out of the loop with the captured segments intact. The genuine
+"patch 0 has null body" case (`failedPatchIndex == 0`) keeps the original
+ResetFailedResult + WARN behaviour. The downstream finalizer's existing
+`snapshot.Segments.Count > 0` branch (line 250-258) appends the partial chain
+naturally; the transient-ascent skip at line 287-296 only fires when no
+patches at all could be captured, which is the correct intent.
 
-**Status:** Open. Cross-reference with #571 and #574.
+This also closes part B of #571 — the user-visible "weird trajectory"
+symptom that included a starved predicted tail. Recordings now retain their
+predicted-tail orbit data through ascent solver hiccups instead of falling
+back to a single Keplerian arc covering the entire warp window.
+
+Regression
+`PatchedConicSnapshotTests.Snapshot_MissingPatchBodyAfterValidPrefix_KeepsPartialResult`
+pins the new partial-preservation behaviour;
+`Snapshot_MissingPatchBody_FailsWithoutKerbinFallback` still pins the original
+patch-0-null discard-and-warn case.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 

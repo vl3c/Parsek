@@ -59,6 +59,8 @@ All notable changes to Parsek are documented here.
 
 - Strip-killing the upper stage during re-fly no longer trips spawn-death respawn, so a duplicate upper-stage vessel doesn't materialise next to the booster.
 
+- Patched-conic snapshots now keep the valid prefix of a chain when KSP's stock solver leaves a later patch with a null reference body, instead of discarding everything. Recordings now retain their predicted-tail orbit data through transient ascent solver hiccups, and the previous WARN tier downgrades to a single VERBOSE truncation note.
+
 - Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
 
 - Unfinished Flights rows now show a `Re-Fly` button (the action loads a staging Rewind Point — different from the legacy `R` / `FF` time-rewind on every other row).
