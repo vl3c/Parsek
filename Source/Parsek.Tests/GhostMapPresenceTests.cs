@@ -1749,6 +1749,89 @@ namespace Parsek.Tests
             Assert.Equal("tracking-station-state-vector-expired", reasonPastEnd);
         }
 
+        // -----------------------------------------------------------------
+        // PR #556 follow-up — keep relative-frame state-vector ghosts alive
+        // through tracking-station refresh cycles. Mirrors the flight-scene
+        // guard tested in
+        // RuntimePolicyTests.RelativeFrameGuard_DzBelowAltitudeThreshold_WouldTripRemovalWithoutGate.
+        // The tracking-station refresh path used to remove any state-vector
+        // ghost whose currentUT was inside a Relative section; after #583
+        // the resolver creates these intentionally, so the refresh path
+        // would tear them down every cycle while the create path re-added
+        // them next tick. The fix gates the threshold check on
+        // !IsInRelativeFrame and the Relative branch flows straight into
+        // UpdateGhostOrbitFromStateVectors (which already dispatches on
+        // referenceFrame). The two-fact tripwire below pins the joint
+        // preconditions: in a Relative section, dz-as-altitude WOULD trip
+        // ShouldRemoveStateVectorOrbit if the gate weren't suppressing it.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TrackingStationRefresh_RelativeFrameStateVector_WouldTripRemovalWithoutGate()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "ts-relative-state-vector",
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 1658.96,
+                        endUT = 1668.14,
+                        anchorVesselId = 12345u
+                    }
+                }
+            };
+            const double currentUT = 1662.0;
+            const double dzAsAltitude = -0.31; // anchor-local dz, not geographic alt
+            const double worldVelocityMag = 2920.0;
+            const double airlessAtmosphereDepth = 0;
+
+            Assert.True(
+                GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                "current UT lies inside the Relative-frame section");
+            Assert.True(
+                GhostMapPresence.ShouldRemoveStateVectorOrbit(
+                    dzAsAltitude, worldVelocityMag, airlessAtmosphereDepth),
+                "without the IsInRelativeFrame gate in RefreshTrackingStationGhosts, "
+                + "dz~0 would trip the altitude threshold and remove the ghost every "
+                + "refresh tick — the create path would re-add it next tick → flicker. "
+                + "The gate suppresses the threshold for Relative-frame points so "
+                + "UpdateGhostOrbitFromStateVectors stays in charge of the cycle.");
+        }
+
+        [Fact]
+        public void TrackingStationRefresh_AbsoluteFrameStateVector_StillEvaluatesThreshold()
+        {
+            // Discriminator: an Absolute-frame point with the same low
+            // altitude legitimately trips the threshold and removes the
+            // ghost. The gate must apply only to Relative frames.
+            var rec = new Recording
+            {
+                RecordingId = "ts-absolute-state-vector",
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 1658.96,
+                        endUT = 1668.14
+                    }
+                }
+            };
+            const double currentUT = 1662.0;
+
+            Assert.False(
+                GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                "Absolute section: gate must NOT bypass the threshold check");
+            Assert.True(
+                GhostMapPresence.ShouldRemoveStateVectorOrbit(
+                    altitude: -0.31, speed: 2920.0, atmosphereDepth: 0),
+                "Absolute frame: alt~0 below threshold legitimately removes "
+                + "the ghost (state-vector subsurface drift case).");
+        }
+
         /// <summary>
         /// Same-body gap with a real orbit change should not be carried across.
         /// </summary>

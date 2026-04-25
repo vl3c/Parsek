@@ -2680,22 +2680,41 @@ namespace Parsek
                         ref cachedStateVectorIndex);
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
-                    if (!pt.HasValue || IsInRelativeFrame(rec, currentUT))
+                    if (!pt.HasValue)
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, "tracking-station-state-vector-expired"));
                         continue;
                     }
 
-                    double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
-                    if (ShouldRemoveStateVectorOrbit(
-                        pt.Value.altitude,
-                        pt.Value.velocity.magnitude,
-                        atmosphereDepth))
+                    // PR #556 follow-up: a Relative-frame state-vector ghost
+                    // must NOT be expired/removed just because the section is
+                    // Relative — pre-#583 the only way to get a Relative
+                    // currentUT here was a stale ghost the resolver would
+                    // never recreate, so killing it was safe. After #583 the
+                    // resolver creates these on purpose; the threshold check
+                    // is meaningless for Relative-frame points (point.altitude
+                    // is anchor-local dz, not geographic altitude) and would
+                    // tear the ghost down every cycle, then the create path
+                    // re-adds it next tick → flicker. Mirror the flight-scene
+                    // gate in ParsekPlaybackPolicy.CheckPendingMapVessels and
+                    // skip the threshold for Relative-frame points;
+                    // UpdateGhostOrbitFromStateVectors already dispatches on
+                    // referenceFrame and resolves world position via the
+                    // anchor for that branch.
+                    bool inRelativeFrame = IsInRelativeFrame(rec, currentUT);
+                    if (!inRelativeFrame)
                     {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, "below-state-vector-threshold"));
-                        continue;
+                        double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
+                        if (ShouldRemoveStateVectorOrbit(
+                            pt.Value.altitude,
+                            pt.Value.velocity.magnitude,
+                            atmosphereDepth))
+                        {
+                            if (toRemove == null) toRemove = new List<(int, string)>();
+                            toRemove.Add((idx, "below-state-vector-threshold"));
+                            continue;
+                        }
                     }
 
                     UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);

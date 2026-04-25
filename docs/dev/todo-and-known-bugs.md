@@ -794,6 +794,22 @@ tests (`ResolveMapPresenceGhostSource_RelativeFrame_AnchorResolvable_*`,
 `_AnchorUnresolvable_*`, `_NoAnchorId_*`, `_DzBelowAltitudeThreshold_*`,
 `_WithOrbitSegmentsElsewhere_*`) pin the new contract.
 
+PR #556 review follow-up (P2): `RefreshTrackingStationGhosts` used to
+expire any state-vector ghost whose currentUT was inside a Relative
+section (`if (!pt.HasValue || IsInRelativeFrame(rec, currentUT))` →
+`tracking-station-state-vector-expired`). After widening the resolver,
+that path tore the ghost down every refresh tick while the create path
+re-added it next tick — flicker. The refresh path now mirrors the
+flight-scene gate in `ParsekPlaybackPolicy.CheckPendingMapVessels`:
+remove on `!pt.HasValue` only, then skip the
+`ShouldRemoveStateVectorOrbit` threshold for Relative-frame points and
+hand off to `UpdateGhostOrbitFromStateVectors` (which already dispatches
+on `referenceFrame`). Two more tripwires
+(`TrackingStationRefresh_RelativeFrameStateVector_WouldTripRemovalWithoutGate`
+and `_AbsoluteFrameStateVector_StillEvaluatesThreshold`) document the
+joint precondition the gate suppresses, mirroring the existing
+flight-scene `RuntimePolicyTests.RelativeFrameGuard_*` pair.
+
 ---
 
 ## ~~584. State-vector ghost map paths fed RELATIVE-frame anchor offsets into `body.GetWorldSurfacePosition`~~
