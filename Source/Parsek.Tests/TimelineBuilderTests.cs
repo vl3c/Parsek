@@ -1887,6 +1887,51 @@ namespace Parsek.Tests
             }
         }
 
+/// <summary>
+        /// Debris tree-children (BackgroundRecorder marks any breakup
+        /// child without a controller as <see cref="Recording.IsDebris"/>)
+        /// are skipped from the timeline entirely. The player asked us
+        /// to keep these out — they make the list too long without
+        /// telling them anything they did not already see watching the
+        /// rocket break apart. This holds even when the debris piece
+        /// has a Destroyed terminal that would otherwise look like a
+        /// Separation candidate.
+        /// </summary>
+        [Fact]
+        public void TreeChild_Debris_DoesNotEmitSeparationEntry()
+        {
+            const string kBpId = "bp-debris-1";
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = 42u;
+            root.ChildBranchPointId = kBpId;
+
+            var debris = MakeRecording("Kerbal X Debris", 200, 240,
+                terminal: TerminalState.Destroyed);
+            debris.VesselPersistentId = 99u;
+            debris.ParentBranchPointId = kBpId;
+            debris.IsDebris = true;
+
+            var scenario = new ParsekScenario { RewindPoints = new List<RewindPoint>() };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, debris },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                Assert.DoesNotContain(result, e =>
+                    e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                    || e.Type == TimelineEntryType.Separation);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
         /// <summary>
         /// Discriminator: same tree-child topology but the matching RP is
         /// gone (post-merge or never existed). The recording is no longer

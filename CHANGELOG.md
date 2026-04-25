@@ -50,7 +50,7 @@ All notable changes to Parsek are documented here.
 
 - Unfinished Flights rows now label their button `Re-Fly` instead of the legacy `R` / `FF` glyph. The action is qualitatively different from a launch rewind — clicking it loads the staging Rewind Point, places you in control of the destroyed sibling vessel, and starts a re-fly session that ends with a merge or discard. `Re-Fly` says exactly that; the legacy `R` (rewind to launch and watch) keeps its short glyph on every other row.
 
-- Timeline window now shows a row for each staging split (debris, decoupled boosters, EVA detaches). While the destroyed sibling is still an Unfinished Flight the row reads `Separation of Unfinished Flight: <vessel>` with a `Fly` button that re-flies it; once the player merges, the row morphs to `Separation: <vessel>` and the Fly button drops away. Non-UF separations sit at the Detail tier so the Overview timeline stays clean by default.
+- Timeline window now shows a row for each staging split that produces a controllable child. While the destroyed sibling is still an Unfinished Flight the row reads `Separation of Unfinished Flight: <vessel>` with a `Fly` button that re-flies it; once the player merges, the row morphs to `Separation: <vessel>` and the Fly button drops away. Debris (uncontrolled fragments) and debris-only booster decoupling are skipped — they bloat the timeline without telling the player anything they didn't already see watching the rocket break apart.
 
 - Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
 

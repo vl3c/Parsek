@@ -220,26 +220,29 @@ namespace Parsek
                         $"text=\"{displayText}\"");
                 }
 
-                // Separation — every tree-child gets a separation entry at
-                // its StartUT (the moment it broke off from the parent).
-                // RecordingStart above is skipped for tree-children because
-                // they are not player launches; the player still wants to
-                // see when the staging split happened. Two flavours:
+                // Separation — tree-child split point. Two flavours:
                 //
                 //   * UnfinishedFlightSeparation (T1, default-visible) —
                 //     terminal=Destroyed/Crashed AND a matching RP exists.
                 //     Renders with a Fly button in the timeline so the
                 //     player can re-fly directly from here.
                 //
-                //   * Separation (T2, detail-only) — anything else: a
-                //     formerly-UF row whose RP was reaped on merge, or an
-                //     ordinary tree child (debris, decouple). Just label
-                //     and GoTo button; no Fly action.
+                //   * Separation (T2, detail-only) — formerly-UF rows
+                //     whose RP was reaped on merge. Just label and GoTo
+                //     button; no Fly action.
                 //
                 // The choice is rebuilt on every cache refresh, so a UF
                 // entry morphs into a regular Separation the next rebuild
                 // after the player merges.
-                if (isTreeChild)
+                //
+                // Debris children (uncontrolled fragments after breakup,
+                // <see cref="Recording.IsDebris"/> set in BackgroundRecorder
+                // when the new vessel has no controller) are SKIPPED
+                // entirely. The player asked us to keep these out of the
+                // timeline — they make the list too long without telling
+                // the player anything they didn't already know from
+                // watching the rocket break apart.
+                if (isTreeChild && !rec.IsDebris)
                 {
                     bool isUf = EffectiveState.IsUnfinishedFlight(rec);
                     var sepType = isUf
