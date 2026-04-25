@@ -69,6 +69,7 @@ namespace Parsek
         internal const double StateVectorCreateSpeed = 60;        // m/s
         internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
         internal const double StateVectorRemoveSpeed = 30;        // m/s
+        private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         internal struct GhostProtoOrbitSeedDiagnostics
@@ -1092,9 +1093,22 @@ namespace Parsek
 
             if (traj.Points != null && traj.Points.Count > 0)
             {
-                double firstUT = traj.Points[0].ut;
-                double lastUT = traj.Points[traj.Points.Count - 1].ut;
-                return ut >= firstUT && ut <= lastUT;
+                for (int i = 0; i < traj.Points.Count; i++)
+                {
+                    double pointUT = traj.Points[i].ut;
+                    if (Math.Abs(pointUT - ut) <= 0.001)
+                        return true;
+
+                    if (pointUT > ut)
+                    {
+                        if (i == 0)
+                            return false;
+
+                        double previousUT = traj.Points[i - 1].ut;
+                        double bracketGap = pointUT - previousUT;
+                        return ut >= previousUT && bracketGap <= LegacyPointCoverageMaxGapSeconds;
+                    }
+                }
             }
 
             return false;
@@ -1278,7 +1292,6 @@ namespace Parsek
 
             bool allowSparseOrbitGapFallback =
                 traj.HasOrbitSegments
-                && currentUT >= activationStartUT
                 && currentUT < traj.EndUT
                 && !HasRecordedTrackCoverageAtUT(traj, currentUT);
             if (currentUT < traj.EndUT && !allowSparseOrbitGapFallback)
@@ -1292,13 +1305,13 @@ namespace Parsek
 
             if (!TryResolveGhostProtoOrbitSeed(
                 traj,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
                 out string seedBodyName,
                 out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
             {
@@ -1316,6 +1329,20 @@ namespace Parsek
                         seedDiagnostics.EndpointBodyName ?? "(none)"));
             }
 
+            segment = new OrbitSegment
+            {
+                startUT = activationStartUT,
+                endUT = traj.EndUT,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = seedBodyName
+            };
+
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
                 skipReason,
@@ -1327,45 +1354,6 @@ namespace Parsek
                     seedDiagnostics.Source ?? "(none)",
                     seedDiagnostics.EndpointBodyName ?? "(none)",
                     seedDiagnostics.FallbackReason ?? "(none)"));
-        }
-
-        internal static bool TryBuildTerminalOrbitSegmentForMapPresence(
-            IPlaybackTrajectory traj,
-            out OrbitSegment segment)
-        {
-            segment = default(OrbitSegment);
-            if (traj == null)
-                return false;
-
-            if (!TryResolveGhostProtoOrbitSeed(
-                traj,
-                out double inclination,
-                out double eccentricity,
-                out double semiMajorAxis,
-                out double lan,
-                out double argumentOfPeriapsis,
-                out double meanAnomalyAtEpoch,
-                out double epoch,
-                out string bodyName,
-                out _))
-            {
-                return false;
-            }
-
-            segment = new OrbitSegment
-            {
-                startUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj),
-                endUT = traj.EndUT,
-                inclination = inclination,
-                eccentricity = eccentricity,
-                semiMajorAxis = semiMajorAxis,
-                longitudeOfAscendingNode = lan,
-                argumentOfPeriapsis = argumentOfPeriapsis,
-                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
-                epoch = epoch,
-                bodyName = bodyName
-            };
-            return true;
         }
 
         private static string BuildTrackingStationGhostSourceDetail(

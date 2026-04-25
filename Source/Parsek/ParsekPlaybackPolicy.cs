@@ -733,7 +733,7 @@ namespace Parsek
                 {
                     if (source == TrackingStationGhostSource.StateVector)
                         stateVectorOrbitTrajectories[evt.Index] = evt.Trajectory;
-                    else if (TryGetMapOrbitKey(source, evt.Trajectory, segment, out var orbitKey))
+                    else if (TryGetMapOrbitKey(source, segment, out var orbitKey))
                         lastMapOrbitByIndex[evt.Index] = orbitKey;
                 }
             }
@@ -860,7 +860,7 @@ namespace Parsek
                                         toCreate[i].point.altitude,
                                         toCreate[i].point.velocity.magnitude));
                                 }
-                                else if (TryGetMapOrbitKey(toCreate[i].source, traj, toCreate[i].segment, out var orbitKey))
+                                else if (TryGetMapOrbitKey(toCreate[i].source, toCreate[i].segment, out var orbitKey))
                                 {
                                     lastMapOrbitByIndex[idx] = orbitKey;
 
@@ -903,28 +903,18 @@ namespace Parsek
                     int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
                         : -1;
-                    TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                    if (TryResolveTerminalFallbackMapOrbitUpdate(
                         rec,
-                        false,
-                        IsMaterializedForMapPresence(rec),
+                        idx,
                         currentUT,
-                        true,
-                        "map-presence-orbit-update",
+                        kvp.Value,
+                        IsMaterializedForMapPresence(rec),
                         ref cachedStateVectorIndex,
                         out OrbitSegment fallbackSegment,
-                        out _,
-                        out _);
-                    stateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (fallbackSource == TrackingStationGhostSource.TerminalOrbit
-                        && GhostMapPresence.TryBuildTerminalOrbitSegmentForMapPresence(rec, out fallbackSegment))
+                        out var fallbackKey,
+                        out bool fallbackChanged))
                     {
-                        var fallbackKey = (
-                            fallbackSegment.bodyName,
-                            fallbackSegment.semiMajorAxis,
-                            fallbackSegment.eccentricity);
-                        bool fallbackChanged = fallbackKey.bodyName != kvp.Value.body
-                            || fallbackKey.semiMajorAxis != kvp.Value.sma
-                            || fallbackKey.eccentricity != kvp.Value.ecc;
+                        stateVectorCachedIndices[idx] = cachedStateVectorIndex;
                         if (fallbackChanged)
                         {
                             GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment);
@@ -933,6 +923,7 @@ namespace Parsek
                         }
                         continue;
                     }
+                    stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     bool hasFutureSegment = false;
                     var segs = rec.OrbitSegments;
@@ -1045,25 +1036,64 @@ namespace Parsek
 
         private static bool TryGetMapOrbitKey(
             TrackingStationGhostSource source,
-            IPlaybackTrajectory traj,
             OrbitSegment segment,
             out (string body, double sma, double ecc) orbitKey)
         {
-            if (source == TrackingStationGhostSource.Segment)
+            if (source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.TerminalOrbit)
             {
                 orbitKey = (segment.bodyName, segment.semiMajorAxis, segment.eccentricity);
                 return true;
             }
 
-            if (source == TrackingStationGhostSource.TerminalOrbit
-                && GhostMapPresence.TryBuildTerminalOrbitSegmentForMapPresence(traj, out OrbitSegment terminalSegment))
-            {
-                orbitKey = (terminalSegment.bodyName, terminalSegment.semiMajorAxis, terminalSegment.eccentricity);
-                return true;
-            }
-
             orbitKey = default((string, double, double));
             return false;
+        }
+
+        internal static bool TryResolveTerminalFallbackMapOrbitUpdate(
+            Recording rec,
+            int idx,
+            double currentUT,
+            (string body, double sma, double ecc) currentKey,
+            bool alreadyMaterialized,
+            ref int cachedStateVectorIndex,
+            out OrbitSegment fallbackSegment,
+            out (string body, double sma, double ecc) fallbackKey,
+            out bool changed)
+        {
+            fallbackSegment = default(OrbitSegment);
+            fallbackKey = default((string, double, double));
+            changed = false;
+
+            TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                alreadyMaterialized,
+                currentUT,
+                true,
+                "map-presence-orbit-update",
+                ref cachedStateVectorIndex,
+                out fallbackSegment,
+                out _,
+                out _);
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
+                return false;
+
+            fallbackKey = (
+                fallbackSegment.bodyName,
+                fallbackSegment.semiMajorAxis,
+                fallbackSegment.eccentricity);
+            changed = fallbackKey.body != currentKey.body
+                || fallbackKey.sma != currentKey.sma
+                || fallbackKey.ecc != currentKey.ecc;
+            if (changed)
+            {
+                ParsekLog.Info("Policy",
+                    $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to terminal-orbit fallback " +
+                    $"during sparse gap body={fallbackKey.body} sma={fallbackKey.sma:F0}");
+            }
+
+            return true;
         }
 
         private static bool IsMaterializedForMapPresence(IPlaybackTrajectory traj)

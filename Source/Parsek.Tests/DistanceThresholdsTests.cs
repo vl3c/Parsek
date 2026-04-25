@@ -8,7 +8,6 @@ namespace Parsek.Tests
         public void PhysicsBubbleThreshold_IsSharedAcrossCoreGhostSystems()
         {
             Assert.Equal(DistanceThresholds.PhysicsBubbleMeters, RenderingZoneManager.PhysicsBubbleRadius);
-            Assert.Equal(DistanceThresholds.PhysicsBubbleMeters, ParsekFlight.PhysicsBubbleSpawnRadius);
             Assert.Equal(DistanceThresholds.RelativeFrame.EntryMeters, AnchorDetector.RelativeEntryDistance);
             Assert.Equal(DistanceThresholds.BackgroundSampling.MaxDistanceMeters, ProximityRateSelector.PhysicsBubble);
         }

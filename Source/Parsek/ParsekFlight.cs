@@ -11325,44 +11325,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Physics-bubble scoping for deferred spawns: returns true if the recording's
-        /// endpoint is more than 2300m from the active vessel (outside physics bubble).
-        /// Pure decision method for testability.
-        /// </summary>
-        internal static bool ShouldDeferSpawnOutsideBubble(Recording rec, Vector3d activeVesselPos)
-        {
-            if (rec == null) return false;
-
-            // Compute endpoint position from recording
-            Vector3d endpointPos = ComputeEndpointWorldPosition(rec);
-            if (endpointPos == Vector3d.zero) return false; // No position data — allow spawn
-
-            double distance = Vector3d.Distance(activeVesselPos, endpointPos);
-            return distance > PhysicsBubbleSpawnRadius;
-        }
-
-        /// <summary>Physics bubble radius for spawn scoping (meters).</summary>
-        internal const double PhysicsBubbleSpawnRadius = DistanceThresholds.PhysicsBubbleMeters;
-
-        /// <summary>
-        /// Computes world position for a recording's endpoint using last trajectory point
-        /// or terminal position. Requires KSP runtime (CelestialBody lookups).
-        /// Returns Vector3d.zero if no position data is available.
-        /// </summary>
-        private static Vector3d ComputeEndpointWorldPosition(Recording rec)
-        {
-            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
-                rec, out string bodyName, out double latitude, out double longitude, out double altitude))
-            {
-                CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
-                if (body != null)
-                    return body.GetWorldSurfacePosition(latitude, longitude, altitude);
-            }
-
-            return Vector3d.zero;
-        }
-
-        /// <summary>
         /// Positions all chain ghosts each frame using background recording trajectory data.
         /// For UTs outside recorded range, falls back to orbital propagation or surface hold.
         /// For spawn-blocked chains, the ghost continues at its propagated position
