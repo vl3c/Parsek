@@ -1358,68 +1358,12 @@ namespace Parsek
                 return;
             }
 
-            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
-            // session, recordings in the session's suppressed subtree have no
-            // physical presence — refuse watch-mode entry on them.
-            if (SessionSuppressionState.IsActive
-                && SessionSuppressionState.IsSuppressedRecordingIndex(index))
-            {
-                ParsekLog.Info("ReFlySession",
-                    $"Watch mode entry refused: recording #{index} " +
-                    $"\"{committed[index].VesselName}\" is session-suppressed by active re-fly");
-                return;
-            }
-
-            // Ghost playback state must exist. Hidden-tier ghosts may not currently
-            // have a loaded mesh, but watch mode is allowed to force a rebuild.
-            var ghostStates = host.Engine.ghostStates;
+            Recording rec;
             GhostPlaybackState gs;
-            if (!ghostStates.TryGetValue(index, out gs) || gs == null)
+            if (!TryResolveWatchEntryState(index, committed, out rec, out gs))
                 return;
 
-            // Ghost must be on the same body as the active vessel
-            string ghostBody = gs.lastInterpolatedBodyName;
-            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
-            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
-                return;
-
-            var rec = committed[index];
-
-            // Distance guard: KSP rendering breaks when camera is far from the active vessel
-            // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is at or beyond the fixed watch camera cutoff distance.
-            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-            if (FlightGlobals.ActiveVessel != null)
-            {
-                double distMeters = gs.lastDistance;
-                if (distMeters <= 0 && gs.ghost != null)
-                {
-                    distMeters = Vector3d.Distance(
-                        gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
-                }
-                if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
-                {
-                    float distKm = (float)(distMeters / 1000.0);
-                    ParsekLog.Info("CameraFollow",
-                        $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
-                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
-                    ParsekLog.ScreenMessage($"Ghost too far to watch ({distKm:F0}km, max {maxWatchKm:F0}km)", 3f);
-                    return;
-                }
-            }
-
-            // Flight warning: if active vessel is in an unsafe state, show a brief screen message
-            var av = FlightGlobals.ActiveVessel;
-            if (av != null)
-            {
-                double pe = av.orbit != null ? av.orbit.PeA : 0;
-                double atmoHeight = av.mainBody != null ? av.mainBody.atmosphereDepth : 0;
-                if (!IsVesselSituationSafe(av.situation, pe, atmoHeight))
-                {
-                    ParsekLog.Verbose("CameraFollow", $"Showing flight warning \u2014 active vessel situation: {av.situation}");
-                    ParsekLog.ScreenMessage("Your vessel continues unattended", 3f);
-                }
-            }
+            ShowUnattendedFlightWarningIfNeeded();
 
             // If already watching a different recording, exit first (switch case -- preserve camera state)
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
@@ -1556,19 +1500,101 @@ namespace Parsek
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
-            // Clear hold timer and safety counter
-            watchEndHoldUntilRealTime = -1;
-            watchEndHoldMaxRealTime = -1;
-            watchEndHoldPendingActivationUT = double.NaN;
-            watchNoTargetFrames = 0;
-            lastLoggedWatchTargetMismatch = null;
-            lastLoggedWatchFocusKey = null;
+            ResetWatchEntryTransientState();
 
             string body = gs.lastInterpolatedBodyName ?? "?";
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
             ParsekLog.Info("CameraFollow",
                 $"Entering watch mode for recording #{index} \"{committed[index].VesselName}\" \u2014 ghost at alt {altStr}m on {body}");
             LogWatchFocusStateChanged(gs, force: true, context: "enter");
+        }
+
+        private bool TryResolveWatchEntryState(
+            int index,
+            IReadOnlyList<Recording> committed,
+            out Recording rec,
+            out GhostPlaybackState gs)
+        {
+            rec = null;
+            gs = null;
+
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
+            // session, recordings in the session's suppressed subtree have no
+            // physical presence — refuse watch-mode entry on them.
+            if (SessionSuppressionState.IsActive
+                && SessionSuppressionState.IsSuppressedRecordingIndex(index))
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Watch mode entry refused: recording #{index} " +
+                    $"\"{committed[index].VesselName}\" is session-suppressed by active re-fly");
+                return false;
+            }
+
+            // Ghost playback state must exist. Hidden-tier ghosts may not currently
+            // have a loaded mesh, but watch mode is allowed to force a rebuild.
+            var ghostStates = host.Engine.ghostStates;
+            if (!ghostStates.TryGetValue(index, out gs) || gs == null)
+                return false;
+
+            // Ghost must be on the same body as the active vessel
+            string ghostBody = gs.lastInterpolatedBodyName;
+            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
+            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
+                return false;
+
+            rec = committed[index];
+
+            // Distance guard: KSP rendering breaks when camera is far from the active vessel
+            // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
+            // Refuse watch if ghost is at or beyond the fixed watch camera cutoff distance.
+            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
+            if (FlightGlobals.ActiveVessel != null)
+            {
+                double distMeters = gs.lastDistance;
+                if (distMeters <= 0 && gs.ghost != null)
+                {
+                    distMeters = Vector3d.Distance(
+                        gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
+                }
+                if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
+                {
+                    float distKm = (float)(distMeters / 1000.0);
+                    ParsekLog.Info("CameraFollow",
+                        $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
+                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
+                    ParsekLog.ScreenMessage($"Ghost too far to watch ({distKm:F0}km, max {maxWatchKm:F0}km)", 3f);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void ShowUnattendedFlightWarningIfNeeded()
+        {
+            // Flight warning: if active vessel is in an unsafe state, show a brief screen message
+            var av = FlightGlobals.ActiveVessel;
+            if (av != null)
+            {
+                double pe = av.orbit != null ? av.orbit.PeA : 0;
+                double atmoHeight = av.mainBody != null ? av.mainBody.atmosphereDepth : 0;
+                if (!IsVesselSituationSafe(av.situation, pe, atmoHeight))
+                {
+                    ParsekLog.Verbose("CameraFollow", $"Showing flight warning \u2014 active vessel situation: {av.situation}");
+                    ParsekLog.ScreenMessage("Your vessel continues unattended", 3f);
+                }
+            }
+        }
+
+        private void ResetWatchEntryTransientState()
+        {
+            // Reset entry-time hold and diagnostic state.
+            watchEndHoldUntilRealTime = -1;
+            watchEndHoldMaxRealTime = -1;
+            watchEndHoldPendingActivationUT = double.NaN;
+            watchNoTargetFrames = 0;
+            lastLoggedWatchTargetMismatch = null;
+            lastLoggedWatchFocusKey = null;
         }
 
         internal bool TryStartWatchSession(int index, Recording rec, GhostPlaybackState currentState,

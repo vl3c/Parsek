@@ -362,61 +362,12 @@ namespace Parsek
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(ctx.warpRate);
             RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 
-            // Reset reshow dedup when entering warp suppression
-            if (suppressGhosts)
-                loggedReshow.Clear();
-
-            deferredCompletedEvents.Clear();
-            deferredCreatedEvents.Clear();
-            frameSpawnCount = 0;
-            frameDestroyCount = 0;
-            frameSpawnDeferred = 0;
-            frameMaxSpawnTicks = 0;
-            // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
-            // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
-            frameOverlapGhostIterationCount = 0;
-            // Bug #450 B3: reset lazy-reentry-build per-frame counters each tick so the
-            // cap applies within a single UpdatePlayback call.
-            frameLazyReentryBuildCount = 0;
-            frameLazyReentryBuildDeferred = 0;
-            // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
-            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None. The
-            // lastSpawn*Ticks fields are NOT reset here because TryPopulateGhostVisuals
-            // resets them itself at its head every call — any read of frameHeaviestSpawn*
-            // happens only inside the PlaybackBudgetPhases populate block below, strictly
-            // after all BuildGhostVisualsWithMetrics calls this frame have run. Scene-
-            // cleanup paths (DestroyAllGhosts, ReindexAfterDelete) do not need to clear
-            // these fields either — they run outside UpdatePlayback, and the next frame's
-            // reset at the head of UpdatePlayback zeroes everything before any producer
-            // touches it. Same invariant #414's frameMaxSpawnTicks already relies on.
-            frameHeaviestSpawnSnapshotResolveTicks = 0;
-            frameHeaviestSpawnTimelineTicks = 0;
-            frameHeaviestSpawnDictionariesTicks = 0;
-            frameHeaviestSpawnReentryTicks = 0;
-            frameHeaviestSpawnOtherTicks = 0;
-            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
+            ResetPerFramePlaybackCounters(suppressGhosts);
             // Phase 7 of Rewind-to-Staging (design §3.3): per-frame count of
             // trajectories skipped because their recording is in the active
             // session's SuppressedSubtree. Included in the frame-summary log
             // below so session-scoped suppression is visible in KSP.log.
             int frameSessionSuppressed = 0;
-
-            // Diagnostics: start total frame timing
-            updateStopwatch.Restart();
-            // Reset spawn timer to zero — Start()/Stop() pairs inside SpawnGhost
-            // accumulate across multiple spawns per frame (Start resumes, not resets)
-            spawnStopwatch.Reset();
-            destroyStopwatch.Reset();
-            // Bug #414: reset per-phase stopwatches used for the one-shot breakdown.
-            // Cheap (Reset on a stopped Stopwatch is a single field write).
-            deferredCreatedStopwatch.Reset();
-            deferredCompletedStopwatch.Reset();
-            observabilityStopwatch.Reset();
-            // Bug #450: reset per-sub-phase spawn stopwatches (same pattern as #414).
-            buildSnapshotResolveStopwatch.Reset();
-            buildTimelineStopwatch.Reset();
-            buildDictionariesStopwatch.Reset();
-            buildReentryFxStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
@@ -741,6 +692,60 @@ namespace Parsek
             // first time a spike is seen, to localize the responsible sub-phase (bug #414).
             DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
                 totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
+        }
+
+        private void ResetPerFramePlaybackCounters(bool suppressGhosts)
+        {
+            // Reset reshow dedup when entering warp suppression
+            if (suppressGhosts)
+                loggedReshow.Clear();
+
+            deferredCompletedEvents.Clear();
+            deferredCreatedEvents.Clear();
+            frameSpawnCount = 0;
+            frameDestroyCount = 0;
+            frameSpawnDeferred = 0;
+            frameMaxSpawnTicks = 0;
+            // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
+            // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
+            frameOverlapGhostIterationCount = 0;
+            // Bug #450 B3: reset lazy-reentry-build per-frame counters each tick so the
+            // cap applies within a single UpdatePlayback call.
+            frameLazyReentryBuildCount = 0;
+            frameLazyReentryBuildDeferred = 0;
+            // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
+            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None. The
+            // lastSpawn*Ticks fields are NOT reset here because TryPopulateGhostVisuals
+            // resets them itself at its head every call — any read of frameHeaviestSpawn*
+            // happens only inside the PlaybackBudgetPhases populate block below, strictly
+            // after all BuildGhostVisualsWithMetrics calls this frame have run. Scene-
+            // cleanup paths (DestroyAllGhosts, ReindexAfterDelete) do not need to clear
+            // these fields either — they run outside UpdatePlayback, and the next frame's
+            // reset at the head of UpdatePlayback zeroes everything before any producer
+            // touches it. Same invariant #414's frameMaxSpawnTicks already relies on.
+            frameHeaviestSpawnSnapshotResolveTicks = 0;
+            frameHeaviestSpawnTimelineTicks = 0;
+            frameHeaviestSpawnDictionariesTicks = 0;
+            frameHeaviestSpawnReentryTicks = 0;
+            frameHeaviestSpawnOtherTicks = 0;
+            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
+
+            // Diagnostics: start total frame timing
+            updateStopwatch.Restart();
+            // Reset spawn timer to zero — Start()/Stop() pairs inside SpawnGhost
+            // accumulate across multiple spawns per frame (Start resumes, not resets)
+            spawnStopwatch.Reset();
+            destroyStopwatch.Reset();
+            // Bug #414: reset per-phase stopwatches used for the one-shot breakdown.
+            // Cheap (Reset on a stopped Stopwatch is a single field write).
+            deferredCreatedStopwatch.Reset();
+            deferredCompletedStopwatch.Reset();
+            observabilityStopwatch.Reset();
+            // Bug #450: reset per-sub-phase spawn stopwatches (same pattern as #414).
+            buildSnapshotResolveStopwatch.Reset();
+            buildTimelineStopwatch.Reset();
+            buildDictionariesStopwatch.Reset();
+            buildReentryFxStopwatch.Reset();
         }
 
         /// <summary>
