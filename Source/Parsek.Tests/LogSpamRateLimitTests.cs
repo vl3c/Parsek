@@ -159,13 +159,17 @@ namespace Parsek.Tests
         {
             // Simulate ComputePlaybackFlags running 50 frames over 5 recordings
             // all stuck in "no vessel snapshot". The fix keys identity per
-            // recording index and state per reason — stable reason on each
+            // RecordingId and state per reason — stable reason on each
             // recording must collapse to one line per recording.
             for (int frame = 0; frame < 50; frame++)
             {
                 for (int recIdx = 0; recIdx < 5; recIdx++)
                 {
-                    EmitSpawnerSuppression(recIdx, "Vessel " + recIdx, "no vessel snapshot");
+                    EmitSpawnerSuppression(
+                        recIdx,
+                        "rec-" + recIdx,
+                        "Vessel " + recIdx,
+                        "no vessel snapshot");
                 }
             }
 
@@ -183,10 +187,10 @@ namespace Parsek.Tests
             // Stable "no vessel snapshot" repeats, then the recording flips
             // to a different reason — the new reason must emit and carry
             // the suppressed count from the prior streak.
-            EmitSpawnerSuppression(7, "Showcase", "no vessel snapshot");
-            EmitSpawnerSuppression(7, "Showcase", "no vessel snapshot");
-            EmitSpawnerSuppression(7, "Showcase", "no vessel snapshot");
-            EmitSpawnerSuppression(7, "Showcase", "chain-suppressed");
+            EmitSpawnerSuppression(7, "rec-7", "Showcase", "no vessel snapshot");
+            EmitSpawnerSuppression(7, "rec-7", "Showcase", "no vessel snapshot");
+            EmitSpawnerSuppression(7, "rec-7", "Showcase", "no vessel snapshot");
+            EmitSpawnerSuppression(7, "rec-7", "Showcase", "chain-suppressed");
 
             var lines = logLines
                 .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed for #7"))
@@ -197,6 +201,92 @@ namespace Parsek.Tests
             Assert.DoesNotContain("suppressed=", lines[0]);
             Assert.Contains("chain-suppressed", lines[1]);
             Assert.Contains("| suppressed=2", lines[1]);
+        }
+
+        // -------------------------------------------------------------------
+        // Spawner identity-by-RecordingId regression. The bare list index is
+        // not a stable identity — when a recording is discarded, recordings
+        // after it shift down one slot and the same index becomes a different
+        // recording. Keying VerboseOnChange on the index alone would let the
+        // new occupant inherit the prior recording's cached state (silently
+        // masking its first-emission line, or surfacing a stale suppressed
+        // counter on the next flip). Keying on RecordingId restores per-
+        // recording independence.
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void SpawnSuppression_IndexReuseAcrossRecordings_KeepsIndependentState()
+        {
+            // Two distinct recordings end up sharing index 294 (one was
+            // discarded between observations) and both report the same
+            // suppression reason. Each must emit its own first-emission line.
+            EmitSpawnerSuppression(294, "rec-A", "Untitled Space Craft", "no vessel snapshot");
+            EmitSpawnerSuppression(294, "rec-A", "Untitled Space Craft", "no vessel snapshot");
+            EmitSpawnerSuppression(294, "rec-A", "Untitled Space Craft", "no vessel snapshot");
+
+            // Index 294 is now occupied by recording B (rec-A discarded).
+            // Same reason — but a different RecordingId means a fresh
+            // first-emission, not silent inheritance of rec-A's cache.
+            EmitSpawnerSuppression(294, "rec-B", "Different Vessel", "no vessel snapshot");
+            EmitSpawnerSuppression(294, "rec-B", "Different Vessel", "no vessel snapshot");
+
+            var lines = logLines
+                .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed for #294"))
+                .ToList();
+
+            Assert.Equal(2, lines.Count);
+            Assert.Contains("Untitled Space Craft", lines[0]);
+            Assert.DoesNotContain("suppressed=", lines[0]);
+            // The second line is rec-B's first emission — a clean first hit,
+            // NOT a delayed flip carrying rec-A's suppressed counter.
+            Assert.Contains("Different Vessel", lines[1]);
+            Assert.DoesNotContain("suppressed=", lines[1]);
+        }
+
+        [Fact]
+        public void SpawnSuppression_IndexReuse_StableReasonStillCoalescesPerRecording()
+        {
+            // Once each recording has emitted its first line, subsequent
+            // stable repeats must coalesce per-RecordingId — the cache must
+            // not be globally indexed by idx in a way that thrashes between
+            // recordings sharing the same slot.
+            EmitSpawnerSuppression(50, "rec-X", "Vessel X", "no vessel snapshot");
+            EmitSpawnerSuppression(50, "rec-Y", "Vessel Y", "no vessel snapshot");
+
+            // Interleave further per-frame calls — all stable. Each recording
+            // has its own state, so neither emits again until its reason flips.
+            for (int i = 0; i < 10; i++)
+            {
+                EmitSpawnerSuppression(50, "rec-X", "Vessel X", "no vessel snapshot");
+                EmitSpawnerSuppression(50, "rec-Y", "Vessel Y", "no vessel snapshot");
+            }
+
+            int xLines = logLines.Count(l =>
+                l.Contains("[Spawner]") && l.Contains("Vessel X"));
+            int yLines = logLines.Count(l =>
+                l.Contains("[Spawner]") && l.Contains("Vessel Y"));
+
+            Assert.Equal(1, xLines);
+            Assert.Equal(1, yLines);
+        }
+
+        [Fact]
+        public void SpawnSuppression_NullRecordingId_FallsBackToIndexInIdentity()
+        {
+            // Defensive case: if RecordingId is somehow null/empty, the call
+            // site falls back to "idx-{N}" so emissions still flow. Two
+            // null-Id recordings sharing the same index DO collide (no better
+            // identity is available), but a real RecordingId on a sibling
+            // recording is still tracked independently.
+            EmitSpawnerSuppressionRaw(idx: 9, recordingId: null, vesselName: "Anon",
+                reason: "no vessel snapshot");
+            EmitSpawnerSuppressionRaw(idx: 9, recordingId: null, vesselName: "Anon",
+                reason: "no vessel snapshot");
+
+            int anonLines = logLines.Count(l =>
+                l.Contains("[Spawner]") && l.Contains("Spawn suppressed for #9"));
+
+            Assert.Equal(1, anonLines);
         }
 
         // -------------------------------------------------------------------
@@ -274,11 +364,23 @@ namespace Parsek.Tests
 
         // Mirrors the production call site in ParsekFlight.ComputePlaybackFlags
         // exactly so the test pins the (identity, stateKey) shape we ship.
-        private static void EmitSpawnerSuppression(int idx, string vesselName, string reason)
+        // Identity is keyed on RecordingId (with an idx-{N} fallback for
+        // null/empty Ids) so two recordings that briefly share the same list
+        // index do not inherit each other's cached state.
+        private static void EmitSpawnerSuppression(
+            int idx, string recordingId, string vesselName, string reason)
         {
+            EmitSpawnerSuppressionRaw(idx, recordingId, vesselName, reason);
+        }
+
+        private static void EmitSpawnerSuppressionRaw(
+            int idx, string recordingId, string vesselName, string reason)
+        {
+            string identity = "spawn-suppressed|"
+                + (!string.IsNullOrEmpty(recordingId) ? recordingId : "idx-" + idx);
             ParsekLog.VerboseOnChange(
                 "Spawner",
-                "spawn-suppressed|" + idx,
+                identity,
                 reason ?? "(none)",
                 $"Spawn suppressed for #{idx} \"{vesselName}\": {reason}");
         }
