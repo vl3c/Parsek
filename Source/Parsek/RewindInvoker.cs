@@ -150,18 +150,11 @@ namespace Parsek
             }
 
             var selected = rp.ChildSlots[selectedSlotListIndex];
-            string slotName = selected?.OriginChildRecordingId ?? "<unknown>";
             int selectedSlotId = selected != null ? selected.SlotIndex : selectedSlotListIndex;
-            string title = "Parsek - Rewind to Staging";
-            var ic = CultureInfo.InvariantCulture;
-            string utText = rp.UT.ToString("F1", ic);
+            string title = "Parsek - Finish Flight";
             string message =
-                $"Rewind to rewind point {rp.RewindPointId} at UT {utText}?\n" +
-                $"Spawning the selected child (slot {selectedSlotId}, origin={slotName}) live; " +
-                $"merged siblings will play as ghosts.\n\n" +
-                "Career state during this attempt stays as it is now. Supersede on merge " +
-                "retires only kerbal-death events; contract / milestone / facility / strategy " +
-                "/ tech / science / funds state is unchanged.";
+                "Do you want to fly this again? This will take you to the moment after " +
+                "separation and you will be in control of the craft / Kerbal.";
 
             var capturedRp = rp;
             var capturedSlotListIdx = selectedSlotListIndex;
@@ -176,7 +169,7 @@ namespace Parsek
                     message,
                     title,
                     HighLogic.UISkin,
-                    new DialogGUIButton("Rewind", () =>
+                    new DialogGUIButton("Re-Fly", () =>
                     {
                         ParsekLog.Info(UITag,
                             $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +

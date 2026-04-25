@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly confirmation dialog renamed to `Parsek - Finish Flight` with a plain-language prompt ("Do you want to fly this again?") and a `Re-Fly` accept button instead of `Rewind`.
+
 - Unfinished Flight rows no longer appear twice (once as a top-level tree row, once inside the nested Unfinished Flights subgroup); they render only inside the Unfinished Flights group.
 
 - Controllable split children whose vessel dies before the breakup window expires no longer produce a 0s "Unknown" recording in the table; the parent's BREAKUP branch point already records the split.
