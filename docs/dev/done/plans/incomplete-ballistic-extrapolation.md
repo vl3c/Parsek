@@ -2,7 +2,7 @@
 
 **Status:** scene-exit implementation plan; superseded for broader finalization reliability by `docs/parsek-recording-finalization-design.md`.
 
-> Status note: this plan describes the scene-exit predicted-tail work that already exists in current code. Broader reliability work for crash, unload/delete, background, and vessel-lost paths is now specified in `docs/parsek-recording-finalization-design.md` with implementation phases in `docs/dev/plans/recording-finalization-reliability.md`. When these documents conflict, the newer finalization design wins. In particular, UI maneuver nodes are hypothetical planning tools and must not truncate the actual projected recording chain.
+> Status note: this plan describes the scene-exit predicted-tail work that already exists in current code. Broader reliability work for crash, unload/delete, background, and vessel-lost paths is now specified in `docs/parsek-recording-finalization-design.md` with implementation phases in `docs/dev/done/plans/recording-finalization-reliability.md`. When these documents conflict, the newer finalization design wins. In particular, UI maneuver nodes are hypothetical planning tools and must not truncate the actual projected recording chain.
 
 ## Problem
 

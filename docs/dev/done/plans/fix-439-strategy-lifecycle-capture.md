@@ -2,7 +2,7 @@
 
 Status: plan v2 (Phase A scope, user-confirmed 2026-04-18). Branch: feat/439-strategy-lifecycle-capture.
 Target: v0.8.2 release.
-Governs: Phase E1.5 of docs/dev/plans/fix-ledger-lump-sum-reconciliation.md.
+Governs: Phase E1.5 of docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md.
 Depends on: #436 Phase A shipped, #437 Phase B shipped, Phase C, Phase D (#343) shipped, #441 shipped.
 
 ## Phase A scope (supersedes detailed sections below where they conflict)
@@ -420,7 +420,7 @@ PR #376 touches the following files that #439 also edits:
 - `Source/Parsek.Tests/StrategyCaptureTests.cs` -- new file.
 - `Source/Parsek.Tests/EarningsReconciliationTests.cs` -- flip one test, add classifier coverage.
 - `Source/Parsek.Tests/StrategiesModuleTests.cs` -- audit and update any tests that asserted active-strategy contract-reward diversion.
-- `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`, `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` (mark Phase E1.5 delivered).
+- `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`, `docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md` (mark Phase E1.5 delivered).
 
 ## 16. Out of scope
 

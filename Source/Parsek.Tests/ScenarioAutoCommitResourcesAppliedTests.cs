@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Phase C round 2 of the ledger / lump-sum reconciliation fix
-    /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
+    /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
     /// <para>The explicit <see cref="MergeDialog.MergeCommit"/> path was fixed in the
     /// first Phase C commit, but <see cref="ParsekScenario"/> has three other

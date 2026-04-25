@@ -785,6 +785,52 @@ namespace Parsek.Tests
                 && l.Contains("refusing to write supersede rows"));
         }
 
+        // ---------- Chain-sibling expansion (item 23) ----------------------
+
+        [Fact]
+        public void AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment()
+        {
+            // Merge-time RecordingOptimizer.SplitAtSection produces a HEAD
+            // (BP-linked, ChildBranchPointId=null after the move at
+            // RecordingStore.cs:2018-2019) + TIP (terminal=Destroyed) chain
+            // sharing both ChainId and ChainBranch. Marker points at the
+            // HEAD. AppendRelations must write a supersede row for BOTH
+            // segments so the TIP doesn't survive the merge as a stale
+            // "kerbal destroyed in atmo" row alongside the new "kerbal
+            // lived" provisional.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1");
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip },
+                new List<BranchPoint> { bp_split });
+
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_head");
+            var scenario = InstallScenario(Marker("rec_head", "rec_provisional"));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            // Both chain segments must have a supersede row pointing at the
+            // provisional. Neither row should be missed and the TIP must not
+            // be left visible as an orphan in ERS.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_head" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_tip" && r.NewRecordingId == "rec_provisional");
+        }
+
         [Fact]
         public void ValidateSupersedeTarget_ReasonStrings()
         {

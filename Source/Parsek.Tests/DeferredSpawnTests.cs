@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -13,6 +14,8 @@ namespace Parsek.Tests
 
         public DeferredSpawnTests()
         {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,8 +24,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            ParsekLog.TestSinkForTesting = null;
-            ParsekLog.VerboseOverrideForTesting = false;
+            ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
         }

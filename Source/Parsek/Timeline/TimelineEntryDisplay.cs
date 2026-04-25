@@ -40,7 +40,6 @@ namespace Parsek
                 case TimelineEntryType.ContractFail:
                 case TimelineEntryType.FacilityUpgrade:
                 case TimelineEntryType.FacilityDestruction:
-                case TimelineEntryType.KerbalHire:
                 case TimelineEntryType.FundsInitial:
                 case TimelineEntryType.ScienceInitial:
                 case TimelineEntryType.ReputationInitial:
@@ -308,7 +307,7 @@ namespace Parsek
         /// Custom handling for science subjects (humanized), kerbal assignments (with vessel),
         /// ScienceInitial, and ReputationInitial. All others delegate to GameActionDisplay.
         /// </summary>
-        internal static string GetGameActionText(GameAction action, string vesselName)
+        internal static string GetGameActionText(GameAction action, string vesselName, Game.Modes? currentMode)
         {
             if (action == null)
                 return "";
@@ -379,8 +378,11 @@ namespace Parsek
                     return crew;
                 }
 
+                case GameActionType.KerbalHire:
+                    return GameActionDisplay.GetKerbalHireDescription(action, currentMode);
+
                 default:
-                    return GameActionDisplay.GetDescription(action);
+                    return GameActionDisplay.GetDescription(action, currentMode);
             }
         }
 

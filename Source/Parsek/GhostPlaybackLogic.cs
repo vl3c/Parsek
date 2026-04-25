@@ -74,7 +74,7 @@ namespace Parsek
         /// Returns true when the caller MUST defer its spawn to a later frame because the
         /// frame's spawn cap is already exhausted. Pure helper so the decision is unit-testable
         /// independently of GhostPlaybackEngine state. The cap applies only to the safe-to-defer
-        /// call sites listed in docs/dev/plan-414-spawn-throttle.md — watch-mode and loop-cycle
+        /// call sites listed in docs/dev/done/plan-414-spawn-throttle.md — watch-mode and loop-cycle
         /// rebuild spawns bypass this gate at the call site (never invoke this helper).
         /// </summary>
         internal static bool ShouldThrottleSpawn(int spawnsThisFrame, int maxPerFrame)

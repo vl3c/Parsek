@@ -19,7 +19,7 @@ namespace Parsek.Tests
     /// These tests exercise <see cref="DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown"/>
     /// by forcing synthetic spikes through the budget check and asserting the mainLoop
     /// breakdown WARN's gating and formatting. Every gate in the plan
-    /// (<c>docs/dev/plan-460-mainloop-breakdown.md</c>) has at least one negative test;
+    /// (<c>docs/dev/done/plan-460-mainloop-breakdown.md</c>) has at least one negative test;
     /// latch independence is asserted pairwise (#414, #450, #460) and end-to-end.
     /// </summary>
     [Collection("Sequential")]

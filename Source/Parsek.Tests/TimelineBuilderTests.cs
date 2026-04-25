@@ -347,7 +347,8 @@ namespace Parsek.Tests
                     MilestoneRepAwarded = 2f,
                     MilestoneScienceAwarded = 1.5f
                 },
-                vesselName: null);
+                vesselName: null,
+                currentMode: Game.Modes.CAREER);
 
             Assert.Equal("Milestone: Kerbin - Records Distance +4800 funds +2 rep +1.5 sci", text);
         }
@@ -613,7 +614,6 @@ namespace Parsek.Tests
                 TimelineEntryType.ContractFail,
                 TimelineEntryType.FacilityUpgrade,
                 TimelineEntryType.FacilityDestruction,
-                TimelineEntryType.KerbalHire,
                 TimelineEntryType.FundsInitial,
                 TimelineEntryType.ScienceInitial,
                 TimelineEntryType.ReputationInitial
@@ -626,7 +626,7 @@ namespace Parsek.Tests
                     $"Expected T1 for {type} but got {tier}");
             }
 
-            Assert.Equal(13, t1Types.Length);
+            Assert.Equal(12, t1Types.Length);
         }
 
         // ================================================================
@@ -648,6 +648,7 @@ namespace Parsek.Tests
                 TimelineEntryType.ContractAccept,
                 TimelineEntryType.ContractCancel,
                 TimelineEntryType.KerbalAssignment,
+                TimelineEntryType.KerbalHire,
                 TimelineEntryType.KerbalRescue,
                 TimelineEntryType.KerbalStandIn,
                 TimelineEntryType.FacilityRepair,
@@ -663,7 +664,105 @@ namespace Parsek.Tests
                     $"Expected T2 for {type} but got {tier}");
             }
 
-            Assert.Equal(16, t2Types.Length);
+            Assert.Equal(17, t2Types.Length);
+        }
+
+        [Fact]
+        public void KerbalHire_CareerMode_IsDetailsOnlyAndShowsFunds()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 62113f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman -62113 funds", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman -62113 funds",
+                GameActionDisplay.GetDescription(actions[0], Game.Modes.CAREER));
+        }
+
+        [Fact]
+        public void KerbalHire_CareerModeWithZeroCost_HidesFunds()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 0f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman",
+                GameActionDisplay.GetDescription(actions[0], Game.Modes.CAREER));
+        }
+
+        [Theory]
+        [InlineData(Game.Modes.SANDBOX)]
+        [InlineData(Game.Modes.SCIENCE_SANDBOX)]
+        [InlineData(Game.Modes.MISSION_BUILDER)]
+        [InlineData(Game.Modes.MISSION)]
+        public void KerbalHire_NoFundsModes_HidesFunds(Game.Modes mode)
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 62113f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                mode);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman",
+                GameActionDisplay.GetDescription(actions[0], mode));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") &&
+                l.Contains("Filtered 1 kerbal-hire funds suffix") &&
+                l.Contains(mode.ToString()));
         }
 
         // ================================================================

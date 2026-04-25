@@ -500,6 +500,7 @@ namespace Parsek
             int count = 0;
             int evaReassignSkipped = 0;
             int modeSeedSkipped = 0;
+            int hireCostSuffixSuppressed = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -539,11 +540,19 @@ namespace Parsek
                     continue;
                 }
 
+                string displayText = TimelineEntryDisplay.GetGameActionText(action, vesselName, currentMode);
+                if (action.Type == GameActionType.KerbalHire &&
+                    action.HireCost > 0f &&
+                    !GameActionDisplay.ShouldShowFundsForKerbalHire(action, currentMode))
+                {
+                    hireCostSuffixSuppressed++;
+                }
+
                 entries.Add(new TimelineEntry
                 {
                     UT = action.UT,
                     Type = entryType,
-                    DisplayText = TimelineEntryDisplay.GetGameActionText(action, vesselName),
+                    DisplayText = displayText,
                     Source = TimelineSource.GameAction,
                     Tier = tier,
                     DisplayColor = GameActionDisplay.GetColor(action.Type),
@@ -567,7 +576,16 @@ namespace Parsek
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {modeSeedSkipped} mode-inapplicable initial resource action(s)");
 
+            if (hireCostSuffixSuppressed > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {hireCostSuffixSuppressed} kerbal-hire funds suffix(es) in mode {FormatModeForLog(currentMode)}");
+
             return count;
+        }
+
+        private static string FormatModeForLog(Game.Modes? currentMode)
+        {
+            return currentMode.HasValue ? currentMode.Value.ToString() : "(unknown)";
         }
 
         internal static bool IsInitialResourceSeedVisibleInMode(GameActionType type, Game.Modes? currentMode)

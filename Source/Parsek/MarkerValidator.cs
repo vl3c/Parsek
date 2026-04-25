@@ -113,19 +113,26 @@ namespace Parsek
             // the active row is always `NotCommitted` for that path. The
             // in-place continuation pattern (`origin == active`, see
             // RewindInvoker.AtomicMarkerWrite) reuses the existing
-            // recording — when that recording was a previously-promoted
-            // Unfinished Flight its `MergeState` is `CommittedProvisional`,
-            // and the validator MUST accept that state or every save+load
-            // cycle will silently wipe the active session marker. Reject
-            // `Immutable` in both patterns: a finalized historical
-            // recording cannot be a re-fly target.
+            // recording — and that recording can be EITHER
+            // `CommittedProvisional` (a UF promoted from a fresh tree merge)
+            // OR `Immutable` (a UF from an older / sealed recording where
+            // the RP is still alive). `EffectiveState.IsUnfinishedFlight`
+            // explicitly accepts both states (line 156-157), so the
+            // validator MUST too — otherwise every save+load cycle during
+            // an in-place re-fly silently wipes the marker and the merge
+            // falls through to the regular tree-merge path (no force-
+            // Immutable, no RP reap, UF row never clears). The placeholder
+            // pattern stays NotCommitted-only because no committed
+            // recording is being reused there.
             bool inPlaceContinuation = string.Equals(
                 marker.ActiveReFlyRecordingId,
                 marker.OriginChildRecordingId,
                 StringComparison.Ordinal);
             bool acceptableState =
                 active.MergeState == MergeState.NotCommitted
-                || (inPlaceContinuation && active.MergeState == MergeState.CommittedProvisional);
+                || (inPlaceContinuation
+                    && (active.MergeState == MergeState.CommittedProvisional
+                        || active.MergeState == MergeState.Immutable));
             if (!acceptableState)
                 return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
 

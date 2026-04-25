@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Covers Phase A of the ledger/lump-sum reconciliation fix
-    /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
+    /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
     /// <para>Scope per reviewer: <b>zero-coverage trees only</b>. On load, a pre-Phase-F
     /// committed tree with a non-zero persisted legacy residual outside tolerance is

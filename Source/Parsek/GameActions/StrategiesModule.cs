@@ -164,7 +164,7 @@ namespace Parsek
         /// needs to display "X% diverted" attribution). Phase A emits one VERBOSE line
         /// per call so the no-op is observable in logs.
         ///
-        /// See <c>docs/dev/plans/fix-439-strategy-lifecycle-capture.md</c> section 3.5
+        /// See <c>docs/dev/done/plans/fix-439-strategy-lifecycle-capture.md</c> section 3.5
         /// (option B) for the full rationale and option C deferral.
         /// </summary>
         internal void TransformContractReward(GameAction action)

@@ -7,6 +7,7 @@ namespace Parsek
     {
         Name,
         Distance,
+        RelativeSpeed,
         SpawnTime
     }
 
@@ -24,6 +25,10 @@ namespace Parsek
         internal string WarpButtonLabel;
         internal bool WarpButtonEnabled;
         internal bool UsesDepartureWarp;
+        // True when distance and relative-speed are both within the FF gates. Drives the
+        // green text on the distance and relative-speed columns. Distinct from
+        // WarpButtonEnabled, which additionally requires a future endUT/departureUT.
+        internal bool ConditionsMet;
     }
 
     /// <summary>
@@ -48,10 +53,21 @@ namespace Parsek
             return sorted;
         }
 
+        /// <summary>
+        /// Pure: build per-row presentation. The proximity-radius and relative-speed gates
+        /// are enforced here (rather than during admission) so the window can show too-fast
+        /// craft with a disabled FF button and red speed/distance text.
+        /// </summary>
         internal static SpawnCandidateRowPresentation BuildRowPresentation(
             NearbySpawnCandidate candidate,
-            double currentUT)
+            double currentUT,
+            double proximityRadius,
+            double maxRelativeSpeed)
         {
+            bool conditionsMet =
+                candidate.distance <= proximityRadius &&
+                candidate.relativeSpeed <= maxRelativeSpeed;
+
             if (!candidate.willDepart)
             {
                 return new SpawnCandidateRowPresentation
@@ -59,8 +75,9 @@ namespace Parsek
                     StateText = string.Empty,
                     StateTone = SpawnCandidateStateTone.None,
                     WarpButtonLabel = "FF-Spawn",
-                    WarpButtonEnabled = candidate.endUT > currentUT,
-                    UsesDepartureWarp = false
+                    WarpButtonEnabled = conditionsMet && candidate.endUT > currentUT,
+                    UsesDepartureWarp = false,
+                    ConditionsMet = conditionsMet
                 };
             }
 
@@ -72,15 +89,29 @@ namespace Parsek
             return new SpawnCandidateRowPresentation
             {
                 StateText = departureDelta <= 0
-                    ? $"Departing \u2192 {destination}"
+                    ? $"Departing → {destination}"
                     : $"Departs {SelectiveSpawnUI.FormatCountdown(departureDelta)}",
                 StateTone = departureDelta <= 0
                     ? SpawnCandidateStateTone.DepartingNow
                     : SpawnCandidateStateTone.UpcomingDeparture,
                 WarpButtonLabel = "FF-Depart",
-                WarpButtonEnabled = candidate.departureUT > currentUT,
-                UsesDepartureWarp = true
+                WarpButtonEnabled = conditionsMet && candidate.departureUT > currentUT,
+                UsesDepartureWarp = true,
+                ConditionsMet = conditionsMet
             };
+        }
+
+        /// <summary>
+        /// Pure: format relative speed for display. Returns "—" when the speed has not yet
+        /// been sampled (PositiveInfinity sentinel set by the proximity scan on first sighting).
+        /// Below 10 m/s prints one decimal so the display matches the m/s gate granularity.
+        /// </summary>
+        internal static string FormatRelativeSpeed(double relativeSpeed, System.IFormatProvider culture)
+        {
+            if (double.IsInfinity(relativeSpeed) || double.IsNaN(relativeSpeed))
+                return "—";
+            string fmt = relativeSpeed < 10.0 ? "{0:F1} m/s" : "{0:F0} m/s";
+            return string.Format(culture, fmt, relativeSpeed);
         }
 
         private static int CompareCandidates(
@@ -101,6 +132,10 @@ namespace Parsek
 
                 case SpawnControlSortColumn.SpawnTime:
                     comparison = a.endUT.CompareTo(b.endUT);
+                    break;
+
+                case SpawnControlSortColumn.RelativeSpeed:
+                    comparison = a.relativeSpeed.CompareTo(b.relativeSpeed);
                     break;
 
                 default:
