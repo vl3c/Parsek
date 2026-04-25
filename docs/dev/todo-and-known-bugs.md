@@ -1741,6 +1741,142 @@ test now passes against a real ghost in flight.
 
 ---
 
+## ~~585-followup. Stale-sidecar Re-Fly load destroys sibling tree recordings on the next OnSave (data loss)~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log`. The user did
+a Re-Fly of the booster (`50f91cc6`) on a tree whose tree-recording
+sidecar epochs had advanced past the `RewindPoint`'s `.sfs` epoch by
+the time the player triggered the rewind. Two recordings hit bug
+`#270`'s stale-sidecar mitigation on load:
+
+```
+[WARN][RecordingStore] Sidecar epoch mismatch for 22c28f04…: .sfs expects epoch 2, .prec has epoch 6 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+[WARN][RecordingStore] Sidecar epoch mismatch for 50f91cc6…: .sfs expects epoch 1, .prec has epoch 3 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+```
+
+PR `#558` (bug `#585`) handled the active recording (`50f91cc6`):
+the in-place-continuation marker swap rebinds the recorder, so
+the empty in-memory state gets repopulated by the live re-fly.
+But the OTHER recording (`22c28f04` — the launch / pre-decouple
+"Kerbal X") had no recorder bound to it. Its in-memory state stayed
+empty all session, and on scene exit at `21:59:55.747`:
+
+```
+[VERBOSE][RecordingStore] WriteBinaryTrajectoryFile: recording=22c28f04… points=0 orbitSegments=0 trackSections=0 sparsePointLists=0
+[VERBOSE][RecordingStore] SaveRecordingFiles: id=22c28f04… wroteVessel=False wroteGhost=False
+```
+
+The previous good write of this recording at `21:57:40` carried
+`points=400 orbitSegs=6 trackSections=32`. The save clobbered it
+with empty data; the `.prec` on disk now reads `points=0`, the
+launch row vanishes from the post-rewind timeline (`Recording
+collector: 2 entries from 7 recordings`), the launch ghost button
+is `disabled (no ghost)`, and the user's original launch trajectory
+is permanently destroyed.
+
+This is the same family as `#585` (bug `#270` mitigation +
+in-place continuation Re-Fly) but on a different axis: `#585`
+patched the active recording's restore; this one is the SAVE side
+of the same shape — the empty in-memory state of any non-active
+hydration-failed recording gets written through to disk.
+
+**Files investigated:**
+
+- `Source/Parsek/RecordingStore.cs` — `SaveRecordingFilesToPathsInternal`
+  unconditionally writes the trajectory sidecar from in-memory state.
+  The `Recording.SidecarLoadFailed` flag is set during load
+  (`MarkSidecarLoadFailure` at the stale-sidecar-epoch path) but
+  never consulted at save time.
+- `Source/Parsek/Recording.cs` — `[NonSerialized] internal bool
+  SidecarLoadFailed` exists already; its companion
+  `SidecarLoadFailureReason` carries `"stale-sidecar-epoch"` for
+  this case.
+- `Source/Parsek/ParsekScenario.cs` — the existing
+  `RestoreHydrationFailedRecordingsFromPendingTree` salvage path
+  does clear the flag for recordings it can recover from a
+  matching `pendingTree`, but it requires the pending tree to
+  exist + match by id, which doesn't always hold under Re-Fly load.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-587-followup` by
+gating `SaveRecordingFilesToPathsInternal` on a new pure-static
+helper `RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec)`
+that returns true iff `rec.SidecarLoadFailed` is true AND the
+in-memory state is effectively empty (no `Points`, `OrbitSegments`,
+`TrackSections`, `PartEvents`, `FlagEvents`, `SegmentEvents`,
+`VesselSnapshot`, or `GhostVisualSnapshot`). When the gate triggers,
+the saver returns success WITHOUT writing the trajectory sidecar,
+WITHOUT incrementing the epoch, and WITHOUT touching the vessel /
+ghost snapshot files — the on-disk `.prec` is preserved. A
+structured WARN line carries the recording id, the
+`SidecarLoadFailureReason`, and the data-loss-prevention rationale.
+The active-recording case from PR `#558` is unaffected: as soon as
+the recorder rebinds and adds even one trajectory point, the
+predicate returns false and the save proceeds normally.
+Tests: `Bug585FollowupSaveSkipTests` (10 cases — 8 predicate cases
+covering null rec, flag false, each individual data field present,
+and all-empty + flag set; 2 end-to-end cases pinning that the
+on-disk `.prec` is byte-for-byte unchanged after a stale-flag save
+attempt and that the active-recovered recording still writes new
+data).
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
+## ~~587-followup. Re-Fly post-supplement strip leaves non-Destroyed phantom vessels in scene~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log:13590`. After
+the in-place-continuation Re-Fly's
+`StripPreExistingDebrisForInPlaceContinuation` ran, the diagnostic
+`WarnOnLeftAloneNameCollisions` still tripped:
+
+```
+[WARN][Rewind] Strip left 1 pre-existing vessel(s) whose name matches a tree recording: [Kerbal X Debris] — not related to the re-fly, will appear as second Kerbal X-shaped object in scene
+```
+
+The user reported this as a long-standing visible bug: "I can STILL
+see the upper stage doubled — both the ghost and a real vessel copy
+(clickable) of it in front." Even after `#587`'s post-supplement
+killed three of four matching debris in the playtest, a fourth
+remained — its matching tree recording's `TerminalState` was not
+`Destroyed`, so the `#587` predicate let it through.
+
+**Cause:** `RewindInvoker.ResolveInPlaceContinuationDebrisToKill`
+filtered the kill set on `rec.TerminalStateValue == TerminalState.Destroyed`
+only. For an in-place-continuation Re-Fly, the SCOPE of "this
+vessel is being superseded" is the session-suppressed subtree
+(`EffectiveState.ComputeSessionSuppressedSubtree(marker)`),
+which already includes non-Destroyed children of the origin
+recording. Pre-existing real vessels matching one of those
+recordings' names are phantoms from the old timeline that the
+re-fly is overwriting — they should be killed too.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-587-followup` by
+adding an optional `IReadOnlyCollection<string>
+sessionSuppressedRecordingIds` parameter to
+`ResolveInPlaceContinuationDebrisToKill`. The kill-eligible-name set
+is now the UNION of (a) recordings with `TerminalState.Destroyed`
+and (b) recordings whose `RecordingId` is in the suppressed-subtree
+closure, while still excluding the active Re-Fly target's own vessel
+name (so a duplicate-name vessel cannot bypass the protected-pid
+gate). The production caller
+(`StripPreExistingDebrisForInPlaceContinuation`) calls
+`EffectiveState.ComputeSessionSuppressedSubtree(marker)` and passes
+its result; the predicate is otherwise unchanged. A structured
+VERBOSE log line breaks down `destroyedTerminal` / `suppressedSubtree`
+counts so playtest logs can confirm which path matched. Tests:
+five new cases in `Bug587StripPreExistingDebrisTests`
+(`InPlaceMarker_KillsNameMatchingSuppressedSubtreeRec`,
+`NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly` (backward
+compat), `SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching`
+(union), `SuppressedSubtreeKill_RespectsProtectedPids` (`#573`
+contract), and `LogsKillEligibleCounters_WhenMatchesFound`
+(structured log assertion)).
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
