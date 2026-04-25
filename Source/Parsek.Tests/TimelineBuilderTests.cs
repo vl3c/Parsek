@@ -607,6 +607,7 @@ namespace Parsek.Tests
                 TimelineEntryType.RecordingStart,
                 TimelineEntryType.VesselSpawn,
                 TimelineEntryType.CrewDeath,
+                TimelineEntryType.UnfinishedFlightSeparation,
                 TimelineEntryType.MilestoneAchievement,
                 TimelineEntryType.ContractComplete,
                 TimelineEntryType.ContractFail,
@@ -625,7 +626,7 @@ namespace Parsek.Tests
                     $"Expected T1 for {type} but got {tier}");
             }
 
-            Assert.Equal(12, t1Types.Length);
+            Assert.Equal(13, t1Types.Length);
         }
 
         // ================================================================
@@ -637,6 +638,7 @@ namespace Parsek.Tests
         {
             var t2Types = new[]
             {
+                TimelineEntryType.Separation,
                 TimelineEntryType.ScienceEarning,
                 TimelineEntryType.ScienceSpending,
                 TimelineEntryType.FundsEarning,
@@ -661,7 +663,7 @@ namespace Parsek.Tests
                     $"Expected T2 for {type} but got {tier}");
             }
 
-            Assert.Equal(15, t2Types.Length);
+            Assert.Equal(16, t2Types.Length);
         }
 
         // ================================================================
@@ -1806,6 +1808,138 @@ namespace Parsek.Tests
 
             var keys = TimelineBuilder.BuildEvaBranchKeys(new List<Recording> { eva });
             Assert.Empty(keys);
+        }
+
+        // ================================================================
+        // Separation entries for tree-child recordings (UF + post-merge)
+        // ================================================================
+
+        /// <summary>
+        /// A tree-child recording that currently qualifies as an Unfinished
+        /// Flight (terminal=Destroyed AND a matching RP keyed at its
+        /// ParentBranchPointId) emits a single
+        /// <see cref="TimelineEntryType.UnfinishedFlightSeparation"/> entry
+        /// at its StartUT, with the label "Separation of Unfinished
+        /// Flight: ...". The renderer adds a Fly button on this entry; the
+        /// label is asserted here, the button-side wiring is exercised in
+        /// the runtime tests.
+        /// </summary>
+        [Fact]
+        public void TreeChild_DestroyedWithMatchingRp_EmitsUnfinishedFlightSeparation()
+        {
+            const string kBpId = "bp-uf-1";
+            const uint kPid = 42;
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = kPid;
+            root.ChildBranchPointId = kBpId;
+
+            var booster = MakeRecording("Kerbal X Probe", 200, 260,
+                terminal: TerminalState.Destroyed);
+            booster.VesselPersistentId = 99u;
+            booster.ParentBranchPointId = kBpId;
+
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp-uf-1",
+                        BranchPointId = kBpId,
+                        UT = 200.0,
+                        ChildSlots = new List<ChildSlot>
+                        {
+                            new ChildSlot
+                            {
+                                SlotIndex = 0,
+                                OriginChildRecordingId = booster.RecordingId,
+                            },
+                        },
+                        SessionProvisional = false,
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, booster },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                var separations = result
+                    .Where(e => e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                             || e.Type == TimelineEntryType.Separation)
+                    .ToList();
+                Assert.Single(separations);
+                var sep = separations[0];
+                Assert.Equal(TimelineEntryType.UnfinishedFlightSeparation, sep.Type);
+                Assert.Equal(200, sep.UT);
+                Assert.Equal(booster.RecordingId, sep.RecordingId);
+                Assert.Equal("Separation of Unfinished Flight: Kerbal X Probe", sep.DisplayText);
+                Assert.Equal(SignificanceTier.T1, sep.Tier);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        /// <summary>
+        /// Discriminator: same tree-child topology but the matching RP is
+        /// gone (post-merge or never existed). The recording is no longer
+        /// an Unfinished Flight, so the entry morphs into a plain
+        /// <see cref="TimelineEntryType.Separation"/> at T2 with the
+        /// shorter "Separation: ..." label and no Fly affordance. This is
+        /// the visible result of the Re-Fly merge promoting the row out
+        /// of the Unfinished Flights group.
+        /// </summary>
+        [Fact]
+        public void TreeChild_DestroyedNoMatchingRp_EmitsRegularSeparation()
+        {
+            const string kBpId = "bp-merged-1";
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = 42u;
+            root.ChildBranchPointId = kBpId;
+
+            var booster = MakeRecording("Kerbal X Probe", 200, 260,
+                terminal: TerminalState.Destroyed);
+            booster.VesselPersistentId = 99u;
+            booster.ParentBranchPointId = kBpId;
+
+            var scenario = new ParsekScenario
+            {
+                // No RewindPoints — RP was reaped on merge or never existed.
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, booster },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                var separations = result
+                    .Where(e => e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                             || e.Type == TimelineEntryType.Separation)
+                    .ToList();
+                Assert.Single(separations);
+                var sep = separations[0];
+                Assert.Equal(TimelineEntryType.Separation, sep.Type);
+                Assert.Equal(200, sep.UT);
+                Assert.Equal(booster.RecordingId, sep.RecordingId);
+                Assert.Equal("Separation: Kerbal X Probe", sep.DisplayText);
+                Assert.Equal(SignificanceTier.T2, sep.Tier);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
         }
     }
 }

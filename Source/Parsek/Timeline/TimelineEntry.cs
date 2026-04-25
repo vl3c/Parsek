@@ -9,10 +9,12 @@ namespace Parsek
     /// </summary>
     public enum TimelineEntryType
     {
-        // Recording lifecycle (3)
+        // Recording lifecycle (5)
         RecordingStart,
         VesselSpawn,
         CrewDeath,
+        UnfinishedFlightSeparation,
+        Separation,
 
         // Game actions (23, 1:1 with GameActionType)
         ScienceEarning,
