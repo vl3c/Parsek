@@ -6400,6 +6400,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #565 / #567: encodes the narrow contract between a trajectory sidecar's on-disk
+        /// binary-encoding version (<c>probe.FormatVersion</c>) and the in-memory recording's
+        /// semantic version (<c>rec.RecordingFormatVersion</c>) for a current-format committed
+        /// recording. The two values can differ ONLY by the v3 -&gt; v4 metadata-only
+        /// migration: <see cref="LaunchToLaunchLoopIntervalFormatVersion"/> changed the
+        /// meaning of <c>loopIntervalSeconds</c> without altering binary layout, so a v3
+        /// sidecar with a v4 in-memory recording is correct on disk and only the in-memory
+        /// state was promoted (see
+        /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
+        /// Every other lag is rejected: v5 added serialized
+        /// <c>OrbitSegment.isPredicted</c> and v6 changed RELATIVE TrackSection point
+        /// semantics, so a v3 sidecar paired with a v5- or v6-tagged recording indicates
+        /// stale or incomplete trajectory data on disk that the runtime test must catch.
+        /// </summary>
+        internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
+        {
+            // Equality: the ordinary case (sidecar was rewritten at the in-memory version).
+            if (probeFormatVersion == recordingFormatVersion)
+                return true;
+
+            // The single explicit metadata-only exception: v3 sidecar + v4 recording from the
+            // legacy-loop migration. v3 (sparse-point binary) and v4 (launch-to-launch loop
+            // interval semantic) share an identical binary layout, so an unrewritten v3
+            // sidecar is correct on disk for a v4-promoted in-memory recording.
+            int metadataOnlyProbeVersion = LaunchToLaunchLoopIntervalFormatVersion - 1;
+            if (probeFormatVersion == metadataOnlyProbeVersion
+                && recordingFormatVersion == LaunchToLaunchLoopIntervalFormatVersion)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
         /// <see cref="LoopTiming.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
         /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every
@@ -6439,9 +6472,73 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Bug #585 follow-up: a recording whose sidecar load failed (most often
+        /// bug #270's stale-sidecar-epoch mitigation on a Re-Fly quicksave) sits
+        /// in memory with empty trajectory + null snapshots, while the on-disk
+        /// .prec still holds the original mission's data. If the recorder never
+        /// rebinds (any non-active recording in the loaded tree), writing the
+        /// empty in-memory state back to disk would clobber the original .prec
+        /// — permanently destroying user data. PR #558 fixed this for the
+        /// active recording (recorder rebind repopulates it) but did nothing
+        /// for siblings; the playtest at <c>logs/2026-04-25_2210_refly-bugs/</c>
+        /// caught a sibling launch recording (22c28f04…) being overwritten with
+        /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
+        /// scene exit. This guard returns true when both flags are set and the
+        /// in-memory state has no recorded data: the saver must skip the write
+        /// to preserve the on-disk .prec.
+        /// </summary>
+        internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
+        {
+            if (rec == null) return false;
+            if (!rec.SidecarLoadFailed) return false;
+
+            int pointCount = rec.Points?.Count ?? 0;
+            int orbitSegCount = rec.OrbitSegments?.Count ?? 0;
+            int trackSectionCount = rec.TrackSections?.Count ?? 0;
+            int partEventCount = rec.PartEvents?.Count ?? 0;
+            int flagEventCount = rec.FlagEvents?.Count ?? 0;
+            int segmentEventCount = rec.SegmentEvents?.Count ?? 0;
+            bool hasVessel = rec.VesselSnapshot != null;
+            bool hasGhost = rec.GhostVisualSnapshot != null;
+
+            return pointCount == 0
+                && orbitSegCount == 0
+                && trackSectionCount == 0
+                && partEventCount == 0
+                && flagEventCount == 0
+                && segmentEventCount == 0
+                && !hasVessel
+                && !hasGhost;
+        }
+
         private static bool SaveRecordingFilesToPathsInternal(
             Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch)
         {
+            // Bug #585 follow-up: do NOT clobber a stale-sidecar .prec with empty
+            // in-memory state. See ShouldSkipSaveToPreserveStaleSidecar for the
+            // full rationale. The recording stays FilesDirty so future saves
+            // continue to no-op (avoiding a silent stale-state-write race if the
+            // hydration ever recovers later in the session). The on-disk .prec
+            // and snapshots are preserved untouched, including the existing
+            // SidecarEpoch — they remain authoritative until either the recorder
+            // rebinds (TryRestoreActiveTreeNode salvage path clears the flag) or
+            // the user invokes a destructive recording-deletion path.
+            if (ShouldSkipSaveToPreserveStaleSidecar(rec))
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles: skipping write for {rec.RecordingId} " +
+                        $"(SidecarLoadFailed=True reason='{rec.SidecarLoadFailureReason ?? "<none>"}' " +
+                        $"in-memory state empty) — preserving on-disk .prec to avoid data loss " +
+                        $"(bug #585 follow-up: empty-state save would clobber stale-sidecar .prec)");
+                }
+                // Leave FilesDirty unchanged so subsequent OnSave passes will
+                // re-evaluate and skip again until the flag is cleared.
+                return true;
+            }
+
             int originalSidecarEpoch = rec.SidecarEpoch;
             GhostSnapshotMode originalGhostSnapshotMode = rec.GhostSnapshotMode;
             GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);

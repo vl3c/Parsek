@@ -37,12 +37,28 @@ namespace Parsek
             public int suppressedCount;
         }
 
+        private struct OnChangeState
+        {
+            public string lastKey;
+            public int suppressedCount;
+        }
+
         // ThreadStatic so each xUnit thread gets its own rate-limit state.
         // Backing field is null on non-initial threads; property lazy-creates.
         [ThreadStatic]
         private static Dictionary<string, RateLimitState> t_rateLimitStateByKey;
         private static Dictionary<string, RateLimitState> rateLimitStateByKey =>
             t_rateLimitStateByKey ?? (t_rateLimitStateByKey = new Dictionary<string, RateLimitState>());
+
+        // Tracks last-emitted key per stable identity for VerboseOnChange. The
+        // dictionary is keyed by a caller-chosen "identity" (e.g., "GhostMap|<recId>")
+        // and stores the most recent decision key plus a suppressed counter. A new
+        // emission fires only when the decision key flips; otherwise the suppressed
+        // counter is bumped and surfaced via "| suppressed=N" on the next change.
+        [ThreadStatic]
+        private static Dictionary<string, OnChangeState> t_onChangeStateByIdentity;
+        private static Dictionary<string, OnChangeState> onChangeStateByIdentity =>
+            t_onChangeStateByIdentity ?? (t_onChangeStateByIdentity = new Dictionary<string, OnChangeState>());
 
         private const double DefaultRateLimitSeconds = 5.0;
         private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1);
@@ -69,6 +85,7 @@ namespace Parsek
         internal static void ResetRateLimitsForTesting()
         {
             rateLimitStateByKey.Clear();
+            onChangeStateByIdentity.Clear();
         }
 
         internal static void ResetTestOverrides()
@@ -184,6 +201,67 @@ namespace Parsek
             }
 
             rateLimitStateByKey[compositeKey] = state;
+        }
+
+        /// <summary>
+        /// State-change-driven verbose log. Emits <paramref name="message"/> only when
+        /// <paramref name="stateKey"/> differs from the last emitted state for the
+        /// given <paramref name="identity"/>. Stable per-frame repeats with the same
+        /// <paramref name="stateKey"/> are coalesced into a suppressed counter that
+        /// is surfaced as <c>| suppressed=N</c> on the next change emission.
+        /// </summary>
+        /// <remarks>
+        /// Use when the line should fire on every decision flip (None to Segment, etc.)
+        /// but stay completely silent across stable per-frame repeats — the time-based
+        /// re-emission of <see cref="VerboseRateLimited"/> would still spam the log
+        /// for long-stable states (e.g., a recording stuck in pending for the entire
+        /// session). The <paramref name="identity"/> is the stable scope to track
+        /// (typically "<![CDATA[<subsystem>|<recId>]]>") and <paramref name="stateKey"/>
+        /// encodes the decision tuple whose changes you care about.
+        /// </remarks>
+        public static void VerboseOnChange(
+            string subsystem,
+            string identity,
+            string stateKey,
+            string message)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (string.IsNullOrEmpty(identity))
+            {
+                Verbose(subsystem, message);
+                return;
+            }
+
+            string compositeIdentity = $"{subsystem}|{identity}";
+            string normalizedKey = stateKey ?? string.Empty;
+            if (!onChangeStateByIdentity.TryGetValue(compositeIdentity, out var state))
+            {
+                onChangeStateByIdentity[compositeIdentity] = new OnChangeState
+                {
+                    lastKey = normalizedKey,
+                    suppressedCount = 0
+                };
+                Verbose(subsystem, message);
+                return;
+            }
+
+            if (state.lastKey != normalizedKey)
+            {
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Verbose(subsystem, $"{message}{suffix}");
+                state.lastKey = normalizedKey;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            onChangeStateByIdentity[compositeIdentity] = state;
         }
 
         /// <summary>

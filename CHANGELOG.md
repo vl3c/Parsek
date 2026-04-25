@@ -43,7 +43,15 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#599` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
+- `#600` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
+
+- `#585` follow-up: Re-Fly load no longer destroys the on-disk `.prec` of sibling tree recordings whose sidecar load was skipped by bug `#270`'s stale-epoch mitigation. Two layers of protection: `SaveActiveTreeIfAny` first attempts to repair hydration-failed records by copying trajectory data from the matching committed tree (`RestoreHydrationFailedRecordingsFromCommittedTree`), so the in-memory state is restored and the recording remains playable in-session; if no committed-tree donor is available, the save path then refuses to overwrite a recording whose `SidecarLoadFailed` flag is still set AND whose in-memory state has no trajectory points, orbit segments, track sections, snapshots, or part events, preserving the original `.prec` until either the recorder rebinds (which clears the flag) or an explicit deletion path runs. The 2026-04-25 playtest's launch recording (`22c28f04`) was being clobbered with `points=0 wroteVessel=False` on scene exit; a structured `SaveRecordingFiles: skipping write … preserving on-disk .prec` WARN reports each callee-side save-skip decision and `SaveActiveTreeIfAny: skipped empty sidecar overwrite` reports each caller-side skip.
+
+- `#587` follow-up: Re-Fly post-supplement strip now also kills pre-existing vessels whose name matches a recording in the session-suppressed subtree, not just `Destroyed`-terminal recordings. The 2026-04-25 playtest left a non-Destroyed phantom in scene that the player saw as a clickable "second Kerbal X-shaped object". The kill-eligible-name set now unions Destroyed-terminal recordings with `EffectiveState.ComputeSessionSuppressedSubtree` membership, while still excluding the active Re-Fly target's own vessel name and respecting the `#573` protected-pid contract; a structured kill-summary VERBOSE log line breaks down the match counts.
+
+- Map-vessel source-resolve and spawn-suppression diagnostics no longer storm `KSP.log` when the same per-frame decision repeats every tick. Stable `(source, reason)` tuples now emit once per recording and stay quiet until the decision flips, with the suppressed count surfaced as `| suppressed=N` on the next state change.
+
+- In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
 
 - `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
 
@@ -56,6 +64,10 @@ All notable changes to Parsek are documented here.
 - In-game test `CrewReservationTests.ReplacementsAreValid` no longer NREs in MAINMENU when no save is loaded; it now skips cleanly when `HighLogic.CurrentGame` is null, mirroring the sibling `ReservedCrewNotAssigned` guard.
 
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
+
+- Re-Fly post-load activation now holds timeline playback while `RewindInvokeContext` is still pending, so the selected re-fly vessel cannot briefly render as both the activated real vessel and its pre-marker timeline ghost.
+
+- Re-Fly session marker / RewindPoint state now survives the stale-sidecar restore path seen in the `2026-04-25_2210_refly-bugs` playtest. `MarkerValidator` now accepts a marker whose `TreeId` resolves through `RecordingStore.PendingTree` (not just `CommittedTrees`), so the playtest's `21:59:57` `Marker invalid field=TreeId; cleared` event no longer fires when the active tree is still in pending-Limbo. `RewindPointReaper.ReapOrphanedRPs` now preserves any RP whose id matches `ActiveReFlySessionMarker.RewindPointId`, so the playtest's `22:07:14` `Marker invalid field=RewindPointId` event no longer fires after a reap pass eats the marker's own RP. (Active-tree sidecar overwrite + in-memory repair are described in the `#585` follow-up entry above.)
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
 
@@ -176,6 +188,9 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added regressions for pending-tree marker validation, active-marker RP preservation during reap, Re-Fly pending-invocation timeline playback gating, and committed-tree repair of hydration-failed active-tree sidecars.
+
+- `#527` In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` now drives `CommitTreeFlight` to land its launch recording in the timeline before staging the rewind, replacing the earlier `StopRecording`-then-wait pattern that timed out because stop alone never commits.
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
