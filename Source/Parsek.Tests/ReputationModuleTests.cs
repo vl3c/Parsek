@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -741,6 +742,83 @@ namespace Parsek.Tests
                 RepSource = ReputationSource.Other
             });
             Assert.False(module.HasSeed);
+        }
+
+        // ================================================================
+        // Bug #593 (P2 follow-up) — milestone-rep rate limiting
+        // ================================================================
+
+        [Fact]
+        public void MilestoneRep_SameActionRecalculated_RateLimitedToOneLine()
+        {
+            // Bug #593 (P2 follow-up): the rate-limit key for the
+            // "Milestone rep" line is the stable GameAction.ActionId so a
+            // recalc loop walking the SAME action collapses to one line per
+            // window.
+            var action = MakeMilestone("RecordsSpeed", 50.0, "rec-A",
+                repAwarded: 5f);
+            for (int i = 0; i < 100; i++)
+            {
+                module.ProcessAction(action);
+            }
+
+            int lines = logLines.Count(l =>
+                l.Contains("[Reputation]") &&
+                l.Contains("Milestone rep at UT=") &&
+                l.Contains("RecordsSpeed") &&
+                l.Contains("rec-A"));
+            Assert.Equal(1, lines);
+        }
+
+        [Fact]
+        public void MilestoneRep_DistinctActionsSamePair_LogSeparately()
+        {
+            // Bug #593 (P2 follow-up): distinct grants sharing
+            // (milestoneId, recordingId) but with different UT or reward
+            // are separate effective hits and must each log on first walk.
+            var grantA = MakeMilestone("RecordsSpeed", 50.0, "rec-A",
+                repAwarded: 5f);
+            var grantB = MakeMilestone("RecordsSpeed", 80.0, "rec-A",
+                repAwarded: 5f);
+            var grantC = MakeMilestone("RecordsSpeed", 80.0, "rec-A",
+                repAwarded: 8f);
+            Assert.NotEqual(grantA.ActionId, grantB.ActionId);
+            Assert.NotEqual(grantB.ActionId, grantC.ActionId);
+            Assert.NotEqual(grantA.ActionId, grantC.ActionId);
+
+            module.ProcessAction(grantA);
+            module.ProcessAction(grantB);
+            module.ProcessAction(grantC);
+
+            int lines = logLines.Count(l =>
+                l.Contains("[Reputation]") &&
+                l.Contains("Milestone rep at UT=") &&
+                l.Contains("RecordsSpeed") &&
+                l.Contains("rec-A"));
+            Assert.Equal(3, lines);
+        }
+
+        [Fact]
+        public void MilestoneRep_NullRecordingId_StillKeysOnActionId()
+        {
+            // Standalone/KSC-path repeatable record milestones can have a
+            // null RecordingId. The earlier (milestoneId, recordingId)-keyed
+            // gate would collapse two distinct null-recording grants into
+            // one line; the ActionId-keyed gate must keep them separate.
+            var grant1 = MakeMilestone("RecordsAltitude", 50.0, null,
+                repAwarded: 4f);
+            var grant2 = MakeMilestone("RecordsAltitude", 75.0, null,
+                repAwarded: 6f);
+            Assert.NotEqual(grant1.ActionId, grant2.ActionId);
+
+            module.ProcessAction(grant1);
+            module.ProcessAction(grant2);
+
+            int lines = logLines.Count(l =>
+                l.Contains("[Reputation]") &&
+                l.Contains("Milestone rep at UT=") &&
+                l.Contains("RecordsAltitude"));
+            Assert.Equal(2, lines);
         }
     }
 }

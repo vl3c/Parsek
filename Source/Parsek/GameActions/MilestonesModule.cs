@@ -83,16 +83,24 @@ namespace Parsek
                 // Bug #593: repeatable record milestones (RecordsSpeed/Altitude/
                 // Distance) hit this branch on every recalc walk for every
                 // committed record-grant action, producing 170+ identical
-                // "stays effective" lines per session. Rate-limit per
-                // (milestoneId, recordingId) so each distinct repeated grant
-                // logs at most once per window.
-                string key = string.Format(IC,
-                    "milestone-stays-effective-{0}-{1}",
-                    milestoneId,
-                    action.RecordingId ?? "(none)");
+                // "stays effective" lines per session. Rate-limit per stable
+                // GameAction.ActionId so a recalc loop walking the SAME
+                // action collapses, while two distinct grants of the same
+                // milestoneId in the same recording but at different UT (or
+                // with different reward shapes) still log on their first
+                // walk because they have different ActionIds.
+                string actionIdKey = !string.IsNullOrEmpty(action.ActionId)
+                    ? action.ActionId
+                    : string.Format(IC, "{0}|{1}|{2}|{3}",
+                        milestoneId,
+                        action.RecordingId ?? "(none)",
+                        action.UT.ToString("R", IC),
+                        action.MilestoneFundsAwarded.ToString("R", IC));
+                string key = "milestone-stays-effective-action-" + actionIdKey;
                 ParsekLog.VerboseRateLimited("Milestones", key,
                     $"Repeatable record milestone '{milestoneId}' stays effective at UT={action.UT.ToString("F1", IC)}" +
-                    $" (recording={action.RecordingId ?? "null"}," +
+                    $" (actionId={action.ActionId ?? "(none)"}," +
+                    $" recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
                     $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +
                     $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)})," +

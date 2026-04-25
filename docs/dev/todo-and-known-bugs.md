@@ -1363,14 +1363,22 @@ record-milestones, that produces ~170 lines per branch.
 **Fix:** `MilestonesModule.ProcessMilestoneAchievement` (the repeatable
 "stays effective" branch), `FundsModule.ProcessMilestoneEarning`, and
 `ReputationModule.ProcessMilestoneRep` now all route through
-`ParsekLog.VerboseRateLimited` with the key
-`(milestoneId, recordingId)` so each unique pair logs at most once
-per rate-limit window. Regressions
-`FundsModuleTests.MilestoneEarning_RepeatedSamePair_RateLimitedToOneLine`
-and
-`MilestonesModuleTests.RepeatableRecordMilestone_RepeatedSamePair_RateLimitedToOneLine`
-call 100x with the same `(milestoneId, recordingId)` pair and assert a
-single emitted line.
+`ParsekLog.VerboseRateLimited` keyed by the stable
+`GameAction.ActionId` (with a `(milestoneId, recordingId, ut, reward)`
+tuple as fallback if `ActionId` is empty). The intended invariant is
+"recalculating the SAME action collapses its log line"; two distinct
+record-milestone hits sharing the same milestoneId+recordingId but
+with different UT or reward have different `ActionId`s and still log
+on their first walk. Each emitted line now includes `actionId=...` so
+the identity is debuggable. Regressions
+`FundsModuleTests.MilestoneEarning_SameActionRecalculated_RateLimitedToOneLine`,
+`MilestonesModuleTests.RepeatableRecordMilestone_SameActionRecalculated_RateLimitedToOneLine`,
+and `ReputationModuleTests.MilestoneRep_SameActionRecalculated_RateLimitedToOneLine`
+re-walk a single action 100 times and assert exactly one emitted line.
+Companion regressions
+`*_DistinctActionsSamePair_LogSeparately` and
+`*_NullRecordingId_StillKeysOnActionId` confirm distinct actions
+(including null-recording standalone/KSC paths) survive the gate.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
@@ -1437,17 +1445,24 @@ no-op summary fires unconditionally at INFO on every PatchFacilities
 call.
 
 **Diagnosis (2026-04-25):** the summary's purpose is to make
-"facility patching ran" visible at INFO when it actually did
-something (level change, level mismatch skipped, or `notFound`
-diagnostic). When all three counts are zero, the summary is pure
-noise; INFO is the wrong tier for "we processed an empty list".
+"facility patching changed game state or hit a missing facility"
+visible at INFO. `skippedCount` increments on the no-op pass (a
+facility already at its target level), so a steady-state non-empty
+`FacilitiesModule` would still re-emit the INFO summary on every
+recalc if `skipped` counted toward the gate.
 
-**Fix:** `KspStatePatcher.PatchFacilities` (`KspStatePatcher.cs:691`)
-now branches on `patched + skipped + notFound > 0`. The work case
-keeps the existing INFO summary unchanged. The no-work case routes
-to `VerboseRateLimited` with key `patch-facilities-empty` so the
-diagnostic is still available when somebody is investigating an
-empty FacilitiesModule, without flooding INFO at steady state.
+**Fix:** `KspStatePatcher.PatchFacilities` now gates the INFO summary
+on `patchedCount + notFoundCount > 0`. The skipped-only steady-state
+case (`patched=0, notFound=0, skipped>0`) routes through
+`VerboseRateLimited` with key `patch-facilities-skipped-only`. The
+empty-totals case (no tracked facilities at all) keeps its existing
+`patch-facilities-empty` rate-limited Verbose path. Regressions
+`KspStatePatcherTests.PatchFacilities_NotFound_LogsInfoSummary` and
+`PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose` pin
+the INFO branch (notFound>0) and the empty-Verbose branch. The
+skipped-only branch needs real `UpgradeableFacility` refs in
+`ScenarioUpgradeableFacilities.protoUpgradeables` and is verified
+in-game during the next playtest pass instead of an xUnit canary.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 

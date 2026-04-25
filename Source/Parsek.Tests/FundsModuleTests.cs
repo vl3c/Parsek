@@ -840,21 +840,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MilestoneEarning_RepeatedSamePair_RateLimitedToOneLine()
+        public void MilestoneEarning_SameActionRecalculated_RateLimitedToOneLine()
         {
-            // Bug #593: ProcessMilestoneEarning is called once per
-            // (milestoneId, recordingId) pair on every recalc walk. In a single
-            // playtest the recalculation engine fired ~57 times, producing 170
-            // identical "Milestone funds: +N, milestoneId=RecordsSpeed, ..."
-            // lines per repeatable record-milestone (510 total across Speed/
-            // Altitude/Distance). The branch now routes through
-            // VerboseRateLimited keyed by (milestoneId, recordingId) so a
-            // steady recalc loop emits at most one line per pair per window.
+            // Bug #593 (P2 follow-up): the rate-limit key is the stable
+            // GameAction.ActionId, not (milestoneId, recordingId). The
+            // intended invariant is "recalculating the SAME action collapses
+            // its log line"; distinct actions with the same milestoneId/
+            // recordingId but different UT or reward must still log on their
+            // first walk because they are real, separate effective hits.
+            //
+            // This test pins the collapsing case: a single action object
+            // re-walked 100 times must emit at most one log line.
+            var action = MakeMilestone(
+                50.0, "RecordsSpeed", 5000f,
+                recordingId: "rec-pair-1", effective: true);
+
             for (int i = 0; i < 100; i++)
             {
-                module.ProcessAction(MakeMilestone(
-                    50 + i * 0.001, "RecordsSpeed", 5000f,
-                    recordingId: "rec-pair-1", effective: true));
+                module.ProcessAction(action);
             }
 
             int speedLines = logLines.Count(l =>
@@ -863,6 +866,66 @@ namespace Parsek.Tests
                 l.Contains("RecordsSpeed") &&
                 l.Contains("rec-pair-1"));
             Assert.Equal(1, speedLines);
+        }
+
+        [Fact]
+        public void MilestoneEarning_DistinctActionsSameMilestoneAndRecording_LogSeparately()
+        {
+            // Bug #593 (P2 follow-up): distinct actions sharing the same
+            // (milestoneId, recordingId) but with different UT or reward
+            // values MUST log separately on their first walk. Suppressing
+            // them would silently drop a real second resource application.
+            //
+            // Two distinct RecordsSpeed grants for rec-A at UT=50 and UT=80
+            // (different ActionId) plus a third grant at UT=80 with a
+            // different reward should produce three distinct log lines.
+            var grantA = MakeMilestone(50.0, "RecordsSpeed", 5000f,
+                recordingId: "rec-A", effective: true);
+            var grantB = MakeMilestone(80.0, "RecordsSpeed", 5000f,
+                recordingId: "rec-A", effective: true);
+            var grantC = MakeMilestone(80.0, "RecordsSpeed", 7500f,
+                recordingId: "rec-A", effective: true);
+
+            // Sanity: GameAction.ActionId auto-assigns to a new GUID for each
+            // construction, so the three actions are genuinely distinct
+            // identities even though milestoneId and recordingId match.
+            Assert.NotEqual(grantA.ActionId, grantB.ActionId);
+            Assert.NotEqual(grantB.ActionId, grantC.ActionId);
+            Assert.NotEqual(grantA.ActionId, grantC.ActionId);
+
+            module.ProcessAction(grantA);
+            module.ProcessAction(grantB);
+            module.ProcessAction(grantC);
+
+            int speedLines = logLines.Count(l =>
+                l.Contains("[Funds]") &&
+                l.Contains("Milestone funds:") &&
+                l.Contains("RecordsSpeed") &&
+                l.Contains("rec-A"));
+            Assert.Equal(3, speedLines);
+        }
+
+        [Fact]
+        public void MilestoneEarning_NullRecordingId_StillKeysOnActionId()
+        {
+            // Standalone/KSC-path milestones can have a null RecordingId.
+            // The earlier (milestoneId, recordingId) key collapsed two
+            // distinct null-recording grants into one log line; the
+            // ActionId-keyed gate must keep them separate.
+            var grant1 = MakeMilestone(50.0, "RecordsAltitude", 4800f,
+                recordingId: null, effective: true);
+            var grant2 = MakeMilestone(75.0, "RecordsAltitude", 5200f,
+                recordingId: null, effective: true);
+            Assert.NotEqual(grant1.ActionId, grant2.ActionId);
+
+            module.ProcessAction(grant1);
+            module.ProcessAction(grant2);
+
+            int lines = logLines.Count(l =>
+                l.Contains("[Funds]") &&
+                l.Contains("Milestone funds:") &&
+                l.Contains("RecordsAltitude"));
+            Assert.Equal(2, lines);
         }
 
         [Fact]

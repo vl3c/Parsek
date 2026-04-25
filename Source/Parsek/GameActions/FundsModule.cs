@@ -345,18 +345,28 @@ namespace Parsek
 
             // Bug #593: this fires every recalc walk for every effective
             // record-milestone (RecordsSpeed/Altitude/Distance), producing 170+
-            // identical lines per session. The state being logged is steady — the
-            // amount, milestoneId, and recordingId don't change between walks — so
-            // rate-limit per (milestoneId, recordingId) pair to keep one line per
-            // distinct application per window.
-            string key = string.Format(IC,
-                "milestone-funds-{0}-{1}",
-                action.MilestoneId ?? "(none)",
-                action.RecordingId ?? "(none)");
+            // identical lines per session. The state being logged is steady
+            // across recalculations of the SAME action — the amount,
+            // milestoneId, recordingId, and UT are all immutable — so
+            // rate-limit per stable GameAction.ActionId. Two distinct
+            // record-milestone hits with the same milestoneId+recordingId but
+            // different UT/reward have different ActionIds and still log
+            // separately on their first walk; only repeated recalculations
+            // of the SAME action collapse.
+            string actionIdKey = !string.IsNullOrEmpty(action.ActionId)
+                ? action.ActionId
+                : string.Format(IC, "{0}|{1}|{2}|{3}",
+                    action.MilestoneId ?? "(none)",
+                    action.RecordingId ?? "(none)",
+                    action.UT.ToString("R", IC),
+                    amount.ToString("R", IC));
+            string key = "milestone-funds-action-" + actionIdKey;
             ParsekLog.VerboseRateLimited(Tag, key,
                 $"Milestone funds: +{amount.ToString("R", IC)}, " +
+                $"actionId={action.ActionId ?? "(none)"}, " +
                 $"milestoneId={action.MilestoneId ?? "(none)"}, " +
                 $"recordingId={action.RecordingId ?? "(none)"}, " +
+                $"ut={action.UT.ToString("R", IC)}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}, " +
                 $"totalEarnings={totalEarnings.ToString("R", IC)}");
         }
