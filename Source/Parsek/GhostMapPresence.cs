@@ -569,6 +569,127 @@ namespace Parsek
             return SessionSuppressionState.IsSuppressedRecordingIndex(recordingIndex);
         }
 
+        /// <summary>
+        /// Bug #587 third facet (2026-04-25 playtest): the in-place continuation
+        /// Re-Fly path leaves the *parent* of the active Re-Fly recording outside
+        /// the SessionSuppressedSubtree closure (the closure walks child-ward
+        /// from <c>OriginChildRecordingId</c>). When that parent recording's
+        /// playback is mid-flight in a <see cref="ReferenceFrame.Relative"/>
+        /// section anchored to the *active Re-Fly target's* persistent id, the
+        /// state-vector-fallback code path in
+        /// <see cref="CreateGhostVesselFromStateVectors"/> resolves a world
+        /// position right next to the live active vessel and feeds it (with
+        /// the recording's atmospheric-ascent velocity) to
+        /// <see cref="Orbit.UpdateFromStateVectors"/>. The result is a
+        /// degenerate orbit (sma=2 ecc=0.999999) AND a real registered
+        /// <see cref="Vessel"/> colocated with the player's vessel — the
+        /// "doubled upper-stage" the user reported.
+        ///
+        /// <para>This predicate gates that one create site without touching any
+        /// other source path. Pure-static so xUnit can pin every branch
+        /// without a live KSP scene; takes the marker, the resolution branch
+        /// label, the resolved anchor pid, and the committed-recordings list.</para>
+        ///
+        /// <para>Sister fixes (#587 and the #587 follow-up) targeted the
+        /// strip-side leftover (a pre-existing in-scene <c>Vessel</c> the
+        /// PostLoadStripper missed). This third facet targets the GhostMap-side
+        /// *creation* of a fresh ProtoVessel during the same Re-Fly invocation
+        /// — the strip side never sees this vessel because it is born after
+        /// strip runs.</para>
+        /// </summary>
+        /// <param name="marker">Live re-fly marker, or null.</param>
+        /// <param name="resolutionBranch">Branch label from
+        /// <see cref="StateVectorWorldFrame.Branch"/>: only "relative" suppresses.</param>
+        /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
+        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>.
+        /// Tests pass a list directly; production passes the live property.</param>
+        /// <param name="suppressReason">On true, a short human-readable reason
+        /// for the structured log line. On false, set to "not-suppressed-..."
+        /// describing which gate clause rejected the suppression.</param>
+        /// <returns>True iff the state-vector ProtoVessel should NOT be
+        /// created because its world position would land on top of the
+        /// active Re-Fly target.</returns>
+        internal static bool ShouldSuppressStateVectorProtoVesselForActiveReFly(
+            ReFlySessionMarker marker,
+            string resolutionBranch,
+            uint resolutionAnchorPid,
+            IReadOnlyList<Recording> committedRecordings,
+            out string suppressReason)
+        {
+            if (marker == null)
+            {
+                suppressReason = "not-suppressed-no-marker";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            {
+                suppressReason = "not-suppressed-marker-fields-empty";
+                return false;
+            }
+
+            // Placeholder pattern (provisional != origin): the live vessel
+            // in scene is the player's pre-rewind vessel, NOT a fresh
+            // restoration. Mirror the carve-out in
+            // RewindInvoker.ResolveInPlaceContinuationDebrisToKill — only
+            // in-place continuations (origin == active) trigger the
+            // doubled-vessel placement.
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                suppressReason = "not-suppressed-placeholder-pattern";
+                return false;
+            }
+
+            if (!string.Equals(resolutionBranch, "relative", StringComparison.Ordinal))
+            {
+                suppressReason = "not-suppressed-not-relative-frame";
+                return false;
+            }
+
+            if (resolutionAnchorPid == 0u)
+            {
+                suppressReason = "not-suppressed-no-anchor-pid";
+                return false;
+            }
+
+            if (committedRecordings == null)
+            {
+                suppressReason = "not-suppressed-no-committed-recordings";
+                return false;
+            }
+
+            uint activeReFlyPid = 0u;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                Recording rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                        StringComparison.Ordinal))
+                    continue;
+                activeReFlyPid = rec.VesselPersistentId;
+                break;
+            }
+
+            if (activeReFlyPid == 0u)
+            {
+                suppressReason = "not-suppressed-active-rec-pid-unknown";
+                return false;
+            }
+
+            if (resolutionAnchorPid != activeReFlyPid)
+            {
+                suppressReason = "not-suppressed-anchor-not-active-refly";
+                return false;
+            }
+
+            suppressReason = "refly-relative-anchor=active";
+            return true;
+        }
+
         private static double GetCurrentUTSafe()
         {
             return Planetarium.GetUniversalTime();
@@ -3993,6 +4114,42 @@ namespace Parsek
                     anchorPosForLog = anchorRef.GetWorldPos3D();
                     localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
                 }
+            }
+
+            // Bug #587 third facet: during in-place continuation Re-Fly, the
+            // state-vector-fallback path can synthesize a ProtoVessel right
+            // next to the active Re-Fly target when the recording is in a
+            // Relative-frame section anchored to that very vessel. The result
+            // is a "doubled upper-stage" the user sees in scene. Suppress
+            // creation here; GhostPlaybackEngine still renders the legitimate
+            // in-physics-zone ghost. See
+            // docs/dev/plans/refly-doubled-ghostmap-protovessel-fix.md.
+            if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                    SessionSuppressionState.ActiveMarker,
+                    resolution.Branch,
+                    resolution.AnchorPid,
+                    RecordingStore.CommittedRecordings,
+                    out string activeReFlySuppressReason))
+            {
+                var suppressed = NewDecisionFields("create-state-vector-suppressed");
+                suppressed.RecordingId = traj.RecordingId;
+                suppressed.RecordingIndex = recordingIndex;
+                suppressed.VesselName = traj.VesselName;
+                suppressed.Source = "StateVector";
+                suppressed.Branch = MapResolutionBranch(resolution.Branch);
+                suppressed.Body = point.bodyName;
+                suppressed.AnchorPid = resolution.AnchorPid;
+                suppressed.AnchorPos = anchorPosForLog;
+                suppressed.LocalOffset = localOffsetForLog;
+                suppressed.StateVecAlt = point.altitude;
+                suppressed.StateVecSpeed = point.velocity.magnitude;
+                suppressed.UT = ut;
+                suppressed.Reason = string.Format(ic,
+                    "{0} sess={1}",
+                    activeReFlySuppressReason,
+                    SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));
+                return null;
             }
 
             Vector3d worldPos = resolution.WorldPos;
