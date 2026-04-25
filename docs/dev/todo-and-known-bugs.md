@@ -514,6 +514,112 @@ breakdown.
 
 ---
 
+## ~~582. RELATIVE-frame trajectory points carry anchor-local metres in lat/lon/alt fields — recorder data is correct, contract was under-documented~~
+
+**Source:** in-game observation by user during the
+`logs/2026-04-25_1314_marker-validator-fix` playtest. *"the ghost icon started
+going inside the planet while following the trajectory points (icon only ghost,
+not proto-vessel ghost with trajectory line); please check the recordings
+trajectory points, something might be wrong there."*
+
+The user pointed at the recorded data because the first `TRACK_SECTION` of
+`Recordings/b85acd51ea7f4005bb5d879207749e8c.prec.txt` (ref=Relative,
+UT=1658.96-1668.14, anchorPid=95506284) stores values that look obviously
+wrong if read as body-fixed lat/lon/alt:
+
+```
+POINT { ut=1658.96 lat=-270.69 lon=-149.22 alt=-0.089 ... }
+POINT { ut=1668.14 lat=-376.49 lon=-186.21 alt=-0.114 ... }
+```
+
+`lat=-270.69` is outside the legitimate `[-90, 90]` range; `alt=-0.089`
+is sub-surface; vessel velocity (~2920 m/s world-frame) implies ~26 km of
+displacement over the 9.18 s section, but the field deltas are metre-scale.
+
+**Diagnosis (2026-04-25):** the recorder data is correct under the documented
+format-v6 RELATIVE-frame contract. The fields are NOT body-fixed lat/lon/alt
+in v6 RELATIVE sections — they store the anchor-local Cartesian offset in
+metres, computed as `Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos)`.
+
+**Evidence chain:**
+
+- `FlightRecorder.cs:5502-5543` (`ApplyRelativeOffset`) overrides the
+  `BuildTrajectoryPoint`-seeded body-fixed lat/lon/alt with anchor-local
+  Cartesian dx/dy/dz when `isRelativeMode == true` and the recording's
+  format version reports `UsesRelativeLocalFrameContract`. The dx/dy/dz
+  are written into `point.latitude`, `point.longitude`, `point.altitude`
+  (lines 5533-5535), with a verbose log
+  `RELATIVE sample: contract=anchor-local version=6 dx=… dy=… dz=… anchorPid=… |offset|=…m`.
+- `TrajectoryMath.ComputeRelativeLocalOffset` (recorder side) and
+  `TrajectoryMath.ApplyRelativeLocalOffset` /
+  `TrajectoryMath.ResolveRelativePlaybackPosition` (playback side) use the
+  symmetric pair: rotate the world-frame separation into the anchor's local
+  frame for storage; rotate it back for replay.
+- The captured KSP.log shows the recorder logging consistent metres-scale
+  offsets through the relative section, e.g.
+  `RELATIVE sample: contract=anchor-local version=6 dx=-111.11 dy=-43.38 dz=-0.27 anchorPid=95506284 |offset|=119.28m`
+  (line 11083). The recorded vessel (focus pid=2708531065) and anchor
+  (pid=95506284) both came from a controllable split at UT=1627.16
+  (line 10866 — `CreateBreakupChildRecording: pid=95506284`), so they
+  co-orbit at nearly identical world velocity; the anchor-local offset
+  stays small (a few hundred metres) even while world-frame velocity is
+  ~2920 m/s. That matches the file values.
+- The dual-write at `FlightRecorder.cs:5584` + `:5596` puts the same
+  modified point into both the flat `Recording.Points` list and the
+  current `TrackSection.frames`. The flat list is therefore frame-blind:
+  any caller iterating `Recording.Points` MUST also resolve the
+  enclosing `TrackSection.referenceFrame` for that UT before interpreting
+  `point.latitude/longitude/altitude` — calling
+  `body.GetWorldSurfacePosition(point.lat, point.lon, point.alt)` on a
+  RELATIVE-frame flat point places the icon deep underground because
+  metre-scale dx/dy/dz are interpreted as degrees-of-latitude plus
+  metres-of-altitude.
+- Playback resolution is consistent: `ParsekFlight.TryResolvePlaybackWorldPosition`
+  (line 13432) checks the section's reference frame at line 13446 and
+  dispatches to `TryResolveRelativeWorldPosition` /
+  `TryResolveRelativeOffsetWorldPosition` (line 13604-13685), which
+  correctly call `ResolveRelativePlaybackPosition` with the anchor's
+  current world position and rotation. The flat-point bypass paths in
+  `GhostMapPresence.cs` (lines 1979 and 2047) protect themselves with
+  `IsInRelativeFrame` guards at lines 1495 and 1733 before calling
+  `body.GetWorldSurfacePosition`. The state-vector frame-blindness fix
+  the sibling agent in `Parsek-fix-ghostmap-relative-frame` is shipping
+  hardens additional flat-point read sites that were missed.
+
+**Outcome (A) — not a recorder bug, contract documentation gap.** The
+icon-going-inside-planet symptom belongs to a downstream playback path,
+not to the recorded data. The recorded values match the format-v6 contract
+exactly; any path that misreads them is a frame-blindness bug at the
+read site.
+
+**Fix:** documentation + regression tests pinning the v6 RELATIVE position
+contract.
+
+- `.claude/CLAUDE.md` "Rotation / world frame" section now covers the
+  POSITION contract alongside the existing rotation note: anchor-local
+  Cartesian metres in `latitude`/`longitude`/`altitude`, with explicit
+  warning that any flat-`Recording.Points` reader must dispatch on
+  `TrackSection.referenceFrame` before calling
+  `body.GetWorldSurfacePosition`.
+- `Source/Parsek.Tests/RelativeRecordingTests.cs` regressions:
+  - `RecorderContract_V6RelativeStoresAnchorLocalOffset_ReplaysToFocusWorldPos`
+    pins the round-trip recorder→storage→playback path.
+  - `RecorderContract_V6RelativeOffsetIndependentOfAnchorWorldVelocity`
+    pins the "anchor world position must not leak into the stored offset"
+    property — a moving anchor at orbital velocity must produce the same
+    stored value for the same anchor->focus relative displacement.
+  - `RecorderContract_V6RelativeFieldsAreNotBodyFixedLatLonAlt` is a
+    tripwire that pins values commonly fall outside `[-90, 90]` for
+    legitimate RELATIVE-mode separations, so any future code that treats
+    a flat-point's `latitude` as degrees will fail loudly.
+
+**Status:** CLOSED 2026-04-25 (data correct; contract now documented; the
+playback-side icon-underground symptom is a separate frame-blindness bug
+being addressed by the sibling
+`fix/ghostmap-state-vector-relative-frame` branch).
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
