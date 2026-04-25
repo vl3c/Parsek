@@ -76,3 +76,19 @@ recording lifecycle, UI, Tracking Station, or scene transitions.
 **Revisit when:** Pass 1/Pass 3 changes affect runtime-only behavior; run the
 appropriate Ctrl+Shift+T categories and keep `parsek-test-results.txt` /
 `KSP.log` evidence.
+
+## D7. Cross-file owners from the large-file sweep
+
+**What:** The large-file opportunity map found several plausible future owners:
+visual FX builders, storage/sidecar codecs, foreground/background part-event
+pollers, playback loop scheduling, Tracking Station map presence, watch-mode
+camera/overlap services, event handler families, KSC/flight playback sharing,
+and rewind invocation ownership.
+
+**Why deferred:** These are architectural changes. Refactor-4 Pass 1 is
+zero-logic-change same-file extraction only, and any cross-file movement or
+deduplication needs a specific proposal and discussion before implementation.
+
+**Revisit when:** Pass 2 has dependency maps, static state ownership, public
+method references, duplication include/reject decisions, validation scope, and
+a rollback plan for each proposed split.

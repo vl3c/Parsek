@@ -42,25 +42,25 @@ locked KSP process/log condition above; the build itself succeeds.
 | File | Lines | Initial status |
 |------|-------|----------------|
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass0-Done; same-file candidates in post-switch auto-recording and finalization |
-| `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pending detailed read |
+| `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass0-Done; same-file candidates exist, cross-file split deferred |
-| `Source/Parsek/RecordingStore.cs` | 6,902 | Pending detailed read |
-| `Source/Parsek/FlightRecorder.cs` | 6,689 | Pending detailed read |
-| `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pending detailed read |
+| `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
+| `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass0-OpportunityMap; old large sampling/event file included in sweep |
+| `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass0-OpportunityMap; playback logic candidates mapped |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
-| `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pending detailed read |
-| `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pending detailed read |
-| `Source/Parsek/ParsekScenario.cs` | 4,172 | Pending detailed read |
-| `Source/Parsek/VesselSpawner.cs` | 4,166 | Pending detailed read |
-| `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pending detailed read |
-| `Source/Parsek/WatchModeController.cs` | 3,197 | Pending detailed read |
-| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pending detailed read |
-| `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pending detailed read |
-| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pending detailed read |
-| `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pending detailed read |
-| `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pending detailed read |
-| `Source/Parsek/RecordingTree.cs` | 1,615 | Pending detailed read |
-| `Source/Parsek/ParsekKSC.cs` | 1,520 | Pending detailed read |
+| `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass0-OpportunityMap; split/init candidates mapped |
+| `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
+| `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass0-OpportunityMap; persistence/lifecycle candidates mapped |
+| `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
+| `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass0-OpportunityMap; Tracking Station map candidates mapped |
+| `Source/Parsek/WatchModeController.cs` | 3,197 | Pass0-OpportunityMap; watch-mode candidates mapped |
+| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
+| `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass0-OpportunityMap; UI view-model candidate mapped |
+| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass0-OpportunityMap; patcher candidates mapped |
+| `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass0-OpportunityMap; math-heavy file, cautious only |
+| `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass0-OpportunityMap; optimizer candidates mapped, high semantic risk |
+| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass0-OpportunityMap; serialization candidates mapped |
+| `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass0-OpportunityMap; old large KSC playback file included in sweep |
 
 ## Growth Since Refactor-3 Inventory
 
@@ -357,6 +357,314 @@ Do not start Pass 1 by moving finalization into a new owner. A future
 the current finalization cache producer, endpoint resolver, scene-exit
 finalizer, and `ParsekFlight` call sites.
 
+## Pass 0 Large-File Opportunity Map
+
+This follow-up sweep intentionally includes old large files, not only files
+added or heavily grown since refactor-3. Entries below are not permission to
+change behavior. Pass 1 means same-file private helper extraction only;
+cross-file moves, deduplication, and new owners remain Pass 2 proposals that
+must be discussed before implementation.
+
+### `Source/Parsek/GhostVisualBuilder.cs`
+
+This older 7k-line visual builder contains separate subsystems for FX prefab
+lookup, snapshot parsing, model clone maps, animation sampling caches, RCS,
+fairings, variants, robotics, heat/reentry, explosions, flags, audio, and part
+visual construction.
+
+Pass 1 same-file candidates:
+
+- Extract contiguous preflight and renderer/variant setup phases from
+  `AddPartVisuals`.
+- Extract the model-node/clone-map creation phase from `AddPartVisuals`.
+- Extract the animation capability scan from `AddPartVisuals` without changing
+  the checks or order.
+- Split `TryBuildRcsFX` into same-file phases for module discovery,
+  effect-node extraction, transform resolution, particle setup, and diagnostics.
+
+Pass 2 discussion only: `RcsFxBuilder`, `VariantVisualRules`,
+`ReentryFxBuilder`, or a narrower part-visual builder owner.
+
+### `Source/Parsek/RecordingStore.cs`
+
+This file combines recording/tree commit, grouping, optimization, deletion,
+rewind, trajectory serialization, manifests, file I/O, and sidecar mirrors.
+
+Pass 1 same-file candidates:
+
+- Split `RunOptimizationPass` into merge pass, split pass, post-optimization
+  maintenance, background-map rebuild, and dirty-file flush helpers.
+- Split `InitiateRewind` into owner/tree resolution, reservation budget setup,
+  temporary save copy, recording strip preprocessing, load-game invocation, and
+  failure cleanup helpers.
+- Revisit sidecar mirror reconciliation only if a contiguous helper can be
+  extracted without changing file ordering or exception handling.
+
+Pass 2 discussion only: storage codec/sidecar deduplication, recording tree
+I/O ownership, and rewind service ownership.
+
+### `Source/Parsek/FlightRecorder.cs`
+
+This older large file is the foreground sampling and part-event surface. It
+owns recorder state, part subscriptions, many event pollers, engine/RCS/robotic
+caches, environment/altitude/track sampling, start/stop/finalization, physics
+sampling, rails transitions, and visual coverage logging.
+
+Pass 1 same-file candidates:
+
+- Extract category-specific accumulation helpers from
+  `LogVisualRecordingCoverage`, preserving logging text and order exactly.
+- Consider narrow same-file part-category scanning helpers only where the loop
+  body is contiguous and does not change subscription/polling order.
+
+Pass 2 discussion only: deduplicating part-event pollers with
+`BackgroundRecorder` or moving event families into shared owners.
+
+### `Source/Parsek/GhostPlaybackLogic.cs`
+
+This static helper mixes loop/warp policy, ghost info dictionaries, visibility,
+explosions, part events, canopy/engine/audio/RCS/robotic/heat/light playback,
+spawn-at-end policy, zone rendering policy, and watch-mode queries.
+
+Pass 1 same-file candidates:
+
+- Split `PopulateGhostInfoDictionaries` into dictionary population groups,
+  heat/light initialization, audio population, and orphan auto-start helpers.
+- Split `ApplyPartEvents` into contiguous event clusters while preserving the
+  existing switch order exactly.
+- Leave `ShouldSpawnAtRecordingEnd` alone unless a focused read finds a
+  contiguous guard-clause extraction that improves the current pure decision.
+
+Pass 2 discussion only: part-event applier, audio controller, spawn policy,
+watch policy, or flag replay ownership.
+
+### `Source/Parsek/BackgroundRecorder.cs`
+
+This file mirrors several foreground recording concerns for unloaded or
+background vessels. It owns background vessel state, GameEvent subscriptions,
+split detection, lifecycle transitions, finalization cache support, environment
+and track recording, and part-event polling.
+
+Pass 1 same-file candidates:
+
+- Split `HandleBackgroundVesselSplit` by ordered phases: parent validation,
+  branch-point creation, parent close, child recording registration,
+  TTL/debris/pending environment setup, and logging.
+- Split `InitializeLoadedState` into state creation, inherited engine merge,
+  module cache setup, seed part state, and track/environment initialization.
+
+Pass 2 discussion only: shared foreground/background part-event pollers and
+cross-file recorder state owners.
+
+### `Source/Parsek/GhostPlaybackEngine.cs`
+
+This engine owns per-frame playback dispatch, ghost state dictionaries,
+overlap/loop schedules, metrics, in-range rendering, loop/overlap updates,
+reentry FX, observability, lifecycle, visual population, and interpolation
+diagnostics.
+
+Pass 1 same-file candidates:
+
+- Split `UpdatePlayback` into frame context/counters, loop schedule rebuild,
+  per-recording dispatch, and observability flush helpers.
+- Split `UpdateLoopingPlayback` and `UpdateOverlapPlayback` by contiguous
+  schedule/update phases if validation stays focused.
+- Split `TryPopulateGhostVisuals` only around metrics and visual-population
+  phases that already execute contiguously.
+
+Pass 2 discussion only: spawn loader, loop scheduler, reentry driver, and
+observability collector owners.
+
+### `Source/Parsek/ParsekScenario.cs`
+
+This ScenarioModule is the persistence and lifecycle hub for game state,
+rewind-to-staging state, active tree restore, external file loading, recording
+metadata, deferred coroutines, and vessel lifecycle events.
+
+Pass 1 same-file candidates:
+
+- Split `LoadRecordingMetadata` into metadata groups for identity/timing,
+  flags/linkage, terminal/spawn fields, resources, loop/range values, and
+  terminal orbit/snapshot fields.
+- Avoid coroutine restructuring beyond tiny helper extraction or logging.
+
+Pass 2 discussion only: scenario persistence codec, load coordinator, and
+rewind staging persistence owner.
+
+### `Source/Parsek/VesselSpawner.cs`
+
+This spawn/snapshot utility owns source-vessel adoption, backup snapshots,
+respawn-at-position, collision/walkback/surface altitude checks, crew filtering,
+dead-crew handling, snapshot normalization, body/orbit repairs, and terminal
+orbit spawn state.
+
+Pass 1 same-file candidates:
+
+- Split `SpawnOrRecoverIfTooClose` into adoption, snapshot preparation,
+  body/position resolution, collision/recovery decision, crew filtering,
+  spawn/marking, and logging helpers.
+- Split `TryRepairSnapshotBodyProvenance` only by contiguous repair phases.
+
+Pass 2 discussion only: spawn planner, snapshot normalizer, and orbit spawn
+helper owners.
+
+### `Source/Parsek/GhostMapPresence.cs`
+
+This Tracking Station/map presence file owns ghost source batch logging, proto
+vessel create/update/removal, Tracking Station handoffs, source resolution,
+orbit updates, state-vector/terminal-orbit seed data, save stripping, and
+spawn-at-Tracking-Station-end behavior.
+
+Pass 1 same-file candidates:
+
+- Split `ResolveMapPresenceGhostSource` by decision phases while keeping guard
+  order and selected-source precedence unchanged.
+- Split `CreateGhostVesselsFromCommittedRecordings` into candidate collection,
+  per-recording creation/update, and summary logging helpers.
+- Split `BuildAndLoadGhostProtoVesselCore` around node construction and
+  load/update phases only.
+
+Pass 2 discussion only: Tracking Station source resolver, map lifecycle owner,
+and proto-vessel builder.
+
+### `Source/Parsek/WatchModeController.cs`
+
+This controller owns watch target state, overlap bridge state, camera memories,
+overlay drawing, map focus, camera transfer, horizon math, validation/update,
+and watch-hold timers.
+
+Pass 1 same-file candidates:
+
+- Split `EnterWatchMode` into target resolution, camera state capture,
+  overlay/map setup, watch activation, and logging helpers.
+- Split `ProcessWatchEndHoldTimer` and `TryResolveOverlapBridgeRetarget` only
+  if the control flow stays linear.
+
+Pass 2 discussion only: camera state service, overlap bridge owner, and lineage
+protection owner.
+
+### `Source/Parsek/GameStateRecorder.cs`
+
+This event aggregator owns replay/suppress flags, contract events, tech and
+part purchase events, crew events, resource/science subject tracking, progress
+milestone enrichment, strategy lifecycle, facility polling, and test hooks.
+
+Pass 1 same-file candidates:
+
+- Extract repeated resource handler phases where the handler shapes match
+  exactly.
+- Split `EnrichPendingMilestoneRewards` by reward source only if the existing
+  precedence and pending-list behavior stay unchanged.
+- Split facility polling helpers around contiguous facility families.
+
+Pass 2 discussion only: contract, crew, resource, milestone, and facility
+event handler owners.
+
+### `Source/Parsek/GameActions/KspStatePatcher.cs`
+
+This focused but large patcher applies resource, tech, facility, destruction,
+per-subject science, milestone, progress, and contract state back into KSP.
+
+Pass 1 same-file candidates:
+
+- Split `PatchContracts` and `PatchProgressNodeTree` by contiguous patch
+  phases.
+- Extract repeatable record-state helpers only when values, reflection access,
+  and UI patching order remain unchanged.
+
+Pass 2 discussion only: separate patchers per state family.
+
+### `Source/Parsek/BallisticExtrapolator.cs`
+
+This math-heavy extrapolation file is large but cohesive. It includes nested
+state types, `Extrapolate`, event search, and `TwoBodyOrbit` math.
+
+Pass 1 same-file candidates:
+
+- Only consider `Extrapolate` phase helpers if a focused read can prove the
+  extraction preserves iteration order, floating-point operations, and stop
+  conditions.
+
+Pass 2 discussion only: moving `TwoBodyOrbit` or solver helpers into separate
+math owners.
+
+### `Source/Parsek/RecordingOptimizer.cs`
+
+This optimizer is behavior-sensitive because ordering affects merge/split/trim
+decisions and recording identity.
+
+Pass 1 same-file candidates:
+
+- Split `TrimBoringTail`, `SplitAtSection`, and `MergeInto` by local phases
+  only with focused optimizer tests.
+
+Pass 2 discussion only: broader optimizer strategy decomposition.
+
+### `Source/Parsek/RecordingTree.cs`
+
+This serialization/tree owner is already partly extracted, but it still has
+resource/state save-load density.
+
+Pass 1 same-file candidates:
+
+- Review `SaveRecordingResourceAndState` and
+  `LoadRecordingResourceAndState` for local contiguous helper extraction.
+
+Pass 2 discussion only: a recording tree serialization codec.
+
+### `Source/Parsek/ParsekKSC.cs`
+
+This older KSC playback file has overlap with `GhostPlaybackEngine`, especially
+loop schedules, overlap state, audio, and interpolation.
+
+Pass 1 same-file candidates:
+
+- Split playback update and `InterpolateAndPositionKsc` phases if they are
+  contiguous and validation can stay local.
+- Extract local loop schedule helpers only without deduplicating with flight
+  playback yet.
+
+Pass 2 discussion only: cross-scene playback abstraction shared with
+`GhostPlaybackEngine`.
+
+### `Source/Parsek/UI/CareerStateWindowUI.cs`
+
+This UI surface mixes view-model construction, draw methods, and formatting
+helpers. Its `Build` method is a strong candidate because the tab data shapes
+are already explicit.
+
+Pass 1 same-file candidates:
+
+- Extract same-file tab builders from `Build`: contracts, strategies,
+  facilities, milestones, and supporting summary groups.
+
+Pass 2 discussion only: separate presentation/model builder ownership.
+
+### `Source/Parsek/UI/TimelineWindowUI.cs`
+
+This UI surface owns timeline drawing, filtering, time range controls, rows,
+entry actions, and formatting.
+
+Pass 1 same-file candidates:
+
+- Extract contiguous helpers from `DrawTimelineWindow`, `DrawFilterBar`,
+  `DrawTimeRangeFilterBar`, or `DrawEntryRow` only where IMGUI call order stays
+  exactly the same.
+
+Pass 2 discussion only: timeline filter/action model ownership.
+
+### `Source/Parsek/RewindInvoker.cs`
+
+This static rewind invocation file owns precondition handling, start invoke,
+post-load consumption, strip activation marker work, and staging cleanup.
+
+Pass 1 same-file candidates:
+
+- Split `StartInvoke`, `ConsumePostLoad`, and `RunStripActivateMarker` by
+  ordered precondition, marker, load, and cleanup phases.
+
+Pass 2 discussion only: rewind invocation service ownership.
+
 ## Static State Scan Note
 
 A raw regex scan for mutable static fields is too noisy to use directly:
@@ -376,11 +684,15 @@ raw scan with a manual map for the high-risk owners:
 
 ## Immediate Investigation Priorities
 
-1. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
+1. Select the next Pass 1 same-file extraction from the low-to-medium risk
+   candidates in the large-file opportunity map. Good first choices are
+   `UI/CareerStateWindowUI.Build`, `GhostPlaybackLogic.PopulateGhostInfoDictionaries`,
+   or `FlightRecorder.LogVisualRecordingCoverage`.
+2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication.
-2. Build a static mutable state map for `GameStateRecorder`,
+3. Build a static mutable state map for `GameStateRecorder`,
    `LedgerOrchestrator`, `RecordingStore`, `ParsekScenario`,
    `WatchModeController`, and `GhostPlaybackEngine`.
-3. Audit magic thresholds and literal keys introduced after the `ParsekConfig`
+4. Audit magic thresholds and literal keys introduced after the `ParsekConfig`
    centralization entry in 0.8.3.

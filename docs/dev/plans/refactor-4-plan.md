@@ -12,6 +12,11 @@ reshuffling, logging coverage, test coverage for extracted decisions, and
 mechanical constant centralization. Any latent bug found during refactor gets
 called out explicitly and fixed in its own logical commit.
 
+Scope note: the opportunity sweep is not limited to files that are new or grew
+the most since refactor-3. Older large files such as `GhostVisualBuilder.cs`,
+`FlightRecorder.cs`, and `ParsekKSC.cs` are included because current size and
+method shape matter even when the file predates the previous pass.
+
 ## Setup Phase
 
 1. `main` pulled from `origin/main`; it was already up to date.
@@ -36,9 +41,13 @@ build output and excluding `Source/Parsek/InGameTests` for production line-count
 baselines. In-game tests may still need updates when extraction changes helper
 names or test seams.
 
-The main target is code that has grown substantially since refactor-3:
+The main target is all large production code with meaningful refactor surface,
+with special attention to both old large files and code that has grown
+substantially since refactor-3:
 
 - large files with thousands of new lines
+- old large files that still contain multi-phase methods or duplicated local
+  patterns
 - extracted UI/controller files that have since become large modules
 - storage/finalization/rewind/tracking-station code added after prior passes
 - magic values added after `ParsekConfig` centralization
@@ -113,6 +122,11 @@ Deliverables:
 7. Update inventory statuses from `Pending detailed read` to either
    `Pass0-Done`, `Skip`, or `Pass1-Candidate`.
 
+The large-file opportunity map is part of Pass 0. It must cover the current
+largest files regardless of whether they were newly added, heavily changed, or
+already large during refactor-3. The map should record safe same-file
+extractions separately from architecture proposals that require discussion.
+
 ## Pass 1 - Same-File Extraction, Logging, Tests
 
 Goal: reduce long multi-phase methods without changing file ownership or public
@@ -142,6 +156,13 @@ Selected canary: `Timeline/TimelineBuilder.cs`. The first code commit extracts
 recording-start, separation, vessel-spawn, and crew-death row emission from
 `CollectRecordingEntries` into private same-file helpers. This is intentionally
 limited to contiguous block extraction with no cross-file movement.
+
+Current next candidates after the canary and large-file map are selected by
+risk, not file size alone. Lower-risk candidates include same-file phase
+helpers in `UI/CareerStateWindowUI.Build`, `GhostPlaybackLogic.PopulateGhostInfoDictionaries`,
+or `FlightRecorder.LogVisualRecordingCoverage`. Central files such as
+`ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates, but each
+needs its own focused validation and review before editing.
 
 ### Tier 1 - Sequential
 
