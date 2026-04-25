@@ -154,6 +154,29 @@ namespace Parsek
                     if (string.IsNullOrEmpty(bodyName))
                     {
                         int failedPatchIndex = result.CapturedPatchCount;
+                        // Preserve the partial chain captured before the first
+                        // null-body patch (#575). KSP's stock solver routinely
+                        // has a transient `nextPatch.referenceBody == null`
+                        // during ascent, but earlier patches in the chain are
+                        // valid orbits we want to record. Discarding everything
+                        // when patch[N>0] is null was costing the recording its
+                        // entire predicted tail and feeding the
+                        // `IncompleteBallisticSceneExitFinalizer` "transient
+                        // early-ascent state" skip path on every refresh, so
+                        // the recording effectively had no patched-conic
+                        // augmentation. Only reset when patch 0 is null —
+                        // that's the genuine "no usable data" case the WARN
+                        // tier was designed for.
+                        if (failedPatchIndex > 0)
+                        {
+                            result.FailureReason = PatchedConicSnapshotFailureReason.MissingPatchBody;
+                            result.HasTruncatedTail = true;
+                            ParsekLog.Verbose("PatchedSnapshot",
+                                $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                                $"body={MissingPatchBodySentinel}; truncated chain after {failedPatchIndex} valid patch(es), " +
+                                "keeping partial result");
+                            break;
+                        }
                         ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.MissingPatchBody);
                         ParsekLog.Warn("PatchedSnapshot",
                             $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
