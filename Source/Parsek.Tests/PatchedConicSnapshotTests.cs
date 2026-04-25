@@ -198,6 +198,63 @@ namespace Parsek.Tests
                 l.Contains("suppressed=9"));
         }
 
+        /// <summary>
+        /// Regression for PR #553 P2 review: the WarnRateLimited call must use the
+        /// documented 30-second window, not WarnRateLimited's 5-second default.
+        /// Walking the test clock forward 10 seconds (well past 5 s, well below
+        /// 30 s) and emitting a fresh hit must produce NO new WARN line — under
+        /// the 5-second default this would have re-emitted, so the assertion
+        /// catches a regression to the implicit interval.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            // Seed: first hit always emits.
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null, snapshotUT: 100, captureLimit: 8, vesselName: "Kerbal X Debris");
+
+            int firstWarn = logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable"));
+            Assert.Equal(1, firstWarn);
+
+            // Advance 10 seconds — past the 5 s default but well under the 30 s
+            // configured interval. A pre-fix build would have re-emitted here.
+            clockSeconds += 10.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null, snapshotUT: 110, captureLimit: 8, vesselName: "Kerbal X Debris");
+
+            int afterTenSecondsWarn = logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable"));
+            Assert.Equal(1, afterTenSecondsWarn);
+
+            // Advance to 25 seconds total — still inside the 30 s window. Same
+            // assertion: still exactly one WARN, the rate limiter must not have
+            // re-emitted.
+            clockSeconds += 15.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null, snapshotUT: 125, captureLimit: 8, vesselName: "Kerbal X Debris");
+
+            int afterTwentyFiveSecondsWarn = logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable"));
+            Assert.Equal(1, afterTwentyFiveSecondsWarn);
+
+            // Cross 30 s — re-emit with the suppressed=N suffix.
+            clockSeconds += 6.0; // total 31 s since seed
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null, snapshotUT: 200, captureLimit: 8, vesselName: "Kerbal X Debris");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable") &&
+                l.Contains("suppressed=2"));
+        }
+
         [Fact]
         public void Snapshot_RestoresLimitOnUpdateException()
         {

@@ -746,6 +746,21 @@ namespace Parsek
         internal const long MainLoopBreakdownMaxDestroyMicroseconds = 1_000;
 
         /// <summary>
+        /// Bug #581: minimum per-phase contribution required for the hybrid latch
+        /// to recognise a frame as a genuine mainLoop+spawn hybrid spike. Without
+        /// this floor, the gate (which is just "below #450 spawn threshold AND
+        /// below #460 mainLoop threshold") matches default-phase frames, deferred-
+        /// event-dominated spikes, and zero-spawn / zero-mainLoop spikes — any of
+        /// which would burn the one-shot latch on a non-hybrid frame and rob the
+        /// session of the diagnostic snapshot the latch is supposed to capture.
+        /// 1 ms (1 000 µs) is roughly an order of magnitude below either of the
+        /// individual thresholds, so it admits the captured 2026-04-25 spike
+        /// (mainLoop 7.51 ms + spawn 3.44 ms) and any plausible hybrid below the
+        /// #450/#460 lines, while rejecting per-frame measurement noise.
+        /// </summary>
+        internal const long HybridBreakdownMinPhaseMicroseconds = 1_000;
+
+        /// <summary>
         /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
         /// time a playback-budget-exceeded warning fires in the session; once latched, the
         /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
@@ -974,17 +989,33 @@ namespace Parsek
             // mainLoop >= 10ms AND spawn < 1ms): neither sub-bucket is large
             // enough to clear its own threshold, so without this latch the
             // session captures the generic #414 breakdown but no Phase-B
-            // attribution. Fires when the spike is in that gap — heaviest
-            // spawn under the #450 threshold AND mainLoop under the #460
-            // floor — and emits the full per-bucket itemisation plus the
-            // spawn ratio so a future playtest can decide whether the gap
-            // is dominated by per-trajectory main-loop work, the single
-            // spawn, or their combination. Independent of the prior three
-            // latches so a session that already burned them on bigger spikes
-            // can still capture the next hybrid breach.
+            // attribution. Fires when the spike is in that gap AND the
+            // mainLoop+spawn pair has positive evidence of genuine hybrid
+            // dominance — both phases must individually be ≥ 1 ms (rejecting
+            // default / pre-init frames, observability-only spikes, and
+            // zero-spawn or zero-mainLoop frames where one bucket is silent),
+            // and their sum must exceed every other non-spawn/destroy bucket
+            // (rejecting deferred-event, observability-capture, and explosion-
+            // cleanup-dominated spikes that happen to leave both mainLoop and
+            // spawn under threshold). Without these positive gates, the bare
+            // "<#450 AND <#460" floor matches every above-budget frame whose
+            // spike comes from any other bucket, and the one-shot latch can
+            // be consumed before a real hybrid frame appears (review note on
+            // PR #553). Independent of the prior three latches so a session
+            // that already burned them on bigger spikes can still capture the
+            // next hybrid breach.
+            long deferredEventsTotalMicrosecondsForHybrid =
+                phases.deferredCreatedEventsMicroseconds + phases.deferredCompletedEventsMicroseconds;
+            long hybridPairMicroseconds =
+                phases.mainLoopMicroseconds + phases.spawnMicroseconds;
             if (!s_hybridBreakdownOneShotFired
                 && phases.spawnMaxMicroseconds < BuildBreakdownMinHeaviestSpawnMicroseconds
-                && phases.mainLoopMicroseconds < MainLoopBreakdownMinMainLoopMicroseconds)
+                && phases.mainLoopMicroseconds < MainLoopBreakdownMinMainLoopMicroseconds
+                && phases.mainLoopMicroseconds >= HybridBreakdownMinPhaseMicroseconds
+                && phases.spawnMicroseconds >= HybridBreakdownMinPhaseMicroseconds
+                && hybridPairMicroseconds > deferredEventsTotalMicrosecondsForHybrid
+                && hybridPairMicroseconds > phases.observabilityCaptureMicroseconds
+                && hybridPairMicroseconds > phases.explosionCleanupMicroseconds)
             {
                 s_hybridBreakdownOneShotFired = true;
 

@@ -1311,6 +1311,113 @@ namespace Parsek.Tests
             Assert.Equal(1, otherWarnCount);
         }
 
+        /// <summary>
+        /// Regression for PR #553 P2 review: the paired Extrapolator
+        /// `WarnRateLimited` call must use the documented 30-second window, not
+        /// the 5-second `WarnRateLimited` default. Walking the test clock past
+        /// 5 s but before 30 s and emitting another hit must NOT re-emit; the
+        /// next emission only happens after the 30 s window closes.
+        /// </summary>
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-30s-window",
+                ExplicitEndUT = 500.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            // Seed: first hit always emits.
+            IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec, snapshot, bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(5.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(
+                        startState, extrapolationBodies, warnOnSubSurfaceStart: false),
+                out IncompleteBallisticFinalizationResult _);
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-30s-window'",
+                "with NullSolver"));
+
+            // Helper that fires another finalisation pass with the same
+            // synthetic state so each clock-tick can re-trigger the warn path.
+            Action fireAgain = () =>
+                IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                    rec, snapshot, bodies,
+                    delegate(out BallisticStateVector startState)
+                    {
+                        startState = new BallisticStateVector
+                        {
+                            ut = 500.0,
+                            bodyName = "Kerbin",
+                            position = new Vector3d(5.0, 0.0, 0.0),
+                            velocity = new Vector3d(0.0, 0.0, 0.0),
+                            orbitalFrameRotation = Quaternion.identity
+                        };
+                        return true;
+                    },
+                    (startState, extrapolationBodies) =>
+                        BallisticExtrapolator.Extrapolate(
+                            startState, extrapolationBodies, warnOnSubSurfaceStart: false),
+                    out IncompleteBallisticFinalizationResult _);
+
+            // Advance 10 s — past 5 s default, well below 30 s. Pre-fix would
+            // have re-emitted; post-fix must remain suppressed.
+            clockSeconds += 10.0;
+            fireAgain();
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-30s-window'",
+                "with NullSolver"));
+
+            // 25 s total — still inside the 30 s window.
+            clockSeconds += 15.0;
+            fireAgain();
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-30s-window'",
+                "with NullSolver"));
+
+            // Cross 30 s — re-emit with `suppressed=2`.
+            clockSeconds += 6.0; // total 31 s since seed
+            fireAgain();
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]")
+                && l.Contains("patched-conic snapshot failed for 'scene-exit-30s-window'")
+                && l.Contains("with NullSolver")
+                && l.Contains("suppressed=2"));
+        }
+
         [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
         {

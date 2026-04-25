@@ -131,7 +131,8 @@ namespace Parsek
                 // line per 30 s window with a `suppressed=N` suffix.
                 ParsekLog.WarnRateLimited("PatchedSnapshot",
                     "solver-unavailable-" + safeVesselName,
-                    $"SnapshotPatchedConicChain: vessel={safeVesselName} solver unavailable");
+                    $"SnapshotPatchedConicChain: vessel={safeVesselName} solver unavailable",
+                    minIntervalSeconds: 30.0);
                 return result;
             }
 

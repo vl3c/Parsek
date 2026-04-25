@@ -254,5 +254,178 @@ namespace Parsek.Tests
             // formatter must not throw if it ever IS reached with total=0.
             // Verified by the absence of an exception above.
         }
+
+        // ----------------------------------------------------------------
+        // PR #553 P2 review: positive-evidence gate. The original gate
+        // ("below #450 spawn threshold AND below #460 mainLoop threshold")
+        // matched every above-budget frame whose spike came from any other
+        // bucket, so the one-shot latch could be consumed before a genuine
+        // hybrid frame appeared. The tightened gate also requires:
+        //  - mainLoop ≥ 1 ms (rules out default / pre-init frames)
+        //  - spawn ≥ 1 ms (rules out non-spawn / observability-only frames)
+        //  - mainLoop+spawn > deferredEvents total (rules out deferred-
+        //    dominated spikes)
+        //  - mainLoop+spawn > observabilityCapture (rules out obs-dominated)
+        //  - mainLoop+spawn > explosionCleanup (rules out cleanup-dominated)
+        // The tests below pin each negative case AND assert the latch
+        // stays armed for the next real hybrid spike.
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void HybridSpike_DeferredEventDominatedSpike_DoesNotBurnLatch()
+        {
+            // 11 ms spike where deferredCreated dominates (8 ms) and
+            // mainLoop / spawn are below their #460/#450 thresholds — the
+            // pre-fix gate would have burned the hybrid latch on this
+            // deferred-dominated frame.
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 1_500;          // ≥ 1 ms floor, < #460
+            phases.spawnMicroseconds = 1_200;             // ≥ 1 ms floor, < #450
+            phases.spawnMaxMicroseconds = 1_200;
+            phases.deferredCreatedEventsMicroseconds = 8_000; // 8 ms — dominates the pair (2.7 ms total)
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_000, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            // Latch still armed: the next genuine hybrid spike fires it.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_ObservabilityCaptureDominatedSpike_DoesNotBurnLatch()
+        {
+            // observabilityCapture spike (e.g. PR #547's GhostMap structured-
+            // line widening) that pushes the frame over budget while mainLoop
+            // and spawn stay small. Pre-fix burned the latch.
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 1_500;
+            phases.spawnMicroseconds = 1_500;
+            phases.spawnMaxMicroseconds = 1_500;
+            phases.observabilityCaptureMicroseconds = 7_500; // dominant bucket
+            phases.deferredCreatedEventsMicroseconds = 0;
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                10_500, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_ExplosionCleanupDominatedSpike_DoesNotBurnLatch()
+        {
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 1_500;
+            phases.spawnMicroseconds = 1_500;
+            phases.spawnMaxMicroseconds = 1_500;
+            phases.explosionCleanupMicroseconds = 6_000; // dominant
+            phases.observabilityCaptureMicroseconds = 0;
+            phases.deferredCreatedEventsMicroseconds = 0;
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                9_500, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_ZeroSpawn_DoesNotBurnLatch()
+        {
+            // mainLoop fits in the #581 gap (8 ms < 10 ms #460 floor) but
+            // spawn=0 — this is a pure mainLoop spike that the gate must not
+            // misclassify as hybrid. Without the spawn ≥ 1 ms positive gate,
+            // the pre-fix latch would have fired.
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 8_000;
+            phases.spawnMicroseconds = 0;
+            phases.spawnMaxMicroseconds = 0;
+            phases.deferredCreatedEventsMicroseconds = 0;
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                8_500, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_ZeroMainLoop_DoesNotBurnLatch()
+        {
+            // Symmetric to ZeroSpawn: an above-budget frame whose mainLoop
+            // is silent is not a hybrid. The mainLoop ≥ 1 ms positive gate
+            // protects the latch.
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 0;
+            phases.spawnMicroseconds = 5_000;
+            phases.spawnMaxMicroseconds = 5_000;
+            phases.deferredCreatedEventsMicroseconds = 0;
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                9_000, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_SubMillisecondHybrid_DoesNotBurnLatch()
+        {
+            // mainLoop=0.5 ms + spawn=0.5 ms — neither phase clears the
+            // 1 ms hybrid floor, so this is below the noise threshold and
+            // not a meaningful hybrid spike. The frame goes over budget
+            // because of some other bucket; the latch must stay armed.
+            var phases = HybridSpikePhases();
+            phases.mainLoopMicroseconds = 500;
+            phases.spawnMicroseconds = 500;
+            phases.spawnMaxMicroseconds = 500;
+            phases.deferredCreatedEventsMicroseconds = 9_000; // pushes total over budget
+            phases.deferredCompletedEventsMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                10_500, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
+
+        [Fact]
+        public void HybridSpike_DefaultPhasesFrame_DoesNotBurnLatch()
+        {
+            // A pre-init / placeholder frame with all phase counters at the
+            // struct default (zero). Even if the frame somehow goes
+            // over-budget, no phase contributed; the hybrid latch must not
+            // be consumed. (The CheckPlaybackBudgetThresholdWithBreakdown
+            // entry-guard at line 824 would normally short-circuit this on
+            // a healthy frame, but a fabricated over-budget total must not
+            // trip the latch either.)
+            var phases = default(PlaybackBudgetPhases);
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                12_000, 0, 1.0f, phases);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback hybrid breakdown"));
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                11_600, 0, 1.0f, HybridSpikePhases());
+            Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
+        }
     }
 }

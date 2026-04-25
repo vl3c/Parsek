@@ -366,7 +366,8 @@ namespace Parsek
                 ParsekLog.WarnRateLimited("Extrapolator",
                     $"finalize-snapshot-failed-{recordingId}-{snapshot.FailureReason}",
                     $"TryFinalizeRecording: patched-conic snapshot failed for '{recordingId}' " +
-                    $"with {snapshot.FailureReason}; falling back to live orbit state");
+                    $"with {snapshot.FailureReason}; falling back to live orbit state",
+                    minIntervalSeconds: 30.0);
             }
 
             // Early ascent / transient patched-conic failures (`MissingPatchBody`,
