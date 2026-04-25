@@ -178,6 +178,11 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: terminal,
                 supersedeTargetId: supersedeTargetId);
+            // Satisfy SupersedeCommit.AppendRelations supersede-target
+            // invariant (>=1 trajectory point + non-null terminal). Tests
+            // that exercise the empty / null-terminal cases construct
+            // provisionals directly.
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(provisional, treeId);
             return provisional;
         }

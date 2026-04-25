@@ -250,6 +250,12 @@ namespace Parsek
         // Computed frame-agnostically as d(active_pos - ghost_pos)/dt across consecutive
         // proximity scans — see CollectNearbySpawnCandidates.
         internal const double MaxRelativeSpeed = 2.0;
+        // Real Spawn Control: outer "show in list" bounds. Ghosts within these — but outside
+        // NearbySpawnRadius / MaxRelativeSpeed — appear in the window with the FF button
+        // disabled and red distance/speed text, so the player can see what is blocking warp
+        // (closing too fast, still too far) before they even reach the inner gate.
+        internal const double NearbySpawnListRadius = 1000.0;       // 4× FF radius
+        internal const double MaxListRelativeSpeed = 50.0;          // active-rendezvous range
         // Per-recording position samples from the prior proximity scan, used to derive a
         // frame-agnostic relative speed without depending on which frame
         // GhostPlaybackState.lastInterpolatedVelocity happens to be in (it varies by
@@ -2278,18 +2284,31 @@ namespace Parsek
 
         /// <summary>
         /// Checks whether a vessel type alone qualifies as trackable.
-        /// SpaceObject (asteroids, comets) are always trackable.
-        /// Other types require a module check (see IsTrackableVessel).
+        /// SpaceObject (asteroids, comets) and EVA kerbals are always trackable
+        /// purely from the type. Other types require a module check
+        /// (see <see cref="IsTrackableVessel"/>).
         /// </summary>
         internal static bool IsTrackableVesselType(VesselType vesselType)
         {
-            return vesselType == VesselType.SpaceObject;
+            return vesselType == VesselType.SpaceObject
+                || vesselType == VesselType.EVA;
         }
 
         /// <summary>
         /// Determines whether a vessel is trackable (should get its own tree branch).
-        /// Trackable = SpaceObject OR has ModuleCommand (covers crewed pods and probe cores).
-        /// Debris, spent boosters, fairings, etc. are NOT trackable.
+        /// Trackable = SpaceObject, EVA kerbal, OR has ModuleCommand
+        /// (covers crewed pods and probe cores). Debris, spent boosters, fairings,
+        /// etc. are NOT trackable.
+        ///
+        /// <para>
+        /// EVA kerbals carry <c>KerbalEVA</c> rather than <c>ModuleCommand</c>, but
+        /// they are directly controllable by the player — so for split-event
+        /// classification they must count as a controllable output. Without this,
+        /// an EVA split (mother vessel + kerbal) classifies as single-controllable,
+        /// no <see cref="RewindPoint"/> is authored, and a destroyed EVA kerbal
+        /// recording cannot satisfy <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// (no RP back-reference for it to match against).
+        /// </para>
         /// </summary>
         internal static bool IsTrackableVessel(Vessel v)
         {
@@ -2297,6 +2316,10 @@ namespace Parsek
 
             // Space objects (asteroids, comets) are always trackable
             if (v.vesselType == VesselType.SpaceObject) return true;
+
+            // EVA kerbals are controllable by the player even though their part
+            // carries KerbalEVA rather than ModuleCommand.
+            if (v.isEVA || v.vesselType == VesselType.EVA) return true;
 
             // Check for command capability (ModuleCommand covers both crewed pods and probe cores)
             for (int i = 0; i < v.parts.Count; i++)
@@ -3668,6 +3691,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: should the controlled-child loop in
+        /// <see cref="ProcessBreakupEvent"/> skip creating a recording for a
+        /// breakup child whose live <see cref="Vessel"/> is gone and which
+        /// has no pre-captured snapshot? Such a child would produce a
+        /// 1-point "Unknown" 0s row with no playback or replay value (no
+        /// ghost visuals, no spawn snapshot, no events). The parent
+        /// recording's BREAKUP branch point already records the split.
+        /// </summary>
+        internal static bool ShouldSkipDeadOnArrivalControlledChild(
+            bool childVesselIsAlive,
+            bool hasPreCapturedSnapshot)
+        {
+            return !childVesselIsAlive && !hasPreCapturedSnapshot;
+        }
+
+        /// <summary>
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
         /// Caller is responsible for BackgroundMap registration and logging.
@@ -3955,6 +3994,28 @@ namespace Parsek
                     // post-split snapshot and can appear spatially ahead on frame 1.
                     ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+
+                    // Skip dead-on-arrival controlled children: when the live
+                    // vessel is gone AND no pre-captured snapshot exists, the
+                    // recording would land in the table as a 1-point "Unknown"
+                    // 0s row with no playback or replay value (no ghost
+                    // visuals, no spawn snapshot, no events). The decoupled
+                    // probe immediately Punch-Through'd subsurface and Unity
+                    // tore the Vessel down before the coalescer window
+                    // expired — there is nothing useful to record. The parent
+                    // recording's BREAKUP branch point already captures that
+                    // the split happened.
+                    if (ShouldSkipDeadOnArrivalControlledChild(
+                            childVesselIsAlive: childVessel != null,
+                            hasPreCapturedSnapshot: ctrlSnap != null))
+                    {
+                        ParsekLog.Info("Coalescer",
+                            $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
+                            $"pid={pid} (vessel destroyed before window expired, no pre-captured snapshot) — " +
+                            "would produce an 'Unknown' 0s row with no playback value");
+                        continue;
+                    }
+
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
@@ -14100,7 +14161,7 @@ namespace Parsek
         /// </summary>
         private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
-            int skippedSpeed = 0;
+            int admittedOverSpeed = 0;
             int skippedSeeding = 0;
             float now = Time.time;
             // Track which recordings still have an active ghost so we can prune stale samples.
@@ -14140,16 +14201,26 @@ namespace Parsek
 
                 Vector3d ghostPos = state.ghost.transform.position;
                 double dist = Vector3d.Distance(activePos, ghostPos);
-                if (dist > NearbySpawnRadius)
+                // Outer "show in list" radius: ghosts inside this — but outside the inner
+                // FF radius — appear in the window with the FF button disabled.
+                if (dist > NearbySpawnListRadius)
                     continue;
 
-                // Frame-agnostic relative-speed gate. We compute d(active_pos - ghost_pos)/dt
+                // Frame-agnostic relative-speed sample. We compute d(active_pos - ghost_pos)/dt
                 // across consecutive proximity scans rather than subtracting velocity vectors
                 // from KSP and ghost playback (those are not in a guaranteed common frame —
                 // TrajectoryPoint.velocity is "not guaranteed surface-relative" and orbit-only
                 // ghosts never seed lastInterpolatedVelocity at all). Both samples are read
                 // from transform.position in the same Update tick, so floating-origin and
                 // krakensbane shifts cancel in the per-sample relative vector.
+                //
+                // Two-tier gating:
+                //   • outer (this method) — ghosts beyond NearbySpawnListRadius / faster than
+                //     MaxListRelativeSpeed are dropped from the list entirely
+                //   • inner (SpawnControlPresentation.BuildRowPresentation) — ghosts within
+                //     the outer bounds but beyond NearbySpawnRadius / MaxRelativeSpeed appear
+                //     in the list with the FF button disabled, so the player can see what is
+                //     blocking the warp ("closing too fast", "still too far") at a glance.
                 seenRecordingIds.Add(rec.RecordingId);
                 bool hasPrev = proximityVelocitySamples.TryGetValue(rec.RecordingId, out var prev);
                 // Always overwrite the sample so the next scan can compute against this one.
@@ -14172,11 +14243,10 @@ namespace Parsek
                 double relSpeed = SelectiveSpawnUI.ComputeRelativeSpeed(
                     activePos, ghostPos, prev.activePos, prev.ghostPos, dt,
                     ProximityVelocitySampleMinDt, ProximityVelocitySampleMaxDt);
-                if (relSpeed > MaxRelativeSpeed)
-                {
-                    skippedSpeed++;
+                if (relSpeed > MaxListRelativeSpeed)
                     continue;
-                }
+                if (relSpeed > MaxRelativeSpeed)
+                    admittedOverSpeed++;
 
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
@@ -14185,6 +14255,7 @@ namespace Parsek
                     vesselName = rec.VesselName,
                     endUT = rec.EndUT,
                     distance = dist,
+                    relativeSpeed = relSpeed,
                     recordingId = rec.RecordingId,
                     willDepart = depInfo.willDepart,
                     departureUT = depInfo.departureUT,
@@ -14203,11 +14274,11 @@ namespace Parsek
                     proximityVelocitySamples.Remove(stale[s]);
             }
 
-            if ((skippedSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
+            if ((admittedOverSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: skipped {0} (rel-speed > {1:F1} m/s) + {2} (seeding first sample)",
-                        skippedSpeed, MaxRelativeSpeed, skippedSeeding));
+                        "Proximity check: admitted {0} over rel-speed > {1:F1} m/s (FF gated) + {2} seeding first sample",
+                        admittedOverSpeed, MaxRelativeSpeed, skippedSeeding));
         }
 
         /// <summary>
@@ -14218,6 +14289,11 @@ namespace Parsek
             for (int c = 0; c < nearbySpawnCandidates.Count; c++)
             {
                 var cand = nearbySpawnCandidates[c];
+                // The list now extends to NearbySpawnListRadius / MaxListRelativeSpeed for
+                // visibility, but the screen-message alert promises "fast forward and interact"
+                // so only fire it once the ghost is actually within the FF-enable gates.
+                if (cand.distance > NearbySpawnRadius || cand.relativeSpeed > MaxRelativeSpeed)
+                    continue;
                 if (notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
                     string notifyMsg;
@@ -14246,8 +14322,10 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: {0} candidate(s) within {1:F0}m and rel-speed <= {2:F1} m/s",
-                        nearbySpawnCandidates.Count, NearbySpawnRadius, MaxRelativeSpeed));
+                        "Proximity check: {0} candidate(s) within list bounds {1:F0}m / {2:F1} m/s (FF gated by {3:F0}m / {4:F1} m/s)",
+                        nearbySpawnCandidates.Count,
+                        NearbySpawnListRadius, MaxListRelativeSpeed,
+                        NearbySpawnRadius, MaxRelativeSpeed));
         }
 
         /// <summary>
@@ -14405,7 +14483,7 @@ namespace Parsek
         internal void WarpToNextCraftSpawn()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT);
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT, NearbySpawnRadius, MaxRelativeSpeed);
             if (next == null)
             {
                 ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");

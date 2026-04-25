@@ -347,7 +347,8 @@ namespace Parsek.Tests
                     MilestoneRepAwarded = 2f,
                     MilestoneScienceAwarded = 1.5f
                 },
-                vesselName: null);
+                vesselName: null,
+                currentMode: Game.Modes.CAREER);
 
             Assert.Equal("Milestone: Kerbin - Records Distance +4800 funds +2 rep +1.5 sci", text);
         }
@@ -607,12 +608,12 @@ namespace Parsek.Tests
                 TimelineEntryType.RecordingStart,
                 TimelineEntryType.VesselSpawn,
                 TimelineEntryType.CrewDeath,
+                TimelineEntryType.UnfinishedFlightSeparation,
                 TimelineEntryType.MilestoneAchievement,
                 TimelineEntryType.ContractComplete,
                 TimelineEntryType.ContractFail,
                 TimelineEntryType.FacilityUpgrade,
                 TimelineEntryType.FacilityDestruction,
-                TimelineEntryType.KerbalHire,
                 TimelineEntryType.FundsInitial,
                 TimelineEntryType.ScienceInitial,
                 TimelineEntryType.ReputationInitial
@@ -637,6 +638,7 @@ namespace Parsek.Tests
         {
             var t2Types = new[]
             {
+                TimelineEntryType.Separation,
                 TimelineEntryType.ScienceEarning,
                 TimelineEntryType.ScienceSpending,
                 TimelineEntryType.FundsEarning,
@@ -646,6 +648,7 @@ namespace Parsek.Tests
                 TimelineEntryType.ContractAccept,
                 TimelineEntryType.ContractCancel,
                 TimelineEntryType.KerbalAssignment,
+                TimelineEntryType.KerbalHire,
                 TimelineEntryType.KerbalRescue,
                 TimelineEntryType.KerbalStandIn,
                 TimelineEntryType.FacilityRepair,
@@ -661,7 +664,105 @@ namespace Parsek.Tests
                     $"Expected T2 for {type} but got {tier}");
             }
 
-            Assert.Equal(15, t2Types.Length);
+            Assert.Equal(17, t2Types.Length);
+        }
+
+        [Fact]
+        public void KerbalHire_CareerMode_IsDetailsOnlyAndShowsFunds()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 62113f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman -62113 funds", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman -62113 funds",
+                GameActionDisplay.GetDescription(actions[0], Game.Modes.CAREER));
+        }
+
+        [Fact]
+        public void KerbalHire_CareerModeWithZeroCost_HidesFunds()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 0f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman",
+                GameActionDisplay.GetDescription(actions[0], Game.Modes.CAREER));
+        }
+
+        [Theory]
+        [InlineData(Game.Modes.SANDBOX)]
+        [InlineData(Game.Modes.SCIENCE_SANDBOX)]
+        [InlineData(Game.Modes.MISSION_BUILDER)]
+        [InlineData(Game.Modes.MISSION)]
+        public void KerbalHire_NoFundsModes_HidesFunds(Game.Modes mode)
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.KerbalHire,
+                    KerbalName = "Valentina Kerman",
+                    HireCost = 62113f,
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true,
+                mode);
+
+            var hire = Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalHire, hire.Type);
+            Assert.Equal(SignificanceTier.T2, hire.Tier);
+            Assert.Equal("Hire: Valentina Kerman", hire.DisplayText);
+            Assert.Equal("Hire: Valentina Kerman",
+                GameActionDisplay.GetDescription(actions[0], mode));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") &&
+                l.Contains("Filtered 1 kerbal-hire funds suffix") &&
+                l.Contains(mode.ToString()));
         }
 
         // ================================================================
@@ -1806,6 +1907,183 @@ namespace Parsek.Tests
 
             var keys = TimelineBuilder.BuildEvaBranchKeys(new List<Recording> { eva });
             Assert.Empty(keys);
+        }
+
+        // ================================================================
+        // Separation entries for tree-child recordings (UF + post-merge)
+        // ================================================================
+
+        /// <summary>
+        /// A tree-child recording that currently qualifies as an Unfinished
+        /// Flight (terminal=Destroyed AND a matching RP keyed at its
+        /// ParentBranchPointId) emits a single
+        /// <see cref="TimelineEntryType.UnfinishedFlightSeparation"/> entry
+        /// at its StartUT, with the label "Separation of Unfinished
+        /// Flight: ...". The renderer adds a Fly button on this entry; the
+        /// label is asserted here, the button-side wiring is exercised in
+        /// the runtime tests.
+        /// </summary>
+        [Fact]
+        public void TreeChild_DestroyedWithMatchingRp_EmitsUnfinishedFlightSeparation()
+        {
+            const string kBpId = "bp-uf-1";
+            const uint kPid = 42;
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = kPid;
+            root.ChildBranchPointId = kBpId;
+
+            var booster = MakeRecording("Kerbal X Probe", 200, 260,
+                terminal: TerminalState.Destroyed);
+            booster.VesselPersistentId = 99u;
+            booster.ParentBranchPointId = kBpId;
+
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp-uf-1",
+                        BranchPointId = kBpId,
+                        UT = 200.0,
+                        ChildSlots = new List<ChildSlot>
+                        {
+                            new ChildSlot
+                            {
+                                SlotIndex = 0,
+                                OriginChildRecordingId = booster.RecordingId,
+                            },
+                        },
+                        SessionProvisional = false,
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, booster },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                var separations = result
+                    .Where(e => e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                             || e.Type == TimelineEntryType.Separation)
+                    .ToList();
+                Assert.Single(separations);
+                var sep = separations[0];
+                Assert.Equal(TimelineEntryType.UnfinishedFlightSeparation, sep.Type);
+                Assert.Equal(200, sep.UT);
+                Assert.Equal(booster.RecordingId, sep.RecordingId);
+                Assert.Equal("Separation of Unfinished Flight: Kerbal X Probe", sep.DisplayText);
+                Assert.Equal(SignificanceTier.T1, sep.Tier);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+/// <summary>
+        /// Debris tree-children (BackgroundRecorder marks any breakup
+        /// child without a controller as <see cref="Recording.IsDebris"/>)
+        /// are skipped from the timeline entirely. The player asked us
+        /// to keep these out — they make the list too long without
+        /// telling them anything they did not already see watching the
+        /// rocket break apart. This holds even when the debris piece
+        /// has a Destroyed terminal that would otherwise look like a
+        /// Separation candidate.
+        /// </summary>
+        [Fact]
+        public void TreeChild_Debris_DoesNotEmitSeparationEntry()
+        {
+            const string kBpId = "bp-debris-1";
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = 42u;
+            root.ChildBranchPointId = kBpId;
+
+            var debris = MakeRecording("Kerbal X Debris", 200, 240,
+                terminal: TerminalState.Destroyed);
+            debris.VesselPersistentId = 99u;
+            debris.ParentBranchPointId = kBpId;
+            debris.IsDebris = true;
+
+            var scenario = new ParsekScenario { RewindPoints = new List<RewindPoint>() };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, debris },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                Assert.DoesNotContain(result, e =>
+                    e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                    || e.Type == TimelineEntryType.Separation);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        /// <summary>
+        /// Discriminator: same tree-child topology but the matching RP is
+        /// gone (post-merge or never existed). The recording is no longer
+        /// an Unfinished Flight, so the entry morphs into a plain
+        /// <see cref="TimelineEntryType.Separation"/> at T2 with the
+        /// shorter "Separation: ..." label and no Fly affordance. This is
+        /// the visible result of the Re-Fly merge promoting the row out
+        /// of the Unfinished Flights group.
+        /// </summary>
+        [Fact]
+        public void TreeChild_DestroyedNoMatchingRp_EmitsRegularSeparation()
+        {
+            const string kBpId = "bp-merged-1";
+
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = 42u;
+            root.ChildBranchPointId = kBpId;
+
+            var booster = MakeRecording("Kerbal X Probe", 200, 260,
+                terminal: TerminalState.Destroyed);
+            booster.VesselPersistentId = 99u;
+            booster.ParentBranchPointId = kBpId;
+
+            var scenario = new ParsekScenario
+            {
+                // No RewindPoints — RP was reaped on merge or never existed.
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, booster },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                var separations = result
+                    .Where(e => e.Type == TimelineEntryType.UnfinishedFlightSeparation
+                             || e.Type == TimelineEntryType.Separation)
+                    .ToList();
+                Assert.Single(separations);
+                var sep = separations[0];
+                Assert.Equal(TimelineEntryType.Separation, sep.Type);
+                Assert.Equal(200, sep.UT);
+                Assert.Equal(booster.RecordingId, sep.RecordingId);
+                Assert.Equal("Separation: Kerbal X Probe", sep.DisplayText);
+                Assert.Equal(SignificanceTier.T2, sep.Tier);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
         }
     }
 }

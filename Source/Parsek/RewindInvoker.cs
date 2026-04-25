@@ -150,18 +150,11 @@ namespace Parsek
             }
 
             var selected = rp.ChildSlots[selectedSlotListIndex];
-            string slotName = selected?.OriginChildRecordingId ?? "<unknown>";
             int selectedSlotId = selected != null ? selected.SlotIndex : selectedSlotListIndex;
-            string title = "Parsek - Rewind to Staging";
-            var ic = CultureInfo.InvariantCulture;
-            string utText = rp.UT.ToString("F1", ic);
+            string title = "Parsek - Finish Flight";
             string message =
-                $"Rewind to rewind point {rp.RewindPointId} at UT {utText}?\n" +
-                $"Spawning the selected child (slot {selectedSlotId}, origin={slotName}) live; " +
-                $"merged siblings will play as ghosts.\n\n" +
-                "Career state during this attempt stays as it is now. Supersede on merge " +
-                "retires only kerbal-death events; contract / milestone / facility / strategy " +
-                "/ tech / science / funds state is unchanged.";
+                "Do you want to fly this again? This will take you to the moment after " +
+                "separation and you will be in control of the craft / Kerbal.";
 
             var capturedRp = rp;
             var capturedSlotListIdx = selectedSlotListIndex;
@@ -176,7 +169,7 @@ namespace Parsek
                     message,
                     title,
                     HighLogic.UISkin,
-                    new DialogGUIButton("Rewind", () =>
+                    new DialogGUIButton("Re-Fly", () =>
                     {
                         ParsekLog.Info(UITag,
                             $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +
@@ -226,6 +219,27 @@ namespace Parsek
                     $"StartInvoke: another invocation already pending (sess={RewindInvokeContext.SessionId}) " +
                     $"— ignoring new request for rp={rp.RewindPointId}");
                 ShowUserError("Rewind failed: another invocation is already pending");
+                return;
+            }
+
+            // Re-run the full precondition gate. The confirmation dialog
+            // called `CanInvoke` when it was opened, but preconditions can
+            // change between dialog-open and confirm-click (scene transition
+            // starts, another session activates, RP gets marked corrupted
+            // by load-time sweep, part loader fails on a modded craft, etc.).
+            // Without this second check, a stale confirmation can bypass
+            // every safety gate and leave the RewindInvokeContext half-set
+            // on top of invalid state. Tests cover each individual gate via
+            // `CanInvoke`; this call is the integration point.
+            if (!CanInvoke(rp, out string canInvokeReason))
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"StartInvoke: precondition failed after dialog confirm — {canInvokeReason} " +
+                    $"(rp={rp.RewindPointId}, slot={selected.SlotIndex})");
+                ShowUserError(
+                    string.IsNullOrEmpty(canInvokeReason)
+                        ? "Rewind failed: precondition check failed"
+                        : $"Rewind failed: {canInvokeReason}");
                 return;
             }
 
@@ -308,8 +322,35 @@ namespace Parsek
                     return;
                 }
 
-                HighLogic.CurrentGame = game;
-                HighLogic.LoadScene(GameScenes.FLIGHT);
+                // KSP's flight-scene loader needs an explicit
+                // `FlightDriver.StartAndFocusVessel(game, idx)` call to
+                // populate FlightGlobals.Vessels from the loaded save's
+                // flightState. Using `HighLogic.LoadScene(FLIGHT)` directly
+                // made KSP fall back to the "launch from VAB auto-saved
+                // ship" path — the flight scene loaded a fresh Kerbal X
+                // craft from `Ships/VAB/Auto-Saved Ship.craft` instead of
+                // the RP quicksave's pre-split state. Evidence from
+                // logs/2026-04-25_0123_rewind-still-failing-after-fixes:
+                //   Loading ship from file: ...\Ships\VAB\Auto-Saved Ship.craft
+                //   [FLIGHT GLOBALS] Switching To Vessel Kerbal X
+                //   Strip stripped=[2708531065] selected=none ... leftAlone=12
+                // The booster (pid 1097581269 per the RP's PID_SLOT_MAP)
+                // was never loaded into FlightGlobals, so Strip couldn't
+                // match slot 1.
+                //
+                // StartAndFocusVessel is the canonical quickload-to-flight
+                // call (stock F9 uses it). It assigns HighLogic.CurrentGame,
+                // preloads FlightDriver.startupFlightState from the game's
+                // flightState, and transitions to FLIGHT with the saved
+                // active vessel focused. The deferred post-load Strip then
+                // switches focus to the slot's target vessel.
+                int activeIdx = game.flightState != null ? game.flightState.activeVesselIdx : 0;
+                if (activeIdx < 0)
+                    activeIdx = 0;
+                ParsekLog.Info(InvokeTag,
+                    $"StartAndFocusVessel: activeVesselIdx={activeIdx} " +
+                    $"vesselCount={game.flightState?.protoVessels?.Count ?? 0}");
+                FlightDriver.StartAndFocusVessel(game, activeIdx);
             }
             catch (Exception ex)
             {
@@ -334,6 +375,12 @@ namespace Parsek
         /// of success/failure.
         /// </para>
         /// </summary>
+        // Test seams: override FlightGlobals-vessel readiness and the
+        // onFlightReady subscription so headless tests can exercise both the
+        // direct and the deferred Strip-Activate-Marker paths.
+        internal static Func<bool> FlightReadyProbeOverrideForTesting;
+        internal static Action<Action, string> DeferUntilFlightReadyOverrideForTesting;
+
         internal static void ConsumePostLoad()
         {
             if (!RewindInvokeContext.Pending)
@@ -351,37 +398,84 @@ namespace Parsek
                 $"ConsumePostLoad begin: sess={sessionId} rp={rp?.RewindPointId ?? "<null>"} " +
                 $"slot={slotIdx}");
 
-            try
+            if (rp == null || selected == null)
             {
-                if (rp == null || selected == null)
+                ParsekLog.Error(InvokeTag,
+                    "ConsumePostLoad: context missing rp or slot — aborting");
+                ShowUserError("Rewind failed: invocation context corrupted");
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+                return;
+            }
+
+            // Step 1: reconcile. Runs now — it only touches scenario state and
+            // does not depend on FlightGlobals.Vessels being populated.
+            if (hasBundle)
+            {
+                try
+                {
+                    ReconciliationBundle.Restore(bundle);
+                }
+                catch (Exception ex)
                 {
                     ParsekLog.Error(InvokeTag,
-                        "ConsumePostLoad: context missing rp or slot — aborting");
-                    ShowUserError("Rewind failed: invocation context corrupted");
+                        $"Invocation failed: reconciliation restore threw: {ex.Message}");
+                    ShowUserError($"Rewind failed: reconcile error ({ex.Message})");
+                    TryDeleteTemp(tempPath);
+                    RewindInvokeContext.Clear();
                     return;
                 }
+            }
+            else
+            {
+                ParsekLog.Warn(InvokeTag,
+                    "ConsumePostLoad: no captured bundle — skipping reconciliation");
+            }
 
-                // Step 1: reconcile (restore pre-load in-memory state over the .sfs-loaded state).
-                if (hasBundle)
-                {
-                    try
-                    {
-                        ReconciliationBundle.Restore(bundle);
-                    }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Error(InvokeTag,
-                            $"Invocation failed: reconciliation restore threw: {ex.Message}");
-                        ShowUserError($"Rewind failed: reconcile error ({ex.Message})");
-                        return;
-                    }
-                }
-                else
-                {
-                    ParsekLog.Warn(InvokeTag,
-                        "ConsumePostLoad: no captured bundle — skipping reconciliation");
-                }
+            // Steps 2-5: Strip + Activate + AtomicMarkerWrite + LedgerRecalc.
+            // These need FlightGlobals.Vessels populated. During an async
+            // SPACECENTER→FLIGHT scene change, ParsekScenario.OnLoad (and
+            // thus ConsumePostLoad) fires before KSP has loaded the save's
+            // vessels into FlightGlobals — Strip would find zero candidates
+            // and the invocation would bail with
+            // "Activate failed: selected vessel not present on reload".
+            // Defer to GameEvents.onFlightReady (or run now if the scene
+            // never unloaded — e.g. synchronous reload tests). The atomic
+            // invariant (§2.5: no yield / no await between CheckpointA and
+            // CheckpointB) still holds because Strip + Activate +
+            // AtomicMarkerWrite still run as one synchronous block when the
+            // callback fires.
+            if (IsFlightReady())
+            {
+                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath);
+            }
+            else
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"ConsumePostLoad deferred to onFlightReady: sess={sessionId} " +
+                    $"rp={rp.RewindPointId} slot={slotIdx} " +
+                    "(FlightGlobals.Vessels not yet populated after async scene load)");
+                // Pass tempPath separately so the timeout branch in
+                // `WaitForFlightReadyAndInvoke` can delete the root-level
+                // Parsek_Rewind_*.sfs copy without reaching the action's
+                // finally block. Otherwise a catastrophic flight-scene load
+                // that never fires onFlightReady would leak the temp file
+                // and leave RewindInvokeContext half-cleared.
+                DeferUntilFlightReady(
+                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath),
+                    tempPath);
+            }
+        }
 
+        private static void RunStripActivateMarker(
+            RewindPoint rp,
+            ChildSlot selected,
+            string sessionId,
+            int slotIdx,
+            string tempPath)
+        {
+            try
+            {
                 // Step 2: post-load strip (§6.4 step 4).
                 PostLoadStripResult stripResult;
                 try
@@ -433,9 +527,21 @@ namespace Parsek
                 }
 
                 // Step 5: post-atomic ledger recalc.
+                // Pass `double.MaxValue` as the cutoff so every action in
+                // the reconciled ledger applies, and — critically — so
+                // `bypassPatchDeferral` flips true inside `RecalculateAndPatch`.
+                // Without that bypass, `LedgerOrchestrator` skips tech-tree
+                // patching when no cutoff is supplied, and the live KSP R&D
+                // state stays at the OLD RP quicksave's pre-rewind tech set.
+                // Tech unlocks made after the RP would silently disappear,
+                // violating the design's "career state sticks" rule (§2.3
+                // of the rewind-staging design doc). `double.MaxValue`
+                // means "no time filter" — the full ledger walks and every
+                // tech unlock re-applies to KSP's R&D after the quicksave's
+                // old state overwrote it.
                 try
                 {
-                    LedgerOrchestrator.RecalculateAndPatch();
+                    LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
                 }
                 catch (Exception ex)
                 {
@@ -446,6 +552,15 @@ namespace Parsek
                 ParsekLog.Info(InvokeTag,
                     $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
                     $"slot={slotIdx} activePid={stripResult.SelectedPid}");
+
+                // Diagnostic hint: a pre-existing quicksave vessel whose name
+                // matches a recording in the re-fly tree produces two
+                // identical-looking objects in the scene (real orbital relic +
+                // playback ghost). The 01:53 playtest hit exactly this with a
+                // prior-career "Kerbal X" at 162 km. Warn so the player knows
+                // not to blame the re-fly pipeline — the real vessel predates
+                // the rewind and is outside the tree.
+                WarnOnLeftAloneNameCollisions(stripResult);
             }
             finally
             {
@@ -457,10 +572,138 @@ namespace Parsek
             }
         }
 
+        private static bool IsFlightReady()
+        {
+            if (FlightReadyProbeOverrideForTesting != null)
+                return FlightReadyProbeOverrideForTesting();
+
+            try
+            {
+                if (!FlightGlobals.ready) return false;
+                var vessels = FlightGlobals.Vessels;
+                return vessels != null && vessels.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void DeferUntilFlightReady(Action action, string tempPath)
+        {
+            if (DeferUntilFlightReadyOverrideForTesting != null)
+            {
+                DeferUntilFlightReadyOverrideForTesting(action, tempPath);
+                return;
+            }
+
+            // Poll `FlightGlobals.ready` via a coroutine on the living
+            // `ParsekScenario` MonoBehaviour. Subscribing to
+            // `GameEvents.onFlightReady` directly from this static context
+            // crashed inside `EventVoid.EvtDelegate..ctor` with a
+            // `NullReferenceException` because KSP derefs `delegate.Target`
+            // while building the subscription's internal name and a static
+            // method has a null Target. A per-frame poll on the scenario's
+            // MonoBehaviour sidesteps the EvtDelegate issue entirely and is
+            // still deterministic: it fires on the first Unity frame after
+            // `FlightGlobals.ready && Vessels.Count > 0` flips true.
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Error(InvokeTag,
+                    "DeferUntilFlightReady: no ParsekScenario.Instance — running action inline (best effort)");
+                try { action?.Invoke(); }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(InvokeTag,
+                        $"Inline fallback handler threw: {ex.Message}");
+                    // The action owns its own finally-block cleanup; if it
+                    // threw before reaching that block, we still need to
+                    // drop the temp file to meet the ConsumePostLoad cleanup
+                    // contract.
+                    TryDeleteTemp(tempPath);
+                    RewindInvokeContext.Clear();
+                }
+                return;
+            }
+
+            scenario.StartCoroutine(WaitForFlightReadyAndInvoke(action, tempPath));
+        }
+
+        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(Action action, string tempPath)
+        {
+            // Bound the wait so a scene-load that never finishes (catastrophic
+            // failure) doesn't leak the coroutine. 300 frames at 60 fps is 5 s,
+            // well past the ~1.4 s observed async-load completion.
+            const int MaxFrames = 300;
+            int frame = 0;
+            while (frame < MaxFrames && !IsFlightReady())
+            {
+                frame++;
+                yield return null;
+            }
+
+            if (!IsFlightReady())
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Deferred flight-ready wait timed out after {MaxFrames} frames — rewind aborted");
+                // The action's own finally block never runs on timeout, so
+                // the temp quicksave (Parsek_Rewind_*.sfs at save root) would
+                // be orphaned — user-visible clutter and a violation of the
+                // ConsumePostLoad cleanup contract. Delete it explicitly
+                // before clearing the context.
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+                yield break;
+            }
+
+            ParsekLog.Verbose(InvokeTag,
+                $"Deferred flight-ready wait completed after {frame} frame(s) — resuming rewind");
+            try
+            {
+                action?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(InvokeTag,
+                    $"Deferred flight-ready handler threw: {ex.Message}");
+                // If the action threw before reaching its own finally block
+                // (e.g., crashed in Strip before the try/finally opened),
+                // the temp quicksave is still ours to clean up.
+                TryDeleteTemp(tempPath);
+                RewindInvokeContext.Clear();
+            }
+        }
+
         /// <summary>
         /// §6.3 step 4 critical section. Runs synchronously; throws MUST
         /// leave the global state untouched (we roll back the provisional
         /// add before rethrowing). NO yield, NO await, NO deferred save.
+        ///
+        /// <para>
+        /// Two paths, decided up front:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     <b>In-place continuation</b> — when the Limbo-restore path
+        ///     kept the origin recording alive in the restored tree and the
+        ///     active vessel pid (just focused by Strip+Activate) matches the
+        ///     origin's <see cref="Recording.VesselPersistentId"/>, the
+        ///     recorder will append new samples directly to the origin
+        ///     recording. Point <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        ///     at the origin id and create no placeholder. This eliminates
+        ///     the legacy placeholder-then-redirect dance: the marker now
+        ///     points directly at the recording that will receive samples.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <b>New-recording path</b> — origin tree is gone or the active
+        ///     pid does not match the origin's pid. Create a fresh
+        ///     placeholder recording (no trajectory yet), add it via
+        ///     <see cref="RecordingStore.AddProvisional"/>, and point the
+        ///     marker at its id. The recorder will populate this placeholder
+        ///     as the player flies.
+        ///   </description></item>
+        /// </list>
         /// </summary>
         internal static void AtomicMarkerWrite(
             RewindPoint rp, ChildSlot selected,
@@ -475,14 +718,42 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
                 throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
 
-            // Resolve the origin recording so we can clone its lineage metadata.
+            // Resolve the origin recording. If it survived the Limbo-restore
+            // and its VesselPersistentId matches the strip-selected pid, the
+            // recorder will continue writing into THIS recording; we point
+            // the marker at it directly with no placeholder. Otherwise we
+            // build a fresh placeholder.
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+            bool inPlaceContinuation =
+                originChild != null
+                && IsCommittedRecording(originChild)
+                && originChild.VesselPersistentId == stripResult.SelectedPid;
 
-            var provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+            Recording provisional = null;
+            string activeReFlyRecordingId;
+            string treeIdForMarker;
 
-            CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-            RecordingStore.AddProvisional(provisional);
-            CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            if (inPlaceContinuation)
+            {
+                activeReFlyRecordingId = originChild.RecordingId;
+                treeIdForMarker = originChild.TreeId;
+                ParsekLog.Info(InvokeTag,
+                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                    $"{originChild.RecordingId} (no placeholder created)");
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
+            else
+            {
+                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                activeReFlyRecordingId = provisional.RecordingId;
+                treeIdForMarker = provisional.TreeId;
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                RecordingStore.AddProvisional(provisional);
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
 
             ReFlySessionMarker marker;
             try
@@ -490,8 +761,8 @@ namespace Parsek
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
-                    TreeId = provisional.TreeId,
-                    ActiveReFlyRecordingId = provisional.RecordingId,
+                    TreeId = treeIdForMarker,
+                    ActiveReFlyRecordingId = activeReFlyRecordingId,
                     OriginChildRecordingId = selected.OriginChildRecordingId,
                     RewindPointId = rp.RewindPointId,
                     InvokedUT = SafeNow(),
@@ -505,11 +776,15 @@ namespace Parsek
             }
             catch
             {
-                // Roll back the provisional AND the marker so no half-written
-                // pair leaks out of the critical section. Both clears are
-                // idempotent (RemoveCommittedInternal returns false if absent;
-                // marker clear is a null-assignment).
-                RecordingStore.RemoveCommittedInternal(provisional);
+                // Roll back the provisional (when we added one) AND the
+                // marker so no half-written pair leaks out of the critical
+                // section. Both clears are idempotent
+                // (RemoveCommittedInternal returns false if absent; marker
+                // clear is a null-assignment). In-place continuation paths
+                // did not add anything to the committed list, so there's
+                // nothing to roll back on the recording side.
+                if (provisional != null)
+                    RecordingStore.RemoveCommittedInternal(provisional);
                 try
                 {
                     if (ParsekScenario.Instance != null)
@@ -521,9 +796,30 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
-                $"provisional={provisional.RecordingId} " +
+                $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
-                $"tree={provisional.TreeId ?? "<none>"}");
+                $"tree={treeIdForMarker ?? "<none>"} " +
+                $"inPlaceContinuation={inPlaceContinuation}");
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> currently appears in
+        /// <see cref="RecordingStore.CommittedRecordings"/> by reference.
+        /// Used by <see cref="AtomicMarkerWrite"/> to decide between the
+        /// in-place continuation path (origin survived Limbo restore) and
+        /// the placeholder path (origin tree was gone / pid mismatched).
+        /// </summary>
+        private static bool IsCommittedRecording(Recording rec)
+        {
+            if (rec == null) return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (ReferenceEquals(committed[i], rec))
+                    return true;
+            }
+            return false;
         }
 
         internal static Recording BuildProvisionalRecording(
@@ -653,6 +949,56 @@ namespace Parsek
             return scene == GameScenes.FLIGHT
                 || scene == GameScenes.SPACECENTER
                 || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAloneNames"/>
+        /// against the committed-recording vessel names in the scenario's
+        /// trees. A match means the player has a pre-existing quicksave
+        /// vessel sharing a name with a recording in the active tree — they
+        /// will see both in-scene and almost always mistake the real vessel
+        /// for a second ghost. WARN-log + ScreenMessage so the situation is
+        /// diagnosable without reading KSP.log.
+        /// </summary>
+        internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
+        {
+            if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
+                return;
+
+            IEnumerable<string> treeNames = EnumerateCommittedVesselNames();
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                stripResult.LeftAloneNames, treeNames);
+            if (collisions == null || collisions.Count == 0)
+                return;
+
+            string joined = string.Join(", ", collisions.ToArray());
+            ParsekLog.Warn(InvokeTag,
+                $"Strip left {collisions.Count} pre-existing vessel(s) whose name matches a " +
+                $"tree recording: [{joined}] — not related to the re-fly, will appear as " +
+                $"second Kerbal X-shaped object in scene");
+            ShowUserError(
+                $"Heads up: pre-existing vessel(s) [{joined}] share a name with your re-fly " +
+                $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
+        }
+
+        private static IEnumerable<string> EnumerateCommittedVesselNames()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null) yield break;
+
+            // Pull names straight from the committed-recording list. Any recording
+            // in an active tree is in scope here; the goal is a cheap diagnostic,
+            // not a strict ERS-filtered view.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) yield break;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                string name = rec.VesselName;
+                if (!string.IsNullOrEmpty(name)) yield return name;
+            }
         }
 
         /// <summary>

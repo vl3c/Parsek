@@ -162,6 +162,9 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: terminal,
                 supersedeTargetId: supersedeTargetId);
+            // Satisfy SupersedeCommit.AppendRelations supersede-target
+            // invariant (>=1 trajectory point + non-null terminal).
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(provisional, treeId);
             return provisional;
         }
@@ -443,6 +446,49 @@ namespace Parsek.Tests
         }
 
         // ---------- Cache invalidation -------------------------------------
+
+        [Fact]
+        public void CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin()
+        {
+            // Item 23 / fix-chain-sibling-supersede: a kerbal-death action
+            // stamped against the chain TIP (in-atmo segment carrying the
+            // Destroyed terminal) must be tombstoned when the player re-flies
+            // from the chain HEAD and merges. Pre-fix the closure walker
+            // ignored chain siblings, so the action stayed in ELS and the
+            // kerbal stayed dead even though the re-fly recovered them.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1");
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip },
+                new List<BranchPoint> { bp_split });
+
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_head");
+            var scenario = InstallScenario(Marker("rec_head", "rec_provisional"));
+
+            // Death action stamped against the TIP (the segment that carries
+            // the Destroyed terminal in production).
+            var death = KerbalDeath("rec_tip", 100.0, kerbalName: "Magdo");
+            Ledger.AddAction(death);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == death.ActionId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerSwap]") && l.Contains("Tombstoned 1 (KerbalDeath=1"));
+        }
 
         [Fact]
         public void CommitTombstones_BumpsTombstoneStateVersion_InvalidatesELSCache()

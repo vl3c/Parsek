@@ -160,13 +160,30 @@ namespace Parsek
                     $"IsUnfinishedFlight=false rec={recId} reason=mergeState:{rec.MergeState}");
                 return false;
             }
-            if (!IsTerminalCrashed(rec))
+            // Chain-walk for the terminal check: merge-time SplitAtSection
+            // splits a single live recording at env boundaries (atmo→exo) into
+            // chained segments. The chain HEAD carries the parentBranchPointId
+            // (→ RewindPoint link), the chain TIP carries the terminal state.
+            // Checking the head's own terminal would always read null for a
+            // multi-segment chain and silently exclude destroyed siblings
+            // from Unfinished Flights. Walk forward and use the tip.
+            Recording terminalRec = ResolveChainTerminalRecording(rec);
+            if (!IsTerminalCrashed(terminalRec))
             {
                 ParsekLog.Verbose("UnfinishedFlights",
-                    $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{rec.TerminalStateValue}");
+                    $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{terminalRec.TerminalStateValue} " +
+                    $"(tip={(ReferenceEquals(terminalRec, rec) ? "self" : terminalRec.RecordingId ?? "<no-id>")})");
                 return false;
             }
-            if (string.IsNullOrEmpty(rec.ParentBranchPointId))
+            // Accept either the branch-parent link (`ParentBranchPointId`
+            // for the split's new children) or the branch-child link
+            // (`ChildBranchPointId` for the surviving active parent).
+            // Breakup RPs include the active parent as a controllable
+            // output, so it must be able to resolve to the RP too when it
+            // later crashes.
+            string parentBpId = rec.ParentBranchPointId;
+            string childBpId = rec.ChildBranchPointId;
+            if (string.IsNullOrEmpty(parentBpId) && string.IsNullOrEmpty(childBpId))
             {
                 ParsekLog.Verbose("UnfinishedFlights",
                     $"IsUnfinishedFlight=false rec={recId} reason=noParentBp");
@@ -185,25 +202,32 @@ namespace Parsek
                 return false;
             }
 
-            string bpId = rec.ParentBranchPointId;
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var rp = scenario.RewindPoints[i];
                 if (rp == null) continue;
-                if (string.Equals(rp.BranchPointId, bpId, StringComparison.Ordinal))
+                bool matchesParent = !string.IsNullOrEmpty(parentBpId)
+                    && string.Equals(rp.BranchPointId, parentBpId, StringComparison.Ordinal);
+                bool matchesChild = !string.IsNullOrEmpty(childBpId)
+                    && string.Equals(rp.BranchPointId, childBpId, StringComparison.Ordinal);
+                if (matchesParent || matchesChild)
                 {
                     // The parent BP has an RP — and RewindPoint existence IS the
                     // design §5.4 "BranchPoint.RewindPointId != null" check,
                     // since BranchPoint.RewindPointId is backfilled from the
                     // persisted RewindPoint list.
+                    string matchedBp = matchesParent ? parentBpId : childBpId;
+                    string side = matchesParent ? "parent" : "active-parent-child";
                     ParsekLog.Verbose("UnfinishedFlights",
-                        $"IsUnfinishedFlight=true rec={recId} bp={bpId} rp={rp.RewindPointId}");
+                        $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} rp={rp.RewindPointId}");
                     return true;
                 }
             }
 
             ParsekLog.Verbose("UnfinishedFlights",
-                $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP bp={bpId} rpCount={scenario.RewindPoints.Count}");
+                $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP " +
+                $"parentBp={parentBpId ?? "<none>"} childBp={childBpId ?? "<none>"} " +
+                $"rpCount={scenario.RewindPoints.Count}");
             return false;
         }
 
@@ -218,6 +242,95 @@ namespace Parsek
         public static bool IsTerminalCrashed(Recording rec)
         {
             return TerminalKindClassifier.Classify(rec) == TerminalKind.Crashed;
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> is part of a chain whose head
+        /// (the segment carrying the <c>ParentBranchPointId</c> link to a
+        /// RewindPoint) qualifies as an Unfinished Flight. Used by the
+        /// recordings-table row rendering to suppress the legacy
+        /// rewind-to-launch <c>R</c> button on chain continuations: a booster
+        /// that re-flies via its chain-head Rewind-to-Staging button should
+        /// NOT also offer a chain-continuation row another R that silently
+        /// rewinds the entire mission to the pad. The chain head itself also
+        /// trips this check, which is fine — its new Rewind-to-Staging button
+        /// already takes over, so the legacy branch would never run.
+        /// </summary>
+        public static bool IsChainMemberOfUnfinishedFlight(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return false;
+
+            var ers = ComputeERS();
+            if (ers == null) return false;
+
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var candidate = ers[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (IsUnfinishedFlight(candidate))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the recording whose <c>TerminalStateValue</c> actually
+        /// represents the ending of <paramref name="rec"/>'s vessel. For a
+        /// chained recording, merge-time <c>Optimizer.SplitAtSection</c>
+        /// splits a single live recording at environment boundaries (atmo→exo,
+        /// etc.) into two or more chained segments: the HEAD keeps the
+        /// parent-branch-point link back to the Rewind Point, and the TIP
+        /// carries the terminal state. Callers asking "did this vessel end
+        /// crashed?" must consult the tip, not the head. Non-chained
+        /// recordings return themselves.
+        ///
+        /// <para>
+        /// The tip is chosen as the recording with the same
+        /// <c>ChainId</c> / <c>ChainBranch</c> and the largest
+        /// <c>ChainIndex</c> found in the same committed tree. Chain members
+        /// live in the same <see cref="RecordingTree"/> so the scan is
+        /// bounded by the tree's recording dictionary.
+        /// </para>
+        /// </summary>
+        internal static Recording ResolveChainTerminalRecording(Recording rec)
+        {
+            if (rec == null) return null;
+            if (string.IsNullOrEmpty(rec.ChainId)) return rec;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return rec;
+
+            RecordingTree owningTree = null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                if (!string.IsNullOrEmpty(rec.TreeId) && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (tree.Recordings != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && tree.Recordings.ContainsKey(rec.RecordingId))
+                {
+                    owningTree = tree;
+                    break;
+                }
+            }
+            if (owningTree?.Recordings == null) return rec;
+
+            Recording tip = rec;
+            int maxIdx = rec.ChainIndex;
+            foreach (var candidate in owningTree.Recordings.Values)
+            {
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (candidate.ChainIndex <= maxIdx) continue;
+                tip = candidate;
+                maxIdx = candidate.ChainIndex;
+            }
+            return tip;
         }
 
         /// <summary>
@@ -449,12 +562,26 @@ namespace Parsek
 
                 int mixedParentHalts = 0;
                 int childrenAdded = 0;
+                int siblingsAdded = 0;
 
                 while (queue.Count > 0)
                 {
                     string currentId = queue.Dequeue();
                     if (!recById.TryGetValue(currentId, out var currentRec))
                         continue;
+
+                    // Chain-sibling expansion: merge-time SplitAtSection
+                    // splits one live recording into ChainId-linked siblings
+                    // where the HEAD keeps the parent-branch-point link
+                    // (and `ChildBranchPointId = null`) while the TIP carries
+                    // the terminal state (and the moved `ChildBranchPointId`).
+                    // Walking only via `ChildBranchPointId` would dequeue the
+                    // HEAD, hit the early-return below, and never enqueue the
+                    // TIP — leaving a stale orphan after re-fly merge. Run
+                    // chain expansion on every dequeued member, BEFORE the
+                    // null-`ChildBranchPointId` early-return, so a HEAD with
+                    // no BP descendants still propagates to its siblings.
+                    EnqueueChainSiblings(currentRec, recById, queue, result, ref siblingsAdded);
 
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
@@ -493,7 +620,7 @@ namespace Parsek
 
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
-                    $"(childrenAdded={childrenAdded} mixedParentHalts={mixedParentHalts})");
+                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} mixedParentHalts={mixedParentHalts})");
 
                 return suppressionCache;
             }
@@ -534,6 +661,72 @@ namespace Parsek
                     return bp;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Adds every committed recording sharing <c>TreeId</c>,
+        /// <c>ChainId</c>, AND <c>ChainBranch</c> with <paramref name="rec"/>
+        /// to <paramref name="result"/> and enqueues them for further BP
+        /// walking. Idempotent via the <paramref name="result"/> HashSet.
+        ///
+        /// <para>
+        /// Same-tree / same-chain / same-branch is the canonical "this is the
+        /// same vessel continued at an env boundary" predicate — see
+        /// <see cref="IsChainMemberOfUnfinishedFlight"/> and
+        /// <see cref="ResolveChainTerminalRecording"/>, which use the same
+        /// keys (the terminal-chain resolver scopes by owning tree explicitly;
+        /// this helper enforces it via the <see cref="Recording.TreeId"/>
+        /// field). The owning-tree gate is defense-in-depth: chain segments
+        /// produced by <see cref="RecordingOptimizer.SplitAtSection"/> always
+        /// share <c>TreeId</c> by construction, but if a future clone path,
+        /// import, or legacy save ever produces colliding <c>ChainId</c>s
+        /// across trees, starting a re-fly in one tree must not pull a
+        /// different tree's recordings into the suppressed closure (those
+        /// recordings would also be supersede-rowed and tombstone-scanned).
+        /// Different <c>ChainBranch</c> values stay independent (parallel
+        /// ghost-only continuations).
+        /// </para>
+        ///
+        /// <para>
+        /// The cache invalidation that wraps the closure builder
+        /// (<c>RecordingStore.StateVersion</c>, see line 528) covers chain
+        /// siblings automatically — they live in
+        /// <c>RecordingStore.CommittedRecordings</c>, the same source the
+        /// builder iterates to populate <paramref name="recById"/>.
+        /// </para>
+        /// </summary>
+        private static void EnqueueChainSiblings(
+            Recording rec,
+            Dictionary<string, Recording> recById,
+            Queue<string> queue,
+            HashSet<string> result,
+            ref int siblingsAdded)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return;
+            // Legacy / orphaned recordings without a TreeId: refuse to
+            // chain-expand. We cannot prove the candidate is in the same
+            // tree, and a false-positive crosses tree boundaries silently.
+            if (string.IsNullOrEmpty(rec.TreeId)) return;
+
+            foreach (var cand in recById.Values)
+            {
+                if (cand == null) continue;
+                if (ReferenceEquals(cand, rec)) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(cand.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (cand.ChainBranch != rec.ChainBranch) continue;
+                if (result.Contains(cand.RecordingId)) continue;
+
+                result.Add(cand.RecordingId);
+                siblingsAdded++;
+                // Enqueue so the BP walk runs on this member too — covers
+                // a TIP that received the moved `ChildBranchPointId` from
+                // RecordingStore.cs:2018-2019, multi-segment chains, and
+                // the "origin is itself a TIP" symmetric case (HashSet
+                // dedup prevents revisits).
+                queue.Enqueue(cand.RecordingId);
+            }
         }
 
         private static bool HasOutsideParent(BranchPoint bp, HashSet<string> suppressed)

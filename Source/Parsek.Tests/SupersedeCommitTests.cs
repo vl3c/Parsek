@@ -171,6 +171,11 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: terminal,
                 supersedeTargetId: supersedeTargetId);
+            // Satisfy SupersedeCommit.AppendRelations supersede-target
+            // invariant (>=1 trajectory point + non-null terminal). Tests
+            // exercising the empty / null-terminal cases construct
+            // provisionals directly.
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(provisional, treeId);
             return provisional;
         }
@@ -520,6 +525,333 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") && l.Contains("provisional is null"));
+        }
+
+        // ---------- Self-supersede guards (bug/rewind-self-supersede-and-followups) -----
+
+        /// <summary>
+        /// Regression: Limbo-restore kept the origin recording alive across an
+        /// RP-quicksave reload, the re-fly continued writing into that SAME
+        /// recording. Item 11 moved the in-place detection up to
+        /// <see cref="RewindInvoker.AtomicMarkerWrite"/> so the marker now
+        /// points directly at the origin id with no placeholder; at merge
+        /// time <c>provisional.RecordingId == marker.OriginChildRecordingId</c>
+        /// is the natural state, not a redirect outcome. The caller-side
+        /// guard in <see cref="MergeDialog.TryCommitReFlySupersede"/> must
+        /// detect the in-place-continuation case, skip the journaled merge
+        /// entirely (no self-supersede row), flip MergeState, clear the
+        /// marker, and return Completed.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes()
+        {
+            // Build a tree where the origin recording is itself the recording
+            // that the re-fly continues writing into. The marker's origin and
+            // active pointers are the same id; no separate provisional exists.
+            var origin = Rec("rec_origin", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: null);
+            // Non-empty trajectory satisfies the supersede-target invariant
+            // (item 10) on the in-place continuation path's defensive
+            // ValidateSupersedeTarget call, even though that invariant is
+            // not reached because the in-place guard short-circuits first.
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin");
+            var scenario = InstallScenario(marker);
+
+            int versionBefore = scenario.SupersedeStateVersion;
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            // 1) No supersede row written.
+            Assert.Empty(scenario.RecordingSupersedes);
+            // 2) Marker cleared.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            // 3) MergeState flipped to Immutable (Landed terminal).
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            // 4) Result is Completed.
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            // 5) Supersede state version bumped.
+            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            // 6) INFO log advertises the in-place-continuation diagnosis.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation")
+                && l.Contains("rec_origin"));
+        }
+
+        /// <summary>
+        /// After an in-place continuation merge, the recording's RP must be
+        /// reaped so the row stops satisfying <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// (terminal=Destroyed AND matching RP). Without the reap, the row
+        /// stays duplicated in the Unfinished Flights virtual group even
+        /// though the player has already "committed" the re-flight by
+        /// merging — observed in the 10:47 playtest. Reap must run even
+        /// when the re-fly itself crashed (terminal stays Destroyed).
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ReapsRpAndPromotesOutOfUnfinishedFlights()
+        {
+            const string kBpId = "bp_breakup_test";
+            var origin = Rec("rec_origin", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.CommittedProvisional,
+                terminal: TerminalState.Destroyed);
+            // Non-empty trajectory satisfies the supersede-target invariant
+            // in case the in-place guard ever falls through.
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_origin" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin");
+            var scenario = InstallScenario(marker);
+            // Seed the RP that pins the recording into the Unfinished Flights
+            // group: it shares its BranchPointId with the recording's
+            // ParentBranchPointId, and its only slot points at the origin id.
+            // SessionProvisional=false so the reaper considers it (session-
+            // provisional RPs are reaped via a different code path).
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_test_uf_reap",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_origin",
+                    },
+                },
+                SessionProvisional = false,
+            });
+
+            // Pre-merge: the recording IS an Unfinished Flight.
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "expected origin recording to satisfy IsUnfinishedFlight pre-merge " +
+                "(terminal=Destroyed + matching RP via ParentBranchPointId)");
+            Assert.Single(scenario.RewindPoints);
+
+            // Avoid touching the disk when the in-place merge calls
+            // RewindPointReaper to delete the quicksave file.
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Post-merge:
+            // 1) The RP is reaped, so the recording no longer matches an RP
+            //    even though terminal stays Destroyed.
+            Assert.Empty(scenario.RewindPoints);
+            // 2) IsUnfinishedFlight returns false — promoted out of UF.
+            Assert.False(EffectiveState.IsUnfinishedFlight(origin),
+                "expected origin recording to drop out of IsUnfinishedFlight post-merge " +
+                "(RP reaped, no matching slot)");
+            // 3) MergeState flipped to Immutable (Destroyed terminal).
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            // 4) Marker cleared.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            // 5) Reaper attempted to delete the quicksave file.
+            Assert.Equal(1, deletes);
+            // 6) INFO log advertises the reap count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation reaped 1 orphaned RP")
+                && l.Contains("post-merge"));
+        }
+
+        // The runtime `old==new` self-skip defense in
+        // `SupersedeCommit.AppendRelations` was removed when the placeholder-
+        // and-redirect cascade was retired (item 11). The new design makes
+        // self-supersede impossible at the source: `RewindInvoker.AtomicMarkerWrite`
+        // detects in-place continuation up front and points the marker at the
+        // origin id directly without creating a placeholder; the
+        // `MergeDialog.TryCommitReFlySupersede` in-place-continuation guard
+        // (asserted in `TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes`
+        // above) is the sole path for that case. The matching invariant on
+        // the AtomicMarkerWrite side is asserted in
+        // `AtomicMarkerWriteTests.AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder`.
+
+        // ---------- Supersede-target invariant (item 10) -------------------
+
+        [Fact]
+        public void AppendRelations_EmptyProvisional_RefusesAndWarns()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: "rec_origin");
+            Assert.Empty(provisional.Points);
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+
+#if DEBUG
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.AppendRelations(
+                    scenario.ActiveReFlySessionMarker, provisional, scenario));
+            Assert.Contains("invariant violation", ex.Message);
+            Assert.Contains("empty Points", ex.Message);
+#else
+            var subtree = SupersedeCommit.AppendRelations(
+                scenario.ActiveReFlySessionMarker, provisional, scenario);
+            Assert.Empty(subtree);
+#endif
+
+            Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("provisional=rec_provisional")
+                && l.Contains("reason=empty Points")
+                && l.Contains("refusing to write supersede rows"));
+        }
+
+        [Fact]
+        public void AppendRelations_NullTerminalProvisional_RefusesAndWarns()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: "rec_origin");
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            Assert.Null(provisional.TerminalStateValue);
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+
+#if DEBUG
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.AppendRelations(
+                    scenario.ActiveReFlySessionMarker, provisional, scenario));
+            Assert.Contains("invariant violation", ex.Message);
+            Assert.Contains("null TerminalState", ex.Message);
+#else
+            var subtree = SupersedeCommit.AppendRelations(
+                scenario.ActiveReFlySessionMarker, provisional, scenario);
+            Assert.Empty(subtree);
+#endif
+
+            Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("provisional=rec_provisional")
+                && l.Contains("reason=null TerminalState")
+                && l.Contains("refusing to write supersede rows"));
+        }
+
+        // ---------- Chain-sibling expansion (item 23) ----------------------
+
+        [Fact]
+        public void AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment()
+        {
+            // Merge-time RecordingOptimizer.SplitAtSection produces a HEAD
+            // (BP-linked, ChildBranchPointId=null after the move at
+            // RecordingStore.cs:2018-2019) + TIP (terminal=Destroyed) chain
+            // sharing both ChainId and ChainBranch. Marker points at the
+            // HEAD. AppendRelations must write a supersede row for BOTH
+            // segments so the TIP doesn't survive the merge as a stale
+            // "kerbal destroyed in atmo" row alongside the new "kerbal
+            // lived" provisional.
+            var head = Rec("rec_head", "tree_1", parentBranchPointId: "bp_split");
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            var tip = Rec("rec_tip", "tree_1");
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            var bp_split = Bp("bp_split", BranchPointType.EVA,
+                parents: new List<string> { "rec_parent" },
+                children: new List<string> { "rec_head" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tip },
+                new List<BranchPoint> { bp_split });
+
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_head");
+            var scenario = InstallScenario(Marker("rec_head", "rec_provisional"));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            // Both chain segments must have a supersede row pointing at the
+            // provisional. Neither row should be missed and the TIP must not
+            // be left visible as an orphan in ERS.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_head" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_tip" && r.NewRecordingId == "rec_provisional");
+        }
+
+        [Fact]
+        public void ValidateSupersedeTarget_ReasonStrings()
+        {
+            string reason;
+
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(null, out reason));
+            Assert.Equal("null recording", reason);
+
+            var emptyPoints = new Recording { Points = new List<TrajectoryPoint>(), TerminalStateValue = TerminalState.Landed };
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(emptyPoints, out reason));
+            Assert.Equal("empty Points", reason);
+
+            var nullTerminal = new Recording { TerminalStateValue = null };
+            nullTerminal.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(nullTerminal, out reason));
+            Assert.Equal("null TerminalState", reason);
+
+            var ok = new Recording { TerminalStateValue = TerminalState.Landed };
+            ok.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            Assert.True(SupersedeCommit.ValidateSupersedeTarget(ok, out reason));
+            Assert.Null(reason);
         }
     }
 }

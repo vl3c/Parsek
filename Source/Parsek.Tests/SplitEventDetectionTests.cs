@@ -52,11 +52,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsTrackableVesselType_EVA_ReturnsFalse()
+        public void IsTrackableVesselType_EVA_ReturnsTrue()
         {
-            // EVA type alone is not trackable via this method
-            // (EVA uses a separate code path in the split event detection)
-            Assert.False(ParsekFlight.IsTrackableVesselType(VesselType.EVA));
+            // EVA kerbals are directly controllable by the player and must count
+            // as a controllable output for split-event classification, even though
+            // their part carries KerbalEVA rather than ModuleCommand. Without this
+            // an EVA split classifies as single-controllable, no RewindPoint is
+            // authored, and a destroyed EVA kerbal cannot become an Unfinished
+            // Flight (#XXX).
+            Assert.True(ParsekFlight.IsTrackableVesselType(VesselType.EVA));
         }
 
         #endregion

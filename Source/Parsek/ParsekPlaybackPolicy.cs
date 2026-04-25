@@ -76,9 +76,33 @@ namespace Parsek
         /// Runs BEFORE engine.UpdatePlayback() so flags reflect current state.
         /// If a spawned vessel's PID is no longer in FlightGlobals.Vessels, the
         /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
+        ///
+        /// <para>
+        /// Skipped during an active re-fly session. <see cref="PostLoadStripper.Strip"/>
+        /// kills sibling vessels (selected vessel's siblings from the original
+        /// timeline) on purpose, and the §6.4 contract is that those kills are
+        /// silent — they must not feed back into the policy as "spawned vessel
+        /// died, please re-spawn". Without this guard the policy resets
+        /// <c>VesselSpawned=false</c> on every recording whose previously-
+        /// materialized vessel was just stripped, arming a duplicate spawn
+        /// that materializes a real upper-stage / debris next to the player's
+        /// re-fly vessel (observed in the 10:47 playtest). Spawn-death
+        /// detection resumes after the marker is cleared (merge or discard).
+        /// </para>
         /// </summary>
         internal void RunSpawnDeathChecks()
         {
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-refly",
+                    $"RunSpawnDeathChecks: skipped during active re-fly session " +
+                    $"sess={scenario.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} — " +
+                    "Strip kills are intentional and must not trigger respawn");
+                return;
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
 
@@ -251,15 +275,8 @@ namespace Parsek
                 pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
             }
 
-            int remainingCount = pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count;
-            string queueState = remainingCount == 0
-                ? "Deferred spawn queue drained"
-                : "Deferred spawn queue waiting";
             ParsekLog.Info("Policy",
-                $"Warp ended — {queueState} — spawned {spawnedCount} deferred spawn(s), " +
-                $"cleared {flushedSpawnIds.Count} spawn queue item(s), " +
-                $"cleared {clearedFlagReplayIds.Count} flag replay(s), " +
-                $"{remainingCount} pending");
+                $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
 
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
@@ -693,9 +710,9 @@ namespace Parsek
             TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                 evt.Trajectory,
                 false,
-                false,
+                IsMaterializedForMapPresence(evt.Trajectory),
                 startUT,
-                false,
+                true,
                 "map-presence-initial-create",
                 ref cachedStateVectorIndex,
                 out OrbitSegment segment,
@@ -716,11 +733,8 @@ namespace Parsek
                 {
                     if (source == TrackingStationGhostSource.StateVector)
                         stateVectorOrbitTrajectories[evt.Index] = evt.Trajectory;
-                    else if (source == TrackingStationGhostSource.Segment)
-                        lastMapOrbitByIndex[evt.Index] = (
-                            segment.bodyName,
-                            segment.semiMajorAxis,
-                            segment.eccentricity);
+                    else if (TryGetMapOrbitKey(source, segment, out var orbitKey))
+                        lastMapOrbitByIndex[evt.Index] = orbitKey;
                 }
             }
             else
@@ -797,9 +811,9 @@ namespace Parsek
                     TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                         traj,
                         false,
-                        false,
+                        IsMaterializedForMapPresence(traj),
                         currentUT,
-                        false,
+                        true,
                         "map-presence-pending-create",
                         ref cachedStateVectorIndex,
                         out OrbitSegment segment,
@@ -808,7 +822,8 @@ namespace Parsek
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     if (source == TrackingStationGhostSource.Segment
-                        || source == TrackingStationGhostSource.StateVector)
+                        || source == TrackingStationGhostSource.StateVector
+                        || source == TrackingStationGhostSource.TerminalOrbit)
                     {
                         if (toCreate == null)
                             toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint)>();
@@ -845,17 +860,13 @@ namespace Parsek
                                         toCreate[i].point.altitude,
                                         toCreate[i].point.velocity.magnitude));
                                 }
-                                else
+                                else if (TryGetMapOrbitKey(toCreate[i].source, toCreate[i].segment, out var orbitKey))
                                 {
-                                    OrbitSegment initialSeg = toCreate[i].segment;
-                                    lastMapOrbitByIndex[idx] = (
-                                        initialSeg.bodyName,
-                                        initialSeg.semiMajorAxis,
-                                        initialSeg.eccentricity);
+                                    lastMapOrbitByIndex[idx] = orbitKey;
 
                                     ParsekLog.Info("Policy",
                                         $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
-                                        $"— entered segment body={initialSeg.bodyName} sma={initialSeg.semiMajorAxis:F0}");
+                                        $"— source={toCreate[i].source} body={orbitKey.body} sma={orbitKey.sma:F0}");
                                 }
                             }
                         }
@@ -889,6 +900,31 @@ namespace Parsek
                 // playback, or the next segment is in a different SOI/body.
                 if (!seg.HasValue)
                 {
+                    int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
+                        ? cached
+                        : -1;
+                    if (TryResolveTerminalFallbackMapOrbitUpdate(
+                        rec,
+                        idx,
+                        currentUT,
+                        kvp.Value,
+                        IsMaterializedForMapPresence(rec),
+                        ref cachedStateVectorIndex,
+                        out OrbitSegment fallbackSegment,
+                        out var fallbackKey,
+                        out bool fallbackChanged))
+                    {
+                        stateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                        if (fallbackChanged)
+                        {
+                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment);
+                            if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                            orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
+                        }
+                        continue;
+                    }
+                    stateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
                     bool hasFutureSegment = false;
                     var segs = rec.OrbitSegments;
                     for (int s = 0; s < segs.Count; s++)
@@ -996,6 +1032,90 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        private static bool TryGetMapOrbitKey(
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            out (string body, double sma, double ecc) orbitKey)
+        {
+            if (source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.TerminalOrbit)
+            {
+                orbitKey = (segment.bodyName, segment.semiMajorAxis, segment.eccentricity);
+                return true;
+            }
+
+            orbitKey = default((string, double, double));
+            return false;
+        }
+
+        internal static bool TryResolveTerminalFallbackMapOrbitUpdate(
+            Recording rec,
+            int idx,
+            double currentUT,
+            (string body, double sma, double ecc) currentKey,
+            bool alreadyMaterialized,
+            ref int cachedStateVectorIndex,
+            out OrbitSegment fallbackSegment,
+            out (string body, double sma, double ecc) fallbackKey,
+            out bool changed)
+        {
+            fallbackSegment = default(OrbitSegment);
+            fallbackKey = default((string, double, double));
+            changed = false;
+
+            TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                alreadyMaterialized,
+                currentUT,
+                true,
+                "map-presence-orbit-update",
+                ref cachedStateVectorIndex,
+                out fallbackSegment,
+                out _,
+                out _);
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
+                return false;
+
+            fallbackKey = (
+                fallbackSegment.bodyName,
+                fallbackSegment.semiMajorAxis,
+                fallbackSegment.eccentricity);
+            changed = fallbackKey.body != currentKey.body
+                || fallbackKey.sma != currentKey.sma
+                || fallbackKey.ecc != currentKey.ecc;
+            if (changed)
+            {
+                ParsekLog.Info("Policy",
+                    $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to terminal-orbit fallback " +
+                    $"during sparse gap body={fallbackKey.body} sma={fallbackKey.sma:F0}");
+            }
+
+            return true;
+        }
+
+        private static bool IsMaterializedForMapPresence(IPlaybackTrajectory traj)
+        {
+            var rec = traj as Recording;
+            if (rec == null)
+                return false;
+
+            bool realVesselExists = false;
+            if (rec.VesselPersistentId != 0)
+            {
+                try
+                {
+                    realVesselExists = FlightRecorder.FindVesselByPid(rec.VesselPersistentId) != null;
+                }
+                catch (Exception)
+                {
+                    realVesselExists = false;
+                }
+            }
+
+            return GhostMapPresence.IsTrackingStationRecordingMaterialized(rec, realVesselExists);
         }
 
         /// <summary>

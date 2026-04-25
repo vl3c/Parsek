@@ -264,6 +264,37 @@ namespace Parsek
                     $"with {snapshot.FailureReason}; falling back to live orbit state");
             }
 
+            // Early ascent / transient patched-conic failures (`MissingPatchBody`,
+            // `PatchLimitUnavailable`, `UpdateFailed`) mean the vessel is alive
+            // but its patched-conic chain isn't fully populated yet — e.g. a
+            // freshly-launched rocket in its first 30 s where KSP has not yet
+            // computed a full coast chain. The live-orbit fallback via
+            // `vessel.orbit.getPositionAtUT(commitUT)` returns origin-adjacent
+            // coordinates for those vessels, so the sub-surface guard in
+            // `BallisticExtrapolator.Extrapolate` misfires and classifies a
+            // perfectly healthy ascending rocket as `Destroyed`. That terminal
+            // then gets cached by the finalization cache producer (refresh
+            // accepted: terminal=Destroyed) and risks poisoning every live
+            // recording within the first few seconds of flight.
+            //
+            // Only `NullSolver` (vessel has no patched-conic solver at all) or
+            // `None` (snapshot succeeded) are safe to extrapolate from:
+            // NullSolver is the destroyed-vessel fingerprint the sub-surface
+            // guard was designed for, and None means we have real segments.
+            // Everything else: bail out without touching the recording; the
+            // next refresh (or scene-exit finalizer) will try again once the
+            // patched-conic chain is valid.
+            if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None
+                && snapshot.FailureReason != PatchedConicSnapshotFailureReason.NullSolver
+                && appendedSegments.Count == 0)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"TryFinalizeRecording: skipping live-orbit fallback for '{recordingId}' " +
+                    $"because patched-conic failure {snapshot.FailureReason} " +
+                    "indicates transient early-ascent state, not a destroyed vessel");
+                return false;
+            }
+
             if (snapshot.EncounteredManeuverNode && appendedSegments.Count > 0)
             {
                 ParsekLog.Info("PatchedSnapshot",
@@ -328,14 +359,23 @@ namespace Parsek
                 result.terminalOrbit =
                     RecordingFinalizationTerminalOrbit.FromSegment(appendedSegments[appendedSegments.Count - 1]);
 
-            bool applied = appendedSegments.Count > 0
-                || (!double.IsNaN(result.terminalUT)
-                    && (recording == null || double.IsNaN(recording.EndUT) || result.terminalUT > recording.EndUT));
+            double recordingEndUT = recording == null ? double.NaN : recording.EndUT;
+            bool applied = ShouldApplyExtrapolatorResult(
+                appendedSegments.Count,
+                result.terminalUT,
+                recordingEndUT,
+                extrapolated.failureReason);
             if (!applied)
             {
                 ParsekLog.Warn("Extrapolator",
                     $"TryFinalizeRecording: no extended lifetime produced for '{recordingId}' " +
                     $"(terminal={result.terminalState}, terminalUT={result.terminalUT:F1}, failure={extrapolated.failureReason})");
+            }
+            else if (extrapolated.failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+            {
+                ParsekLog.Info("Extrapolator",
+                    $"TryFinalizeRecording: sub-surface destroyed terminal applied for '{recordingId}' " +
+                    $"(terminalUT={result.terminalUT:F1}) — skipping segment append");
             }
 
             return applied;
@@ -699,6 +739,35 @@ namespace Parsek
                         segments.Count,
                         recordingId ?? "(null)"));
             }
+        }
+
+        /// <summary>
+        /// Decides whether the extrapolator's result should be committed to the
+        /// recording. A normal ballistic extrapolation applies when it produced
+        /// new segments or advanced the terminal UT past the recording's last
+        /// known endpoint. A <see cref="ExtrapolationFailureReason.SubSurfaceStart"/>
+        /// result is a terminal classification (Destroyed): the extrapolator
+        /// intentionally skips segment emission and UT advancement because the
+        /// vessel's live orbit state is already nonsense, so the committed
+        /// verdict must survive even without segments. Without this carve-out,
+        /// <see cref="ParsekFlight"/>'s fallback
+        /// (<c>DetermineTerminalState(v.situation, v)</c>) overwrites the
+        /// Destroyed verdict with KSP's last known situation — typically
+        /// <c>SUB_ORBITAL</c>, which silently undoes the fix.
+        /// </summary>
+        internal static bool ShouldApplyExtrapolatorResult(
+            int appendedSegmentCount,
+            double terminalUT,
+            double recordingEndUT,
+            ExtrapolationFailureReason failureReason)
+        {
+            if (failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+                return true;
+            if (appendedSegmentCount > 0)
+                return true;
+            if (double.IsNaN(terminalUT))
+                return false;
+            return double.IsNaN(recordingEndUT) || terminalUT > recordingEndUT;
         }
 
         private static bool TryBuildStartStateFromVessel(

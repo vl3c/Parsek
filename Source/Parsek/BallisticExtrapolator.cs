@@ -16,7 +16,14 @@ namespace Parsek
         MissingParentBody,
         MissingParentFrameResolver,
         DegenerateStateVector,
-        PqsUnavailable
+        PqsUnavailable,
+        // Start state places the vessel measurably below the body's surface —
+        // a fingerprint of a destroyed/invalidated vessel whose live orbit
+        // state returned garbage after `PatchedConicSnapshot` failed with
+        // `NullSolver`. Classify the recording as Destroyed immediately rather
+        // than running the extrapolator against nonsense coordinates (which
+        // silently horizon-caps to Orbiting).
+        SubSurfaceStart
     }
 
     internal struct ExtrapolationLimits
@@ -83,6 +90,14 @@ namespace Parsek
         private const double DefaultCutoffSampleStep = 30.0;
         private const double LocalCutoffDenseWindowSeconds = MaxLocalCutoffSamples * DefaultCutoffSampleStep;
         private const double ImmediateEventEpsilon = 1e-6;
+        // Any start-state altitude below this is treated as a destroyed-vessel
+        // fingerprint (see `ExtrapolationFailureReason.SubSurfaceStart`).
+        // Chosen well below Kerbin's deepest natural terrain (~5 km) so
+        // legitimate surface-hugging trajectories (e.g. sea-level approach) do
+        // not trip it, but well above the failure-case signature observed in
+        // the playtest log (-594 km, vessel position collapsed to the body
+        // frame origin after KSP invalidated the patched-conic solver).
+        internal const double SubSurfaceDestroyedAltitude = -100.0;
 
         private enum EventKind
         {
@@ -176,15 +191,45 @@ namespace Parsek
             string suppressedImmediateParentExitBodyName = null;
             double suppressedImmediateUT = double.NaN;
 
+            double startAltitude = Magnitude(startState.position) - currentBody.Radius;
             ParsekLog.Info(LogTag, string.Format(
                 CultureInfo.InvariantCulture,
                 "Start: body={0} ut={1:F3} alt={2:F1} horizonUT={3:F3} maxYears={4:F3} maxSoiTransitions={5}",
                 currentBody.Name,
                 startState.ut,
-                Magnitude(startState.position) - currentBody.Radius,
+                startAltitude,
                 horizonUT,
                 Math.Max(0.0, limits.maxHorizonYears),
                 Math.Max(0, limits.maxSoiTransitions)));
+
+            // Sub-surface start classifies as Destroyed. Observed fingerprint:
+            // `PatchedConicSnapshot` fails with `NullSolver` (vessel's orbit
+            // solver already torn down by KSP destruction), the finalizer's
+            // `TryBuildStartStateFromVessel` fallback samples garbage
+            // coordinates (position collapsed to body frame origin → altitude
+            // ≈ -Radius), and without this guard the extrapolator runs its
+            // surface scan against unreachable ground, finds no intersection
+            // before `horizon-cap` fires, and silently returns Orbiting.
+            // Classify the recording as Destroyed and stop immediately so the
+            // row enters "Unfinished Flights" where the player can re-fly it.
+            if (startAltitude < SubSurfaceDestroyedAltitude)
+            {
+                result.terminalState = TerminalState.Destroyed;
+                result.terminalUT = startState.ut;
+                result.terminalBodyName = currentBody.Name;
+                result.terminalPosition = startState.position;
+                result.terminalVelocity = startState.velocity;
+                result.failureReason = ExtrapolationFailureReason.SubSurfaceStart;
+                ParsekLog.Warn(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Start rejected: sub-surface state body={0} ut={1:F3} alt={2:F1} " +
+                    "(threshold={3:F1}); classifying recording as Destroyed",
+                    currentBody.Name,
+                    startState.ut,
+                    startAltitude,
+                    SubSurfaceDestroyedAltitude));
+                return result;
+            }
 
             while (currentState.ut < horizonUT)
             {

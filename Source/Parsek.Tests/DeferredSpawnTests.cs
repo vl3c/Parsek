@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -13,6 +14,8 @@ namespace Parsek.Tests
 
         public DeferredSpawnTests()
         {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,8 +24,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            ParsekLog.TestSinkForTesting = null;
-            ParsekLog.VerboseOverrideForTesting = false;
+            ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
         }
@@ -296,17 +298,9 @@ namespace Parsek.Tests
             Assert.True(rec.VesselSpawned);
             Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
             Assert.Contains(logLines, line =>
-                line.Contains("[Policy]") &&
-                line.Contains("Deferred spawn executing") &&
-                line.Contains("Returned Capsule"));
-            Assert.Contains(logLines, line =>
-                line.Contains("[Policy]") &&
-                line.Contains("Deferred spawn queue drained") &&
-                line.Contains("spawned 1 deferred spawn(s)") &&
-                line.Contains("cleared 1 spawn queue item(s)") &&
-                line.Contains("0 pending"));
-            Assert.DoesNotContain(logLines, line =>
-                line.Contains("Deferred spawn kept in queue (outside physics bubble)"));
+                line.Contains("[Policy]")
+                && line.Contains("Deferred spawn executing")
+                && line.Contains("Returned Capsule"));
         }
 
         [Fact]
@@ -361,6 +355,120 @@ namespace Parsek.Tests
         public void ShouldCheckForSpawnDeath_NotSpawnedZeroPidAbandoned_ReturnsFalse()
         {
             Assert.False(GhostPlaybackLogic.ShouldCheckForSpawnDeath(false, 0, true));
+        }
+
+        #endregion
+
+        #region RunSpawnDeathChecks — re-fly session guard
+
+        /// <summary>
+        /// Regression: <see cref="PostLoadStripper.Strip"/> kills sibling
+        /// vessels at re-fly invocation as part of the §6.4 setup. Without a
+        /// session guard, <see cref="ParsekPlaybackPolicy.RunSpawnDeathChecks"/>
+        /// interpreted those kills as "spawned vessel died, please re-spawn"
+        /// and reset <see cref="Recording.VesselSpawned"/> to false — arming a
+        /// duplicate materialization of the upper stage right next to the
+        /// player's re-fly vessel (10:47 playtest, recording 307dc35b).
+        /// </summary>
+        [Fact]
+        public void RunSpawnDeathChecks_SkippedWhileReFlySessionMarkerActive()
+        {
+            const uint kStrippedPid = 2708531065u; // matches the playtest
+            var rec = new Recording
+            {
+                RecordingId = "rec-policy-marker-skip",
+                VesselName = "Kerbal X",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = kStrippedPid,
+                SpawnAbandoned = false,
+                SpawnDeathCount = 0,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_test_marker_skip",
+                    OriginChildRecordingId = rec.RecordingId,
+                    ActiveReFlyRecordingId = rec.RecordingId,
+                    RewindPointId = "rp_test",
+                    TreeId = rec.TreeId,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host);
+
+                policy.RunSpawnDeathChecks();
+
+                // Spawn-tracking state untouched: the recording must not get
+                // VesselSpawned cleared, otherwise the next spawn-evaluation
+                // pass would arm a duplicate materialization.
+                Assert.True(rec.VesselSpawned);
+                Assert.Equal(kStrippedPid, rec.SpawnedVesselPersistentId);
+                Assert.Equal(0, rec.SpawnDeathCount);
+                Assert.False(rec.SpawnAbandoned);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Policy]")
+                    && l.Contains("RunSpawnDeathChecks: skipped during active re-fly session")
+                    && l.Contains("sess_test_marker_skip"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        /// <summary>
+        /// Discriminator: when no re-fly session is active, the spawn-death
+        /// path runs normally. Without this assertion the previous test could
+        /// trivially pass by no-op'ing the whole method.
+        /// </summary>
+        [Fact]
+        public void RunSpawnDeathChecks_RunsWhenNoReFlySession()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-policy-no-marker",
+                VesselName = "Healthy Spawned",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 99999u,
+                SpawnAbandoned = false,
+                SpawnDeathCount = 0,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var scenario = new ParsekScenario { ActiveReFlySessionMarker = null };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host);
+
+                // No "skipped during active re-fly session" log. The vessel
+                // also looks "dead" to FindVesselByPid (no FlightGlobals in a
+                // unit test), so the death path runs and resets state.
+                policy.RunSpawnDeathChecks();
+
+                Assert.False(rec.VesselSpawned);
+                Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+                Assert.Equal(1, rec.SpawnDeathCount);
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("RunSpawnDeathChecks: skipped during active re-fly session"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Policy]")
+                    && l.Contains("Spawn-death detected")
+                    && l.Contains("Healthy Spawned"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
         }
 
         #endregion

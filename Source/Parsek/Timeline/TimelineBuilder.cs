@@ -220,6 +220,55 @@ namespace Parsek
                         $"text=\"{displayText}\"");
                 }
 
+                // Separation — tree-child split point. Two flavours:
+                //
+                //   * UnfinishedFlightSeparation (T1, default-visible) —
+                //     terminal=Destroyed/Crashed AND a matching RP exists.
+                //     Renders with a Fly button in the timeline so the
+                //     player can re-fly directly from here.
+                //
+                //   * Separation (T2, detail-only) — formerly-UF rows
+                //     whose RP was reaped on merge. Just label and GoTo
+                //     button; no Fly action.
+                //
+                // The choice is rebuilt on every cache refresh, so a UF
+                // entry morphs into a regular Separation the next rebuild
+                // after the player merges.
+                //
+                // Debris children (uncontrolled fragments after breakup,
+                // <see cref="Recording.IsDebris"/> set in BackgroundRecorder
+                // when the new vessel has no controller) are SKIPPED
+                // entirely. The player asked us to keep these out of the
+                // timeline — they make the list too long without telling
+                // the player anything they didn't already know from
+                // watching the rocket break apart.
+                if (isTreeChild && !rec.IsDebris)
+                {
+                    bool isUf = EffectiveState.IsUnfinishedFlight(rec);
+                    var sepType = isUf
+                        ? TimelineEntryType.UnfinishedFlightSeparation
+                        : TimelineEntryType.Separation;
+                    string displayText = isUf
+                        ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
+                        : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
+                    entries.Add(new TimelineEntry
+                    {
+                        UT = rec.StartUT,
+                        Type = sepType,
+                        DisplayText = displayText,
+                        Source = TimelineSource.Recording,
+                        Tier = TimelineEntryDisplay.GetTier(sepType),
+                        DisplayColor = Color.white,
+                        RecordingId = rec.RecordingId,
+                        VesselName = rec.VesselName,
+                    });
+                    count++;
+
+                    ParsekLog.Verbose("Timeline",
+                        $"  +{(isUf ? "UF-Separation" : "Separation")} #{i} '{rec.VesselName}' " +
+                        $"UT={rec.StartUT:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
+                }
+
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
                 // Skip: mid-chain segments, destroyed terminals (can't spawn a destroyed
                 // vessel), mid-tree segments with a same-PID continuation (#227), and
@@ -451,6 +500,7 @@ namespace Parsek
             int count = 0;
             int evaReassignSkipped = 0;
             int modeSeedSkipped = 0;
+            int hireCostSuffixSuppressed = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -490,11 +540,19 @@ namespace Parsek
                     continue;
                 }
 
+                string displayText = TimelineEntryDisplay.GetGameActionText(action, vesselName, currentMode);
+                if (action.Type == GameActionType.KerbalHire &&
+                    action.HireCost > 0f &&
+                    !GameActionDisplay.ShouldShowFundsForKerbalHire(action, currentMode))
+                {
+                    hireCostSuffixSuppressed++;
+                }
+
                 entries.Add(new TimelineEntry
                 {
                     UT = action.UT,
                     Type = entryType,
-                    DisplayText = TimelineEntryDisplay.GetGameActionText(action, vesselName),
+                    DisplayText = displayText,
                     Source = TimelineSource.GameAction,
                     Tier = tier,
                     DisplayColor = GameActionDisplay.GetColor(action.Type),
@@ -518,7 +576,16 @@ namespace Parsek
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {modeSeedSkipped} mode-inapplicable initial resource action(s)");
 
+            if (hireCostSuffixSuppressed > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {hireCostSuffixSuppressed} kerbal-hire funds suffix(es) in mode {FormatModeForLog(currentMode)}");
+
             return count;
+        }
+
+        private static string FormatModeForLog(Game.Modes? currentMode)
+        {
+            return currentMode.HasValue ? currentMode.Value.ToString() : "(unknown)";
         }
 
         internal static bool IsInitialResourceSeedVisibleInMode(GameActionType type, Game.Modes? currentMode)

@@ -69,6 +69,7 @@ namespace Parsek
         internal const double StateVectorCreateSpeed = 60;        // m/s
         internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
         internal const double StateVectorRemoveSpeed = 30;        // m/s
+        private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         internal struct GhostProtoOrbitSeedDiagnostics
@@ -1073,6 +1074,46 @@ namespace Parsek
                 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
         }
 
+        internal static bool HasRecordedTrackCoverageAtUT(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj == null)
+                return false;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < traj.TrackSections.Count; i++)
+                {
+                    TrackSection section = traj.TrackSections[i];
+                    if (ut >= section.startUT && ut <= section.endUT)
+                        return true;
+                }
+
+                return false;
+            }
+
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                for (int i = 0; i < traj.Points.Count; i++)
+                {
+                    double pointUT = traj.Points[i].ut;
+                    if (Math.Abs(pointUT - ut) <= 0.001)
+                        return true;
+
+                    if (pointUT > ut)
+                    {
+                        if (i == 0)
+                            return false;
+
+                        double previousUT = traj.Points[i - 1].ut;
+                        double bracketGap = pointUT - previousUT;
+                        return ut >= previousUT && bracketGap <= LegacyPointCoverageMaxGapSeconds;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
         {
             if (!traj.HasOrbitSegments)
@@ -1249,7 +1290,11 @@ namespace Parsek
                     string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
             }
 
-            if (currentUT < traj.EndUT)
+            bool allowSparseOrbitGapFallback =
+                traj.HasOrbitSegments
+                && currentUT < traj.EndUT
+                && !HasRecordedTrackCoverageAtUT(traj, currentUT);
+            if (currentUT < traj.EndUT && !allowSparseOrbitGapFallback)
             {
                 skipReason = "before-terminal-orbit";
                 return ReturnDecision(
@@ -1260,13 +1305,13 @@ namespace Parsek
 
             if (!TryResolveGhostProtoOrbitSeed(
                 traj,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
                 out string seedBodyName,
                 out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
             {
@@ -1283,6 +1328,20 @@ namespace Parsek
                         seedDiagnostics.FailureReason ?? "(none)",
                         seedDiagnostics.EndpointBodyName ?? "(none)"));
             }
+
+            segment = new OrbitSegment
+            {
+                startUT = activationStartUT,
+                endUT = traj.EndUT,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = seedBodyName
+            };
 
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
