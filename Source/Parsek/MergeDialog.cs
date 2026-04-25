@@ -56,9 +56,6 @@ namespace Parsek
             }
 
             var decisions = BuildDefaultVesselDecisions(tree);
-            double duration = ComputeTreeDurationRange(tree);
-            string message = $"{tree.TreeName} - {FormatDuration(duration)}";
-
             int spawnCount = 0;
             foreach (var val in decisions.Values)
                 if (val) spawnCount++;
@@ -67,28 +64,49 @@ namespace Parsek
                 $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
                 $"spawnable={spawnCount}");
 
-            if (spawnCount == 0 && decisions.Count > 0)
-                message += "\n\nNo flight branches produced a vessel that can continue flying. " +
-                           "The recordings will play back as ghosts, but no vessel will be placed.";
-
-            // Phase 8 / Phase 14 of Rewind-to-Staging (design §1.1 / §7.17):
-            // when merging during an active re-fly session, spell out the
-            // narrow-scope advisory so the player knows that "merge" here
-            // only swaps which attempt plays as the canonical sibling. The
-            // original attempt stays on record as a ghost; career state
-            // (contracts, milestones, facility damage, strategies) is
-            // untouched by the supersede. Kerbal deaths are the single
-            // exception — deaths in the retired attempt are un-bundled on
-            // merge.
+            // Re-fly merge: a marker is active and the dialog is asking the
+            // player to lock in the re-flight as the canonical entry. Show
+            // the re-flight recording's own vessel name + duration (not the
+            // whole-tree summary used for ordinary tree merges) and a one-
+            // line warning that the commit cannot be undone. The supersede
+            // / ghost-of-retired-attempt / kerbal-deaths-reversed paragraph
+            // we used to show was misleading on the in-place continuation
+            // path (no separate retired attempt exists, no ghost playback,
+            // tombstones not reversed in v1) so we drop the advisory and
+            // keep the dialog short and unambiguous instead.
             var reFlyScenario = ParsekScenario.Instance;
+            string message;
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
-                message += "\n\nRe-fly merge: this attempt becomes the canonical sibling " +
-                           "for the split; the retired attempt plays back as a ghost. " +
-                           "Career state (contracts, milestones, facilities, strategies) " +
-                           "is unchanged. Only kerbal deaths from the retired attempt are " +
-                           "reversed.";
+                Recording reFlyRec = FindReFlyRecording(
+                    reFlyScenario.ActiveReFlySessionMarker, tree);
+                string vesselLabel = reFlyRec != null
+                    ? (reFlyRec.VesselName ?? tree.TreeName ?? "<unnamed>")
+                    : (tree.TreeName ?? "<unnamed>");
+                double reFlyDuration = reFlyRec != null
+                    ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
+                    : ComputeTreeDurationRange(tree);
+                // TMP rich-text alignment: center the headline (vessel name +
+                // re-flight duration), one blank line, then the warning text
+                // left-aligned. KSP's MultiOptionDialog body renders through
+                // TMP which honours the <align> tag; a one-line headline with
+                // a paragraph break before the body keeps the dialog short
+                // (per playtest feedback the long supersede paragraph that
+                // used to live here was confusing on the in-place
+                // continuation path and just plain wrong about
+                // ghost-of-retired-attempt / kerbal-deaths-reversed).
+                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
+                          "<align=\"left\">Commit this re-flight attempt permanently to the timeline. " +
+                          "This cannot be undone!</align>";
+            }
+            else
+            {
+                double duration = ComputeTreeDurationRange(tree);
+                message = $"{tree.TreeName} - {FormatDuration(duration)}";
+                if (spawnCount == 0 && decisions.Count > 0)
+                    message += "\n\nNo flight branches produced a vessel that can continue flying. " +
+                               "The recordings will play back as ghosts, but no vessel will be placed.";
             }
 
             var capturedDecisions = decisions;
@@ -125,6 +143,38 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        /// <summary>
+        /// Locate the recording the active re-fly session targets. Tries the
+        /// pending tree first (so the lookup works whether the dialog fires
+        /// before or after `RecordingStore.CommitPendingTree`), then falls
+        /// back to the committed recordings list. Returns null if neither
+        /// source has the recording — the caller falls back to whole-tree
+        /// metadata.
+        /// </summary>
+        internal static Recording FindReFlyRecording(
+            ReFlySessionMarker marker, RecordingTree pendingTree)
+        {
+            if (marker == null) return null;
+            string targetId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(targetId)) return null;
+
+            if (pendingTree != null && pendingTree.Recordings != null
+                && pendingTree.Recordings.TryGetValue(targetId, out Recording fromTree)
+                && fromTree != null)
+                return fromTree;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, targetId, System.StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
 
         // ================================================================
         // Tree commit / discard — extracted from the dialog button lambdas
