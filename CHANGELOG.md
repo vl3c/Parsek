@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
+
 - Re-fly merges now refuse to write supersede rows when the re-fly recording has no trajectory points or no terminal state, catching the placeholder-as-supersede-target class of bug at commit time instead of silently shipping a zero-trajectory replacement.
 
 - Rewind to Staging now re-checks its preconditions when the user clicks Rewind in the confirmation dialog, so a state change between dialog show and confirm (RP marked corrupted, quicksave file removed, another re-fly session activates, scene transition starts) cancels the action with a toast instead of staging a half-written invocation on top of invalid state.
