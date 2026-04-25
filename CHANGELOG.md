@@ -85,6 +85,8 @@ All notable changes to Parsek are documented here.
 
 - Deferred spawn queue waits outside the physics bubble now log a rate-limited queue summary instead of repeating the same kept/warp-ended pair every frame while the spawn remains queued.
 
+- Unfinished-flight predicate and missed-vessel-switch fallback now rate-limit their per-frame diagnostic lines, so KSP.log is no longer dominated by hundreds of thousands of identical `[UnfinishedFlights]` decisions or repeated `recovering missed vessel switch` warnings during a normal session.
+
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
 - Resume-on-scene-enter screen toast (`Recording STARTED (resume)`) now appears after the flight UI is ready instead of being swallowed during scene load.

@@ -391,6 +391,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsUnfinishedFlight_RepeatedCallsSameRec_RateLimitedToOneLine()
+        {
+            // Regression: IsUnfinishedFlight is invoked from per-frame UI hot
+            // paths (RecordingsTableUI rows, UnfinishedFlightsGroup membership,
+            // TimelineBuilder) once per recording per frame. Before the fix it
+            // emitted plain Verbose lines on every return path, producing
+            // hundreds of thousands of identical lines per session — captured
+            // KSP.log dated 2026-04-25 had ~511k UnfinishedFlights lines, ~94%
+            // of total file. The branches now route through VerboseRateLimited
+            // keyed by reason+recId so each (rec, reason) pair logs at most
+            // once per rate-limit window.
+            var rec = Rec("rec_spam", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1");
+            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            MakeScenario(rps: new List<RewindPoint> { rp });
+
+            for (int i = 0; i < 100; i++)
+                Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+
+            int notCrashedLines = logLines.Count(l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("rec_spam") && l.Contains("notCrashed"));
+            Assert.Equal(1, notCrashedLines);
+        }
+
+        [Fact]
         public void ResolveChainTerminalRecording_NoChain_ReturnsSelf()
         {
             var rec = new Recording
