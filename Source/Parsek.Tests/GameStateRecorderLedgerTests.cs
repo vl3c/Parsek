@@ -447,7 +447,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("Kerbal X Debris") &&
-                l.Contains("Debris") &&
+                l.Contains("(VesselType.Debris)") &&
                 l.Contains("skipping deferred recovery-funds pairing"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("pending queue exceeded threshold"));

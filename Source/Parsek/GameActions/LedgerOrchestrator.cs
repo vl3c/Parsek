@@ -3729,6 +3729,11 @@ namespace Parsek
         /// <c>onVesselRecovered</c> callbacks within the epsilon window) routes each call
         /// to its own funds delta instead of double-latching the most recent event.</para>
         ///
+        /// <para>The missing-pair <see cref="VesselType.Debris"/> case is handled before
+        /// the deferred queue: once immediate pairing fails, debris callbacks return
+        /// without entering <see cref="pendingRecoveryFunds"/>. Other vessel types,
+        /// including <see cref="VesselType.SpaceObject"/>, keep the deferred-pair path.</para>
+        ///
         /// <para>In-flight recovery is handled by the existing terminal-state path:
         /// <see cref="ParsekScenario.UpdateRecordingsForTerminalEvent"/> sets
         /// <see cref="TerminalState.Recovered"/> on the live recording, and the subsequent
@@ -3773,7 +3778,7 @@ namespace Parsek
             if (vesselType == VesselType.Debris)
             {
                 ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: vessel '{vesselName}' is Debris at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping deferred recovery-funds pairing");
+                    $"OnVesselRecoveryFunds: vessel '{vesselName}' (VesselType.Debris) at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping deferred recovery-funds pairing");
                 return;
             }
 
