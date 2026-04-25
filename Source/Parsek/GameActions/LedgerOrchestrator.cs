@@ -1543,41 +1543,8 @@ namespace Parsek
             // tagged action via some other path.
             PurgeGhostOnlyActionsFromLedger();
 
-            // Phase 9 of Rewind-to-Staging (design §3.2): route the walk input
-            // through the Effective Ledger Set so any tombstoned action is
-            // excluded. Tombstones are the only filter — the recording-level
-            // filter (v0.4) was explicitly dropped in v0.5's narrow-supersede
-            // design, and ComputeELS implements exactly that rule. Pre-Phase-9
-            // behavior (Ledger.Actions raw) matches the Phase 9 output on a
-            // save with no tombstones (trivially), so this is a drop-in for
-            // existing behavior plus the new tombstone filter.
-            //
-            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
-            // so ComputeELS (which derives from Ledger.Actions) correctly
-            // reflects the post-purge state.
-            var actions = new List<GameAction>(EffectiveState.ComputeELS());
-
-            // Count how many actions survive the cutoff filter for the log summary.
-            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
-            int actionsAfterCutoff = actions.Count;
-            if (utCutoff.HasValue)
-            {
-                double cutoff = utCutoff.Value;
-                actionsAfterCutoff = 0;
-                for (int i = 0; i < actions.Count; i++)
-                {
-                    var a = actions[i];
-                    if (a == null) continue;
-                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
-                        actionsAfterCutoff++;
-                }
-            }
-            string cutoffLabel = utCutoff.HasValue
-                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
-                : "null";
-            ParsekLog.Info(Tag,
-                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
-                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+            var actions = BuildRecalculationActions();
+            LogRecalculationInputSummary(actions, utCutoff);
 
             RecalculationEngine.Recalculate(actions, utCutoff);
 
@@ -1602,45 +1569,10 @@ namespace Parsek
             }
             else
             {
-                // KSP state mutations (PostWalk already called by engine). Repeatable
-                // Records* nodes only rebuild strictly from ledger-backed thresholds on
-                // rewind-style cutoff walks; normal same-branch recalculations preserve the
-                // live in-tier best value because that finer-grained partial progress is not
-                // persisted in the ledger.
-                kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-                // #559: tech-tree patching is rewind-only. Live unlocks that happened after
-                // the latest captured baseline are not replayed by any ledger action, so a
-                // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
-                // the target tech set when a cutoff is supplied; the null branch no-ops
-                // through PatchTechTree's existing null-target guard.
-                HashSet<string> targetTechIds = null;
-                double? techBaselineUt = null;
-                if (utCutoff.HasValue)
-                {
-                    targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
-                        GameStateStore.Baselines,
-                        actions,
-                        utCutoff);
-                    techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
-                        GameStateStore.Baselines,
-                        utCutoff);
-                    ParsekLog.Verbose(Tag,
-                        "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
-                        $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                        $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
-                        $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag,
-                        "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
-                }
-                KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                    milestonesModule, facilitiesModule, contractsModule,
-                    targetTechIds,
-                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
-                    techUtCutoff: utCutoff,
-                    techBaselineUt: techBaselineUt);
+                ApplyRecalculatedStateToKsp(
+                    actions,
+                    utCutoff,
+                    authoritativeRepeatableRecordState);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1654,6 +1586,98 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        private static List<GameAction> BuildRecalculationActions()
+        {
+            // Phase 9 of Rewind-to-Staging (design §3.2): route the walk input
+            // through the Effective Ledger Set so any tombstoned action is
+            // excluded. Tombstones are the only filter — the recording-level
+            // filter (v0.4) was explicitly dropped in v0.5's narrow-supersede
+            // design, and ComputeELS implements exactly that rule. Pre-Phase-9
+            // behavior (Ledger.Actions raw) matches the Phase 9 output on a
+            // save with no tombstones (trivially), so this is a drop-in for
+            // existing behavior plus the new tombstone filter.
+            //
+            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
+            // so ComputeELS (which derives from Ledger.Actions) correctly
+            // reflects the post-purge state.
+            return new List<GameAction>(EffectiveState.ComputeELS());
+        }
+
+        private static void LogRecalculationInputSummary(
+            List<GameAction> actions,
+            double? utCutoff)
+        {
+            // Count how many actions survive the cutoff filter for the log summary.
+            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
+            int actionsAfterCutoff = actions.Count;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                actionsAfterCutoff = 0;
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null) continue;
+                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
+                        actionsAfterCutoff++;
+                }
+            }
+
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
+                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+        }
+
+        private static void ApplyRecalculatedStateToKsp(
+            List<GameAction> actions,
+            double? utCutoff,
+            bool authoritativeRepeatableRecordState)
+        {
+            // KSP state mutations (PostWalk already called by engine). Repeatable
+            // Records* nodes only rebuild strictly from ledger-backed thresholds on
+            // rewind-style cutoff walks; normal same-branch recalculations preserve the
+            // live in-tier best value because that finer-grained partial progress is not
+            // persisted in the ledger.
+            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+            // #559: tech-tree patching is rewind-only. Live unlocks that happened after
+            // the latest captured baseline are not replayed by any ledger action, so a
+            // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
+            // the target tech set when a cutoff is supplied; the null branch no-ops
+            // through PatchTechTree's existing null-target guard.
+            HashSet<string> targetTechIds = null;
+            double? techBaselineUt = null;
+            if (utCutoff.HasValue)
+            {
+                targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
+                    GameStateStore.Baselines,
+                    actions,
+                    utCutoff);
+                techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
+                    GameStateStore.Baselines,
+                    utCutoff);
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
+                    $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
+            }
+
+            KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
+                milestonesModule, facilitiesModule, contractsModule,
+                targetTechIds,
+                authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
+                techUtCutoff: utCutoff,
+                techBaselineUt: techBaselineUt);
         }
 
         internal static bool HasActionsAfterUT(double ut)
