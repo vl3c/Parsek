@@ -462,7 +462,8 @@ finds a contiguous extraction that preserves file ordering and exception
 handling exactly.
 
 Pass 2 discussion only: storage codec/sidecar deduplication, recording tree
-I/O ownership, and rewind service ownership.
+I/O ownership, and rewind service ownership. Initial storage/sidecar owner
+proposal: `docs/dev/plans/refactor-4-pass2-storage-sidecars.md`.
 
 ### `Source/Parsek/FlightRecorder.cs`
 
@@ -943,7 +944,10 @@ raw scan with a manual map for the high-risk owners:
    serialization codecs, and rewind invocation.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
-   deduplication.
+   deduplication. Initial result: `refactor-4-pass2-storage-sidecars.md`
+   recommends separate sidecar commit, sidecar orchestration, trajectory text
+   codec, manifest codec, and tree-record codec owners; it rejects schema or
+   binary/text format redesign for this refactor pass.
 3. Build a static mutable state map for `GameStateRecorder`,
    `LedgerOrchestrator`, `RecordingStore`, `ParsekScenario`,
    `WatchModeController`, and `GhostPlaybackEngine`.
