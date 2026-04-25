@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Reflection;
 using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
@@ -1304,12 +1303,15 @@ namespace Parsek.Tests
             File.WriteAllText(stagedBlockedPath, "staged trajectory");
             Directory.CreateDirectory(blockedPath);
 
-            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(
-                () => InvokeApplyStagedSidecarChangesForTesting(
-                    CreateStagedDeleteChangeForTesting(ghostPath),
-                    CreateStagedWriteChangeForTesting(blockedPath, stagedBlockedPath)));
+            Assert.ThrowsAny<Exception>(
+                () => SidecarFileCommitBatch.Apply(
+                    new List<SidecarFileCommitBatch.StagedChange>
+                    {
+                        CreateStagedDeleteChangeForTesting(ghostPath),
+                        CreateStagedWriteChangeForTesting(blockedPath, stagedBlockedPath)
+                    },
+                    () => RecordingStore.SuppressLogging));
 
-            Assert.NotNull(ex.InnerException);
             Assert.True(File.Exists(ghostPath));
             Assert.Equal("original ghost snapshot", File.ReadAllText(ghostPath));
             Assert.True(Directory.Exists(blockedPath));
@@ -1790,45 +1792,23 @@ namespace Parsek.Tests
             Assert.DoesNotContain(files, f => RecordingStore.IsTransientSidecarArtifactFile(Path.GetFileName(f)));
         }
 
-        private static object CreateStagedDeleteChangeForTesting(string finalPath)
+        private static SidecarFileCommitBatch.StagedChange CreateStagedDeleteChangeForTesting(string finalPath)
         {
-            Type stagedType = GetStagedSidecarChangeType();
-            object change = Activator.CreateInstance(stagedType, nonPublic: true);
-            stagedType.GetField("FinalPath").SetValue(change, finalPath);
-            stagedType.GetField("DeleteExisting").SetValue(change, true);
-            return change;
+            return new SidecarFileCommitBatch.StagedChange
+            {
+                FinalPath = finalPath,
+                DeleteExisting = true
+            };
         }
 
-        private static object CreateStagedWriteChangeForTesting(string finalPath, string stagedPath)
+        private static SidecarFileCommitBatch.StagedChange CreateStagedWriteChangeForTesting(string finalPath, string stagedPath)
         {
-            Type stagedType = GetStagedSidecarChangeType();
-            object change = Activator.CreateInstance(stagedType, nonPublic: true);
-            stagedType.GetField("FinalPath").SetValue(change, finalPath);
-            stagedType.GetField("StagedPath").SetValue(change, stagedPath);
-            stagedType.GetField("DeleteExisting").SetValue(change, false);
-            return change;
-        }
-
-        private static void InvokeApplyStagedSidecarChangesForTesting(params object[] changes)
-        {
-            Type stagedType = GetStagedSidecarChangeType();
-            Type listType = typeof(List<>).MakeGenericType(stagedType);
-            object list = Activator.CreateInstance(listType);
-            MethodInfo addMethod = listType.GetMethod("Add");
-            for (int i = 0; i < changes.Length; i++)
-                addMethod.Invoke(list, new[] { changes[i] });
-
-            MethodInfo applyMethod = typeof(RecordingStore).GetMethod(
-                "ApplyStagedSidecarChanges",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            applyMethod.Invoke(null, new[] { list });
-        }
-
-        private static Type GetStagedSidecarChangeType()
-        {
-            return typeof(RecordingStore).GetNestedType(
-                "StagedSidecarChange",
-                BindingFlags.NonPublic);
+            return new SidecarFileCommitBatch.StagedChange
+            {
+                FinalPath = finalPath,
+                StagedPath = stagedPath,
+                DeleteExisting = false
+            };
         }
 
         // -----------------------------------------------------------------------

@@ -29,6 +29,7 @@ All notable changes to Parsek are documented here.
 - Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Discard Re-fly / Continue Flying) intercepts both `FlightDriver.RevertToLaunch` and `FlightDriver.RevertToPrelaunch` while a session is active. Discard Re-fly is session-scoped: it removes only the current attempt's provisional recording, promotes the origin RP to persistent, reloads the RP quicksave, and transitions to the Space Center (Launch) or VAB/SPH (Prelaunch) — other RPs, supersede relations, and tombstones in the tree are preserved.
 - Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
 - Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
+- Continued refactor-4 (Pass 2) with a behavior-neutral `SidecarFileCommitBatch` extraction: staged sidecar write/delete commit, rollback, and artifact cleanup now live in a focused helper while preserving the `[RecordingStore]` log tag, per-step rollback semantics from `#366`, sidecar epoch ordering, and `FilesDirty` mutation order.
 
 ### Enhancements
 
