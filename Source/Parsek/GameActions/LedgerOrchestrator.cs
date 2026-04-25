@@ -905,6 +905,20 @@ namespace Parsek
             double firstFunds = rec.Points[0].funds;
             double buildCost = rec.PreLaunchFunds - firstFunds;
 
+            AddVesselBuildCostActions(result, recordingId, startUT, rec, firstFunds, buildCost);
+            AddVesselRecoveryCostActions(result, recordingId, endUT, rec);
+
+            return result;
+        }
+
+        private static void AddVesselBuildCostActions(
+            List<GameAction> result,
+            string recordingId,
+            double startUT,
+            Recording rec,
+            double firstFunds,
+            double buildCost)
+        {
             // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
             // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
             // runs later in the FLIGHT scene). So in the normal pad-start record flow the
@@ -953,7 +967,14 @@ namespace Parsek
                     $"CreateVesselCostActions: zero build cost and no rollout adoption " +
                     $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
             }
+        }
 
+        private static void AddVesselRecoveryCostActions(
+            List<GameAction> result,
+            string recordingId,
+            double endUT,
+            Recording rec)
+        {
             // Recovery funds: prefer the paired FundsChanged(VesselRecovery) event near
             // the recording end UT. This covers recoveries that happen after the last
             // recorded point but before commit outside FLIGHT (e.g. post-flight KSC
@@ -1018,8 +1039,6 @@ namespace Parsek
                     }
                 }
             }
-
-            return result;
         }
 
         /// <summary>

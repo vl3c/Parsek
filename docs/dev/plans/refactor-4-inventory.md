@@ -43,7 +43,7 @@ locked KSP process/log condition above; the build itself succeeds.
 |------|-------|----------------|
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Partial; post-switch auto-record trigger helpers extracted, finalization remains |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
-| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Partial; earnings-window reconciliation helpers extracted |
+| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Partial; earnings-window and vessel-cost helpers extracted |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
@@ -295,15 +295,19 @@ Pass 1 completed:
   store-side event deltas, emitted action deltas, contribution summary logging,
   and mismatch warning emission. Tolerances, warning keys, science dump
   behavior, scope filtering, and action math remain unchanged.
+- Extracted `CreateVesselCostActions` phases into same-file helpers for
+  build/rollout cost handling and recovery funds handling. Rollout adoption,
+  residual build-cost emission, paired recovery event preference, and legacy
+  last-point fallback remain unchanged.
 
 Validation:
 
 - `dotnet build Source/Parsek/Parsek.csproj`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~EarningsReconciliationTests|FullyQualifiedName~Bug445RolloutCostLeakTests|FullyQualifiedName~FullCareerTimelineTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~Bug445RolloutCostLeakTests|FullyQualifiedName~EarningsReconciliationTests|FullyQualifiedName~TreeCommitTests"`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
-Remaining Pass 1 same-file candidates: `CreateVesselCostActions` and
-`RecalculateAndPatchCore`.
+Remaining Pass 1 same-file candidate: `RecalculateAndPatchCore`.
 
 Cross-file decomposition should wait for Pass 2. Likely owners to evaluate are
 ledger migration/load repair, KSC expectation reconciliation, post-walk
