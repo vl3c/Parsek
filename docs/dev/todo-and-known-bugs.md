@@ -171,6 +171,85 @@ already pins this case.
 
 ---
 
+## ~~609. Re-Fly doubled-vessel suppression silently fails when active tree is in PendingTree (load window)~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. After
+`#587 third facet` (PR #574) and its P2 review follow-up landed and shipped,
+the user re-flew the booster again and reported the same long-standing
+"upper stage doubled — real vessel copy" symptom they have reported across
+~6 playtests. PR #574's parent-chain gate was supposed to suppress the
+doubled `Ghost: Kerbal X` ProtoVessel, but in this playtest the gate
+**silently** declined to suppress (`create-state-vector-done` instead of
+`create-state-vector-suppressed`), and the user could click "aim camera"
+on the doubled ProtoVessel's parts to confirm it was a real KSP `Vessel`.
+
+The diagnosis took longer than it should have because the predicate emits
+**no log when it returns false** — every reject branch is silent. The only
+forensic evidence of failed suppression is the absence of the
+`create-state-vector-suppressed` line. We had to read the source to
+discover that the BFS walk was searching `RecordingStore.CommittedTrees`,
+which has been emptied by the time the gate fires (because
+`TryRestoreActiveTreeNode` calls `RemoveCommittedTreeById` after the
+splice, leaving the freshly-loaded tree only in `PendingTree`).
+
+**Concrete log evidence in this playtest:**
+
+- `01:11:28.092` SpliceMissingCommittedRecordings finishes
+  (`splicedRecordings=2 refreshedRecordings=2`); the load tree is now
+  stashed Pending-Limbo, and the committed counterpart is removed.
+- `01:11:29.460` Created ghost vessel `Ghost: Kerbal X` for recording #0
+  (`0b394bb5...`), the capsule's atmo half. `sma=2 ecc=1.000000`,
+  `frame=relative`, `anchorPid=3026957949` (the active booster).
+  Predicate didn't fire — the user sees a clickable, aim-camera-able
+  ProtoVessel co-located with the booster.
+- `01:12:46.250` Recording #1 (`2f1ac072...`, the capsule's exo half)
+  reaches the same gate; this time the predicate fires
+  (`reason=refly-relative-anchor=active relationship=parent`). So the
+  parent-chain logic IS correct — it was the topology lookup that
+  failed for #0. The atmo half slipped through because the BFS bailed
+  on `active-not-found` (active recording was in PendingTree, not
+  searched).
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:776-849`):**
+`IsRecordingInParentChainOfActiveReFly` was called with
+`RecordingStore.CommittedTrees` only. The active recording's tree had
+been moved to `PendingTree` by the load-side splice path. The BFS walk
+silently returned false, the predicate returned
+`not-suppressed-not-parent-of-refly-target`, and the doubled ProtoVessel
+got created.
+
+**Fix (`fix/refly-pending-tree-and-observability`):** added a
+`ComposeSearchTreesForReFlySuppression(committedTrees, pendingTree)`
+helper that the production call site now uses to compose committed +
+pending into the helper's search list. `IsRecordingInParentChainOfActiveReFly`
+gained an `out string walkTrace` parameter populated with one of four
+explicit termination reasons (`active-not-found` /
+`active-has-no-parent-bp` / `found-victim-in-parent-chain` /
+`exhausted-without-victim`) plus visited-BP ids and parents-encountered
+ids. The trace is bubbled into the predicate's `suppressReason` for both
+the suppressed and not-suppressed paths, and a new Verbose
+`[GhostMap] create-state-vector-not-suppressed-during-refly` decision
+line fires whenever a Re-Fly session is active but the predicate
+declined to suppress — making future "predicate didn't fire" diagnoses
+readable from `KSP.log` alone, no source-reading required.
+
+**Tests:** 7 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
+`ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs`,
+`ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly`,
+`ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending`,
+`ComposeSearchTreesForReFlySuppression_PendingSameIdAsCommitted_KeepsPendingDropsCommitted`,
+`IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList`
+(reproduces the production shape — `committedTrees=[]` + active-in-pending
+→ predicate now fires), `IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape`,
+`IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape`. The
+existing `Suppresses_…_VictimIsParent` and the docking-target
+no-suppress test were updated to use `Assert.StartsWith` instead of
+`Assert.Equal` since `suppressReason` now carries the appended walkTrace.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the

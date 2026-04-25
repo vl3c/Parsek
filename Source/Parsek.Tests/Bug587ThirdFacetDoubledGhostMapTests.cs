@@ -177,7 +177,7 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.True(suppressed);
-            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+            Assert.StartsWith("refly-relative-anchor=active relationship=parent", reason);
         }
 
         // -----------------------------------------------------------------
@@ -221,7 +221,7 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Equal("not-suppressed-not-parent-of-refly-target", reason);
+            Assert.StartsWith("not-suppressed-not-parent-of-refly-target", reason);
         }
 
         [Fact]
@@ -286,7 +286,7 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.True(suppressed);
-            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+            Assert.StartsWith("refly-relative-anchor=active relationship=parent", reason);
         }
 
         [Fact]
@@ -340,7 +340,7 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Equal("not-suppressed-not-parent-of-refly-target", reason);
+            Assert.StartsWith("not-suppressed-not-parent-of-refly-target", reason);
         }
 
         [Fact]
@@ -686,7 +686,7 @@ namespace Parsek.Tests
                 committedTrees: trees,
                 out string reason);
 
-            Assert.Equal("refly-relative-anchor=active relationship=parent", reason);
+            Assert.StartsWith("refly-relative-anchor=active relationship=parent", reason);
         }
 
         // -----------------------------------------------------------------
@@ -705,7 +705,8 @@ namespace Parsek.Tests
             Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                 "rec-capsule",
                 "rec-booster",
-                trees));
+                trees,
+                out _));
         }
 
         [Fact]
@@ -719,18 +720,19 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                 "rec-station",
                 "rec-booster",
-                trees));
+                trees,
+                out _));
         }
 
         [Fact]
         public void IsRecordingInParentChainOfActiveReFly_NullArgsBailSafely()
         {
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
-                null, "rec-booster", new List<RecordingTree>()));
+                null, "rec-booster", new List<RecordingTree>(), out _));
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
-                "rec-capsule", null, new List<RecordingTree>()));
+                "rec-capsule", null, new List<RecordingTree>(), out _));
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
-                "rec-capsule", "rec-booster", null));
+                "rec-capsule", "rec-booster", null, out _));
         }
 
         [Fact]
@@ -742,7 +744,8 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                 "rec-capsule",
                 "rec-booster", // not in any tree
-                trees));
+                trees,
+                out _));
         }
 
         [Fact]
@@ -776,7 +779,161 @@ namespace Parsek.Tests
             // rec-1 immediately. The cycle is harmless because visited-recs
             // bounds the walk.
             Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
-                "rec-1", "rec-2", trees));
+                "rec-1", "rec-2", trees, out _));
+        }
+
+        // -----------------------------------------------------------------
+        // #609: production playtest hit a "doubled vessel still visible"
+        // outcome despite PR #574's parent-chain gate. Diagnosis: at Re-Fly
+        // load time, TryRestoreActiveTreeNode calls
+        // RecordingStore.RemoveCommittedTreeById on the same tree whose
+        // recordings the predicate is about to walk — the tree has just
+        // been stashed into PendingTree. Searching only CommittedTrees made
+        // the active-recording lookup fail silently, the BFS bailed, the
+        // predicate fell through to "not-suppressed-not-parent-of-refly-
+        // target", the ProtoVessel got created, the bug shipped.
+        //
+        // Fix: callers must compose committed + pending into the search
+        // list. Helper ComposeSearchTreesForReFlySuppression encapsulates
+        // the rule.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs()
+        {
+            var committed = new List<RecordingTree>
+            {
+                new RecordingTree { Id = "tree-A" },
+                new RecordingTree { Id = "tree-B" },
+            };
+
+            var result = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed,
+                pendingTree: null);
+
+            Assert.Equal(2, result.Count);
+            Assert.Same(committed[0], result[0]);
+            Assert.Same(committed[1], result[1]);
+        }
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly()
+        {
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var withPending = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committedTrees: null, pendingTree: pending);
+
+            Assert.Single(withPending);
+            Assert.Same(pending, withPending[0]);
+
+            var noPending = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committedTrees: null, pendingTree: null);
+
+            Assert.NotNull(noPending);
+            Assert.Empty(noPending);
+        }
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending()
+        {
+            var committed = new List<RecordingTree>
+            {
+                new RecordingTree { Id = "tree-committed" },
+            };
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var result = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.Equal(2, result.Count);
+            Assert.Same(committed[0], result[0]);
+            Assert.Same(pending, result[1]);
+        }
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_PendingSameIdAsCommitted_KeepsPendingDropsCommitted()
+        {
+            // Same tree id in both committed and pending (load-time transient).
+            // Pending carries the post-splice + post-refresh shape; committed
+            // is the pre-load snapshot. The helper drops the committed
+            // duplicate so the BFS walk only iterates the post-load truth.
+            var committed = new List<RecordingTree>
+            {
+                new RecordingTree { Id = "tree-shared" },
+            };
+            var pending = new RecordingTree { Id = "tree-shared" };
+
+            var result = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.Single(result);
+            Assert.Same(pending, result[0]);
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList()
+        {
+            // The exact #609 production shape: at Re-Fly load time,
+            // CommittedTrees has been emptied for this tree (post
+            // RemoveCommittedTreeById), and the active recording lives in
+            // PendingTree. The BFS walk must see both.
+            var pendingOnly = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+            // Simulate the load-time state: committed is empty, only pending.
+            var search = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committedTrees: new List<RecordingTree>(),
+                pendingTree: pendingOnly[0]);
+
+            Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule",
+                "rec-booster",
+                search,
+                out string trace));
+            Assert.Contains("found-victim-in-parent-chain", trace);
+            Assert.Contains("victim=rec-capsule", trace);
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape()
+        {
+            // The walk-trace MUST carry enough detail for a playtest log
+            // reader to diagnose a "predicate didn't fire" failure mode:
+            // - the active recording id (so the reader can find it in tree)
+            // - the visited-BPs count + ids (so the reader can see the walk)
+            // - a termination reason (exhausted vs found)
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster",
+                extraRecs: ("rec-station", "Mun Station", 9999999u));
+
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-station",
+                "rec-booster",
+                trees,
+                out string trace));
+            Assert.Contains("exhausted-without-victim", trace);
+            Assert.Contains("activeId=rec-booster", trace);
+            Assert.Contains("victim=rec-station", trace);
+            Assert.Contains("visitedBPs=", trace);
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape()
+        {
+            // When the active recording is missing from every search tree
+            // (the production bug shape pre-#609), the trace must say so
+            // explicitly so the playtest log reader can see "ah, the lookup
+            // failed because committed was empty / pending wasn't passed".
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-capsule",
+                "rec-booster",
+                new List<RecordingTree>(),
+                out string trace));
+            Assert.Contains("active-not-found", trace);
+            Assert.Contains("activeId=rec-booster", trace);
+            Assert.Contains("treesSearched=0", trace);
         }
 
         // -----------------------------------------------------------------
