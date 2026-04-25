@@ -352,12 +352,66 @@ namespace Parsek
                 return;
             }
 
-            double droppedFundsDelta = 0;
-            double droppedRepDelta = 0;
-            double droppedSciDelta = 0;
-            double windowScopedSciDelta = 0;
-            int scopeSkipped = 0;
+            var storeDeltas = ComputeEarningsWindowStoreDeltas(
+                events,
+                startUT,
+                endUT,
+                recordingId);
+            LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
+            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions);
+
+            if (scienceTracked)
+            {
+                storeDeltas.DroppedSciDelta = SumCommitWindowScienceDelta(
+                    events,
+                    emittedDeltas.EffectiveScienceActions,
+                    startUT,
+                    endUT,
+                    recordingId,
+                    storeDeltas.WindowScopedSciDelta);
+            }
+
+            LogEarningsWindowActionSummary(emittedDeltas, startUT, endUT);
+            WarnOnEarningsWindowMismatches(
+                storeDeltas,
+                emittedDeltas,
+                events,
+                startUT,
+                endUT,
+                recordingId,
+                fundsTracked,
+                scienceTracked,
+                repTracked);
+        }
+
+        private struct EarningsWindowStoreDeltas
+        {
+            public double DroppedFundsDelta;
+            public double DroppedRepDelta;
+            public double DroppedSciDelta;
+            public double WindowScopedSciDelta;
+            public int ScopeSkipped;
+        }
+
+        private struct EarningsWindowEmittedDeltas
+        {
+            public double EmittedFundsDelta;
+            public double EmittedRepDelta;
+            public double EmittedSciDelta;
+            public List<GameAction> EffectiveScienceActions;
+            public int ContractAcceptCount;
+            public int FacilityUpgradeCount;
+            public int FacilityRepairCount;
+        }
+
+        private static EarningsWindowStoreDeltas ComputeEarningsWindowStoreDeltas(
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            var deltas = new EarningsWindowStoreDeltas();
             if (events != null)
             {
                 for (int i = 0; i < events.Count; i++)
@@ -366,41 +420,48 @@ namespace Parsek
                     if (e.ut < startUT || e.ut > endUT) continue;
                     if (!EventMatchesRecordingScope(e, recordingId))
                     {
-                        scopeSkipped++;
+                        deltas.ScopeSkipped++;
                         continue;
                     }
                     switch (e.eventType)
                     {
                         case GameStateEventType.FundsChanged:
-                            droppedFundsDelta += (e.valueAfter - e.valueBefore);
+                            deltas.DroppedFundsDelta += (e.valueAfter - e.valueBefore);
                             break;
                         case GameStateEventType.ReputationChanged:
-                            droppedRepDelta += (e.valueAfter - e.valueBefore);
+                            deltas.DroppedRepDelta += (e.valueAfter - e.valueBefore);
                             break;
                         case GameStateEventType.ScienceChanged:
-                            windowScopedSciDelta += (e.valueAfter - e.valueBefore);
+                            deltas.WindowScopedSciDelta += (e.valueAfter - e.valueBefore);
                             break;
                     }
                 }
             }
 
-            if (scopeSkipped > 0)
+            return deltas;
+        }
+
+        private static void LogEarningsWindowScopeSkipped(
+            EarningsWindowStoreDeltas storeDeltas,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (storeDeltas.ScopeSkipped > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
+                    $"ReconcileEarningsWindow: skipped {storeDeltas.ScopeSkipped} event(s) tagged to other recordings " +
                     $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
             }
+        }
 
-            double emittedFundsDelta = 0;
-            double emittedRepDelta = 0;
-            double emittedSciDelta = 0;
-            var effectiveScienceActions = new List<GameAction>();
-            // #438 batch counters for the three newly-added cases — a single Verbose
-            // summary is emitted below so the reconciliation path's handling of these
-            // action types is visible per project logging rules without per-item spam.
-            int contractAcceptCount = 0;
-            int facilityUpgradeCount = 0;
-            int facilityRepairCount = 0;
+        private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
+            List<GameAction> newActions)
+        {
+            var deltas = new EarningsWindowEmittedDeltas
+            {
+                EffectiveScienceActions = new List<GameAction>()
+            };
 
             // newActions already contains vesselCostActions + scienceActions (merged by
             // OnRecordingCommitted before this runs), so a single walk suffices.
@@ -416,125 +477,136 @@ namespace Parsek
                             // crediting when !Effective. No TransformedFundsAwarded
                             // exists today; read raw FundsAwarded.
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.FundsAwarded;
+                            deltas.EmittedFundsDelta += a.FundsAwarded;
                             break;
                         case GameActionType.FundsSpending:
-                            emittedFundsDelta -= a.FundsSpent;
+                            deltas.EmittedFundsDelta -= a.FundsSpent;
                             break;
                         case GameActionType.ReputationEarning:
                             // #440B: EffectiveRep is curve-applied by ReputationModule
                             // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ReputationPenalty:
                             // #440B: EffectiveRep is signed negative for penalties
                             // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractComplete:
                             // #440B: read post-walk Transformed* / EffectiveRep. Gate on
                             // Effective to skip duplicate completions (module skips credit).
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.TransformedFundsReward;
-                            emittedRepDelta += a.EffectiveRep;
-                            emittedSciDelta += a.TransformedScienceReward;
+                            deltas.EmittedFundsDelta += a.TransformedFundsReward;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedSciDelta += a.TransformedScienceReward;
                             break;
                         case GameActionType.ContractFail:
                         case GameActionType.ContractCancel:
                             // #440B: funds penalty has no transform today; keep raw.
                             // Rep penalty: EffectiveRep is already signed negative.
-                            emittedFundsDelta -= a.FundsPenalty;
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedFundsDelta -= a.FundsPenalty;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractAccept:
                             // #438 gap #1: without this case the advance payment's
                             // FundsChanged(ContractAdvance) delta had no emitted-side
                             // counterpart and every accepted contract whose UT fell
                             // inside a commit window produced a spurious funds WARN.
-                            emittedFundsDelta += a.AdvanceFunds;
-                            contractAcceptCount++;
+                            deltas.EmittedFundsDelta += a.AdvanceFunds;
+                            deltas.ContractAcceptCount++;
                             break;
                         case GameActionType.FacilityUpgrade:
                             // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
                             // path -- a facility spend inside a recording's commit window
                             // must subtract from the emitted delta to match the store's
                             // negative FundsChanged.
-                            emittedFundsDelta -= a.FacilityCost;
-                            facilityUpgradeCount++;
+                            deltas.EmittedFundsDelta -= a.FacilityCost;
+                            deltas.FacilityUpgradeCount++;
                             break;
                         case GameActionType.FacilityRepair:
-                            emittedFundsDelta -= a.FacilityCost;
-                            facilityRepairCount++;
+                            deltas.EmittedFundsDelta -= a.FacilityCost;
+                            deltas.FacilityRepairCount++;
                             break;
                         case GameActionType.MilestoneAchievement:
                             // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
                             // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
                             // (no transform today). Gate on Effective for duplicate milestones.
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.MilestoneFundsAwarded;
-                            emittedRepDelta += a.EffectiveRep;
-                            emittedSciDelta += a.MilestoneScienceAwarded;
+                            deltas.EmittedFundsDelta += a.MilestoneFundsAwarded;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedSciDelta += a.MilestoneScienceAwarded;
                             break;
                         case GameActionType.ScienceEarning:
                             // #440B: EffectiveScience is post-subject-cap (ScienceModule).
                             // At cap, EffectiveScience=0 while ScienceAwarded != 0 --
                             // this silences a false-positive WARN on capped subjects.
                             if (!a.Effective) break;
-                            emittedSciDelta += a.EffectiveScience;
-                            effectiveScienceActions.Add(a);
+                            deltas.EmittedSciDelta += a.EffectiveScience;
+                            deltas.EffectiveScienceActions.Add(a);
                             break;
                         case GameActionType.ScienceSpending:
-                            emittedSciDelta -= a.Cost;
+                            deltas.EmittedSciDelta -= a.Cost;
                             break;
                     }
                 }
             }
 
-            if (scienceTracked)
-            {
-                droppedSciDelta = SumCommitWindowScienceDelta(
-                    events,
-                    effectiveScienceActions,
-                    startUT,
-                    endUT,
-                    recordingId,
-                    windowScopedSciDelta);
-            }
+            return deltas;
+        }
 
+        private static void LogEarningsWindowActionSummary(
+            EarningsWindowEmittedDeltas emittedDeltas,
+            double startUT,
+            double endUT)
+        {
             // #438: single Verbose summary covering the three newly-handled action
             // types so their contribution to emittedFundsDelta is visible in KSP.log
             // without emitting one log line per loop iteration.
-            if (contractAcceptCount > 0 || facilityUpgradeCount > 0 || facilityRepairCount > 0)
+            if (emittedDeltas.ContractAcceptCount > 0
+                || emittedDeltas.FacilityUpgradeCount > 0
+                || emittedDeltas.FacilityRepairCount > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReconcileEarningsWindow: summed {contractAcceptCount} ContractAccept, " +
-                    $"{facilityUpgradeCount} FacilityUpgrade, {facilityRepairCount} FacilityRepair " +
+                    $"ReconcileEarningsWindow: summed {emittedDeltas.ContractAcceptCount} ContractAccept, " +
+                    $"{emittedDeltas.FacilityUpgradeCount} FacilityUpgrade, {emittedDeltas.FacilityRepairCount} FacilityRepair " +
                     $"into emittedFundsDelta window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
+        }
 
+        private static void WarnOnEarningsWindowMismatches(
+            EarningsWindowStoreDeltas storeDeltas,
+            EarningsWindowEmittedDeltas emittedDeltas,
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
             const double repTol = 0.1f;
             const double sciTol = 0.1f;
 
-            if (fundsTracked && Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            if (fundsTracked && Math.Abs(storeDeltas.DroppedFundsDelta - emittedDeltas.EmittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (funds): store delta={FormatFixed1(droppedFundsDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedFundsDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (funds): store delta={FormatFixed1(storeDeltas.DroppedFundsDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedFundsDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (repTracked && Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            if (repTracked && Math.Abs(storeDeltas.DroppedRepDelta - emittedDeltas.EmittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (rep): store delta={FormatFixed1(droppedRepDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedRepDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (rep): store delta={FormatFixed1(storeDeltas.DroppedRepDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedRepDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (scienceTracked && Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            if (scienceTracked && Math.Abs(storeDeltas.DroppedSciDelta - emittedDeltas.EmittedSciDelta) > sciTol)
             {
                 string message =
-                    $"Earnings reconciliation (sci): store delta={FormatFixed1(droppedSciDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedSciDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (sci): store delta={FormatFixed1(storeDeltas.DroppedSciDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedSciDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]";
                 string warnKey = string.Format(
                     CultureInfo.InvariantCulture,
@@ -542,14 +614,14 @@ namespace Parsek
                     recordingId ?? "",
                     startUT,
                     endUT,
-                    droppedSciDelta,
-                    emittedSciDelta);
+                    storeDeltas.DroppedSciDelta,
+                    emittedDeltas.EmittedSciDelta);
                 if (LogReconcileWarnOnce(warnKey, message))
                 {
                     LogScienceCommitReconcileDumpOnce(
                         warnKey,
                         events,
-                        effectiveScienceActions,
+                        emittedDeltas.EffectiveScienceActions,
                         startUT,
                         endUT,
                         recordingId);
