@@ -3302,8 +3302,8 @@ namespace Parsek
         /// list itself becomes a leak signal. Staleness eviction also runs on lifecycle
         /// boundaries (<see cref="OnKspLoad"/>, rewind end, scene switch), but this
         /// threshold is the safety net when a boundary is missed. Chosen to absorb the
-        /// largest realistic bulk-recover-debris burst while still flagging runaway
-        /// growth — stock debris recovery batches rarely exceed a handful per UT epsilon.
+        /// largest realistic bulk-recovery burst while still flagging runaway
+        /// growth from callbacks that never receive paired funds events.
         /// </summary>
         internal const int PendingRecoveryFundsStaleThreshold = 5;
 
@@ -3385,7 +3385,7 @@ namespace Parsek
         private static void AddPendingRecoveryFundsRequest(
             double ut, string vesselName, bool fromTrackingStation)
         {
-            // Do not fuzzy-dedup pending callbacks. Bulk debris recovery can deliver
+            // Do not fuzzy-dedup pending callbacks. Bulk recovery can deliver
             // multiple same-named callbacks in the same UT epsilon before any paired
             // FundsChanged(VesselRecovery) event has reached the recorder; the event
             // dedup fingerprint is applied when each request is actually paired.
@@ -3725,9 +3725,14 @@ namespace Parsek
         ///
         /// <para>Each <see cref="GameStateStore.Events"/> entry can pair to at most one
         /// recovery call: consumed recovery-event fingerprints are tracked in
-        /// <see cref="consumedRecoveryEventKeys"/> so a bulk-recover-debris burst (two
+        /// <see cref="consumedRecoveryEventKeys"/> so a bulk-recovery burst (two
         /// <c>onVesselRecovered</c> callbacks within the epsilon window) routes each call
         /// to its own funds delta instead of double-latching the most recent event.</para>
+        ///
+        /// <para>The missing-pair <see cref="VesselType.Debris"/> case is handled before
+        /// the deferred queue: once immediate pairing fails, debris callbacks return
+        /// without entering <see cref="pendingRecoveryFunds"/>. Other vessel types,
+        /// including <see cref="VesselType.SpaceObject"/>, keep the deferred-pair path.</para>
         ///
         /// <para>In-flight recovery is handled by the existing terminal-state path:
         /// <see cref="ParsekScenario.UpdateRecordingsForTerminalEvent"/> sets
@@ -3749,7 +3754,14 @@ namespace Parsek
         /// <param name="ut">UT at which <c>onVesselRecovered</c> fired.</param>
         /// <param name="vesselName">Recovered vessel name (used to tag the action with the matching recording).</param>
         /// <param name="fromTrackingStation">Pass-through diagnostic flag for the log line.</param>
-        internal static void OnVesselRecoveryFunds(double ut, string vesselName, bool fromTrackingStation)
+        /// <param name="vesselType">Recovered vessel type; debris without an immediate
+        /// pair is not deferred because debris-only recoveries can lack a ledger-worthy
+        /// paired FundsChanged(VesselRecovery) event.</param>
+        internal static void OnVesselRecoveryFunds(
+            double ut,
+            string vesselName,
+            bool fromTrackingStation,
+            VesselType vesselType = VesselType.Unknown)
         {
             Initialize();
 
@@ -3762,6 +3774,13 @@ namespace Parsek
 
             if (TryAddVesselRecoveryFundsAction(ut, vesselName, fromTrackingStation))
                 return;
+
+            if (vesselType == VesselType.Debris)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: vessel '{vesselName}' (VesselType.Debris) at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping deferred recovery-funds pairing");
+                return;
+            }
 
             AddPendingRecoveryFundsRequest(ut, vesselName, fromTrackingStation);
             ParsekLog.Verbose(Tag,
@@ -3776,7 +3795,7 @@ namespace Parsek
             // Search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
             // — see GameStateRecorder.OnFundsChanged where the key is written) within a small
             // UT window, and skip dedup fingerprints already consumed by an earlier recovery
-            // call to protect against bulk-recover-debris double-latching.
+            // call to protect against bulk-recovery double-latching.
             if (!TryFindRecoveryFundsEvent(
                     GameStateStore.Events,
                     ut,
