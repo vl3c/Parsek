@@ -2284,18 +2284,31 @@ namespace Parsek
 
         /// <summary>
         /// Checks whether a vessel type alone qualifies as trackable.
-        /// SpaceObject (asteroids, comets) are always trackable.
-        /// Other types require a module check (see IsTrackableVessel).
+        /// SpaceObject (asteroids, comets) and EVA kerbals are always trackable
+        /// purely from the type. Other types require a module check
+        /// (see <see cref="IsTrackableVessel"/>).
         /// </summary>
         internal static bool IsTrackableVesselType(VesselType vesselType)
         {
-            return vesselType == VesselType.SpaceObject;
+            return vesselType == VesselType.SpaceObject
+                || vesselType == VesselType.EVA;
         }
 
         /// <summary>
         /// Determines whether a vessel is trackable (should get its own tree branch).
-        /// Trackable = SpaceObject OR has ModuleCommand (covers crewed pods and probe cores).
-        /// Debris, spent boosters, fairings, etc. are NOT trackable.
+        /// Trackable = SpaceObject, EVA kerbal, OR has ModuleCommand
+        /// (covers crewed pods and probe cores). Debris, spent boosters, fairings,
+        /// etc. are NOT trackable.
+        ///
+        /// <para>
+        /// EVA kerbals carry <c>KerbalEVA</c> rather than <c>ModuleCommand</c>, but
+        /// they are directly controllable by the player — so for split-event
+        /// classification they must count as a controllable output. Without this,
+        /// an EVA split (mother vessel + kerbal) classifies as single-controllable,
+        /// no <see cref="RewindPoint"/> is authored, and a destroyed EVA kerbal
+        /// recording cannot satisfy <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// (no RP back-reference for it to match against).
+        /// </para>
         /// </summary>
         internal static bool IsTrackableVessel(Vessel v)
         {
@@ -2303,6 +2316,10 @@ namespace Parsek
 
             // Space objects (asteroids, comets) are always trackable
             if (v.vesselType == VesselType.SpaceObject) return true;
+
+            // EVA kerbals are controllable by the player even though their part
+            // carries KerbalEVA rather than ModuleCommand.
+            if (v.isEVA || v.vesselType == VesselType.EVA) return true;
 
             // Check for command capability (ModuleCommand covers both crewed pods and probe cores)
             for (int i = 0; i < v.parts.Count; i++)
@@ -3674,6 +3691,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: should the controlled-child loop in
+        /// <see cref="ProcessBreakupEvent"/> skip creating a recording for a
+        /// breakup child whose live <see cref="Vessel"/> is gone and which
+        /// has no pre-captured snapshot? Such a child would produce a
+        /// 1-point "Unknown" 0s row with no playback or replay value (no
+        /// ghost visuals, no spawn snapshot, no events). The parent
+        /// recording's BREAKUP branch point already records the split.
+        /// </summary>
+        internal static bool ShouldSkipDeadOnArrivalControlledChild(
+            bool childVesselIsAlive,
+            bool hasPreCapturedSnapshot)
+        {
+            return !childVesselIsAlive && !hasPreCapturedSnapshot;
+        }
+
+        /// <summary>
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
         /// Caller is responsible for BackgroundMap registration and logging.
@@ -3961,6 +3994,28 @@ namespace Parsek
                     // post-split snapshot and can appear spatially ahead on frame 1.
                     ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+
+                    // Skip dead-on-arrival controlled children: when the live
+                    // vessel is gone AND no pre-captured snapshot exists, the
+                    // recording would land in the table as a 1-point "Unknown"
+                    // 0s row with no playback or replay value (no ghost
+                    // visuals, no spawn snapshot, no events). The decoupled
+                    // probe immediately Punch-Through'd subsurface and Unity
+                    // tore the Vessel down before the coalescer window
+                    // expired — there is nothing useful to record. The parent
+                    // recording's BREAKUP branch point already captures that
+                    // the split happened.
+                    if (ShouldSkipDeadOnArrivalControlledChild(
+                            childVesselIsAlive: childVessel != null,
+                            hasPreCapturedSnapshot: ctrlSnap != null))
+                    {
+                        ParsekLog.Info("Coalescer",
+                            $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
+                            $"pid={pid} (vessel destroyed before window expired, no pre-captured snapshot) — " +
+                            "would produce an 'Unknown' 0s row with no playback value");
+                        continue;
+                    }
+
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 

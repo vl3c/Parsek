@@ -56,9 +56,6 @@ namespace Parsek
             }
 
             var decisions = BuildDefaultVesselDecisions(tree);
-            double duration = ComputeTreeDurationRange(tree);
-            string message = $"{tree.TreeName} - {FormatDuration(duration)}";
-
             int spawnCount = 0;
             foreach (var val in decisions.Values)
                 if (val) spawnCount++;
@@ -67,28 +64,54 @@ namespace Parsek
                 $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
                 $"spawnable={spawnCount}");
 
-            if (spawnCount == 0 && decisions.Count > 0)
-                message += "\n\nNo flight branches produced a vessel that can continue flying. " +
-                           "The recordings will play back as ghosts, but no vessel will be placed.";
-
-            // Phase 8 / Phase 14 of Rewind-to-Staging (design §1.1 / §7.17):
-            // when merging during an active re-fly session, spell out the
-            // narrow-scope advisory so the player knows that "merge" here
-            // only swaps which attempt plays as the canonical sibling. The
-            // original attempt stays on record as a ghost; career state
-            // (contracts, milestones, facility damage, strategies) is
-            // untouched by the supersede. Kerbal deaths are the single
-            // exception — deaths in the retired attempt are un-bundled on
-            // merge.
+            // Re-fly merge: a marker is active and the dialog is asking the
+            // player to lock in the re-flight as the canonical entry. Show
+            // the re-flight recording's own vessel name + duration (not the
+            // whole-tree summary used for ordinary tree merges) and a one-
+            // line warning that the commit cannot be undone. The supersede
+            // / ghost-of-retired-attempt / kerbal-deaths-reversed paragraph
+            // we used to show was misleading on the in-place continuation
+            // path (no separate retired attempt exists, no ghost playback,
+            // tombstones not reversed in v1) so we drop the advisory and
+            // keep the dialog short and unambiguous instead.
             var reFlyScenario = ParsekScenario.Instance;
+            string message;
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
-                message += "\n\nRe-fly merge: this attempt becomes the canonical sibling " +
-                           "for the split; the retired attempt plays back as a ghost. " +
-                           "Career state (contracts, milestones, facilities, strategies) " +
-                           "is unchanged. Only kerbal deaths from the retired attempt are " +
-                           "reversed.";
+                Recording reFlyRec = FindReFlyRecording(
+                    reFlyScenario.ActiveReFlySessionMarker, tree);
+                string vesselLabel = reFlyRec != null
+                    ? (reFlyRec.VesselName ?? tree.TreeName ?? "<unnamed>")
+                    : (tree.TreeName ?? "<unnamed>");
+                double reFlyDuration = reFlyRec != null
+                    ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
+                    : ComputeTreeDurationRange(tree);
+                // TMP rich-text alignment: center the headline (vessel name +
+                // re-flight duration), one blank line, then the warning text
+                // left-aligned. KSP's MultiOptionDialog body renders through
+                // TMP which honours the <align> tag; a one-line headline with
+                // a paragraph break before the body keeps the dialog short
+                // (per playtest feedback the long supersede paragraph that
+                // used to live here was confusing on the in-place
+                // continuation path and just plain wrong about
+                // ghost-of-retired-attempt / kerbal-deaths-reversed).
+                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
+                          "<align=\"left\">Commit this re-flight attempt permanently to the timeline. " +
+                          "This cannot be undone!</align>";
+            }
+            else
+            {
+                // Regular tree-merge: just the headline. The spawnable=0
+                // advisory ("no flight branches produced a vessel that can
+                // continue flying") that used to ride here was over-
+                // explanation — when the tree's recordings are all crashed
+                // or recovered, ghost-only playback is the obvious outcome
+                // and the player already saw it happen. If any recording
+                // had survived as a flyable vessel, it would not be sitting
+                // in a pending tree at all.
+                double duration = ComputeTreeDurationRange(tree);
+                message = $"{tree.TreeName} - {FormatDuration(duration)}";
             }
 
             var capturedDecisions = decisions;
@@ -125,6 +148,38 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        /// <summary>
+        /// Locate the recording the active re-fly session targets. Tries the
+        /// pending tree first (so the lookup works whether the dialog fires
+        /// before or after `RecordingStore.CommitPendingTree`), then falls
+        /// back to the committed recordings list. Returns null if neither
+        /// source has the recording — the caller falls back to whole-tree
+        /// metadata.
+        /// </summary>
+        internal static Recording FindReFlyRecording(
+            ReFlySessionMarker marker, RecordingTree pendingTree)
+        {
+            if (marker == null) return null;
+            string targetId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(targetId)) return null;
+
+            if (pendingTree != null && pendingTree.Recordings != null
+                && pendingTree.Recordings.TryGetValue(targetId, out Recording fromTree)
+                && fromTree != null)
+                return fromTree;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, targetId, System.StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
 
         // ================================================================
         // Tree commit / discard — extracted from the dialog button lambdas
@@ -273,6 +328,140 @@ namespace Parsek
                     "not found in committed list after tree commit; " +
                     "leaving marker in place for load-time sweep");
                 return ReFlyMergeCommitResult.Interrupted;
+            }
+
+            // In-place continuation guard: if the Limbo-restore path kept
+            // the origin recording alive across an RP-quicksave reload and
+            // the re-fly continued writing into that SAME recording,
+            // `RewindInvoker.AtomicMarkerWrite` already detected the case
+            // and pointed `marker.ActiveReFlyRecordingId` directly at the
+            // origin id (no placeholder created). At merge time
+            // `provisional.RecordingId == marker.OriginChildRecordingId`
+            // — there is no separate "retired attempt" to supersede.
+            // Writing a supersede relation with old==new would create a
+            // 1-node cycle that poisons EffectiveRecordingId (WARN
+            // `cycle detected` every lookup) and keeps the recording
+            // permanently visible to ERS. Skip the journaled merge entirely
+            // and do only the finalization the orchestrator would have
+            // done around AppendRelations: flip MergeState, clear transient
+            // fields, bump versions, durable save. We deliberately skip
+            // tombstones in this v1 path — any prior kerbal-death actions
+            // credited during the original Destroyed run-through were
+            // already finalized in that earlier session, and the same
+            // recording's subsequent continuation doesn't retroactively
+            // un-do them. If the player needs a deeper unwind they can
+            // re-rewind from the RP.
+            if (provisional != null
+                && !string.IsNullOrEmpty(provisional.RecordingId)
+                && string.Equals(provisional.RecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation detected " +
+                    $"(provisional == origin == {provisional.RecordingId}); skipping " +
+                    $"supersede merge (no self-supersede row) and finalizing continuation. " +
+                    $"Tombstones from the prior Destroyed run are left as-is in v1.");
+                try
+                {
+                    // FlipMergeStateAndClearTransient with preserveMarker=false
+                    // flips MergeState, clears SupersedeTargetId, bumps
+                    // SupersedeStateVersion, clears the ActiveReFlySessionMarker
+                    // (and bumps again), and logs the End reason=merged line.
+                    // That covers all the in-memory scenario mutations that a
+                    // normal RunMerge does around AppendRelations + tombstones.
+                    // Also clear CreatingSessionId / ProvisionalForRpId on the
+                    // continuation recording so it no longer looks like a
+                    // session-scoped zombie to the load-time sweep.
+                    provisional.CreatingSessionId = null;
+                    provisional.ProvisionalForRpId = null;
+                    SupersedeCommit.FlipMergeStateAndClearTransient(
+                        marker, provisional, scenario, preserveMarker: false);
+
+                    // Force MergeState to Immutable for the in-place
+                    // continuation path. The default flip in
+                    // FlipMergeStateAndClearTransient picks
+                    // CommittedProvisional for Crashed re-flies so a
+                    // separate-recording journaled merge can offer "re-fly
+                    // again" against the same RP. That semantic does NOT
+                    // apply here: there IS no separate provisional, and a
+                    // second re-fly would just extend the SAME recording
+                    // in place again. Treat the merge dialog confirm as
+                    // the player's commitment to the timeline, regardless
+                    // of whether the re-flight survived. Otherwise the
+                    // recording keeps MergeState=CommittedProvisional,
+                    // RewindPointReaper.IsReapEligible refuses to reap
+                    // (only Immutable counts), and the row stays in
+                    // Unfinished Flights forever — the duplicate the
+                    // 10:47 playtest reported.
+                    if (provisional.MergeState != MergeState.Immutable)
+                    {
+                        var priorState = provisional.MergeState;
+                        provisional.MergeState = MergeState.Immutable;
+                        scenario.BumpSupersedeStateVersion();
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation forced " +
+                            $"MergeState {priorState} → Immutable on {provisional.RecordingId} " +
+                            "(merge is the player's commitment; no separate provisional " +
+                            "exists to track a future re-fly)");
+                    }
+
+                    // Reap the RP whose only slot is now Immutable (the
+                    // recording we just flipped). The journaled merge runs
+                    // RpReap as a checkpoint; the in-place continuation
+                    // path skips the journal but the same housekeeping
+                    // applies — without it the RP lingers, the recording
+                    // keeps satisfying IsUnfinishedFlight (terminal=Destroyed
+                    // + matching RP slot), and the row stays duplicated in
+                    // the Unfinished Flights virtual group after merge.
+                    int reapedCount;
+                    try
+                    {
+                        reapedCount = RewindPointReaper.ReapOrphanedRPs();
+                    }
+                    catch (System.Exception reapEx)
+                    {
+                        // Reap is best-effort: a failure here leaves the RP
+                        // around for LoadTimeSweep / next reap pass to
+                        // collect, so we log + continue rather than rolling
+                        // the merge back. The MergeState flip + marker
+                        // clear above are already durable in memory and
+                        // will be persisted by the SaveGame below.
+                        reapedCount = 0;
+                        ParsekLog.Warn("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation post-merge reap threw " +
+                            $"{reapEx.GetType().Name}: {reapEx.Message} — leaving RP for next sweep");
+                    }
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation reaped " +
+                        $"{reapedCount} orphaned RP(s) post-merge");
+
+                    // Mirror the orchestrator's Durable Save #1 barrier so
+                    // the flipped MergeState + cleared marker + reaped RP
+                    // survive a quit/reload right after the merge dialog.
+                    if (HighLogic.CurrentGame != null
+                        && !string.IsNullOrEmpty(HighLogic.SaveFolder))
+                    {
+                        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                        ParsekLog.Info("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation persisted via persistent.sfs");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation skipped durable save " +
+                            "(no HighLogic.CurrentGame / SaveFolder — test harness or pre-scene path)");
+                    }
+                    return ReFlyMergeCommitResult.Completed;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Error("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation finalization threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — marker left in place for load-time sweep");
+                    ParsekLog.ScreenMessage(
+                        "Merge interrupted — will finish on next load", 3f);
+                    return ReFlyMergeCommitResult.Interrupted;
+                }
             }
 
             ParsekLog.Info("MergeDialog",

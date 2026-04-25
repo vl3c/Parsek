@@ -157,6 +157,13 @@ namespace Parsek
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
         private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
+        // Tracks rows where the legacy rewind-to-launch R button is suppressed
+        // because the recording is a non-owner tree branch (the rewind save
+        // belongs to the tree root). Keyed by row index so the debounce
+        // mirrors lastCanRewind. Logged once per transition so a tree merge
+        // doesn't flood the log with one line per branch every frame.
+        private Dictionary<int, bool> lastSuppressedTreeBranch = new Dictionary<int, bool>();
+
         // Watch button enabled-state tracking for transition logging (bug #279).
         // Both dicts are keyed by RecordingId (stable across rewind/truncate
         // index reuse, unlike the existing index-keyed lastCanFF/lastCanRewind
@@ -1214,24 +1221,21 @@ namespace Parsek
                         b.ItemType == RootItemType.Group, b.GroupName, b.SortName, b.SortKey,
                         col, asc));
 
-                // Phase 5 (design §5.11): append the Unfinished Flights virtual group
-                // AFTER user-defined groups. Membership is ERS filtered through
-                // IsUnfinishedFlight; we skip rendering entirely when empty so the
-                // row never shows up for players with no unresolved split siblings.
+                // Phase 5 (design §5.11): Unfinished Flights is a virtual group
+                // of recordings whose parent split produced a destroyed / lost
+                // sibling. It used to render at root level, but that made the
+                // row float detached from the mission it belongs to. Now it is
+                // rendered NESTED under each owning tree's auto-generated root
+                // group (see DrawGroupTree → DrawVirtualUnfinishedFlightsGroup
+                // call path below). The rootItems loop no longer inserts a
+                // top-level entry for the virtual group. We still log the
+                // render so per-frame membership remains auditable.
                 var unfinishedMembers = UnfinishedFlightsGroup.ComputeMembers();
                 if (unfinishedMembers != null && unfinishedMembers.Count > 0)
                 {
-                    rootItems.Add(new RootDrawItem
-                    {
-                        SortKey = double.MaxValue,
-                        SortName = UnfinishedFlightsGroup.GroupName,
-                        ItemType = RootItemType.VirtualGroup,
-                        GroupName = UnfinishedFlightsGroup.GroupName,
-                        RecIdx = -1
-                    });
                     ParsekLog.VerboseRateLimited("UnfinishedFlights",
                         "unfinishedflights-render",
-                        $"render: group row present members={unfinishedMembers.Count}");
+                        $"render: nested virtual group enabled members={unfinishedMembers.Count}");
                 }
 
                 // -- Draw tree --
@@ -1505,7 +1509,7 @@ namespace Parsek
             }
 
             // Rewind / Fast-forward button
-            if (DrawUnfinishedFlightRewindButton(rec, ri,
+            if (DrawUnfinishedFlightRewindButton(rec, ri, now,
                 reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
             {
                 // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
@@ -1538,9 +1542,17 @@ namespace Parsek
                     }
                     GUI.enabled = true;
                 }
-                else if (hasRewindSave)
+                else if (ShouldShowLegacyRewindButton(rec, now))
                 {
-                    // Past/active recording with save: R button loads quicksave
+                    // Past/active recording with save AND we are the rewind
+                    // owner: render the R button. The owner gate inside
+                    // ShouldShowLegacyRewindButton suppresses tree branches
+                    // (debris / decouple children / EVA splits) so the player
+                    // only sees one R per tree — on the launch row.
+                    // The unfinished-flight chain check inside the helper
+                    // keeps Rewind-to-Staging chains from falling back to
+                    // rewind-to-launch (drawn above via
+                    // DrawUnfinishedFlightRewindButton).
                     string rewindReason;
                     bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
@@ -1549,6 +1561,14 @@ namespace Parsek
                     {
                         lastCanRewind[ri] = canRewind;
                         ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
+                    }
+                    // Owner row → suppression flag is now false; clear the
+                    // debounce + log the flip if it was true previously.
+                    bool prevSuppressed;
+                    if (lastSuppressedTreeBranch.TryGetValue(ri, out prevSuppressed) && prevSuppressed)
+                    {
+                        lastSuppressedTreeBranch[ri] = false;
+                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": no longer suppressed — owner row");
                     }
                     GUI.enabled = canRewind;
                     string tooltip = canRewind
@@ -1563,6 +1583,32 @@ namespace Parsek
                 }
                 else
                 {
+                    // Tree-branch suppression: log once when this row first
+                    // becomes a non-owner with a (resolved) rewind save, and
+                    // again whenever it flips back. hasRewindSave is true via
+                    // the tree root, but GetRewindRecording != rec, so the R
+                    // button would have been redundant.
+                    var owner = RecordingStore.GetRewindRecording(rec);
+                    bool suppressedTreeBranch = hasRewindSave
+                        && owner != null
+                        && !ReferenceEquals(owner, rec)
+                        && !EffectiveState.IsChainMemberOfUnfinishedFlight(rec);
+                    bool prevSuppressed;
+                    if (!lastSuppressedTreeBranch.TryGetValue(ri, out prevSuppressed)
+                        || prevSuppressed != suppressedTreeBranch)
+                    {
+                        lastSuppressedTreeBranch[ri] = suppressedTreeBranch;
+                        if (suppressedTreeBranch)
+                        {
+                            ParsekLog.Verbose("UI",
+                                $"R #{ri} \"{rec.VesselName}\": suppressed — tree branch, use root recording's R button");
+                        }
+                        else
+                        {
+                            ParsekLog.Verbose("UI",
+                                $"R #{ri} \"{rec.VesselName}\": no longer suppressed");
+                        }
+                    }
                     GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
                 }
             }
@@ -1697,9 +1743,24 @@ namespace Parsek
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren)
         {
-            // Skip hidden groups when hide is active
+            // Compute this tree's unfinished-flight members up front so the
+            // nested virtual subgroup can be rendered even when the mission
+            // group itself is hidden. Unfinished Flights is a system group
+            // (design §7.30) and must remain visible regardless of parent
+            // hide state — without this, hiding the auto-generated mission
+            // group silently made unresolved re-fly opportunities disappear.
+            var nestedUnfinished = CollectUnfinishedFlightsForTreeGroup(groupName);
+            bool hasNestedUnfinished = nestedUnfinished != null && nestedUnfinished.Count > 0;
+
+            // Skip hidden groups when hide is active — but still render the
+            // nested Unfinished Flights subgroup if any, as an escape hatch.
             if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(groupName))
+            {
+                if (hasNestedUnfinished
+                    && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                    return true;
                 return false;
+            }
 
             // Collect unique descendant recordings for aggregate controls
             var descendants = new HashSet<int>();
@@ -2053,8 +2114,14 @@ namespace Parsek
                     }
                     GUI.enabled = true;
                 }
-                else if (hasRewindSave)
+                else if (ShouldShowLegacyRewindButton(mainRec, now))
                 {
+                    // Mirror of the per-row gate. Group's main recording must
+                    // be the rewind owner — tree roots are the typical case.
+                    // If the group's main happens to be a non-owner branch
+                    // (rare, but possible for a group whose root is hidden or
+                    // pruned), suppress the R button here too so the column
+                    // doesn't render a redundant duplicate.
                     string rewindReason;
                     bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
@@ -2107,9 +2174,20 @@ namespace Parsek
             List<int> directMembers;
             grpToRecs.TryGetValue(groupName, out directMembers);
 
-            if (directMembers != null)
+            // When this tree owns Unfinished Flight members (rendered below as
+            // the nested virtual subgroup), exclude them from the regular
+            // member list so the same recording does not appear twice in the
+            // table — once as a top-level tree row and once inside the
+            // Unfinished Flights group. Without this filter the UF row
+            // duplicates because grpToRecs stores raw tree membership and
+            // does not know about the virtual subgroup.
+            List<int> displayMembers = hasNestedUnfinished
+                ? FilterUnfinishedFlightRowsForRegularTree(directMembers, committed, groupName)
+                : directMembers;
+
+            if (displayMembers != null)
             {
-                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
+                var displayBlocks = BuildGroupDisplayBlocks(groupName, displayMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                 {
                     var block = displayBlocks[i];
@@ -2139,7 +2217,60 @@ namespace Parsek
                 }
             }
 
+            // Nested Unfinished Flights: if this group is the auto-generated
+            // root group of a tree that has any Unfinished Flight members,
+            // render the virtual group as an indented sub-entry. This replaces
+            // the pre-2026-04-24 design where the virtual group sat at root
+            // level, detached from the mission it belongs to.
+            // `nestedUnfinished` was already computed at the top of
+            // DrawGroupTree so the hide-escape path can use it too.
+            if (hasNestedUnfinished
+                && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                return true;
+
             return false;
+        }
+
+        /// <summary>
+        /// Returns the Unfinished Flight recordings that belong to the tree
+        /// whose auto-generated root group name matches <paramref name="groupName"/>.
+        /// Used by <see cref="DrawGroupTree"/> to decide where to nest the
+        /// virtual Unfinished Flights subgroup. Returns an empty list (not
+        /// null) if the group isn't any tree's root, or if no tree has
+        /// unfinished members right now.
+        /// </summary>
+        private static IReadOnlyList<Recording> CollectUnfinishedFlightsForTreeGroup(string groupName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return null;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return null;
+
+            string treeId = null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                if (string.Equals(tree.AutoGeneratedRootGroupName, groupName, StringComparison.Ordinal))
+                {
+                    treeId = tree.Id;
+                    break;
+                }
+            }
+            if (string.IsNullOrEmpty(treeId)) return null;
+
+            var allMembers = UnfinishedFlightsGroup.ComputeMembers();
+            if (allMembers == null || allMembers.Count == 0) return null;
+
+            var filtered = new List<Recording>();
+            for (int i = 0; i < allMembers.Count; i++)
+            {
+                var rec = allMembers[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.TreeId, treeId, StringComparison.Ordinal))
+                    filtered.Add(rec);
+            }
+            return filtered;
         }
 
         /// <summary>
@@ -2155,15 +2286,27 @@ namespace Parsek
         /// Per-member rows render via <see cref="DrawRecordingRow"/> so rename
         /// / hide / G button on the individual row remain usable per §7.33.
         /// Returns true if the recording list was modified.
+        ///
+        /// <para>
+        /// Called by <see cref="DrawGroupTree"/> once per owning mission tree
+        /// when any of that tree's recordings are Unfinished Flights, with
+        /// <paramref name="filteredMembers"/> narrowed to that tree's
+        /// unfinished members and <paramref name="depth"/> set to the parent
+        /// tree-group depth + 1 so the virtual group is indented as a
+        /// sub-group instead of floating at root level.
+        /// </para>
         /// </summary>
         private bool DrawVirtualUnfinishedFlightsGroup(
-            IReadOnlyList<Recording> committed, double now)
+            IReadOnlyList<Recording> committed, double now,
+            int depth = 0,
+            IReadOnlyList<Recording> filteredMembers = null)
         {
-            var members = UnfinishedFlightsGroup.ComputeMembers();
+            var members = filteredMembers ?? UnfinishedFlightsGroup.ComputeMembers();
             if (members == null || members.Count == 0)
                 return false;
 
             string groupName = UnfinishedFlightsGroup.GroupName;
+            float indent = depth * 15f;
 
             // Build descendants set (committed-list indices) so the shared
             // group helpers (status / earliest / duration) can work unchanged.
@@ -2206,6 +2349,8 @@ namespace Parsek
             // # spacer (indent column)
             GUILayout.Label("", GUILayout.Width(ColW_Index));
             GUILayout.Space(NameColumnLeadGap);
+            if (indent > 0f)
+                GUILayout.Space(indent);
 
             // Expand / collapse toggle + label — no rename (system group).
             bool expanded = expandedGroups.Contains(groupName);
@@ -2291,9 +2436,12 @@ namespace Parsek
             if (parentUI.InFlightMode)
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
-            // Rewind / FF placeholder — the virtual group has no aggregate
-            // Rewind action because each member maps to a specific child slot.
-            // Individual rows below render the RP-backed Rewind button.
+            // Rewind / Re-Fly placeholder — the virtual group has no
+            // group-level Re-Fly button because Unfinished Flights is a
+            // special system group: each member maps to a specific RP child
+            // slot, so a single aggregate "re-fly all" makes no sense. The
+            // per-row Re-Fly button (DrawUnfinishedFlightRewindButton) is the
+            // only action surface for this group.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
 
             // Hide checkbox — design §7.30: system group cannot be hidden.
@@ -2343,9 +2491,10 @@ namespace Parsek
             unfinishedFlightRowDepth++;
             try
             {
+                float memberIndent = (depth + 1) * 15f;
                 for (int i = 0; i < sortedMembers.Count; i++)
                 {
-                    if (DrawRecordingRow(sortedMembers[i], committed, now, 15f))
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent))
                         return true;
                 }
             }
@@ -2363,9 +2512,18 @@ namespace Parsek
         /// normal recording list or inside the virtual group. Returns
         /// <c>true</c> iff this row consumed the Rewind/FF cell, so the caller
         /// can skip the legacy rewind-to-launch fallback.
+        ///
+        /// <para>
+        /// Uses the same `R` / `FF` glyph + column width as the legacy
+        /// rewind-to-launch button at line 1577 / 2129 so the table column
+        /// renders consistently regardless of which path drew the cell.
+        /// `FF` shows when the recording's <see cref="Recording.StartUT"/> is
+        /// strictly in the future (post-rewind UT can land before a recording
+        /// that survived the rewind window), otherwise `R`.
+        /// </para>
         /// </summary>
         private bool DrawUnfinishedFlightRewindButton(
-            Recording rec, int ri, bool reserveCellWhenUnavailable = false)
+            Recording rec, int ri, double now, bool reserveCellWhenUnavailable = false)
         {
             if (rec == null) return false;
 
@@ -2390,6 +2548,18 @@ namespace Parsek
 
                 return false;
             }
+
+            // Always "Re-Fly" — the action is qualitatively different from
+            // the legacy R / FF buttons (rewind time and watch playback).
+            // Clicking this loads a Rewind Point quicksave, places the
+            // player in control of the destroyed sibling vessel, and
+            // starts a re-fly session (marker, supersede tracking, merge
+            // dialog later). Past-vs-future relative to current UT is
+            // irrelevant for the user-facing label: the action is "go to
+            // the breakup point and re-fly" in either direction. `now` is
+            // kept on the signature for future per-row state if needed.
+            const string kReFlyLabel = "Re-Fly";
+            _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
             {
@@ -2417,15 +2587,15 @@ namespace Parsek
             {
                 lastCanInvoke[invokeKey] = canInvoke;
                 ParsekLog.Verbose("RewindUI",
-                    $"Rewind #{ri} rp={rpKey} slot={slotId}: " +
+                    $"Re-Fly #{ri} rp={rpKey} slot={slotId}: " +
                     $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
             }
 
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Rewind to the split that produced this unfinished flight"
-                : (reason ?? "Rewind unavailable");
-            if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
+                ? "Re-fly the destroyed sibling from the staging split"
+                : (reason ?? "Re-Fly unavailable");
+            if (DrawBodyCenteredButton(new GUIContent(kReFlyLabel, tooltip), ColW_Rewind))
             {
                 ParsekLog.Info("RewindUI",
                     $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
@@ -2438,7 +2608,7 @@ namespace Parsek
         private void DrawDisabledUnfinishedFlightRewindButton(
             Recording rec, int ri, string reason)
         {
-            reason = string.IsNullOrEmpty(reason) ? "Rewind unavailable" : reason;
+            reason = string.IsNullOrEmpty(reason) ? "Re-Fly unavailable" : reason;
             string recId = rec?.RecordingId ?? "<no-id>";
             string key = "disabled/" + recId + "/" + reason;
             bool prev;
@@ -2446,11 +2616,11 @@ namespace Parsek
             {
                 lastCanInvoke[key] = false;
                 ParsekLog.Verbose("RewindUI",
-                    $"Rewind #{ri} rec={recId} disabled — {reason}");
+                    $"Re-Fly #{ri} rec={recId} disabled — {reason}");
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Rewind", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent("Re-Fly", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 
@@ -2481,6 +2651,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Decides whether a row should render the legacy "R"
+        /// (Rewind-to-launch) button. The legacy button only makes sense on the
+        /// recording that actually owns the quicksave: standalone recordings
+        /// (own <c>RewindSaveFileName</c>) and tree roots that captured the
+        /// save on behalf of their tree. Tree branches (debris, decouple
+        /// children, EVA splits) inherited the save through
+        /// <see cref="RecordingStore.GetRewindRecording"/> and would draw
+        /// duplicate buttons that all rewind to the same root launch — the
+        /// player sees four identical "R" buttons after a normal merge and
+        /// reasonably concludes they're broken. Future rows take the FF path
+        /// instead, and rows that are part of an unfinished-flight chain use
+        /// the Rewind-to-Staging button drawn separately by
+        /// <c>DrawUnfinishedFlightRewindButton</c>.
+        /// </summary>
+        internal static bool ShouldShowLegacyRewindButton(Recording rec, double now)
+        {
+            if (rec == null) return false;
+            // Future recording — the FF path renders instead. Keep the legacy
+            // gate strictly past/active so a flipped clock can't double-render.
+            if (now < rec.StartUT) return false;
+            // Owner gate: only the recording that holds the rewind save
+            // (standalone or tree root) should expose the legacy button.
+            // Reference equality — GetRewindRecording returns the same instance
+            // when rec is the owner and the tree root recording instance
+            // otherwise.
+            var owner = RecordingStore.GetRewindRecording(rec);
+            if (owner == null) return false;
+            if (!ReferenceEquals(owner, rec)) return false;
+            // Unfinished-flight chain members get the Rewind-to-Staging button
+            // (drawn by DrawUnfinishedFlightRewindButton); silently rewinding
+            // the whole mission to the pad here would be a footgun.
+            if (EffectiveState.IsChainMemberOfUnfinishedFlight(rec)) return false;
+            return true;
+        }
+
+        /// <summary>
         /// Resolves the RewindPoint + child-slot list index for an unfinished
         /// flight recording. Used by both normal rows and the virtual
         /// Unfinished Flights group so the row cannot accidentally fall back to
@@ -2500,6 +2706,13 @@ namespace Parsek
         /// <see cref="EffectiveState.IsUnfinishedFlight"/> predicate emits
         /// diagnostic Verbose lines for every rejection, so normal table rows
         /// use this shape check before asking the full RP-backed predicate.
+        /// The terminal-crash check walks the chain to the tip via
+        /// <see cref="EffectiveState.ResolveChainTerminalRecording"/>, matching
+        /// the full predicate: merge-time SplitAtSection leaves the chain HEAD
+        /// (the only segment with a parentBranchPointId) with terminal=null,
+        /// while the TIP carries the actual Destroyed outcome. Without this
+        /// walk, the cheap-path rejected chain-head rows and the UI fell
+        /// through to the legacy rewind-to-launch button.
         /// </summary>
         internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
         {
@@ -2507,8 +2720,14 @@ namespace Parsek
             if (rec.MergeState != MergeState.Immutable
                 && rec.MergeState != MergeState.CommittedProvisional)
                 return false;
-            if (!EffectiveState.IsTerminalCrashed(rec)) return false;
-            return !string.IsNullOrEmpty(rec.ParentBranchPointId);
+            // Accept either branch link: `ParentBranchPointId` (break child)
+            // or `ChildBranchPointId` (surviving active parent of a breakup,
+            // which is also a controllable output of the split).
+            if (string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
+            var terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
+            return EffectiveState.IsTerminalCrashed(terminalRec);
         }
 
         internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
@@ -2550,19 +2769,34 @@ namespace Parsek
         {
             rp = null;
             slotListIndex = -1;
-            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId))
+            if (rec == null) return false;
+
+            // A breakup RP includes BOTH the surviving active parent AND each
+            // break child as controllable outputs (see
+            // `ParsekFlight.TryAuthorRewindPointForBreakup`). The children
+            // reference the branch via `ParentBranchPointId`; the active
+            // parent references the same branch via `ChildBranchPointId`
+            // (it's the split they produced, not the split they came from).
+            // Accept either side so the active parent's row can resolve to
+            // the RP when it later ends up an Unfinished Flight.
+            string parentBp = rec.ParentBranchPointId;
+            string childBp = rec.ChildBranchPointId;
+            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
                 return false;
 
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
                 return false;
 
-            string bpId = rec.ParentBranchPointId;
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var candidate = scenario.RewindPoints[i];
                 if (candidate == null) continue;
-                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
+                bool matchesParent = !string.IsNullOrEmpty(parentBp)
+                    && string.Equals(candidate.BranchPointId, parentBp, StringComparison.Ordinal);
+                bool matchesChild = !string.IsNullOrEmpty(childBp)
+                    && string.Equals(candidate.BranchPointId, childBp, StringComparison.Ordinal);
+                if (!matchesParent && !matchesChild)
                     continue;
 
                 int resolved = ResolveSlotListIndexForRecording(candidate, rec);
@@ -3845,6 +4079,60 @@ namespace Parsek
             }
 
             return "Recording";
+        }
+
+        /// <summary>
+        /// Pure helper: returns a copy of <paramref name="directMembers"/> with
+        /// every recording for which
+        /// <see cref="EffectiveState.IsUnfinishedFlight(Recording)"/> is true
+        /// stripped out. Used by <see cref="DrawGroupTree"/> when a tree
+        /// already nests an Unfinished Flights virtual subgroup so the same
+        /// recording does not render in both places.
+        ///
+        /// <para>
+        /// Out-of-range indices are passed through unchanged (defensive — any
+        /// future caller error stays visible at the row layer instead of
+        /// being silently swallowed by a UF-filter pre-pass). Returns
+        /// <paramref name="directMembers"/> unchanged when no filtering is
+        /// needed (avoids an allocation in the common no-UF case). Emits one
+        /// rate-limited Verbose log line per `<groupName>` flush so the trim
+        /// is auditable without flooding the log.
+        /// </para>
+        /// </summary>
+        internal static List<int> FilterUnfinishedFlightRowsForRegularTree(
+            IList<int> directMembers,
+            IReadOnlyList<Recording> committed,
+            string groupName)
+        {
+            if (directMembers == null) return null;
+            if (committed == null) return directMembers as List<int> ?? new List<int>(directMembers);
+
+            int filtered = 0;
+            var trimmed = new List<int>(directMembers.Count);
+            for (int i = 0; i < directMembers.Count; i++)
+            {
+                int ri = directMembers[i];
+                if (ri < 0 || ri >= committed.Count)
+                {
+                    trimmed.Add(ri);
+                    continue;
+                }
+                if (EffectiveState.IsUnfinishedFlight(committed[ri]))
+                {
+                    filtered++;
+                    continue;
+                }
+                trimmed.Add(ri);
+            }
+
+            if (filtered == 0)
+                return directMembers as List<int> ?? new List<int>(directMembers);
+
+            ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                "uf-filter-out-of-tree-row-" + (groupName ?? "<none>"),
+                $"DrawGroupTree: filtered {filtered} UF row(s) from regular tree '{groupName ?? "<none>"}' " +
+                "(rendered in nested Unfinished Flights subgroup)");
+            return trimmed;
         }
 
         internal static List<GroupDisplayBlock> BuildGroupDisplayBlocks(

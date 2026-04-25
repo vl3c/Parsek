@@ -927,8 +927,90 @@ namespace Parsek
                     }
                 }
             }
+            else if ((entry.Type == TimelineEntryType.UnfinishedFlightSeparation
+                      || entry.Type == TimelineEntryType.Separation)
+                     && !string.IsNullOrEmpty(entry.RecordingId))
+            {
+                // Separation row: tree-child split point. UF flavour gets a
+                // Fly button; the plain post-merge / non-UF flavour just
+                // gets GoTo. No Watch / Loop / R / FF — those are launch-
+                // playback affordances, not split affordances.
+                var rec = FindRecordingById(entry.RecordingId);
+                if (rec != null)
+                {
+                    var tableUI = parentUI.GetRecordingsTableUI();
+
+                    if (entry.Type == TimelineEntryType.UnfinishedFlightSeparation)
+                    {
+                        DrawTimelineFlyButton(rec);
+                    }
+
+                    if (GUILayout.Button(
+                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                    {
+                        parentUI.SelectedRecordingId = entry.RecordingId;
+                        if (tableUI != null)
+                            tableUI.ScrollToRecording(entry.RecordingId);
+                        ParsekLog.Verbose("Timeline",
+                            $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId} " +
+                            $"(separation entry, type={entry.Type})");
+                    }
+                }
+            }
 
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Draw the timeline-row "Fly" button for an Unfinished Flight
+        /// separation entry. Resolves the RP slot via the shared
+        /// <see cref="RecordingsTableUI.ResolveUnfinishedFlightRewindRoute"/>
+        /// so the timeline and the Recordings table dispatch through the
+        /// same code path; clicking ends in
+        /// <see cref="RewindInvoker.ShowDialog"/>. Width matches the
+        /// other row action buttons.
+        /// </summary>
+        private void DrawTimelineFlyButton(Recording rec)
+        {
+            float width = GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind);
+
+            RewindPoint rp;
+            int slotListIndex;
+            string routeReason;
+            var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                rec, out rp, out slotListIndex, out routeReason);
+
+            bool resolvable =
+                route == RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved
+                && rp != null && slotListIndex >= 0 && rp.ChildSlots != null
+                && slotListIndex < rp.ChildSlots.Count;
+
+            if (!resolvable)
+            {
+                GUI.enabled = false;
+                GUILayout.Button(
+                    new GUIContent("Fly", routeReason ?? "Re-Fly unavailable"),
+                    GUILayout.Width(width));
+                GUI.enabled = true;
+                return;
+            }
+
+            string reason;
+            bool canInvoke = RecordingsTableUI.CanInvokeRewindPointSlot(
+                rp, slotListIndex, out reason);
+            GUI.enabled = canInvoke;
+            string tooltip = canInvoke
+                ? "Re-fly the destroyed sibling from the staging split"
+                : (reason ?? "Re-Fly unavailable");
+            if (GUILayout.Button(new GUIContent("Fly", tooltip), GUILayout.Width(width)))
+            {
+                ParsekLog.Info("UI",
+                    $"Timeline Fly button clicked: \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"rp={rp.RewindPointId ?? "<no-id>"} slot={slotListIndex}");
+                RewindInvoker.ShowDialog(rp, slotListIndex);
+            }
+            GUI.enabled = true;
         }
 
         internal static bool ShouldShowFastForwardButton(Recording rec, bool isFuture)

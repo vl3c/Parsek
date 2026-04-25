@@ -41,6 +41,42 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
+
+- EVA splits now author a Rewind Point, so a destroyed EVA kerbal becomes an Unfinished Flight with a Re-Fly button. Previously `IsTrackableVessel` only recognised parts with `ModuleCommand`, so the kerbal didn't count as a controllable output, the split classified as single-controllable, and no RP was authored.
+
+- Re-Fly session marker now survives the SPACECENTER round-trip that precedes the merge dialog when the active recording is a previously-promoted Unfinished Flight; previously the load-time validator wiped it and the merge fell through to the regular tree-merge path (no force-Immutable, no RP reap, no UF clear-out). The carve-out covers both `CommittedProvisional` and `Immutable` in-place origins — `IsUnfinishedFlight` accepts both, so the validator must too.
+
+- Re-Fly confirmation dialog renamed to `Parsek - Finish Flight` with a plain-language prompt ("Do you want to fly this again?") and a `Re-Fly` accept button instead of `Rewind`.
+
+- Unfinished Flight rows no longer appear twice (once as a top-level tree row, once inside the nested Unfinished Flights subgroup); they render only inside the Unfinished Flights group.
+
+- Controllable split children whose vessel dies before the breakup window expires no longer produce a 0s "Unknown" recording in the table; the parent's BREAKUP branch point already records the split.
+
+- Re-fly merge dialog body trimmed to a centered `<vessel> - <duration>` headline plus "Commit this re-flight attempt permanently to the timeline. This cannot be undone!".
+
+- Regular merge dialog drops the spawnable=0 advisory; crashed / recovered recordings replaying as ghosts is the obvious outcome.
+
+- Strip-killing the upper stage during re-fly no longer trips spawn-death respawn, so a duplicate upper-stage vessel doesn't materialise next to the booster.
+
+- Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
+
+- Unfinished Flights rows now show a `Re-Fly` button (the action loads a staging Rewind Point — different from the legacy `R` / `FF` time-rewind on every other row).
+
+- Timeline window now lists controllable staging splits as `Separation of Unfinished Flight: <vessel>` (with a `Fly` button) or `Separation: <vessel>` post-merge. Debris splits stay hidden.
+
+- Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour.
+
+- Re-fly merges refuse supersede rows when the re-fly recording has no trajectory or terminal state, catching the placeholder-as-supersede-target class of bug at commit time.
+
+- Rewind to Staging re-checks preconditions on dialog confirm, cancelling with a toast if state changed between show and click.
+
+- Recordings table no longer draws duplicate rewind-to-launch `R` buttons on tree-branch rows; only the recording that owns the launch save renders one.
+
+- Re-fly merges with a Limbo-restored origin recording no longer write a self-supersede row, and load-time sweep purges any such rows left from older saves.
+
+- Rewind to Staging warns after Strip when a left-alone vessel shares a name with a tree recording, so players can tell a pre-existing orbital "Kerbal X" apart from the current flight's ghost.
+
 - `#533` Timeline kerbal-hire rows now live in the Details tier instead of the Overview tier. Sandbox, Mission, and Science saves render hire rows as `Hire: <kerbal>` without a funds suffix because those modes have no funds ledger.
 
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
@@ -75,6 +111,9 @@ All notable changes to Parsek are documented here.
 - `#565` Continued scene-enter resume replays no longer materialize an older endpoint as an intermediate rover before the continued recording reaches its final spawn.
 - Spawn-path audit follow-ups now route the remaining KSC end-of-recording and chain-tip normal/blocked/walkback materialization paths through the shared resolved-state spawn flow, including subdivided walkback interpolation for blocked chain tips. Failed respawns and flag spawns also clean up any transient `ProtoVessel` inserted before `ProtoVessel.Load()` aborts, and scene-load tree-leaf spawns now use the same shared materialization helper.
 - `#528` Launchpad science gathered before a flight starts no longer gets committed onto that later recording, and mixed tree/chain commits now keep science attached to the correct recording.
+- A booster left behind during upper-stage time warp that KSP destroyed on reentry now correctly terminates as `Destroyed` and appears in `Unfinished Flights` with a working `Rewind` button, including when the booster's recording was split across atmo/exo chain segments.
+- `Unfinished Flights` virtual group now nests under its owning mission's group instead of floating at the root of the Recordings Manager, and the legacy rewind-to-launch `R` button is suppressed on chain continuations of a rewindable booster chain.
+- Clicking `Rewind` on an Unfinished Flight now correctly activates the target vessel after the Space Center→Flight scene load completes, instead of failing silently with "selected vessel not present on reload" and dropping the player onto the wrong vessel.
 - `#504` Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
 - `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 - `#523` Strategy lifecycle SPACECENTER canaries now hydrate `Administration.Instance` by creating a hidden stock Administration canvas, re-check that hydration after warmup, and keep Activate/Deactivate assertions in the same frame as the stock strategy calls. This closes both the plain-KSC singleton timeout and the latest KSC batch race where the first canary observed `Activate()` succeed but `IsActive` had flipped false after a yield while the next canary timed out on a null `Administration.Instance` after hidden-canvas teardown.

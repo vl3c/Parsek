@@ -91,6 +91,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extrapolate_SubSurfaceStart_ClassifiesAsDestroyedWithoutRunningScan()
+        {
+            // Regression for the post-v0.8.3 booster misclassification: when
+            // `PatchedConicSnapshot` fails with `NullSolver` (KSP torn down
+            // the solver for a destroyed vessel), the finalizer's live-orbit
+            // fallback yields a position collapsed to the body frame origin
+            // (altitude ≈ -body radius). Without the sub-surface guard, the
+            // extrapolator scanned for a non-existent surface intersection,
+            // horizon-capped, and silently returned Orbiting. It must now
+            // classify the recording as Destroyed immediately.
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            // Mirror the playtest log's fingerprint: alt = -594383 m.
+            var startState = new BallisticStateVector
+            {
+                ut = 743.238,
+                bodyName = "Kerbin",
+                position = new Vector3d(KerbinRadius + -594383.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 50.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(startState, bodies);
+
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.failureReason);
+            Assert.Equal(startState.ut, result.terminalUT);
+            Assert.Equal("Kerbin", result.terminalBodyName);
+            Assert.Empty(result.segments);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("Start rejected: sub-surface state")
+                && l.Contains("body=Kerbin")
+                && l.Contains("classifying recording as Destroyed"));
+        }
+
+        [Fact]
+        public void Extrapolate_SurfaceGrazingStart_DoesNotTripSubSurfaceGuard()
+        {
+            // Guard must not mis-fire on a legitimate sea-level start state:
+            // altitude 0 is ON the surface, above the -100 m threshold.
+            // Trajectory should still be scanned normally (terminal state
+            // depends on the tangential speed — this test just pins the
+            // absence of the sub-surface short-circuit).
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Kerbin", KerbinRadius, altitude: 0.0, tangentialSpeed: 400.0),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.005,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.failureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Extrapolator]") && l.Contains("Start rejected: sub-surface state"));
+        }
+
+        [Fact]
+        public void Extrapolate_JustAboveThresholdStart_DoesNotTripSubSurfaceGuard()
+        {
+            // Start state at alt = -50 m (above the -100 m threshold): e.g. a
+            // vessel momentarily dipping into a canyon or below the sea
+            // reference ellipsoid. Guard must not trip.
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Kerbin", KerbinRadius, altitude: -50.0, tangentialSpeed: 400.0),
+                bodies);
+
+            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.failureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Extrapolator]") && l.Contains("Start rejected: sub-surface state"));
+        }
+
+        [Fact]
+        public void Extrapolate_JustBelowThresholdStart_TripsSubSurfaceGuard()
+        {
+            // Start state at alt = -150 m (below the -100 m threshold): clearly
+            // not a real trajectory. Should classify as Destroyed.
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Kerbin", KerbinRadius, altitude: -150.0, tangentialSpeed: 400.0),
+                bodies);
+
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.failureReason);
+            Assert.Empty(result.segments);
+        }
+
+        [Fact]
         public void Extrapolate_SuborbitalKerbin_TerminatesAtAtmoEntry()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>

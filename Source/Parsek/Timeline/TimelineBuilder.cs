@@ -220,6 +220,55 @@ namespace Parsek
                         $"text=\"{displayText}\"");
                 }
 
+                // Separation — tree-child split point. Two flavours:
+                //
+                //   * UnfinishedFlightSeparation (T1, default-visible) —
+                //     terminal=Destroyed/Crashed AND a matching RP exists.
+                //     Renders with a Fly button in the timeline so the
+                //     player can re-fly directly from here.
+                //
+                //   * Separation (T2, detail-only) — formerly-UF rows
+                //     whose RP was reaped on merge. Just label and GoTo
+                //     button; no Fly action.
+                //
+                // The choice is rebuilt on every cache refresh, so a UF
+                // entry morphs into a regular Separation the next rebuild
+                // after the player merges.
+                //
+                // Debris children (uncontrolled fragments after breakup,
+                // <see cref="Recording.IsDebris"/> set in BackgroundRecorder
+                // when the new vessel has no controller) are SKIPPED
+                // entirely. The player asked us to keep these out of the
+                // timeline — they make the list too long without telling
+                // the player anything they didn't already know from
+                // watching the rocket break apart.
+                if (isTreeChild && !rec.IsDebris)
+                {
+                    bool isUf = EffectiveState.IsUnfinishedFlight(rec);
+                    var sepType = isUf
+                        ? TimelineEntryType.UnfinishedFlightSeparation
+                        : TimelineEntryType.Separation;
+                    string displayText = isUf
+                        ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
+                        : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
+                    entries.Add(new TimelineEntry
+                    {
+                        UT = rec.StartUT,
+                        Type = sepType,
+                        DisplayText = displayText,
+                        Source = TimelineSource.Recording,
+                        Tier = TimelineEntryDisplay.GetTier(sepType),
+                        DisplayColor = Color.white,
+                        RecordingId = rec.RecordingId,
+                        VesselName = rec.VesselName,
+                    });
+                    count++;
+
+                    ParsekLog.Verbose("Timeline",
+                        $"  +{(isUf ? "UF-Separation" : "Separation")} #{i} '{rec.VesselName}' " +
+                        $"UT={rec.StartUT:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
+                }
+
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
                 // Skip: mid-chain segments, destroyed terminals (can't spawn a destroyed
                 // vessel), mid-tree segments with a same-PID continuation (#227), and

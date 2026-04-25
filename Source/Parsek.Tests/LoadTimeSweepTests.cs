@@ -378,6 +378,111 @@ namespace Parsek.Tests
                 l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
         }
 
+        [Fact]
+        public void MarkerValid_InPlaceContinuation_CommittedProvisional_Preserved()
+        {
+            // Regression: 2026-04-25_1246 playtest. RewindInvoker.AtomicMarkerWrite's
+            // in-place continuation path (item 11 in todo-and-known-bugs.md)
+            // sets ActiveReFlyRecordingId == OriginChildRecordingId so the
+            // marker points at the existing recording instead of a fresh
+            // placeholder. When that recording was a previously-promoted
+            // Unfinished Flight its MergeState is CommittedProvisional, NOT
+            // NotCommitted. The validator MUST accept that state for the
+            // in-place continuation case or the marker is silently wiped on
+            // every save+load cycle (e.g. the FLIGHT->SPACECENTER scene
+            // change for the merge dialog), and TryCommitReFlySupersede
+            // falls through to the regular tree-merge path with
+            // 'no active re-fly session marker'.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    // Active == origin (in-place continuation). MergeState is
+                    // CommittedProvisional from the prior tree merge that
+                    // promoted this recording out of NotCommitted into the
+                    // crash-terminal RP-child slot.
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("sess_1", scenario.ActiveReFlySessionMarker.SessionId);
+        }
+
+        [Fact]
+        public void MarkerInvalid_PlaceholderPattern_CommittedProvisional_Cleared()
+        {
+            // Regression: the in-place CommittedProvisional carve-out only
+            // applies when origin == active. A placeholder pattern (origin
+            // != active) MUST still be NotCommitted — a placeholder
+            // recording carries no committed history yet. Reject
+            // CommittedProvisional in this shape so a corrupt save or
+            // legacy migration leftover does not silently keep a stale
+            // marker pointing at a finalized branch.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_active", MergeState.CommittedProvisional),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_active", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
+        }
+
+        [Fact]
+        public void MarkerValid_InPlaceContinuation_Immutable_Preserved()
+        {
+            // Review follow-up: an Immutable recording IS a valid re-fly
+            // target when it is also an Unfinished Flight (terminal=
+            // Destroyed + matching RP). EffectiveState.IsUnfinishedFlight
+            // accepts both Immutable and CommittedProvisional (line 156-
+            // 157), and RewindInvoker.AtomicMarkerWrite has no MergeState
+            // gate — so the validator must accept the same shape it can
+            // legitimately produce. Without this carve-out, a save/load
+            // during an in-place re-fly of an Immutable UF wipes the
+            // marker and the merge falls through to the regular tree-
+            // merge path (no force-Immutable, no RP reap). The
+            // CommittedProvisional sister case is pinned by the test
+            // immediately above.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.ActiveReFlyRecordingId);
+            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.OriginChildRecordingId);
+        }
+
         // ---------- Spare + discard sets ----------------------------------
 
         [Fact]
@@ -649,6 +754,62 @@ namespace Parsek.Tests
 
             Assert.NotEqual(beforeSupersede, scenario.SupersedeStateVersion);
             Assert.NotEqual(beforeTombstone, scenario.TombstoneStateVersion);
+        }
+
+        // ---------- Self-supersede cleanup (bug/rewind-self-supersede) ----
+
+        /// <summary>
+        /// Regression: saves written before the caller-side guard shipped can
+        /// contain self-supersede rows (old==new). The load-time sweep must
+        /// remove them and leave healthy rows alone.
+        /// </summary>
+        [Fact]
+        public void SelfSupersedeRow_RemovedAtLoadTime()
+        {
+            // Two recordings so the healthy row is not also an orphan.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_live", MergeState.Immutable),
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint>());
+            var selfRow = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_self",
+                OldRecordingId = "rec_live",
+                NewRecordingId = "rec_live", // cycle
+            };
+            var healthyRow = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_healthy",
+                OldRecordingId = "rec_origin",
+                NewRecordingId = "rec_live",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { selfRow, healthyRow });
+
+            LoadTimeSweep.Run();
+
+            // Only the healthy row remains.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rsr_healthy", scenario.RecordingSupersedes[0].RelationId);
+
+            // Cleanup count logged in the dedicated line.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Cleaned 1 self-supersede row"));
+
+            // Summary log includes selfSupersedes=1.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("selfSupersedes=1"));
+
+            // Per-row WARN logged on removal.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Self-supersede row rel=rsr_self")
+                && l.Contains("removing"));
         }
 
         // ---------- Internal helpers --------------------------------------

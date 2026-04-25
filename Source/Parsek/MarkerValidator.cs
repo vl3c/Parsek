@@ -101,14 +101,40 @@ namespace Parsek
             var active = FindRecordingById(marker.ActiveReFlyRecordingId);
             if (active == null)
                 return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
-            if (active.MergeState != MergeState.NotCommitted)
-                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
 
             if (string.IsNullOrEmpty(marker.OriginChildRecordingId))
                 return MarkerValidationResult.Invalid("OriginChildRecordingId");
             var origin = FindRecordingById(marker.OriginChildRecordingId);
             if (origin == null)
                 return MarkerValidationResult.Invalid("OriginChildRecordingId");
+
+            // MergeState gate. The placeholder pattern (origin != active)
+            // creates a fresh `NotCommitted` recording at re-fly start, so
+            // the active row is always `NotCommitted` for that path. The
+            // in-place continuation pattern (`origin == active`, see
+            // RewindInvoker.AtomicMarkerWrite) reuses the existing
+            // recording — and that recording can be EITHER
+            // `CommittedProvisional` (a UF promoted from a fresh tree merge)
+            // OR `Immutable` (a UF from an older / sealed recording where
+            // the RP is still alive). `EffectiveState.IsUnfinishedFlight`
+            // explicitly accepts both states (line 156-157), so the
+            // validator MUST too — otherwise every save+load cycle during
+            // an in-place re-fly silently wipes the marker and the merge
+            // falls through to the regular tree-merge path (no force-
+            // Immutable, no RP reap, UF row never clears). The placeholder
+            // pattern stays NotCommitted-only because no committed
+            // recording is being reused there.
+            bool inPlaceContinuation = string.Equals(
+                marker.ActiveReFlyRecordingId,
+                marker.OriginChildRecordingId,
+                StringComparison.Ordinal);
+            bool acceptableState =
+                active.MergeState == MergeState.NotCommitted
+                || (inPlaceContinuation
+                    && (active.MergeState == MergeState.CommittedProvisional
+                        || active.MergeState == MergeState.Immutable));
+            if (!acceptableState)
+                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
 
             if (string.IsNullOrEmpty(marker.RewindPointId))
                 return MarkerValidationResult.Invalid("RewindPointId");

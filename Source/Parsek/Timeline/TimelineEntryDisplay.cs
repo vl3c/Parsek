@@ -34,6 +34,7 @@ namespace Parsek
                 case TimelineEntryType.RecordingStart:
                 case TimelineEntryType.VesselSpawn:
                 case TimelineEntryType.CrewDeath:
+                case TimelineEntryType.UnfinishedFlightSeparation:
                 case TimelineEntryType.MilestoneAchievement:
                 case TimelineEntryType.ContractComplete:
                 case TimelineEntryType.ContractFail:
@@ -116,6 +117,33 @@ namespace Parsek
         /// </summary>
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDurationFull(seconds);
+
+        /// <summary>
+        /// Display text for an Unfinished-Flight separation event:
+        /// "Separation of Unfinished Flight: Booster Y" — the row keeps a
+        /// Fly button so the player can re-fly the destroyed sibling
+        /// directly from the timeline. Once the player merges (or
+        /// otherwise finalizes) the re-flight, the recording is no longer
+        /// an Unfinished Flight and TimelineBuilder emits a plain
+        /// <see cref="GetSeparationText"/> entry instead.
+        /// </summary>
+        internal static string GetUnfinishedFlightSeparationText(string vesselName)
+        {
+            string name = string.IsNullOrEmpty(vesselName) ? "<unnamed>" : vesselName;
+            return $"Separation of Unfinished Flight: {name}";
+        }
+
+        /// <summary>
+        /// Display text for a regular separation event (post-merge or any
+        /// non-UF tree-child): "Separation: Booster Y" — same shape the
+        /// table uses for "Launch: Vessel Name", just for the staging
+        /// split that produced this child.
+        /// </summary>
+        internal static string GetSeparationText(string vesselName)
+        {
+            string name = string.IsNullOrEmpty(vesselName) ? "<unnamed>" : vesselName;
+            return $"Separation: {name}";
+        }
 
         /// <summary>
         /// Display text for a crew death event: "Lost: Bob Kerman (Vessel Name)".
