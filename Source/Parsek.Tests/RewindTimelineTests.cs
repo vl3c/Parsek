@@ -805,5 +805,266 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region SpawnSuppressedByRewind (#573 follow-up to PR #541)
+
+        /// <summary>
+        /// Production-sequence regression for #573: a chain-leaf recording from
+        /// a rewound tree (its <c>VesselPersistentId</c> matches the rewind
+        /// owner's pid because chain segments share the source pid) must NOT
+        /// spawn a real vessel after a plain Rewind-to-Launch, even though
+        /// <see cref="ParsekScenario.HandleRewindOnLoad"/> has already cleared
+        /// <see cref="RewindContext.IsRewinding"/> by the time the FLIGHT
+        /// update path picks up the chain-tip activation.
+        /// </summary>
+        [Fact]
+        public void ShouldSpawn_PostRewindChainLeafSameSourcePid_ReturnsFalse()
+        {
+            const uint kBoosterPid = 2708531065u;
+            var chainLeaf = new Recording
+            {
+                RecordingId = "chain-leaf-rewound",
+                VesselName = "Kerbal X (post-rewind chain leaf)",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselSpawned = false,
+                VesselPersistentId = kBoosterPid,
+                ChainId = "89e6ecae5d184f26bf84973c138e36aa",
+                ChainIndex = 1,
+                TerminalStateValue = TerminalState.Splashed,
+                SpawnSuppressedByRewind = true,
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                chainLeaf, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("spawn suppressed post-rewind", reason);
+            Assert.Contains("#573", reason);
+        }
+
+        /// <summary>
+        /// Driving the production sequence end-to-end through
+        /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>
+        /// (the helper that <see cref="ParsekScenario.HandleRewindOnLoad"/>
+        /// invokes after <see cref="RecordingStore.ResetAllPlaybackState"/>):
+        /// every recording in the rewound tree gets <c>SpawnSuppressedByRewind</c>
+        /// set, and <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd"/>
+        /// refuses to spawn the chain leaf afterward — independently of
+        /// <see cref="RewindContext.IsRewinding"/>'s post-EndRewind state.
+        /// </summary>
+        [Fact]
+        public void HandleRewindOnLoad_MarksAllRewoundTreeChainLeavesGhostOnly_AllSpawnRefused()
+        {
+            const uint kBoosterPid = 2708531065u;
+            const string kTreeId = "7e46a9f16c9a4dcd90d1c1baaea6e2f5";
+            const string kChainId = "89e6ecae5d184f26bf84973c138e36aa";
+
+            var boosterRoot = new Recording
+            {
+                RecordingId = "8e27ba1144a7484b815847c05c49d10e",
+                VesselName = "Kerbal X",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = kBoosterPid,
+                TreeId = kTreeId,
+                ChainId = kChainId,
+                ChainIndex = 0,
+                TerminalStateValue = TerminalState.Splashed,
+            };
+            var orbitingSegment = new Recording
+            {
+                RecordingId = "b85acd51ea7f4005bb5d879207749e8c",
+                VesselName = "Kerbal X",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = kBoosterPid,
+                TreeId = kTreeId,
+                ChainId = kChainId,
+                ChainIndex = 1,
+                SegmentPhase = "exo",
+            };
+            var splashedLeaf = new Recording
+            {
+                RecordingId = "2c276b3c6a9c438eb288dc4cbd55a3ee",
+                VesselName = "Kerbal X",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = kBoosterPid,
+                TreeId = kTreeId,
+                ChainId = "9b7dcf47740644a7995992170445dd41",
+                ChainIndex = 1,
+                TerminalStateValue = TerminalState.Splashed,
+            };
+            var unrelatedFromOtherTree = new Recording
+            {
+                RecordingId = "unrelated-other-tree",
+                VesselName = "Mun Lander",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = 12345u,
+                TreeId = "different-tree",
+                TerminalStateValue = TerminalState.Landed,
+            };
+
+            var recordings = new List<Recording>
+            {
+                boosterRoot, orbitingSegment, splashedLeaf, unrelatedFromOtherTree
+            };
+
+            // Simulate HandleRewindOnLoad's state right after ResetAllPlaybackState:
+            // VesselSpawned=false on every recording, RewindReplayTargetSourcePid armed,
+            // RewindReplayTargetRecordingId points at the booster root.
+            RecordingStore.RewindReplayTargetSourcePid = kBoosterPid;
+            RecordingStore.RewindReplayTargetRecordingId = boosterRoot.RecordingId;
+
+            int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+
+            try
+            {
+                Assert.Equal(3, marked);
+                Assert.True(boosterRoot.SpawnSuppressedByRewind);
+                Assert.True(orbitingSegment.SpawnSuppressedByRewind);
+                Assert.True(splashedLeaf.SpawnSuppressedByRewind);
+                Assert.False(unrelatedFromOtherTree.SpawnSuppressedByRewind);
+
+                // Chain-leaf spawn refused — the production duplicate at
+                // 13:13:19.600 (PlaybackCompleted index=15 needsSpawn=True)
+                // is now blocked here.
+                var leafResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    splashedLeaf, isActiveChainMember: false, isChainLooping: false);
+                Assert.False(leafResult.needsSpawn);
+                Assert.Contains("spawn suppressed post-rewind", leafResult.reason);
+
+                // Root and mid-chain are also blocked (so the chain-tip propagation
+                // path can't fall through to a sibling segment).
+                var rootResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    boosterRoot, isActiveChainMember: false, isChainLooping: false);
+                Assert.False(rootResult.needsSpawn);
+                Assert.Contains("spawn suppressed post-rewind", rootResult.reason);
+
+                var midResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    orbitingSegment, isActiveChainMember: false, isChainLooping: false);
+                Assert.False(midResult.needsSpawn);
+                Assert.Contains("spawn suppressed post-rewind", midResult.reason);
+
+                // Unrelated tree is unaffected — only the rewound tree's
+                // recordings flip to ghost-only.
+                var unrelatedResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    unrelatedFromOtherTree, isActiveChainMember: false, isChainLooping: false);
+                Assert.True(unrelatedResult.needsSpawn);
+            }
+            finally
+            {
+                RecordingStore.RewindReplayTargetSourcePid = 0;
+                RecordingStore.RewindReplayTargetRecordingId = null;
+            }
+        }
+
+        /// <summary>
+        /// Standalone-rewind variant: when the rewind owner's TreeId is null
+        /// (rare, but exercised by some legacy fixtures), the helper still
+        /// suppresses recordings whose <c>VesselPersistentId</c> matches the
+        /// armed <see cref="RecordingStore.RewindReplayTargetSourcePid"/>.
+        /// </summary>
+        [Fact]
+        public void MarkRewoundTreeRecordingsAsGhostOnly_StandaloneRecording_MarksByPidMatch()
+        {
+            const uint kSourcePid = 4242u;
+            var standaloneRec = new Recording
+            {
+                RecordingId = "standalone-rec",
+                VesselName = "Standalone",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = kSourcePid,
+                TreeId = null,
+                TerminalStateValue = TerminalState.Landed,
+            };
+            var unrelated = new Recording
+            {
+                RecordingId = "unrelated-rec",
+                VesselName = "Other",
+                VesselPersistentId = 9999u,
+                TreeId = null,
+            };
+
+            var recordings = new List<Recording> { standaloneRec, unrelated };
+
+            RecordingStore.RewindReplayTargetSourcePid = kSourcePid;
+            RecordingStore.RewindReplayTargetRecordingId = standaloneRec.RecordingId;
+
+            try
+            {
+                int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+
+                Assert.Equal(1, marked);
+                Assert.True(standaloneRec.SpawnSuppressedByRewind);
+                Assert.False(unrelated.SpawnSuppressedByRewind);
+            }
+            finally
+            {
+                RecordingStore.RewindReplayTargetSourcePid = 0;
+                RecordingStore.RewindReplayTargetRecordingId = null;
+            }
+        }
+
+        /// <summary>
+        /// Idempotency: calling the helper twice on the same recording set
+        /// does not double-count or re-emit the per-recording log line, and
+        /// the flag stays sticky across repeats (exercises the
+        /// <c>SpawnSuppressedByRewind</c> early-skip branch).
+        /// </summary>
+        [Fact]
+        public void MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_NoOp()
+        {
+            const uint kSourcePid = 7777u;
+            var rec = new Recording
+            {
+                RecordingId = "rec-idempotent",
+                VesselName = "Rewound",
+                VesselPersistentId = kSourcePid,
+                TreeId = "tree-rewound",
+                SpawnSuppressedByRewind = true,
+            };
+
+            var recordings = new List<Recording> { rec };
+
+            RecordingStore.RewindReplayTargetSourcePid = kSourcePid;
+            RecordingStore.RewindReplayTargetRecordingId = rec.RecordingId;
+
+            try
+            {
+                int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+
+                Assert.Equal(0, marked);
+                Assert.True(rec.SpawnSuppressedByRewind);
+            }
+            finally
+            {
+                RecordingStore.RewindReplayTargetSourcePid = 0;
+                RecordingStore.RewindReplayTargetRecordingId = null;
+            }
+        }
+
+        /// <summary>
+        /// ResetRecordingPlaybackFields clears the marker so a SUBSEQUENT
+        /// rewind starts from a clean slate. Without this, a second rewind
+        /// can never refresh the suppression scope (e.g., when a different
+        /// tree gets rewound after the first one).
+        /// </summary>
+        [Fact]
+        public void ResetAllPlaybackState_ClearsSpawnSuppressedByRewind()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-reset-clears",
+                VesselName = "Cleared",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselPersistentId = 5555u,
+                SpawnSuppressedByRewind = true,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.False(rec.SpawnSuppressedByRewind);
+        }
+
+        #endregion
     }
 }

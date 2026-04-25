@@ -3075,6 +3075,10 @@ namespace Parsek
             rec.WalkbackExhausted = false;
             rec.DuplicateBlockerRecovered = false;
             rec.LastAppliedResourceIndex = -1;
+            // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
+            // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the
+            // rewound tree's recordings AFTER ResetAllPlaybackState fires.
+            rec.SpawnSuppressedByRewind = false;
 
             rec.SceneExitSituation = -1;
         }

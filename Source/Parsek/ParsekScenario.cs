@@ -1908,6 +1908,19 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
 
+            // Mark the rewound tree's future-of-rewind-point recordings as "ghost-only past"
+            // so chain-tip / effective-leaf playback in the new FLIGHT timeline cannot
+            // materialize them as real vessels (#573 follow-up). The strip above removed
+            // them from flightState; this flag prevents the same recordings from being
+            // re-spawned later when chain replay reaches their activation UT (the
+            // production duplicate-spawn that the IsRewinding guard could not catch
+            // because it runs from the Flight Update path AFTER EndRewind() fires).
+            int suppressedCount = MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+            if (suppressedCount > 0)
+                ParsekLog.Info("Rewind",
+                    $"OnLoad: SpawnSuppressedByRewind=true on {suppressedCount} recording(s) — " +
+                    $"chain-leaf spawns blocked for the rewound tree (#573)");
+
             // Strip ALL vessels matching recording names from flightState.
             // The rewind save was preprocessed to strip the recorded vessel,
             // but KSP's scene transition may reintroduce vessels from the old
@@ -3537,6 +3550,84 @@ namespace Parsek
             if (spawnedPid == 0)
                 return false;
             return survivingPids == null || !survivingPids.Contains(spawnedPid);
+        }
+
+        /// <summary>
+        /// After plain Rewind-to-Launch, mark every committed recording in the rewound
+        /// tree as <see cref="Recording.SpawnSuppressedByRewind"/> = true so chain-tip
+        /// playback in the new FLIGHT timeline cannot materialize a duplicate real vessel
+        /// (#573 follow-up to PR #541).
+        ///
+        /// <para>Why this is needed: <see cref="RecordingStore.ResetAllPlaybackState"/>
+        /// zeros every recording's <c>VesselSpawned</c> + <c>SpawnedVesselPersistentId</c>
+        /// to allow legitimate re-spawn after revert. After a rewind, however, the tree's
+        /// future-of-rewind-point segments are ghost-only history — they should NEVER
+        /// re-materialize, even when the chain replay reaches a leaf with a
+        /// <c>VesselSnapshot</c>. The earlier <see cref="RewindContext.IsRewinding"/>
+        /// short-circuit in <see cref="ParsekPlaybackPolicy.RunSpawnDeathChecks"/> only
+        /// covered the spawn-death code path, which the production duplicate-spawn does
+        /// not actually traverse: by the time the chain replay reaches the leaf
+        /// activation UT in FLIGHT, <c>IsRewinding</c> is already false (cleared at the
+        /// end of <see cref="HandleRewindOnLoad"/>) and the spawn fires through
+        /// <see cref="VesselGhoster.SpawnAtChainTip"/>.</para>
+        ///
+        /// <para>Scope: every recording is checked. The rewind owner's TreeId (if any)
+        /// is the primary scope; standalone recordings whose <c>VesselPersistentId</c>
+        /// matches <see cref="RecordingStore.RewindReplayTargetSourcePid"/> are also
+        /// included so a non-tree rewind still suppresses duplicates.</para>
+        /// </summary>
+        internal static int MarkRewoundTreeRecordingsAsGhostOnly(
+            IReadOnlyList<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return 0;
+
+            uint rewindSourcePid = RecordingStore.RewindReplayTargetSourcePid;
+            string rewindRecId = RecordingStore.RewindReplayTargetRecordingId;
+            string rewoundTreeId = ResolveRewoundTreeId(recordings, rewindRecId);
+
+            int marked = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || rec.SpawnSuppressedByRewind)
+                    continue;
+
+                bool inRewoundTree = rewoundTreeId != null
+                    && string.Equals(rec.TreeId, rewoundTreeId, StringComparison.Ordinal);
+                bool matchesRewindSource = rewindSourcePid != 0
+                    && rec.VesselPersistentId == rewindSourcePid;
+
+                if (!inRewoundTree && !matchesRewindSource)
+                    continue;
+
+                rec.SpawnSuppressedByRewind = true;
+                marked++;
+                ParsekLog.Verbose("Rewind",
+                    $"SpawnSuppressedByRewind: #{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"tree={(rec.TreeId ?? "<none>")} reason={(inRewoundTree ? "tree-match" : "pid-match")}");
+            }
+
+            return marked;
+        }
+
+        /// <summary>
+        /// Returns the TreeId of the rewind owner recording, or null when the rewind
+        /// scope was not a tree (e.g., standalone recording rewind, or scope cleared).
+        /// </summary>
+        private static string ResolveRewoundTreeId(
+            IReadOnlyList<Recording> recordings, string rewindRecordingId)
+        {
+            if (string.IsNullOrEmpty(rewindRecordingId))
+                return null;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec != null && string.Equals(rec.RecordingId, rewindRecordingId, StringComparison.Ordinal))
+                    return rec.TreeId;
+            }
+            return null;
         }
 
         /// <summary>

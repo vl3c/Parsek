@@ -474,19 +474,21 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Regression for #573: a plain Rewind-to-Launch (R-button on a tree
-        /// recording, no <see cref="ReFlySessionMarker"/> involved) also
-        /// strips previously-spawned survivors via
-        /// <see cref="ParsekScenario.StripOrphanedSpawnedVessels"/>. Without a
-        /// rewind-aware guard, those intentional kills feed the spawn-death
-        /// detector the same way <see cref="PostLoadStripper.Strip"/> kills
-        /// did during re-fly (#573 sibling of the 10:47 playtest fix). The
-        /// 2026-04-25_1314 marker-validator-fix playtest reproduced the
-        /// duplicate upper-stage symptom against an Immutable-marker-less
-        /// rewind. The widened guard short-circuits while
-        /// <see cref="RewindContext.IsRewinding"/> is true (i.e. between
+        /// Defense-in-depth for the re-fly-style strip-kill contract: while
+        /// <see cref="RewindContext.IsRewinding"/> is true (between
         /// <see cref="RewindContext.BeginRewind"/> and
-        /// <see cref="RewindContext.EndRewind"/>).
+        /// <see cref="RewindContext.EndRewind"/>), <see cref="ParsekPlaybackPolicy.RunSpawnDeathChecks"/>
+        /// must short-circuit so any synthetic post-strip "vessel-gone" signal
+        /// does not flip <c>VesselSpawned</c> back to false.
+        /// <para>
+        /// This is NOT the production-sequence fix for #573 — see the bug doc
+        /// for the real mechanism (<see cref="Recording.SpawnSuppressedByRewind"/>).
+        /// In production the rewind path drops <see cref="RewindContext.IsRewinding"/>
+        /// inside <see cref="ParsekScenario.HandleRewindOnLoad"/> before any
+        /// FLIGHT update fires, so this guard never trips on the production
+        /// duplicate-spawn path; the test injects an artificial state to lock
+        /// the guard in place against future refactors.
+        /// </para>
         /// </summary>
         [Fact]
         public void RunSpawnDeathChecks_SkippedWhileRewindContextIsRewinding()
@@ -528,7 +530,7 @@ namespace Parsek.Tests
                 Assert.False(rec.SpawnAbandoned);
                 Assert.Contains(logLines, l =>
                     l.Contains("[Policy]")
-                    && l.Contains("RunSpawnDeathChecks: skipped during active rewind"));
+                    && l.Contains("RunSpawnDeathChecks: defense-in-depth skip during active rewind"));
                 Assert.DoesNotContain(logLines, l =>
                     l.Contains("Spawn-death detected"));
             }
@@ -583,7 +585,7 @@ namespace Parsek.Tests
                 Assert.Equal(0u, rec.SpawnedVesselPersistentId);
                 Assert.Equal(1, rec.SpawnDeathCount);
                 Assert.DoesNotContain(logLines, l =>
-                    l.Contains("RunSpawnDeathChecks: skipped during active rewind"));
+                    l.Contains("RunSpawnDeathChecks: defense-in-depth skip during active rewind"));
                 Assert.Contains(logLines, l =>
                     l.Contains("[Policy]")
                     && l.Contains("Spawn-death detected")

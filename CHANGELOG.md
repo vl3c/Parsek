@@ -59,7 +59,7 @@ All notable changes to Parsek are documented here.
 
 - Strip-killing the upper stage during re-fly no longer trips spawn-death respawn, so a duplicate upper-stage vessel doesn't materialise next to the booster.
 
-- Plain Rewind-to-Launch (R-button) now suppresses spawn-death detection while the rewind is in progress, matching the existing re-fly guard. The earlier fix only covered Rewind-to-Staging via a re-fly marker, so a plain R-button rewind whose post-load strip removed the previously-spawned upper stage still armed a duplicate spawn alongside the player's booster.
+- Plain Rewind-to-Launch (R-button) no longer materialises a real upper-stage copy when chain replay later reaches a chain-leaf in the rewound tree. The rewind path now marks every recording in the rewound tree as `SpawnSuppressedByRewind`, so the chain-tip activation that fires after warp (well after the rewind flag has cleared) finds the recording flagged as ghost-only past and refuses to spawn.
 
 - Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
 

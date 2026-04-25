@@ -78,22 +78,29 @@ namespace Parsek
         /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
         ///
         /// <para>
-        /// Skipped during an active re-fly session OR a plain rewind (#573).
-        /// <see cref="PostLoadStripper.Strip"/> kills sibling vessels on purpose,
-        /// and <see cref="ParsekScenario.StripOrphanedSpawnedVessels"/> kills the
-        /// rewound timeline's previously-materialized survivors on purpose; the
-        /// §6.4 contract is that those kills are silent — they must not feed
+        /// The active-re-fly-session short-circuit (re-fly marker) covers
+        /// the §6.4 silent-strip contract for re-fly sessions:
+        /// <see cref="PostLoadStripper.Strip"/> kills sibling vessels on
+        /// purpose during the re-fly load, and those kills must not feed
         /// back into the policy as "spawned vessel died, please re-spawn".
-        /// Without this guard the policy resets <c>VesselSpawned=false</c> on
-        /// every recording whose previously-materialized vessel was just
-        /// stripped, arming a duplicate spawn that materializes a real
-        /// upper-stage / debris next to the player's re-flown vessel
-        /// (observed in the 10:47 re-fly playtest, then again in the
-        /// 2026-04-25_1314 marker-validator-fix playtest after a plain
-        /// Rewind-to-Launch click — the original guard only covered the
-        /// re-fly marker case). Detection resumes after the marker is
-        /// cleared (merge or discard) and after <see cref="RewindContext.EndRewind"/>
-        /// fires.
+        /// </para>
+        ///
+        /// <para>
+        /// The <see cref="RewindContext.IsRewinding"/> short-circuit is
+        /// pure defense-in-depth — by the time the FLIGHT update path
+        /// runs <see cref="RunSpawnDeathChecks"/> after a plain rewind,
+        /// <see cref="ParsekScenario.HandleRewindOnLoad"/> has already
+        /// called <see cref="RewindContext.EndRewind"/>, so the flag is
+        /// false. It does NOT close the production duplicate-spawn from
+        /// the 2026-04-25_1314 marker-validator-fix playtest — that
+        /// duplicate fired through <see cref="VesselGhoster.SpawnAtChainTip"/>
+        /// during a warp-deferred chain-tip activation, not through
+        /// the spawn-death-then-respawn loop. The real fix sets
+        /// <see cref="Recording.SpawnSuppressedByRewind"/> on every
+        /// recording in the rewound tree (see
+        /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>),
+        /// which <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd"/>
+        /// honours regardless of the rewind flag's state.
         /// </para>
         /// </summary>
         internal void RunSpawnDeathChecks()
@@ -111,8 +118,9 @@ namespace Parsek
             if (RewindContext.IsRewinding)
             {
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-rewind",
-                    "RunSpawnDeathChecks: skipped during active rewind — " +
-                    "StripOrphanedSpawnedVessels kills are intentional and must not trigger respawn");
+                    "RunSpawnDeathChecks: defense-in-depth skip during active rewind — " +
+                    "production sequence ends rewind before this path runs; " +
+                    "the real plain-rewind fix is SpawnSuppressedByRewind (#573)");
                 return;
             }
 
