@@ -41,6 +41,351 @@ The three latent carryover items below are tracked in the design doc under Known
 
 # Known Bugs
 
+## 571. Map View ghost icons show weird trajectories that do not match the recorded path
+
+**Source:** in-game observation by user during the
+`logs/2026-04-25_1314_marker-validator-fix` playtest. "the ghost icons in map
+view had very weird trajectories, did not move on their correct paths."
+
+**Suspected supporting evidence in the cleaned KSP.log:**
+
+- `[LOG 13:11:38.311] [Parsek][VERBOSE][Policy] Deferred ghost map vessel for #7 "Kerbal X Probe" — recording starts pre-orbital`
+- `[LOG 13:11:44.714] [Parsek][VERBOSE][Policy] Deferred ghost map vessel for #8 "Kerbal X" — recording starts pre-orbital`
+- `[LOG 13:13:19.369] [Parsek][INFO][GhostMap] Created ghost vessel 'Ghost: Kerbal X' ghostPid=1840826626 type=Ship body=Kerbin sma=4070696 for recording index=8 (from segment) orbitSource=visible-segment segmentBody=Kerbin segmentUT=171496.6-193774.6 …`
+- `[LOG 13:13:19.582] [Parsek][INFO][GhostMap] Removed ghost map vessel for recording #8 ghostPid=1840826626 reason=ghost-destroyed`
+
+The capture shows ghost map vessels being created from `visible-segment` /
+`endpoint-terminal-orbit` sources, then torn down within ~200ms with
+`reason=ghost-destroyed` or `reason=tracking-station-existing-real-vessel`.
+Combined with the `Deferred ghost map vessel … recording starts pre-orbital`
+deferrals, the player sees orbit-line previews that don't track the recorded
+trajectory.
+
+**Files to investigate:**
+
+- `Source/Parsek/GhostMapPresence.cs` — `CreateGhostVesselsFromCommittedRecordings`,
+  `ResolveMapPresenceGhostSource`, the `visible-segment` vs
+  `endpoint-terminal-orbit` source decision, and the `ghost-destroyed` /
+  `tracking-station-existing-real-vessel` teardown reasons.
+- `Source/Parsek/PatchedConicSnapshot.cs` and `Source/Parsek/BallisticExtrapolator.cs` —
+  cross-reference with #574 (146 sub-surface Destroyed reclassifications) and #575
+  (153 MissingPatchBody fallbacks); the patched-conic snapshot feeds the same orbit
+  data that the map renders.
+- The `Deferred ghost map vessel … recording starts pre-orbital` policy gate in
+  `Source/Parsek/ParsekPlaybackPolicy.cs`.
+
+**Status:** Open. Reproduces in `logs/2026-04-25_1314_marker-validator-fix`.
+
+---
+
+## 572. Landed capsule was not spawned at the end of its recording
+
+**Source:** in-game observation by user during the
+`logs/2026-04-25_1314_marker-validator-fix` playtest. "the capsule I landed was
+not spawned at the end of the recording."
+
+**Note on prior fixes:** [#570](#570-warp-deferred-survivor-spawn-stayed-queued-outside-the-active-vessels-physics-bubble)
+fixed the warp-deferred path
+(`ParsekPlaybackPolicy.FlushDeferredSpawns` no longer re-checks
+physics-bubble distance after warp ends). The captured playtest's commit
+`ef63407a` predates that fix on its branch. If the user's report is from a
+build that already includes #570 (i.e. post-merge of v0.9.0 fix tail), the
+remaining symptom is a fresh case; if it is from `ef63407a`, #570 is the fix
+and a re-test is what's needed.
+
+**Files to investigate:**
+
+- `Source/Parsek/ParsekPlaybackPolicy.cs` — `FlushDeferredSpawns`,
+  `SpawnVesselOrChainTipFromPolicy`, terminal-state spawn conditions
+  (`TerminalState.Landed` / `Splashed` / `SplashedDown`).
+- `Source/Parsek/GhostPlaybackLogic.cs` — `ShouldSpawnAtRecordingEnd`,
+  `IsGhostOnly` gate.
+- `Source/Parsek/VesselSpawner.cs` — the materialization path for terminal
+  recordings; cross-check with the "Spawn suppressed for #X 'Kerbal X':
+  already spawned (VesselSpawned=true) | suppressed=574" entries from
+  `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` line 14655 onward
+  to see whether the suppression is firing on the wrong recording.
+
+**First diagnostic step:** re-collect logs after running the same scenario on
+post-#570 main and check whether the symptom reproduces.
+
+**Status:** Open. Cross-references #570 and #574.
+
+---
+
+## 573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly
+
+**Source:** in-game observation by user during the
+`logs/2026-04-25_1314_marker-validator-fix` playtest. "when I did the Re-Fly,
+when controlling the booster, the upper stage ghost was visible, but also a
+real vessel copy of the upper stage (that should not exist)." User flagged this
+as `(again - was not fixed)` — i.e. believed already-shipped.
+
+**Prior fix on record:** `CHANGELOG.md` 0.9.0 Bug Fixes — *"Strip-killing the
+upper stage during re-fly no longer trips spawn-death respawn, so a duplicate
+upper-stage vessel doesn't materialise next to the booster."* That fix
+addressed the spawn-death respawn path. The user's recurrence suggests either
+a regression, a different code path that bypasses the strip-kill protection,
+or an incomplete fix that only covered one trigger.
+
+**Suspected supporting evidence in the cleaned KSP.log:**
+
+- `[LOG 13:04:04.437] [Parsek][INFO][GhostMap] Tracking-station handoff skipped duplicate spawn for #1 "Kerbal X" — real vessel pid=2708531065 already exists`
+- `[LOG 13:09:32.514] [Parsek][INFO][KSCSpawn] Spawn not needed for #15 "Kerbal X": source vessel pid=2708531065 already exists - adopting instead of spawning duplicate`
+
+The duplicate-protection branches that *do* exist (Tracking-station handoff,
+KSCSpawn) fire with the right "already exists" guard. The duplicate that the
+user saw must come from a third path.
+
+**Files to investigate:**
+
+- `Source/Parsek/RewindInvoker.cs` — the post-load `Activate` step, atomic
+  provisional commit, and `ReFlySessionMarker` write. If the booster activates
+  but the upper-stage strip didn't propagate, the upper-stage real vessel
+  survives.
+- `Source/Parsek/LoadTimeSweep.cs` — discards zombie `NotCommitted` provisionals
+  + session-provisional RPs; check whether a stale provisional upper-stage
+  recording is materializing during the sweep.
+- `Source/Parsek/VesselSpawner.cs` — `SpawnVesselOrChainTipFromPolicy`,
+  `MaterializeFromRecording`, and any path that doesn't consult the same
+  "already exists" guard as Tracking-station handoff and KSCSpawn.
+- `Source/Parsek/ParsekScenario.cs` — `StripOrphanedSpawnedVessels`. The strip
+  log around `[LOG 13:10:15.508]` removes 5 orphaned spawned vessels before the
+  rewind FLIGHT load; verify the upper-stage `pid` is included.
+
+**Status:** Open. User flagged as recurrence of an earlier "fixed" symptom.
+
+---
+
+## 574. Extrapolator: 146 sub-surface state rejections classified as Destroyed for the same recordings
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+146 occurrences each of:
+
+- `[Parsek][WARN][Extrapolator] Start rejected: sub-surface state body=Kerbin ut=<F> alt=<F> (threshold=<F>); classifying recording as Destroyed`
+- `[Parsek][WARN][Extrapolator] TryFinalizeRecording: patched-conic snapshot failed for '<HEX>' with NullSolver; falling back to live orbit state`
+- `[Parsek][INFO][Extrapolator] TryFinalizeRecording: sub-surface destroyed terminal applied for '<HEX>' (terminalUT=<F>) — skipping segment append`
+
+The branch the playtest commit lives on is exactly
+`bug/extrapolator-destroyed-on-subsurface`, so the user is already
+investigating this. The 146-times repetition for the same recording IDs across
+an hour-long session suggests the same recording is being finalized repeatedly
+(once per re-evaluation pass) and each pass re-applies the destroyed terminal.
+
+**Files to investigate:**
+
+- `Source/Parsek/BallisticExtrapolator.cs` — `Start`, sub-surface threshold
+  check, the `classifying recording as Destroyed` branch.
+- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs` — the scene-exit
+  seam. Check whether the "destroyed terminal applied" path is idempotent or
+  re-runs on every re-evaluation.
+- Cross-reference with bug #571 (weird map trajectories) — sub-surface
+  reclassification feeds the orbit data that drives the map vessel preview.
+
+**Status:** Open. Already on `bug/extrapolator-destroyed-on-subsurface`
+([PR #514](https://github.com/vl3c/Parsek/pull/514) review thread); this entry
+captures the symptom for cross-reference.
+
+---
+
+## 575. PatchedSnapshot: MissingPatchBody warning floor of 153/session for the same recordings
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+153 occurrences each of:
+
+- `[Parsek][WARN][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Kerbal X patchIndex=<N> body=(missing-reference-body); aborting predicted snapshot capture`
+- `[Parsek][WARN][Extrapolator] TryFinalizeRecording: patched-conic snapshot failed for '<HEX>' with MissingPatchBody; falling back to live orbit state`
+- `[Parsek][VERBOSE][Extrapolator] TryFinalizeRecording: skipping live-orbit fallback for '<HEX>' because patched-conic failure MissingPatchBody indicates transient early-ascent state, not a destroyed vessel`
+
+The verbose comment immediately following each pair claims the failure is
+*"transient early-ascent state, not a destroyed vessel"* — i.e. expected.
+But "transient" is supposed to mean "a few frames", not 153 paired warnings
+per recording over a single session. Either:
+
+- The early-ascent window is being held longer than necessary;
+- The "transient" classifier is firing for non-transient cases too;
+- WARN is the wrong level for an expected condition that fires by design.
+
+**Files to investigate:**
+
+- `Source/Parsek/PatchedConicSnapshot.cs` — `SnapshotPatchedConicChain`,
+  `missing-reference-body` branch.
+- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs` — `TryFinalizeRecording`,
+  the `MissingPatchBody` failure-mode-to-fallback dispatch and the "transient
+  early-ascent" classifier.
+
+**Status:** Open. Cross-reference with #571 and #574.
+
+---
+
+## 576. PatchedSnapshot: 146 "solver unavailable" warnings clustered on a few vessels
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+`[Parsek][WARN][PatchedSnapshot] SnapshotPatchedConicChain: vessel=<name> solver unavailable`:
+
+- `Kerbal X Debris` — 77
+- `Ermore Kerman` — 45
+- `Magdo Kerman` — 12
+- `Kerbal X Probe` — 11
+- `Kerbal X` — 1
+
+Plus paired `[Parsek][WARN][Extrapolator] TryFinalizeRecording: patched-conic
+snapshot failed for '<HEX>' with NullSolver; falling back to live orbit state`
+(146 occurrences, same as #574's NullSolver count).
+
+This is the same WARN level as the MissingPatchBody case in #575 but with a
+different cause — the solver itself isn't reachable. Same concern: WARN floor
+for an expected-on-startup or transient-during-soi-transition condition.
+
+**Files to investigate:**
+
+- `Source/Parsek/PatchedConicSnapshot.cs` — the `solver unavailable` branch
+  (this is the `__solver == null` / `solver.maneuverNodes == null` shape
+  check, distinct from #575's `MissingPatchBody`).
+- Whether the solver should be considered unavailable as a hard error (no
+  fallback) or as a soft transient (rate-limit / VERBOSE).
+
+**Status:** Open.
+
+---
+
+## 577. ReFlySession marker invalidated on the `InvokedUT` field on a fresh load
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` line 8889:
+
+`[Parsek][WARN][ReFlySession] Marker invalid field=InvokedUT; cleared sess=sess_d67eb15f0492418aa71074c83870f867 tree=a35db8a2e78b44e1b3bd2c7ba002bcd6 active=70006fbb97c74e56bf4e5cc79165c0b8 origin=70006fbb97c74e56bf4e5cc79165c0b8 rp=rp_8eebf4aeb2de49dca41bda7ddd1473f4 invokedUT=578.13180328350882 invokedRealTime=2026-04-25T09:40:55.0225531Z`
+
+The marker survived save/load but was wiped on the next OnLoad because
+`InvokedUT` failed validation. PR #535 / #536 already addressed `MergeState`
+and `ActiveReFlyRecordingId` field validation for the in-place continuation
+pattern; `InvokedUT` is a separate field and may not have been covered. After
+this clear, all subsequent `Marker saved/loaded: none` entries indicate the
+session never re-engaged.
+
+**Note:** the timestamp `invokedRealTime=2026-04-25T09:40:55Z` is from a
+previous game session (the playtest started at 13:00:21 UTC+3 = 10:00 UTC),
+so this marker was loaded from the on-disk save and immediately wiped on the
+fresh start. The cause may be a stale-marker survival problem, a too-strict
+`InvokedUT` validator, or both.
+
+**Files to investigate:**
+
+- `Source/Parsek/MarkerValidator.cs` — `Validate`, the `InvokedUT` field check
+  (compare to the recently-relaxed `MergeState` / `ActiveReFlyRecordingId`
+  rules on PR #535 / #536).
+- `Source/Parsek/LoadTimeSweep.cs` — the validation seam that calls
+  `MarkerValidator.Validate` and clears on failure.
+- `Source/Parsek/ReFlySessionMarker.cs` — when `InvokedUT` is allowed to be
+  null/zero and when it must be non-zero.
+
+**Status:** Open. Single occurrence in this log; reproducer needs the prior
+session that authored the on-disk marker.
+
+---
+
+## 578. CrewReservation: 3 orphan placements where pid AND name tiers both fail
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+3 occurrences of:
+
+- `[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for 'Magdo Kerman' → 'Herfrid Kerman' (snapshot pid=<N> name='mk1-1pod') — stand-in left in roster (attempted pidTier=yes nameTier=yes; cumulative pidHits=<N> nameHitFallbacks=<N>)`
+- Same shape for `'Kathrick Kerman' → 'Lomy Kerman'`
+- Same shape for `'Ermore Kerman' → 'Shepry Kerman'`
+
+Both lookup tiers (`pidTier=yes` AND `nameTier=yes`) attempted and both
+failed → stand-in is left in the roster. Three different replacement pairs
+all pointing at the same `mk1-1pod` snapshot suggests the active vessel does
+not actually contain that part type, or all of its mk1-1pod seats are
+occupied at the time of placement.
+
+**Files to investigate:**
+
+- `Source/Parsek/CrewReservationManager.cs` — orphan-placement fallback path,
+  the pid-tier and name-tier matchers, why neither resolved.
+- `Source/Parsek/GameActions/KerbalsModule.cs` — replacement dispatch.
+- This subsystem is flagged as elevated-risk in
+  `memory/project_post_v0_8_0_risk_areas.md` after the 6-bug PR #263 mega-fix.
+
+**Status:** Open.
+
+---
+
+## 579. LedgerOrchestrator: pending recovery-funds queue overflowed for `Kerbal X Debris`
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+1× threshold, 1× flush:
+
+- `[Parsek][WARN][LedgerOrchestrator] OnVesselRecoveryFunds: pending queue exceeded threshold (count=<N> > <N>) — paired FundsChanged(VesselRecovery) events may be missing. Latest deferred request vessel='Kerbal X Debris' ut=<F>`
+- `[Parsek][WARN][LedgerOrchestrator] FlushStalePendingRecoveryFunds (rewind end): evicting <N> unclaimed recovery request(s) that never received a paired FundsChanged(VesselRecovery) event. Entries: [vessel='Kerbal X Debris' ut=<F>, vessel='Kerbal X Debris' ut=<F>, vessel='Kerbal X Debris' ut=<F>, vessel='Kerbal X Debris' ut=<F>, vessel='Kerbal X Debris' ut=<F>, vessel='Kerbal X Debris' ut=<F>]`
+
+Six unpaired recovery-funds requests for `Kerbal X Debris` evicted on rewind
+end. Either KSP is not firing the matching `FundsChanged(VesselRecovery)` event
+for debris recoveries, or Parsek's pairing logic is missing a non-debris-only
+filter.
+
+**Files to investigate:**
+
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` — `OnVesselRecoveryFunds`,
+  `FlushStalePendingRecoveryFunds`, the `FundsChanged(VesselRecovery)` pairing
+  expectation.
+- Whether `Kerbal X Debris` (vessel type Debris) is excluded from KSP's
+  `onVesselRecoveryProcessing` funds events by stock; if so, debris should
+  not be enqueued at all.
+
+**Status:** Open.
+
+---
+
+## 580. MergeTree: 3 boundary discontinuity warnings (`unrecorded-gap`) between Background and Active sources
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
+3 occurrences of:
+
+`[Parsek][WARN][Merger] MergeTree: boundary discontinuity=<F>m at section[<N>] ut=<F> vessel='Kerbal X' prevRef=Absolute nextRef=Absolute prevSrc=Background nextSrc=Active dt=<F>s expectedFromVel=<F>m cause=unrecorded-gap`
+
+Background-to-Active source handoff produced a position discontinuity larger
+than the velocity-extrapolated bound during merge. Three occurrences for
+`Kerbal X`. Either Background sampling stopped a beat too early, Active
+sampling started a beat too late, or the krakensbane / frame-of-reference
+correction at handoff is missing a term.
+
+**Files to investigate:**
+
+- `Source/Parsek/RecordingMerger.cs` (or the Merger subsystem in
+  `BackgroundRecorder.cs` / `FlightRecorder.cs`) — the `MergeTree` boundary
+  check, `expectedFromVel` derivation, the handoff-frame guard.
+- Whether `unrecorded-gap` should heal the boundary by interpolating or just
+  surface as a WARN.
+
+**Status:** Open.
+
+---
+
+## 581. Diagnostics: 2 frame-budget breaches during normal flight playback
+
+**Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned`:
+
+- 2× `[Parsek][WARN][Diagnostics] Playback frame budget exceeded: <F>ms (<N> ghosts, warp: <N>x)`
+- 1× `[Parsek][WARN][Diagnostics] Recording frame exceeded budget: <F>ms for vessel "Kerbal X"`
+- 1× `[Parsek][WARN][Diagnostics] Playback budget breakdown (one-shot, first exceeded frame): total=<F>ms mainLoop=<F>ms spawn=<F>ms (built=<N> throttled=<N> max=<F>ms) destroy=<F>ms explosionCleanup=<F>ms deferredCreated=<F>ms (<N> evts) deferredCompleted=<F>ms (<N> evts) observabilityCapture=<F>ms trajectories=<N> ghosts=<N> warp=<N>x`
+
+Each breach is a single frame; the budget breakdown one-shot fires for the
+first exceeded frame to capture per-bucket cost. Two breaches in an hour-long
+session is low frequency, but worth checking which bucket dominates the
+breakdown.
+
+**Files to investigate:**
+
+- `Source/Parsek/Diagnostics/FrameBudget.cs` (or wherever the budget check
+  lives) and the `Playback budget breakdown` emission point.
+- Cross-reference the breakdown's `spawn=`, `deferredCreated=`,
+  `observabilityCapture=` buckets against whichever was largest in the
+  one-shot line.
+
+**Status:** Open. Low priority unless reproducible at higher frequency.
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
