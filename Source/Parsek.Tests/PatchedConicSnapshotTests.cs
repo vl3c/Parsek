@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -120,9 +121,81 @@ namespace Parsek.Tests
 
             Assert.Equal(PatchedConicSnapshotFailureReason.NullSolver, result.FailureReason);
             Assert.Empty(result.Segments);
+            // The first hit per (subsystem, vessel-name) key always emits at WARN
+            // level; rate-limiting only suppresses subsequent hits within the
+            // 30-second interval (covered by
+            // <see cref="Snapshot_NullSolver_RateLimitsRepeatsForSameVessel"/>).
             Assert.Contains(logLines, line =>
-                line.Contains("[PatchedSnapshot]") &&
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
                 line.Contains("solver unavailable"));
+        }
+
+        /// <summary>
+        /// Regression for #576: 146 `solver unavailable` WARNs were emitted in the
+        /// 2026-04-25 marker-validator-fix playtest, clustered as 77×Kerbal X
+        /// Debris + 45×Ermore Kerman + 12×Magdo Kerman + 11×Kerbal X Probe +
+        /// 1×Kerbal X. All but the lone "Kerbal X" hit were vessels whose
+        /// `patchedConicSolver` is null by design in stock KSP (debris,
+        /// EVA-kerbals, probe-debris that has lost active-vessel solver state).
+        /// Per-vessel rate-limiting collapses the floor to one WARN per vessel
+        /// per 30-second window with a `suppressed=N` suffix on the next
+        /// emission, while still surfacing the first occurrence of a NEW
+        /// vessel name immediately so a fresh regression on a piloted craft
+        /// mid-flight cannot be silently absorbed by an unrelated debris
+        /// floor.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NullSolver_RateLimitsRepeatsForSameVessel()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            // Ten consecutive null-solver snapshots for the same vessel within a
+            // 1-second window must produce exactly ONE WARN line — not 10.
+            for (int i = 0; i < 10; i++)
+            {
+                clockSeconds += 0.1;
+                PatchedConicSnapshot.SnapshotPatchedConicChain(
+                    source: null,
+                    snapshotUT: 100 + i,
+                    captureLimit: 8,
+                    vesselName: "Kerbal X Debris");
+            }
+
+            int firstVesselWarnCount = logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable"));
+            Assert.Equal(1, firstVesselWarnCount);
+
+            // A different vessel name has its own key — its first hit must
+            // emit immediately rather than being suppressed by the prior
+            // vessel's floor.
+            clockSeconds += 0.1;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null,
+                snapshotUT: 200,
+                captureLimit: 8,
+                vesselName: "Ermore Kerman");
+
+            int secondVesselWarnCount = logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Ermore Kerman solver unavailable"));
+            Assert.Equal(1, secondVesselWarnCount);
+
+            // After the 30-second rate-limit window expires, the same vessel
+            // emits its next WARN with a `suppressed=N` suffix attributing the
+            // intervening absorbed hits.
+            clockSeconds += 30.5;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source: null,
+                snapshotUT: 300,
+                captureLimit: 8,
+                vesselName: "Kerbal X Debris");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("vessel=Kerbal X Debris solver unavailable") &&
+                l.Contains("suppressed=9"));
         }
 
         [Fact]

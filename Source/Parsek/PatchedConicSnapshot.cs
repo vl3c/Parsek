@@ -113,7 +113,24 @@ namespace Parsek
             if (source == null || !source.IsAvailable)
             {
                 result.FailureReason = PatchedConicSnapshotFailureReason.NullSolver;
-                ParsekLog.Warn("PatchedSnapshot",
+                // #576: rate-limit per vessel name. The 2026-04-25 marker-validator
+                // playtest emitted 146 of these in an hour, clustered as
+                // 77×Kerbal X Debris + 45×Ermore Kerman + 12×Magdo Kerman +
+                // 11×Kerbal X Probe + 1×Kerbal X. The first four populations are
+                // by-design solver-less in stock KSP (debris has no command
+                // module; EVA kerbals run on the kerbal jetpack motion system;
+                // probe-debris loses solver state when the active vessel switches
+                // away). NullSolver is still emitted as the FailureReason and the
+                // downstream `IncompleteBallisticSceneExitFinalizer` continues to
+                // treat it as the destroyed-vessel / no-solver-by-design
+                // fingerprint that the live-orbit fallback was designed for; only
+                // the log-noise floor changes. Per-vessel keying preserves the
+                // first-of-its-kind hit per vessel so a fresh regression on a
+                // piloted craft mid-flight still surfaces immediately, while the
+                // repeating per-debris-vessel floor is absorbed into a single
+                // line per 30 s window with a `suppressed=N` suffix.
+                ParsekLog.WarnRateLimited("PatchedSnapshot",
+                    "solver-unavailable-" + safeVesselName,
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} solver unavailable");
                 return result;
             }

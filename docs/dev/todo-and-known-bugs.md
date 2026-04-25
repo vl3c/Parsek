@@ -321,7 +321,7 @@ patch-0-null discard-and-warn case.
 
 ---
 
-## 576. PatchedSnapshot: 146 "solver unavailable" warnings clustered on a few vessels
+## ~~576. PatchedSnapshot: 146 "solver unavailable" warnings clustered on a few vessels~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 `[Parsek][WARN][PatchedSnapshot] SnapshotPatchedConicChain: vessel=<name> solver unavailable`:
@@ -340,15 +340,40 @@ This is the same WARN level as the MissingPatchBody case in #575 but with a
 different cause — the solver itself isn't reachable. Same concern: WARN floor
 for an expected-on-startup or transient-during-soi-transition condition.
 
-**Files to investigate:**
+**Diagnosis (2026-04-25):** `IPatchedConicSnapshotSource.IsAvailable` is
+`vessel != null && vessel.patchedConicSolver != null && vessel.orbit != null`
+(`Source/Parsek/PatchedConicSnapshot.cs:295-297`). In stock KSP,
+`Vessel.patchedConicSolver` is null **by design** for any vessel whose flight
+controller does not own a piloted/probe solver: `VesselType.Debris` (no command
+module — 77/77 of the `Kerbal X Debris` hits), EVA kerbals (jetpack motion
+system, no solver — 45+12 hits across `Ermore Kerman` / `Magdo Kerman`), and
+probe-debris that has lost its active-vessel solver state (11/11 of the
+`Kerbal X Probe` hits). Only the lone `Kerbal X` hit at 13:07:48 was the
+"genuine transient" case the original WARN tier was designed for. The downstream
+`IncompleteBallisticSceneExitFinalizer` (`...:280-286`) explicitly documents
+that NullSolver is the destroyed-vessel / no-solver-by-design fingerprint that
+drives the live-orbit fallback — the WARN tier was correct as a fallback
+signal but wrong for log noise of this shape.
 
-- `Source/Parsek/PatchedConicSnapshot.cs` — the `solver unavailable` branch
-  (this is the `__solver == null` / `solver.maneuverNodes == null` shape
-  check, distinct from #575's `MissingPatchBody`).
-- Whether the solver should be considered unavailable as a hard error (no
-  fallback) or as a soft transient (rate-limit / VERBOSE).
+**Fix:** swap both paired warns from `Warn` to `WarnRateLimited` with
+distinguishing keys — `solver-unavailable-{vesselName}` for the
+`PatchedConicSnapshot` site, and `finalize-snapshot-failed-{recordingId}-{failureReason}`
+for the paired `IncompleteBallisticSceneExitFinalizer` site. The `FailureReason
+= NullSolver` flow downstream is unchanged: only the level routing through the
+30-second-window rate limiter changes. The first hit per key still emits at
+WARN level so a fresh regression on a piloted craft mid-flight surfaces
+immediately; subsequent hits within 30 s on the same key are absorbed into a
+single line per window with a `suppressed=N` suffix.
 
-**Status:** Open.
+Regression `PatchedConicSnapshotTests.Snapshot_NullSolver_RateLimitsRepeatsForSameVessel`
+pins the per-vessel keying, the cross-vessel independence, and the
+30-second-window expiry suffix. Regression
+`SceneExitFinalizationIntegrationTests.TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WarnRateLimitedPerRecordingAndReason`
+pins the paired Extrapolator rate-limit. The pre-existing
+`Snapshot_NullSolver_ReturnsEmptyList` test still pins the WARN level
+(`[Parsek][WARN][PatchedSnapshot]`) of the FIRST hit per key.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 
@@ -505,7 +530,7 @@ correction at handoff is missing a term.
 
 ---
 
-## 581. Diagnostics: 2 frame-budget breaches during normal flight playback
+## ~~581. Diagnostics: 2 frame-budget breaches during normal flight playback~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned`:
 
@@ -518,15 +543,47 @@ first exceeded frame to capture per-bucket cost. Two breaches in an hour-long
 session is low frequency, but worth checking which bucket dominates the
 breakdown.
 
-**Files to investigate:**
+**Diagnosis (2026-04-25):** the captured log has exactly one breakdown line
+(`grep "budget breakdown" KSP.log.cleaned` → 1 hit, line 517040): `total=11.6ms
+mainLoop=7.51ms spawn=3.44ms (built=1 throttled=0 max=3.44ms) destroy=0.00ms
+explosionCleanup=0.00ms deferredCreated=0.28ms (1 evts) deferredCompleted=0.00ms
+(0 evts) observabilityCapture=0.39ms trajectories=18 ghosts=0 warp=1x`. This is
+a hybrid spike: partly mainLoop (7.51 ms / 65 % of frame) + partly a single
+non-trivial spawn (3.44 ms / 30 %). It falls in a diagnostic gap between the
+existing #450 (gate: `spawnMaxMicroseconds >= 15 ms`) and #460 (gate:
+`mainLoop >= 10 ms` AND `spawn < 1 ms`) sub-breakdown latches: heaviest spawn
+under #450's threshold AND mainLoop under #460's floor. `grep "mainLoop
+breakdown\|spawn build breakdown" KSP.log.cleaned` confirms 0 hits — the session
+captured the generic #414 breakdown but no Phase-B attribution.
 
-- `Source/Parsek/Diagnostics/FrameBudget.cs` (or wherever the budget check
-  lives) and the `Playback budget breakdown` emission point.
-- Cross-reference the breakdown's `spawn=`, `deferredCreated=`,
-  `observabilityCapture=` buckets against whichever was largest in the
-  one-shot line.
+The frequency itself (2 playback breaches in an hour-long session, plus 1
+recording breach) is well inside expected Unity-frame jitter and does not
+constitute a regression. The functional fix is therefore **none**: the budget
+itself stays at 8 ms, the existing latches are unchanged.
 
-**Status:** Open. Low priority unless reproducible at higher frequency.
+**Fix:** add a fourth one-shot latch — "Playback hybrid breakdown" — that
+fires when total > budget AND `spawnMaxMicroseconds <
+BuildBreakdownMinHeaviestSpawnMicroseconds` AND `mainLoopMicroseconds <
+MainLoopBreakdownMinMainLoopMicroseconds`. Reuses the existing
+`PlaybackBudgetPhases` field set; adds mainLoop / spawn percent-of-frame
+fractions so a future hybrid breach reports a Phase-B-actionable per-bucket
+itemisation rather than just the generic #414 breakdown that the gap-shaped
+spike in the captured log received.
+
+The new latch is independent of #414 / #450 / #460 (matches the precedent set
+by #460 itself): a session that already burned the prior three latches on
+bigger spikes can still capture the next gap-shaped breach. Test seam
+`SetBug460BreakdownLatchFiredForTesting` lets the independence pair-test
+between #460 and #581 land without reaching for `ResetForTesting`.
+
+Regression `Bug581HybridBreakdownTests` (8 cases: captured-log-shape format,
+one-shot latch, two negative-gate cases asserting the latch declines on
+#450-shape and #460-shape spikes, two latch-independence cases for #450 and
+#460, total-below-budget defensive case, zero-total degenerate-case
+non-throwing).
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0 — observability-only, no
+functional change to the budget itself.
 
 ---
 

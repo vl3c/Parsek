@@ -1199,6 +1199,118 @@ namespace Parsek.Tests
             Assert.Equal(1, lifecycleInfoCount);
         }
 
+        /// <summary>
+        /// Regression for #576: 146 paired
+        /// `[Extrapolator] patched-conic snapshot failed for '<id>' with NullSolver`
+        /// WARNs were emitted in the 2026-04-25 marker-validator-fix playtest, one
+        /// per upstream `[PatchedSnapshot] solver unavailable` hit. The same root
+        /// cause (debris/EVA-kerbal/probe vessels with no patched-conic solver by
+        /// design) drives the floor on this paired warn. Per-(recordingId,
+        /// failureReason) rate-limiting collapses repeats within the 30-second
+        /// window into a single emission with `suppressed=N` suffix, while the
+        /// downstream NullSolver→live-orbit fallback continues to run because
+        /// only the LOG ROUTING changes.
+        /// </summary>
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WarnRateLimitedPerRecordingAndReason()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-rate-limit-floor",
+                ExplicitEndUT = 500.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            for (int i = 0; i < 5; i++)
+            {
+                clockSeconds += 0.1;
+                IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                    rec,
+                    snapshot,
+                    bodies,
+                    delegate(out BallisticStateVector startState)
+                    {
+                        // Mirror the destroyed-vessel fingerprint position.
+                        startState = new BallisticStateVector
+                        {
+                            ut = 500.0,
+                            bodyName = "Kerbin",
+                            position = new Vector3d(5.0, 0.0, 0.0),
+                            velocity = new Vector3d(0.0, 0.0, 0.0),
+                            orbitalFrameRotation = Quaternion.identity
+                        };
+                        return true;
+                    },
+                    (startState, extrapolationBodies) =>
+                        BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false),
+                    out IncompleteBallisticFinalizationResult _);
+            }
+
+            int snapshotFailedWarnCount = CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
+                "with NullSolver");
+            Assert.Equal(1, snapshotFailedWarnCount);
+
+            // A different recording-id has its own key — its first hit must
+            // emit immediately rather than being suppressed by the prior
+            // recording's floor.
+            var otherRec = new Recording
+            {
+                RecordingId = "scene-exit-rate-limit-other-recording",
+                ExplicitEndUT = 500.0
+            };
+            clockSeconds += 0.1;
+            IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                otherRec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(5.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false),
+                out IncompleteBallisticFinalizationResult _);
+
+            int otherWarnCount = CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-other-recording'",
+                "with NullSolver");
+            Assert.Equal(1, otherWarnCount);
+        }
+
         [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
         {
