@@ -1139,7 +1139,19 @@ namespace Parsek
                     // increment frameLazyReentryBuildCount. See
                     // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
                     // preservation table.
-                    ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                    //
+                    // Suppress the retarget camera event when an explosion was just
+                    // emitted: ExplosionHoldStart already set the watch handler into
+                    // hold (watchedOverlapCycleIndex == -2) and a follow-up
+                    // RetargetToNewGhost would be ignored anyway. The contract is
+                    // "one OnLoopCameraAction per cycle boundary" — see
+                    // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold.
+                    // Non-destroyed boundaries (ExplosionHoldEnd) still need the
+                    // retarget so the watch handler swaps the bridge anchor for
+                    // the new cycle's pivot.
+                    ReusePrimaryGhostAcrossCycle(
+                        index, traj, flags, state, loopUT, cycleIndex,
+                        emitRetargetEvent: !needsExplosion);
                     // state is the same object; loaded-ghost path keeps visuals live, and
                     // pending-build path above just advances the cycle index without
                     // emitting restart side effects.
@@ -2570,10 +2582,21 @@ namespace Parsek
         /// to the ghost's post-wrap position — the <c>cameraPivot</c>
         /// Transform identity is preserved across the reuse so any hard
         /// references held by the camera code remain valid.
+        ///
+        /// Set <paramref name="emitRetargetEvent"/> to <c>false</c> when the
+        /// caller has already emitted a primary <c>OnLoopCameraAction</c> for
+        /// this cycle boundary (e.g. <c>ExplosionHoldStart</c>) and a follow-up
+        /// <c>RetargetToNewGhost</c> would either be ignored by the watch
+        /// handler (already in explosion hold) or override an explicit
+        /// camera-state decision. The destroyed-loop-cycle path in
+        /// <c>UpdateLoopingPlayback</c> uses this to keep the camera held at
+        /// the explosion site without firing a redundant retarget event
+        /// immediately after.
         /// </summary>
         internal void ReusePrimaryGhostAcrossCycle(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
-            GhostPlaybackState state, double playbackUT, long newCycleIndex)
+            GhostPlaybackState state, double playbackUT, long newCycleIndex,
+            bool emitRetargetEvent = true)
         {
             if (state == null || state.ghost == null)
             {
@@ -2697,15 +2720,37 @@ namespace Parsek
             // has moved (PrimeLoadedGhostForPlaybackUT -> positioner.PositionLoop
             // placed it at loopUT on the new cycle), so the retarget is
             // essential for watch-mode follow.
-            OnLoopCameraAction?.Invoke(new CameraActionEvent
+            //
+            // Suppressed when the caller already emitted a primary camera event
+            // for this cycle boundary (destroyed-loop ExplosionHoldStart). The
+            // watch handler ignores RetargetToNewGhost while in explosion hold
+            // (watchedOverlapCycleIndex == -2), so firing it adds API noise
+            // without changing camera behaviour and breaks the
+            // "exactly one OnLoopCameraAction per cycle boundary" contract that
+            // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold
+            // exercises. The non-destroyed branch (ExplosionHoldEnd) DOES need
+            // the retarget event so the watch handler swaps the bridge anchor
+            // for the new cycle's pivot, so the suppression only applies when
+            // the boundary fired a real explosion.
+            if (emitRetargetEvent)
             {
-                Index = index,
-                Action = CameraActionType.RetargetToNewGhost,
-                NewCycleIndex = newCycleIndex,
-                GhostPivot = state.cameraPivot,
-                Trajectory = traj,
-                Flags = flags
-            });
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index,
+                    Action = CameraActionType.RetargetToNewGhost,
+                    NewCycleIndex = newCycleIndex,
+                    GhostPivot = state.cameraPivot,
+                    Trajectory = traj,
+                    Flags = flags
+                });
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"reuse-suppress-retarget-{index}",
+                    $"Ghost #{index} \"{state.vesselName}\" loop-cycle reuse: " +
+                    $"RetargetToNewGhost suppressed (caller emitted primary boundary event; cycle={newCycleIndex})",
+                    1.0);
+            }
         }
 
         /// <summary>

@@ -33,6 +33,12 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 24. **Re-fly merge supersede only covered the chain head, leaving a chain-tip orphan after env-split crashes.** ~~done~~ — Review follow-up: `EnqueueChainSiblings` originally matched siblings by `ChainId` + `ChainBranch` across every committed recording, mirroring `IsChainMemberOfUnfinishedFlight`. The terminal-chain resolver `ResolveChainTerminalRecording` already scopes by owning tree, and the closure builder feeds both supersede commits and the tombstone scan — a future clone path / import / legacy save that drops the same `ChainId`+`ChainBranch` into a foreign tree could silently pull unrelated recordings into the closure (hidden in ERS, kerbal-death actions retired). Hardened with a `TreeId` gate: candidates must share the dequeued member's `TreeId`; recordings without a `TreeId` skip chain expansion entirely. SplitAtSection always emits same-tree segments by construction (`RecordingStore.cs:1992` sets `second.TreeId = original.TreeId`), so the gate is defense-in-depth for legacy / future shapes. Test `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs` installs two trees with colliding `ChainId`+`ChainBranch` and asserts the closure stops at the tree boundary. `EffectiveState.ComputeSessionSuppressedSubtreeInternal` (`Source/Parsek/EffectiveState.cs:523`) walked the suppressed-subtree closure forward via `ChildBranchPointId` only. Merge-time `RecordingOptimizer.SplitAtSection` splits a single live recording at env boundaries (atmo↔exo) into a `ChainId`-linked HEAD + TIP where the HEAD keeps the parent-branch-point link to the RewindPoint but ends with `ChildBranchPointId = null` (moved to the TIP at `RecordingStore.cs:2018-2019`), while the TIP carries the `Destroyed` terminal. After re-fly merge, only the HEAD got a supersede row pointing at the new provisional; the TIP stayed visible with the original "kerbal destroyed in atmo" outcome alongside the new "kerbal lived" re-fly. Fixed by adding an `EnqueueChainSiblings` helper invoked at the top of the dequeue body, BEFORE the `ChildBranchPointId` early-return: for each recording added to the closure, every committed recording sharing both `TreeId`, `ChainId`, and `ChainBranch` is also added (and re-enqueued so its own `ChildBranchPointId` walk runs). The contract matches `EffectiveState.IsChainMemberOfUnfinishedFlight` and `ResolveChainTerminalRecording`. Tests `ChainExpansion_HeadOrigin_IncludesTip`, `ChainExpansion_TipOrigin_IncludesHead`, `ChainExpansion_DifferentChainBranch_Excluded`, `ChainExpansion_ThreeSegments_AllIncluded`, `ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded`, and `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs`; `AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment` in `SupersedeCommitTests.cs`; `CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin` in `SupersedeCommitTombstoneTests.cs`. No retroactive migration: pre-existing affected saves keep the orphan TIP and require a manual `Discard`. Plan in `docs/dev/plans/fix-chain-sibling-supersede.md`.
 
+25. **In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` failed in FLIGHT scene with "Expected FinalizeIndividualRecording stable-terminal re-snapshot log line during finalize".** ~~done~~ — `RuntimeTests.cs:6898-6911` requires the captured log line to contain `[Flight]`, `FinalizeIndividualRecording`, `stable terminal state`, AND `[#289`. The production `ParsekLog.Info` call inside `TryRefreshStableTerminalSnapshot` (`ParsekFlight.cs:9935-9937`) was missing the `[#289]` tag — the sibling `CommitTreeSceneExit` log line at `ParsekFlight.cs:1577` already used the convention. Fixed by appending `[#289]` to the message. Reproduced from `logs/2026-04-25_2147` (parsek-test-results.txt + Player.log line 102836). Regression pin remains the in-game test (the function takes a live `Vessel`, so xUnit cannot reach it).
+
+26. **In-game test `CrewReservationTests.ReplacementsAreValid` NRE'd in MAINMENU scene with "Object reference not set to an instance of an object".** ~~done~~ — `RuntimeTests.cs:4591` dereferenced `HighLogic.CurrentGame.CrewRoster` without a null guard. In MAINMENU, `HighLogic.CurrentGame` is null when no save is loaded. The early `replacements.Count == 0` return at line 4585 made the other scenes pass — they hit zero replacements first — but MAINMENU after the test-order swap ran with one replacement loaded from the save's static state, then NRE'd on the deref. The sibling `ReservedCrewNotAssigned` (line 4660) already null-guards the same access. Fixed by mirroring that guard right after the count-zero early return: skip via `InGameAssert.Skip("No crew roster available")` when `HighLogic.CurrentGame?.CrewRoster` is null. Reproduced from `logs/2026-04-25_2147` (Player.log line 663325).
+
+27. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
+
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
 - Index-to-recording-id refactor to lift the 13 grep-audit exemptions added in Phase 3.
@@ -1621,6 +1627,77 @@ inherited from `ParsekLog.DefaultRateLimitSeconds`.
 
 ---
 
+## ~~Log spam: `[GhostMap] map-presence-{pending,initial}-create` and `[Spawner] Spawn suppressed: no vessel snapshot` re-emit on every frame across stable per-frame decisions~~
+
+**Source:** `logs/2026-04-25_2147/` (KSP.log + Player.log mirror the
+same Parsek output — counts below are per-file; sum across both is
+the same number doubled) — 228k Parsek lines in a 27-minute playtest,
+~13,719 of which were `[GhostMap] map-presence-pending-create` (9,950)
+/ `map-presence-initial-create` (3,769) verbose lines, plus 14,487
+`[Spawner] Spawn suppressed for #X "Y": <reason>` lines spanning 286
+distinct `(idx, vessel)` tuples. Reproduce with:
+
+```bash
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/Player.log
+grep -h "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log \
+    logs/2026-04-25_2147/Player.log \
+    | grep -oE '#[0-9]+ "[^"]+"' | sort -u | wc -l
+```
+
+**Diagnosis (2026-04-25):** `GhostMapPresence.ResolveMapPresenceGhostSource`
+fires from two per-frame call sites (`ParsekPlaybackPolicy.cs:867` for
+the pending queue and `:758` for initial create) and emits two verbose
+diagnostic lines per call. The previous wiring used
+`VerboseRateLimited` with the default 5s window keyed on
+`(operation, recId, source, reason)`, so a recording stuck in
+`source=None reason=state-vector-threshold` for the entire session
+still emitted ~one line per recording per 5 seconds (50 recordings ×
+324 5-second windows ≈ 16,200 emissions). `ParsekFlight.ComputePlaybackFlags`
+emitted `Spawn suppressed for #X "Y": <reason>` keyed by `idx` only
+(no reason in the key), so a recording whose suppression reason
+flipped between e.g. `"no vessel snapshot"` and `"chain-suppressed"`
+mid-session would only surface one of them per 5s window.
+
+**Fix:** added `ParsekLog.VerboseOnChange(subsystem, identity,
+stateKey, message)` — emits only when `stateKey` flips for the given
+`identity`, surfacing the suppressed count as `| suppressed=N` on the
+next change. Per-frame stable streaks coalesce into a single emission
+on entry plus one on exit, regardless of duration. Three call sites
+now route through the helper:
+
+- `GhostMapPresence.ResolveMapPresenceGhostSource.ReturnDecision`
+  (`GhostMapPresence.cs:2357`) — identity `map-ghost-source-<op>-<recId>`,
+  state key `(source, reason)`.
+- `GhostMapPresence.EmitSourceResolveLine` (`GhostMapPresence.cs:2301`)
+  — identity `gm-source-resolve-<op>-<recId>`, state key
+  `(source, reason)`.
+- `ParsekFlight.ComputePlaybackFlags` (`ParsekFlight.cs:12070`) —
+  identity `spawn-suppressed|<rec.RecordingId>` (with `idx-<i>`
+  fallback when RecordingId is null/empty), state key is the
+  suppression reason itself. The 2026-04-25_2147 logs show index 294
+  reused across recordings as discards reshuffle the committed list,
+  so keying on `RecordingId` rather than the bare index keeps each
+  recording's first-emission line and suppressed counter independent.
+  The bare index still appears in the message body so audits can
+  resolve recordings post-hoc.
+
+**Tests:** `ParsekLogTests.VerboseOnChange_*` (8 cases covering first
+emission, stable suppression, key flip with suppressed counter,
+independent identities, suppressed-count reset, verbose disabled, null
+state key, empty identity fallback) plus
+`LogSpamRateLimitTests.GhostMapSourceResolve_*` and
+`LogSpamRateLimitTests.Spawner_*` for the call-site integration. The
+index-reuse-across-recordings case is pinned by
+`LogSpamRateLimitTests.SpawnSuppression_IndexReuseAcrossRecordings_KeepsIndependentState`
+(plus `_StableReasonStillCoalescesPerRecording` and
+`_NullRecordingId_FallsBackToIndexInIdentity`).
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Reproduced from the
+`logs/2026-04-25_2147` playtest folder.
+
+---
+
 ## ~~596. Log spam: `KspStatePatcher.PatchFacilities` emits an INFO summary on every recalc even when there is nothing to patch~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 42 ×
@@ -1650,6 +1727,64 @@ the INFO branch (notFound>0) and the empty-Verbose branch. The
 skipped-only branch needs real `UpgradeableFacility` refs in
 `ScenarioUpgradeableFacilities.protoUpgradeables` and is verified
 in-game during the next playtest pass instead of an xUnit canary.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
+
+**Source:** `logs/2026-04-25_2147/KSP.log` lines 75858 (`Time-jump launch auto-record suppression armed: jump=epoch-shift`) and 76410 (`FAILED: FlightIntegrationTests.RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording — Real Spawn Control pad canary should exercise the time-jump transient suppression path`); same shape for `TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording` at lines 81376 / 81654.
+
+**Cause:** `EvaluateAutoRecordLaunchDecision` checked `!isActiveVessel -> SkipInactiveVessel` *before* `suppressForTimeJumpTransient -> SkipTimeJumpTransient`. During a Real Spawn Control / Timeline FF pad jump, the only `OnVesselSituationChange` events fired in the window are for the synthetic spawn vessel (`0 -> ORBITING`); the real pad vessel itself stays in `PRELAUNCH`. The non-active flickers were attributed to `SkipInactiveVessel` and only logged at `[VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel`, so the in-game canaries never observed the suppression skip log they assert on.
+
+**Fix:** Reordered `EvaluateAutoRecordLaunchDecision` so the time-jump transient check fires before the active-vessel check. Synthetic-vessel flickers during a jump window now route to `SkipTimeJumpTransient` and emit the canonical `[INFO][Flight] OnVesselSituationChange: suppressing time-jump transient (...)` line. The auto-record START decision for the real pad vessel is unchanged because that vessel still has no situation change in the window. New xUnit coverage in `Source/Parsek.Tests/AutoRecordDecisionTests.cs` pins the new ordering for the non-active-vessel-during-suppression case and for the `isRecording` precedence guard.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`EvaluateAutoRecordLaunchDecision` decision order), `Source/Parsek.Tests/AutoRecordDecisionTests.cs` (two new ordering regressions).
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
+## ~~599. In-game test: `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` failed for legacy-loop-migrated recording in every scene~~
+
+**Source:** `logs/2026-04-25_2147` playtest. The in-game test failed for
+recording `1bbb50cf98654a23a60b3248848b0301` ("Learstar A1") in EDITOR /
+FLIGHT / MAINMENU / SPACECENTER / TRACKSTATION with
+`Current-format recording '…' should keep its on-disk format version`.
+
+**Diagnosis (2026-04-25):** the recording loaded at `formatVersion=3`
+(`Player.log:31418`). `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
+then ran (`Player.log:31487`) and called
+`NormalizeRecordingFormatVersionAfterLegacyLoopMigration`, which bumps the
+in-memory `RecordingFormatVersion` to v4 (the launch-to-launch loop interval
+semantic). The `.prec` sidecar stayed at `BinaryV3 version=3` because v4 was
+metadata-only — the binary layout is byte-identical to v3 and no rewrite was
+required. The test asserted `AreEqual(rec.RecordingFormatVersion,
+probe.FormatVersion)`, treating two distinct concepts (on-disk binary-encoding
+version vs. in-memory semantic version) as the same number. They diverge by
+design at v4 and above whenever a legacy save loads.
+
+**Fix:** `RuntimeTests.CurrentFormatTrajectorySidecarsProbeAsBinary` now
+asserts a narrow contract via the new
+`RecordingStore.IsAcceptableSidecarVersionLag(probe, rec)` predicate:
+equality is the ordinary case, and the only allowed lag is v3 sidecar with
+v4 recording (the documented metadata-only legacy-loop migration). Every
+other lag fails the assertion. v5 added serialized
+`OrbitSegment.isPredicted` and v6 changed RELATIVE TrackSection point
+semantics, so a v3-or-older sidecar paired with a v5 / v6 recording would
+mean the binary on disk predates a contract change and the trajectory
+data is genuinely stale. The first PR #567 relaxation to the broad
+asymmetric `probe <= rec` would have hidden that case; review note P2
+narrowed the exception. The runtime test also now explicitly asserts
+`probe.Supported`. The production read path in `TrajectorySidecarBinary.Read`
+already uses promote-only (`if (rec.RecordingFormatVersion <
+probe.FormatVersion)`), so no production runtime code change was needed
+beyond exposing the predicate. xUnit
+`TrajectorySidecarProbeVersionContractTests` covers v3 / v3 (equality),
+v3 / v4 (allowed legacy-loop migration), v3 / v5, v3 / v6, v4 / v6, and
+probe&gt;rec (all rejected), plus the freshly-written-at-current-version
+case that reduces to equality.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
@@ -1689,6 +1824,53 @@ segment getting reopened mid-flight?").
 **Status:** Open. Performance / hygiene; no observed correctness
 defect. Defer until a measurable hot-path latency or a specific
 ghost-orbit anomaly points at it.
+
+---
+
+## ~~525-followup. In-game terrain-clearance regression `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` failed at the cycle-boundary camera-event count assertion~~
+
+**Source:** `logs/2026-04-25_2147/parsek-test-results.txt`,
+`logs/2026-04-25_2147/Player.log:137286-137304`. The original `#525`
+fix added an in-game pin that drives a Destroyed loop recording across
+a cycle boundary and asserts (a) the explosion anchor is terrain-clamped
+before any watch hold reads it, and (b) the engine emits exactly one
+`OnLoopCameraAction` event for the cycle boundary. The pin was authored
+in commit `814fbf53` (2026-04-22) but only ran for the first time on the
+2026-04-25_2147 playtest, where it failed:
+
+```
+[VERBOSE][TerrainCorrect] Explosion anchor clamp #525 ("Bug525ExplosionAnchor"): alt=63.8 terrain=64.8 -> 65.3 (clearance=0.5m) cycle=0
+[VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #525 ...
+[VERBOSE][Engine] Ghost #525 parts hidden after explosion
+[VERBOSE][Engine] Ghost #525 "Bug525ExplosionAnchor" ghost reused across loop cycle: from cycle=0 to cycle=1
+[WARN][TestRunner] FAILED: ... - Loop cycle-change explosion should emit exactly one camera hold event
+```
+
+**Cause:** `GhostPlaybackEngine.UpdateLoopingPlayback`'s loaded-visuals
+loop-cycle branch fired `OnLoopCameraAction(ExplosionHoldStart)`
+correctly, then called `ReusePrimaryGhostAcrossCycle` which fired a
+second `OnLoopCameraAction(RetargetToNewGhost)` at the end. The watch
+handler ignored the second event because `ExplosionHoldStart` had set
+`watchedOverlapCycleIndex = -2` and `RetargetToNewGhost` is a no-op in
+that state — so production behaviour was correct — but the API noise
+broke the "exactly one camera hold event per cycle boundary" contract
+that the regression test exercises.
+
+**Fix:** Added an `emitRetargetEvent = true` parameter to
+`ReusePrimaryGhostAcrossCycle`. The destroyed loop-cycle path now passes
+`emitRetargetEvent: !needsExplosion` so the redundant retarget event is
+suppressed only when an explosion was just emitted. The non-destroyed
+boundary (`ExplosionHoldEnd`) still fires `RetargetToNewGhost` because
+the watch handler genuinely needs it to swap the bridge anchor for the
+new cycle's pivot. xUnit pins in
+`Source/Parsek.Tests/Bug406GhostReuseLoopCycleTests.cs`
+(`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventFalse_StillNoEvent`,
+`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventTrue_NoEvent`)
+fence the parameter API surface; the original
+`ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` in-game
+test now passes against a real ghost in flight.
+
+**Status:** CLOSED 2026-04-25. Fixed on `fix/explosion-camera-hold-event`.
 
 ---
 
