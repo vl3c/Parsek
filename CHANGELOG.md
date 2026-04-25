@@ -43,6 +43,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
+
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.

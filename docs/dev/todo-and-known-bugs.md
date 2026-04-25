@@ -1653,6 +1653,20 @@ in-game during the next playtest pass instead of an xUnit canary.
 
 ---
 
+## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
+
+**Source:** `logs/2026-04-25_2147/KSP.log` lines 75858 (`Time-jump launch auto-record suppression armed: jump=epoch-shift`) and 76410 (`FAILED: FlightIntegrationTests.RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording — Real Spawn Control pad canary should exercise the time-jump transient suppression path`); same shape for `TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording` at lines 81376 / 81654.
+
+**Cause:** `EvaluateAutoRecordLaunchDecision` checked `!isActiveVessel -> SkipInactiveVessel` *before* `suppressForTimeJumpTransient -> SkipTimeJumpTransient`. During a Real Spawn Control / Timeline FF pad jump, the only `OnVesselSituationChange` events fired in the window are for the synthetic spawn vessel (`0 -> ORBITING`); the real pad vessel itself stays in `PRELAUNCH`. The non-active flickers were attributed to `SkipInactiveVessel` and only logged at `[VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel`, so the in-game canaries never observed the suppression skip log they assert on.
+
+**Fix:** Reordered `EvaluateAutoRecordLaunchDecision` so the time-jump transient check fires before the active-vessel check. Synthetic-vessel flickers during a jump window now route to `SkipTimeJumpTransient` and emit the canonical `[INFO][Flight] OnVesselSituationChange: suppressing time-jump transient (...)` line. The auto-record START decision for the real pad vessel is unchanged because that vessel still has no situation change in the window. New xUnit coverage in `Source/Parsek.Tests/AutoRecordDecisionTests.cs` pins the new ordering for the non-active-vessel-during-suppression case and for the `isRecording` precedence guard.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`EvaluateAutoRecordLaunchDecision` decision order), `Source/Parsek.Tests/AutoRecordDecisionTests.cs` (two new ordering regressions).
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
 ## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121

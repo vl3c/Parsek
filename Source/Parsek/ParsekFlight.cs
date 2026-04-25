@@ -4885,11 +4885,18 @@ namespace Parsek
             if (isRecording)
                 return AutoRecordLaunchDecision.SkipAlreadyRecording;
 
-            if (!isActiveVessel)
-                return AutoRecordLaunchDecision.SkipInactiveVessel;
-
+            // Time-jump transient suppression is checked before the active-vessel guard
+            // so the skip decision (and its INFO log) fires for any vessel whose situation
+            // changes during the jump window — including synthetic spawn vessels that the
+            // playback policy materializes during a Real Spawn Control / Timeline FF jump.
+            // The original #526 bug was an active-vessel `PRELAUNCH -> FLYING` flicker, but
+            // labelling non-active flickers as `SkipInactiveVessel` hid the time-jump origin
+            // and made the in-game canaries unable to confirm the suppression branch fired.
             if (suppressForTimeJumpTransient)
                 return AutoRecordLaunchDecision.SkipTimeJumpTransient;
+
+            if (!isActiveVessel)
+                return AutoRecordLaunchDecision.SkipInactiveVessel;
 
             if (fromSituation == Vessel.Situations.PRELAUNCH)
             {
