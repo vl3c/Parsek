@@ -12,6 +12,8 @@ The audit was performed on branch `observability-audit` at `ee893e38` plus
 read-only parallel subsystem reviews. No production code changes are included in
 this report.
 
+Implementation plan: `docs/dev/plan-observability-logging-visibility.md`.
+
 ## Existing Logging Tools
 
 Parsek already has the right primitives in `Source/Parsek/ParsekLog.cs`:

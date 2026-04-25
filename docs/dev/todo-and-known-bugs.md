@@ -14,6 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 ## Observability Audit - 2026-04-26
 
 Full report: `docs/dev/observability-audit-2026-04-26.md`.
+Implementation plan: `docs/dev/plan-observability-logging-visibility.md`.
 
 Open implementation follow-up: make Parsek's runtime decisions reconstructable
 from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:

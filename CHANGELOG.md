@@ -33,7 +33,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- Added `docs/dev/observability-audit-2026-04-26.md`, a full logging-coverage audit covering spam controls, silent skip gates, persistence/rewind context gaps, UI/map diagnostics, and follow-up test-contract work needed to keep Parsek decisions reconstructable from `KSP.log`.
+- Added `docs/dev/observability-audit-2026-04-26.md` and `docs/dev/plan-observability-logging-visibility.md`, a full logging-coverage audit plus phased implementation plan covering spam controls, silent skip gates, persistence/rewind context gaps, UI/map diagnostics, and follow-up test-contract work needed to keep Parsek decisions reconstructable from `KSP.log`.
 
 ### Enhancements
 
