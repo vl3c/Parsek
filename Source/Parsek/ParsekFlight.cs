@@ -101,6 +101,7 @@ namespace Parsek
             public bool HasRecorder;
             public bool RecorderIsRecording;
             public bool RecorderIsBackgrounded;
+            public bool RecorderChainToVesselPending;
             public bool ActiveVesselTrackedInBackground;
             public bool ActiveVesselAlreadyArmedForPostSwitchAutoRecord;
             public string ActiveTreeRecordingId;
@@ -111,12 +112,13 @@ namespace Parsek
                 if (!IsRecovery) return null;
 
                 return string.Format(CultureInfo.InvariantCulture,
-                    "missed-vessel-switch|activePid={0}|recorderPid={1}|hasRecorder={2}|rec={3}/{4}|tracked={5}|armed={6}|activeRec={7}|bgCount={8}",
+                    "missed-vessel-switch|activePid={0}|recorderPid={1}|hasRecorder={2}|rec={3}/{4}|chain={5}|tracked={6}|armed={7}|activeRec={8}|bgCount={9}",
                     ActiveVesselPid,
                     RecorderVesselPid,
                     HasRecorder ? 1 : 0,
                     RecorderIsRecording ? 1 : 0,
                     RecorderIsBackgrounded ? 1 : 0,
+                    RecorderChainToVesselPending ? 1 : 0,
                     ActiveVesselTrackedInBackground ? 1 : 0,
                     ActiveVesselAlreadyArmedForPostSwitchAutoRecord ? 1 : 0,
                     string.IsNullOrEmpty(ActiveTreeRecordingId) ? "-" : ActiveTreeRecordingId,
@@ -6783,6 +6785,7 @@ namespace Parsek
                 HasRecorder = hasRecorder,
                 RecorderIsRecording = recorderIsRecording,
                 RecorderIsBackgrounded = hasRecorder && recorder.IsBackgrounded,
+                RecorderChainToVesselPending = recorderChainToVesselPending,
                 ActiveVesselTrackedInBackground = activeVesselTrackedInBackground,
                 ActiveVesselAlreadyArmedForPostSwitchAutoRecord =
                     activeVesselAlreadyArmedForPostSwitchAutoRecord,

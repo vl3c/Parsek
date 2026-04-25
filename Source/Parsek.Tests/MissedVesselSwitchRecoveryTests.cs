@@ -310,6 +310,13 @@ namespace Parsek.Tests
             ParsekFlight.LogOnVesselSwitchCompleteRecState(
                 "OnVesselSwitchComplete:entry", newActiveSnapshot, newActiveContext);
 
+            var chainPendingContext = BuildRecoveryContext(
+                activeVesselPid: 736156658,
+                recorderVesselPid: 0,
+                recorderChainToVesselPending: true);
+            ParsekFlight.LogOnVesselSwitchCompleteRecState(
+                "OnVesselSwitchComplete:entry", originalSnapshot, chainPendingContext);
+
             var newRecorderContext = BuildRecoveryContext(
                 activeVesselPid: 736156658,
                 recorderVesselPid: 123,
@@ -324,10 +331,11 @@ namespace Parsek.Tests
                 "OnVesselSwitchComplete:entry", newRecorderSnapshot, newRecorderContext);
 
             List<string> recStateLines = RecStateLines();
-            Assert.Equal(3, recStateLines.Count);
+            Assert.Equal(4, recStateLines.Count);
             Assert.Contains("pid=736156658", recStateLines[0]);
             Assert.Contains("pid=42", recStateLines[1]);
-            Assert.Contains("pid=123", recStateLines[2]);
+            Assert.Contains("pid=736156658", recStateLines[2]);
+            Assert.Contains("pid=123", recStateLines[3]);
         }
 
         [Fact]
@@ -496,6 +504,7 @@ namespace Parsek.Tests
             bool hasRecorder = false,
             bool recorderIsRecording = false,
             bool recorderIsBackgrounded = false,
+            bool recorderChainToVesselPending = false,
             bool activeVesselTrackedInBackground = true,
             bool activeVesselAlreadyArmedForPostSwitchAutoRecord = false,
             string activeTreeRecordingId = "recA",
@@ -509,6 +518,7 @@ namespace Parsek.Tests
                 HasRecorder = hasRecorder,
                 RecorderIsRecording = recorderIsRecording,
                 RecorderIsBackgrounded = recorderIsBackgrounded,
+                RecorderChainToVesselPending = recorderChainToVesselPending,
                 ActiveVesselTrackedInBackground = activeVesselTrackedInBackground,
                 ActiveVesselAlreadyArmedForPostSwitchAutoRecord =
                     activeVesselAlreadyArmedForPostSwitchAutoRecord,

@@ -42,7 +42,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#591` Missed-vessel-switch recovery still replays the normal `OnVesselSwitchComplete` path, but the recovery-context `RecState` `entry/post` snapshots now share a 5-second rate-limit keyed by active vessel plus recorder/tracking fingerprint. Normal player-driven vessel-switch boundaries continue to emit every `entry/post` diagnostic, while identical recovery frames collapse into `suppressed=N` summaries.
+- `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
 

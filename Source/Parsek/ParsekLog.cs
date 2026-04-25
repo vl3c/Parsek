@@ -310,6 +310,13 @@ namespace Parsek
         /// full <c>[RecState]</c> snapshots on the first occurrence and on summary
         /// cadence. Normal lifecycle boundaries should call <see cref="RecState"/>.
         /// </summary>
+        /// <remarks>
+        /// Like the other rate-limited loggers, summaries are emitted only when the
+        /// same key fires again after the interval; trailing suppressed counts for
+        /// abandoned fingerprints are intentionally dropped. Keys live in the shared
+        /// per-session rate-limit dictionary until reset, so callers should use
+        /// coarse, stable fingerprints rather than per-frame values.
+        /// </remarks>
         internal static void RecStateRateLimited(
             string phase,
             RecorderStateSnapshot snap,

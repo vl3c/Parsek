@@ -1305,10 +1305,10 @@ but passes a recovery diagnostic context so only the nested
 `RecState("OnVesselSwitchComplete:entry"/":post")` lines are
 rate-limited. The key includes activePid plus recorder/tracking
 fingerprint (recorder pid, live/background flags, tracked/armed state,
-active recording id, and BackgroundMap count), so repeated identical
-Update frames coalesce into 5s `suppressed=N` summaries while changed
-state or normal non-recovery vessel-switch boundaries emit fresh
-diagnostics.
+chain-to-vessel pending flag, active recording id, and BackgroundMap
+count), so repeated identical Update frames coalesce into 5s
+`suppressed=N` summaries while changed state or normal non-recovery
+vessel-switch boundaries emit fresh diagnostics.
 
 ---
 
