@@ -42,10 +42,9 @@ namespace Parsek.Tests
             MarkerValidator.ResetTestOverrides();
             RewindPointReaper.ResetTestOverrides();
 
-            // Keep the "current UT" finite so InvokedUT comparisons are
-            // deterministic (tests opt into a specific value via the
-            // NowUtProvider seam when they need to exercise the future-UT
-            // path).
+            // Keep the diagnostic "current UT" finite so marker-validation
+            // log assertions are deterministic. Individual tests override it
+            // when they need to exercise fresh-load clock behavior.
             MarkerValidator.NowUtProvider = () => 1_000_000.0;
         }
 
@@ -141,6 +140,28 @@ namespace Parsek.Tests
                 InvokedUT = invokedUt,
                 InvokedRealTime = "2026-04-18T00:00:00Z",
             };
+        }
+
+        private static ParsekScenario InstallMarkerValidationFixture(
+            double invokedUt,
+            double currentUt,
+            double rewindPointUt = 577.5)
+        {
+            MarkerValidator.NowUtProvider = () => currentUt;
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_active", MergeState.NotCommitted),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            rp.UT = rewindPointUt;
+            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
+                invokedUt: invokedUt);
+            return InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
         }
 
         private static void InstallTree(string treeId, List<Recording> recordings,
@@ -328,29 +349,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MarkerInvalid_InvokedUtInFuture_Cleared()
+        public void MarkerValid_PriorSessionInvokedUtAfterFreshLoadUt_PreservedAndLogged()
         {
-            InstallTree("tree_1",
-                new List<Recording>
-                {
-                    Rec("rec_active", MergeState.NotCommitted),
-                    Rec("rec_origin", MergeState.CommittedProvisional),
-                },
-                new List<BranchPoint> { Bp("bp_1", "rp_1") });
-            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
-            // NowUtProvider returns 1_000_000 — set InvokedUT higher.
-            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
-                invokedUt: 2_000_000.0);
-            var scenario = InstallScenario(
-                rps: new List<RewindPoint> { rp },
-                marker: marker);
+            // Regression #577: on a fresh SPACECENTER load the scenario load
+            // summary reported current UT 0 even though the durable marker
+            // had been authored in an earlier session at UT ~= the RP time.
+            // Current UT is therefore diagnostic-only; the persisted game UT
+            // remains sane and the marker must survive.
+            var scenario = InstallMarkerValidationFixture(
+                invokedUt: 578.13180328350882,
+                currentUt: 0.0,
+                rewindPointUt: 577.5);
+
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker valid sess=sess_1") &&
+                l.Contains("invokedUT=578.13180328350882") &&
+                l.Contains("currentUT=0") &&
+                l.Contains("rpUT=577.5") &&
+                l.Contains("legacyFutureUtCheck=triggered"));
+        }
+
+        [Fact]
+        public void MarkerInvalid_InvokedUtNaN_ClearedWithDiagnostic()
+        {
+            var scenario = InstallMarkerValidationFixture(
+                invokedUt: double.NaN,
+                currentUt: 0.0,
+                rewindPointUt: 577.5);
 
             LoadTimeSweep.Run();
 
             Assert.Null(scenario.ActiveReFlySessionMarker);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") &&
-                l.Contains("Marker invalid field=InvokedUT"));
+                l.Contains("Marker invalid field=InvokedUT") &&
+                l.Contains("failure=not-finite") &&
+                l.Contains("currentUT=0") &&
+                l.Contains("rpUT=577.5"));
+        }
+
+        [Fact]
+        public void MarkerInvalid_InvokedUtNegative_ClearedWithDiagnostic()
+        {
+            var scenario = InstallMarkerValidationFixture(
+                invokedUt: -1.0,
+                currentUt: 0.0,
+                rewindPointUt: 577.5);
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker invalid field=InvokedUT") &&
+                l.Contains("failure=negative") &&
+                l.Contains("invokedUT=-1") &&
+                l.Contains("rpUT=577.5"));
+        }
+
+        [Fact]
+        public void MarkerInvalid_InvokedUtExtremeFuture_ClearedWithDiagnostic()
+        {
+            var scenario = InstallMarkerValidationFixture(
+                invokedUt: 1.0e16,
+                currentUt: 22_116.0,
+                rewindPointUt: 577.5);
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker invalid field=InvokedUT") &&
+                l.Contains("failure=exceeds-sanity-ceiling") &&
+                l.Contains("currentUT=22116") &&
+                l.Contains("maxReasonableInvokedUT=1E+15"));
         }
 
         [Fact]

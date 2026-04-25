@@ -159,7 +159,8 @@ namespace Parsek
         internal static ExtrapolationResult Extrapolate(
             BallisticStateVector startState,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
-            ExtrapolationLimits? limitsOverride = null)
+            ExtrapolationLimits? limitsOverride = null,
+            bool warnOnSubSurfaceStart = true)
         {
             ExtrapolationLimits limits = limitsOverride ?? ExtrapolationLimits.Default;
             var result = new ExtrapolationResult
@@ -220,7 +221,10 @@ namespace Parsek
                 result.terminalPosition = startState.position;
                 result.terminalVelocity = startState.velocity;
                 result.failureReason = ExtrapolationFailureReason.SubSurfaceStart;
-                ParsekLog.Warn(LogTag, string.Format(
+                Action<string, string> log = warnOnSubSurfaceStart
+                    ? (Action<string, string>)ParsekLog.Warn
+                    : ParsekLog.Verbose;
+                log(LogTag, string.Format(
                     CultureInfo.InvariantCulture,
                     "Start rejected: sub-surface state body={0} ut={1:F3} alt={2:F1} " +
                     "(threshold={3:F1}); classifying recording as Destroyed",

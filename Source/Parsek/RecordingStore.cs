@@ -1918,6 +1918,30 @@ namespace Parsek
                 return;
             }
 
+            int mergeCount = RunOptimizationMergePass(recordings);
+            int splitCount = RunOptimizationSplitPass(recordings);
+            TrimBoringTailsForOptimization(recordings);
+
+            // Loop sync pass: link debris recordings to their parent recording
+            // so debris ghosts replay in sync with the parent's loop cycle.
+            PopulateLoopSyncParentIndices(recordings);
+
+            // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
+            // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
+            // new recordings and merges remove them, invalidating the map.
+            if (mergeCount > 0 || splitCount > 0)
+            {
+                for (int t = 0; t < committedTrees.Count; t++)
+                    committedTrees[t].RebuildBackgroundMap();
+            }
+
+            // Flush all dirty recordings to disk so the crash window after
+            // commit+optimize is closed (data no longer lives only in RAM).
+            FlushDirtyFiles(recordings);
+        }
+
+        private static int RunOptimizationMergePass(List<Recording> recordings)
+        {
             int mergeCount = 0;
             const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
@@ -1965,6 +1989,11 @@ namespace Parsek
             else
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
 
+            return mergeCount;
+        }
+
+        private static int RunOptimizationSplitPass(List<Recording> recordings)
+        {
             // Split pass: break multi-environment recordings at environment boundaries.
             // Each split produces two recordings sharing a ChainId for UI grouping.
             // Uses CanAutoSplitIgnoringGhostTriggers — ghosting triggers don't block
@@ -2090,6 +2119,11 @@ namespace Parsek
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
+            return splitCount;
+        }
+
+        private static void TrimBoringTailsForOptimization(List<Recording> recordings)
+        {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
             // ghost sitting motionless on the surface or coasting in orbit.
@@ -2107,23 +2141,6 @@ namespace Parsek
             if (trimCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
-
-            // Loop sync pass: link debris recordings to their parent recording
-            // so debris ghosts replay in sync with the parent's loop cycle.
-            PopulateLoopSyncParentIndices(recordings);
-
-            // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
-            // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
-            // new recordings and merges remove them, invalidating the map.
-            if (mergeCount > 0 || splitCount > 0)
-            {
-                for (int t = 0; t < committedTrees.Count; t++)
-                    committedTrees[t].RebuildBackgroundMap();
-            }
-
-            // Flush all dirty recordings to disk so the crash window after
-            // commit+optimize is closed (data no longer lives only in RAM).
-            FlushDirtyFiles(recordings);
         }
 
         /// <summary>
@@ -3485,23 +3502,7 @@ namespace Parsek
                     $"Rewind via tree root: branch '{rec.VesselName}' -> root '{owner.VesselName}' " +
                     $"save={owner.RewindSaveFileName}");
 
-            var reserved = new BudgetSummary
-            {
-                reservedFunds = owner.RewindReservedFunds,
-                reservedScience = owner.RewindReservedScience,
-                reservedReputation = owner.RewindReservedRep
-            };
-
-            // Baseline resources from the owner's pre-launch snapshot.
-            // The rewind save was captured at the same moment as PreLaunch values.
-            RewindContext.BeginRewind(owner.StartUT, reserved,
-                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
-            SetRewindReplayTargetScope(owner);
-
-            if (!SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {owner.StartUT} " +
-                    $"(save: {owner.RewindSaveFileName})");
+            BeginRewindForOwner(owner);
 
             string tempCopyName = null;
             try
@@ -3524,26 +3525,7 @@ namespace Parsek
                 // 2. Wind back UT by the rewind-to-launch lead time so the player can
                 //    regain control on the pad before launch.
 
-                // Collect all vessel names to strip — use owner's identity since the
-                // quicksave contains the owner's vessel (not the branch's).
-                var stripNames = new HashSet<string> { owner.VesselName };
-                if (!string.IsNullOrEmpty(owner.ChainId))
-                {
-                    // EVA child recordings have different vessel names (the kerbal's name)
-                    // and would otherwise survive the strip
-                    foreach (var committed in committedRecordings)
-                    {
-                        if (committed.ChainId == owner.ChainId &&
-                            !string.IsNullOrEmpty(committed.EvaCrewName) &&
-                            committed.VesselName != owner.VesselName)
-                        {
-                            stripNames.Add(committed.VesselName);
-                        }
-                    }
-                    if (stripNames.Count > 1 && !SuppressLogging)
-                        ParsekLog.Info("Rewind",
-                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{owner.ChainId}'");
-                }
+                var stripNames = BuildRewindStripNames(owner);
                 // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                 // alongside name matching — catches renamed vessels or debris)
                 var (stripPids, _) = CollectSpawnedVesselInfo();
@@ -3552,8 +3534,7 @@ namespace Parsek
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
-                try { File.Delete(tempPath); }
-                catch { }
+                TryDeleteFileQuietly(tempPath);
 
                 if (game == null)
                 {
@@ -3584,27 +3565,85 @@ namespace Parsek
             {
                 ResetRewindFlags();
 
-                // Clean up temp copy on failure
-                if (tempCopyName != null)
-                {
-                    try
-                    {
-                        string savesDir = Path.Combine(
-                            KSPUtil.ApplicationRootPath ?? "",
-                            "saves",
-                            HighLogic.SaveFolder ?? "");
-                        string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
-                        if (File.Exists(tempPath))
-                            File.Delete(tempPath);
-                    }
-                    catch { }
-                }
+                DeleteTemporaryRewindSaveCopy(tempCopyName);
 
                 if (!SuppressLogging)
                     ParsekLog.Error("Rewind",
                         $"Rewind failed: {ex.Message}. " +
                         $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
             }
+        }
+
+        private static void BeginRewindForOwner(Recording owner)
+        {
+            var reserved = new BudgetSummary
+            {
+                reservedFunds = owner.RewindReservedFunds,
+                reservedScience = owner.RewindReservedScience,
+                reservedReputation = owner.RewindReservedRep
+            };
+
+            // Baseline resources from the owner's pre-launch snapshot.
+            // The rewind save was captured at the same moment as PreLaunch values.
+            RewindContext.BeginRewind(owner.StartUT, reserved,
+                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
+            SetRewindReplayTargetScope(owner);
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName})");
+        }
+
+        private static HashSet<string> BuildRewindStripNames(Recording owner)
+        {
+            // Collect all vessel names to strip — use owner's identity since the
+            // quicksave contains the owner's vessel (not the branch's).
+            var stripNames = new HashSet<string> { owner.VesselName };
+            if (!string.IsNullOrEmpty(owner.ChainId))
+            {
+                // EVA child recordings have different vessel names (the kerbal's name)
+                // and would otherwise survive the strip
+                foreach (var committed in committedRecordings)
+                {
+                    if (committed.ChainId == owner.ChainId &&
+                        !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                        committed.VesselName != owner.VesselName)
+                    {
+                        stripNames.Add(committed.VesselName);
+                    }
+                }
+                if (stripNames.Count > 1 && !SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{owner.ChainId}'");
+            }
+
+            return stripNames;
+        }
+
+        private static void DeleteTemporaryRewindSaveCopy(string tempCopyName)
+        {
+            // Clean up temp copy on failure
+            if (tempCopyName == null)
+                return;
+
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch { }
+        }
+
+        private static void TryDeleteFileQuietly(string path)
+        {
+            try { File.Delete(path); }
+            catch { }
         }
 
         /// <summary>
@@ -6130,21 +6169,6 @@ namespace Parsek
             public string FailureReason;
         }
 
-        private sealed class StagedSidecarChange
-        {
-            public string FinalPath;
-            public string StagedPath;
-            public bool DeleteExisting;
-        }
-
-        private sealed class CommittedSidecarChange
-        {
-            public StagedSidecarChange Change;
-            public bool HadOriginalFile;
-            public bool Committed;
-            public string BackupPath;
-        }
-
         internal static bool TryProbeSnapshotSidecar(string path, out SnapshotSidecarProbe probe)
         {
             probe = default(SnapshotSidecarProbe);
@@ -6419,7 +6443,7 @@ namespace Parsek
             bool wroteVesselSnapshot = false;
             bool wroteGhostSnapshot = false;
             bool deletedStaleGhostSnapshot = false;
-            var changes = new List<StagedSidecarChange>();
+            var changes = new List<SidecarFileCommitBatch.StagedChange>();
 
             try
             {
@@ -6433,11 +6457,11 @@ namespace Parsek
                 if (incrementEpoch)
                     rec.SidecarEpoch++;
 
-                changes.Add(StageSidecarWrite(path => WriteTrajectorySidecar(path, rec, rec.SidecarEpoch), precPath));
+                changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteTrajectorySidecar(path, rec, rec.SidecarEpoch), precPath));
 
                 if (rec.VesselSnapshot != null)
                 {
-                    changes.Add(StageSidecarWrite(path => WriteSnapshotSidecar(path, rec.VesselSnapshot), vesselPath));
+                    changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteSnapshotSidecar(path, rec.VesselSnapshot), vesselPath));
                     wroteVesselSnapshot = true;
                 }
 
@@ -6449,7 +6473,7 @@ namespace Parsek
                     }
                     else
                     {
-                        changes.Add(StageSidecarWrite(path => WriteSnapshotSidecar(path, rec.GhostVisualSnapshot), ghostPath));
+                        changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteSnapshotSidecar(path, rec.GhostVisualSnapshot), ghostPath));
                         wroteGhostSnapshot = true;
                     }
                 }
@@ -6457,7 +6481,7 @@ namespace Parsek
                     !string.IsNullOrEmpty(ghostPath) &&
                     File.Exists(ghostPath))
                 {
-                    changes.Add(new StagedSidecarChange
+                    changes.Add(new SidecarFileCommitBatch.StagedChange
                     {
                         FinalPath = ghostPath,
                         DeleteExisting = true
@@ -6465,7 +6489,7 @@ namespace Parsek
                     deletedStaleGhostSnapshot = true;
                 }
 
-                ApplyStagedSidecarChanges(changes);
+                SidecarFileCommitBatch.Apply(changes, () => SuppressLogging);
 
                 ReadableMirrorReconcileSummary mirrorSummary =
                     ReconcileReadableSidecarMirrors(rec, precPath, vesselPath, ghostPath, ghostSnapshotMode);
@@ -6501,7 +6525,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                CleanupStagedSidecarArtifacts(changes, committed: null);
+                SidecarFileCommitBatch.CleanupStagedArtifacts(changes);
                 // Keep .sfs metadata authoritative if the sidecar write set did not
                 // complete after an OnSave-triggered epoch bump.
                 rec.SidecarEpoch = originalSidecarEpoch;
@@ -6518,7 +6542,7 @@ namespace Parsek
             {
                 Enabled = ShouldWriteReadableSidecarMirrors()
             };
-            var changes = new List<StagedSidecarChange>();
+            var changes = new List<SidecarFileCommitBatch.StagedChange>();
             bool wroteTrajectory = false;
             bool wroteVessel = false;
             bool wroteGhost = false;
@@ -6534,14 +6558,14 @@ namespace Parsek
             {
                 if (summary.Enabled)
                 {
-                    changes.Add(StageSidecarWrite(
+                    changes.Add(SidecarFileCommitBatch.StageWrite(
                         path => WriteReadableTrajectoryMirror(path, rec, rec.SidecarEpoch),
                         readablePrecPath));
                     wroteTrajectory = true;
 
                     if (rec.VesselSnapshot != null)
                     {
-                        changes.Add(StageSidecarWrite(
+                        changes.Add(SidecarFileCommitBatch.StageWrite(
                             path => WriteReadableSnapshotMirror(path, rec.VesselSnapshot),
                             readableVesselPath));
                         wroteVessel = true;
@@ -6552,7 +6576,7 @@ namespace Parsek
                         ConfigNode preservedVesselSnapshot = LoadSnapshotSidecarForReadableMirror(vesselPath);
                         if (preservedVesselSnapshot != null)
                         {
-                            changes.Add(StageSidecarWrite(
+                            changes.Add(SidecarFileCommitBatch.StageWrite(
                                 path => WriteReadableSnapshotMirror(path, preservedVesselSnapshot),
                                 readableVesselPath));
                             wroteVessel = true;
@@ -6562,7 +6586,7 @@ namespace Parsek
 
                     if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
                     {
-                        changes.Add(StageSidecarWrite(
+                        changes.Add(SidecarFileCommitBatch.StageWrite(
                             path => WriteReadableSnapshotMirror(path, rec.GhostVisualSnapshot),
                             readableGhostPath));
                         wroteGhost = true;
@@ -6572,7 +6596,7 @@ namespace Parsek
                              !string.IsNullOrEmpty(readableGhostPath) &&
                              File.Exists(readableGhostPath))
                     {
-                        changes.Add(new StagedSidecarChange
+                        changes.Add(new SidecarFileCommitBatch.StagedChange
                         {
                             FinalPath = readableGhostPath,
                             DeleteExisting = true
@@ -6584,7 +6608,7 @@ namespace Parsek
                 {
                     if (!string.IsNullOrEmpty(readablePrecPath) && File.Exists(readablePrecPath))
                     {
-                        changes.Add(new StagedSidecarChange
+                        changes.Add(new SidecarFileCommitBatch.StagedChange
                         {
                             FinalPath = readablePrecPath,
                             DeleteExisting = true
@@ -6594,7 +6618,7 @@ namespace Parsek
 
                     if (!string.IsNullOrEmpty(readableVesselPath) && File.Exists(readableVesselPath))
                     {
-                        changes.Add(new StagedSidecarChange
+                        changes.Add(new SidecarFileCommitBatch.StagedChange
                         {
                             FinalPath = readableVesselPath,
                             DeleteExisting = true
@@ -6604,7 +6628,7 @@ namespace Parsek
 
                     if (!string.IsNullOrEmpty(readableGhostPath) && File.Exists(readableGhostPath))
                     {
-                        changes.Add(new StagedSidecarChange
+                        changes.Add(new SidecarFileCommitBatch.StagedChange
                         {
                             FinalPath = readableGhostPath,
                             DeleteExisting = true
@@ -6613,7 +6637,7 @@ namespace Parsek
                     }
                 }
 
-                ApplyStagedSidecarChanges(changes);
+                SidecarFileCommitBatch.Apply(changes, () => SuppressLogging);
                 summary.WroteTrajectory = wroteTrajectory;
                 summary.WroteVessel = wroteVessel;
                 summary.WroteGhost = wroteGhost;
@@ -6623,7 +6647,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                CleanupStagedSidecarArtifacts(changes, committed: null);
+                SidecarFileCommitBatch.CleanupStagedArtifacts(changes);
                 InvalidateReadableMirrorFinalFiles(changes);
                 summary.Failed = true;
                 summary.FailureReason = ex.Message;
@@ -6640,7 +6664,7 @@ namespace Parsek
             return summary;
         }
 
-        private static void InvalidateReadableMirrorFinalFiles(IEnumerable<StagedSidecarChange> changes)
+        private static void InvalidateReadableMirrorFinalFiles(IEnumerable<SidecarFileCommitBatch.StagedChange> changes)
         {
             if (changes == null)
                 return;
@@ -6818,184 +6842,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        private static StagedSidecarChange StageSidecarWrite(Action<string> writer, string finalPath)
-        {
-            if (writer == null)
-                throw new ArgumentNullException(nameof(writer));
-            if (string.IsNullOrEmpty(finalPath))
-                throw new ArgumentException("Final path is required.", nameof(finalPath));
-
-            string dir = Path.GetDirectoryName(finalPath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-
-            string stagedPath = finalPath + ".stage." + Guid.NewGuid().ToString("N");
-            try
-            {
-                writer(stagedPath);
-            }
-            catch
-            {
-                DeleteTransientSidecarArtifact(stagedPath);
-                DeleteTransientSidecarArtifact(stagedPath + ".tmp");
-                throw;
-            }
-
-            return new StagedSidecarChange
-            {
-                FinalPath = finalPath,
-                StagedPath = stagedPath,
-                DeleteExisting = false
-            };
-        }
-
-        private static void ApplyStagedSidecarChanges(List<StagedSidecarChange> changes)
-        {
-            if (changes == null || changes.Count == 0)
-                return;
-
-            var committed = new List<CommittedSidecarChange>(changes.Count);
-            try
-            {
-                for (int i = 0; i < changes.Count; i++)
-                {
-                    StagedSidecarChange change = changes[i];
-                    var state = new CommittedSidecarChange
-                    {
-                        Change = change,
-                        HadOriginalFile = !string.IsNullOrEmpty(change.FinalPath) && File.Exists(change.FinalPath),
-                        BackupPath = string.IsNullOrEmpty(change.FinalPath)
-                            ? null
-                            : change.FinalPath + ".bak." + Guid.NewGuid().ToString("N")
-                    };
-
-                    if (change.DeleteExisting)
-                    {
-                        if (state.HadOriginalFile)
-                        {
-                            File.Move(change.FinalPath, state.BackupPath);
-                            state.Committed = true;
-                        }
-                    }
-                    else if (!string.IsNullOrEmpty(change.StagedPath))
-                    {
-                        if (state.HadOriginalFile)
-                            File.Replace(change.StagedPath, change.FinalPath, state.BackupPath, true);
-                        else
-                            File.Move(change.StagedPath, change.FinalPath);
-
-                        state.Committed = true;
-                    }
-
-                    committed.Add(state);
-                }
-            }
-            catch
-            {
-                // #366: per-step try/catch so a rollback failure on one file
-                // (e.g. backup deleted by external process or disk full mid-restore)
-                // doesn't abort the remaining rollback. Atomicity is best-effort
-                // across multiple files; the goal is to minimize remaining
-                // inconsistency rather than achieve perfect rollback.
-                for (int i = committed.Count - 1; i >= 0; i--)
-                {
-                    try
-                    {
-                        RestoreCommittedSidecarChange(committed[i]);
-                    }
-                    catch (Exception rollbackEx)
-                    {
-                        if (!SuppressLogging)
-                        {
-                            string finalPath = committed[i]?.Change?.FinalPath ?? "?";
-                            ParsekLog.Warn("RecordingStore",
-                                $"ApplyStagedSidecarChanges: rollback step failed " +
-                                $"path={finalPath} " +
-                                $"ex={rollbackEx.GetType().Name}:{rollbackEx.Message}");
-                        }
-                    }
-                }
-                throw;
-            }
-            finally
-            {
-                CleanupStagedSidecarArtifacts(changes, committed: null);
-            }
-
-            CleanupCommittedSidecarBackups(committed);
-        }
-
-        private static void RestoreCommittedSidecarChange(CommittedSidecarChange state)
-        {
-            if (state == null || !state.Committed || state.Change == null || string.IsNullOrEmpty(state.Change.FinalPath))
-                return;
-
-            if (state.Change.DeleteExisting)
-            {
-                if (!state.HadOriginalFile || string.IsNullOrEmpty(state.BackupPath) || !File.Exists(state.BackupPath))
-                    return;
-
-                if (File.Exists(state.Change.FinalPath))
-                    File.Delete(state.Change.FinalPath);
-
-                File.Move(state.BackupPath, state.Change.FinalPath);
-                return;
-            }
-
-            if (state.HadOriginalFile)
-            {
-                if (string.IsNullOrEmpty(state.BackupPath) || !File.Exists(state.BackupPath))
-                    return;
-
-                if (File.Exists(state.Change.FinalPath))
-                    File.Replace(state.BackupPath, state.Change.FinalPath, null, true);
-                else
-                    File.Move(state.BackupPath, state.Change.FinalPath);
-                return;
-            }
-
-            if (File.Exists(state.Change.FinalPath))
-                File.Delete(state.Change.FinalPath);
-        }
-
-        private static void CleanupStagedSidecarArtifacts(
-            List<StagedSidecarChange> changes, List<CommittedSidecarChange> committed)
-        {
-            if (changes != null)
-            {
-                for (int i = 0; i < changes.Count; i++)
-                {
-                    string stagedPath = changes[i]?.StagedPath;
-                    DeleteTransientSidecarArtifact(stagedPath);
-                    DeleteTransientSidecarArtifact(
-                        string.IsNullOrEmpty(stagedPath) ? null : stagedPath + ".tmp");
-                }
-            }
-
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    string backupPath = committed[i]?.BackupPath;
-                    DeleteTransientSidecarArtifact(backupPath);
-                }
-            }
-        }
-
-        private static void CleanupCommittedSidecarBackups(List<CommittedSidecarChange> committed)
-        {
-            CleanupStagedSidecarArtifacts(changes: null, committed: committed);
-        }
-
-        private static void DeleteTransientSidecarArtifact(string path)
-        {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                return;
-
-            try { File.Delete(path); }
-            catch { }
         }
 
         #endregion

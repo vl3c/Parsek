@@ -165,6 +165,131 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Format-v6 RELATIVE position contract — captured-log regression
+
+        // Regression: pins the format-v6 RELATIVE-frame position contract that
+        // FlightRecorder.ApplyRelativeOffset implements (Source/Parsek/FlightRecorder.cs:5502-5543).
+        //
+        // The recorder calls ComputeRelativeLocalOffset(focusWorld, anchorWorld, anchorRotation)
+        // and stores the resulting (dx, dy, dz) in TrajectoryPoint.latitude/longitude/altitude.
+        // Playback resolves the world position via ApplyRelativeLocalOffset using the same
+        // anchor rotation. The fields are NOT body-fixed lat/lon/alt for v6 RELATIVE sections —
+        // the labels are misleading; values are anchor-local Cartesian metres.
+        //
+        // The captured-log scenario (logs/2026-04-25_1314_marker-validator-fix/parsek/Recordings/
+        // b85acd51ea7f4005bb5d879207749e8c.prec, first TRACK_SECTION) exhibited two co-orbiting
+        // vessels (focus pid=2708531065 / anchor pid=95506284, both split at UT=1627.16 from a
+        // common parent) with world-frame velocity ~2920 m/s but recorded latitude/longitude
+        // values changing on a 100 m scale over 9 s. That's correct under this contract: the
+        // anchor moves in lockstep with the focus, so anchor-local offset stays small while
+        // world-frame displacement is ~26 km.
+
+        [Fact]
+        public void RecorderContract_V6RelativeStoresAnchorLocalOffset_ReplaysToFocusWorldPos()
+        {
+            // Two co-orbiting vessels mid-flight: large absolute world position, large shared
+            // velocity (modelled as anchor rotation aligning the local frame with the velocity
+            // direction). The world-frame separation is small relative to the absolute coords.
+            var anchorWorld = new Vector3d(600100.5, 50.25, 600200.7);
+            var focusWorld = new Vector3d(600200.4, 75.5, 600250.2);
+            // Anchor rotation: arbitrary non-identity orientation so the local frame doesn't
+            // accidentally coincide with world axes (catches any "v6 forgets to rotate" bug).
+            Quaternion anchorRot = TrajectoryMath.PureAngleAxis(37f, new Vector3(0.3f, 0.7f, 0.5f).normalized);
+
+            // Recorder side: ComputeRelativeLocalOffset is what ApplyRelativeOffset calls
+            // when UsesRelativeLocalFrameContract(version) is true (FlightRecorder.cs:5516).
+            Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(focusWorld, anchorWorld, anchorRot);
+
+            // Stored values match the captured-log shape: small magnitude in metres.
+            // (The world-frame displacement is sqrt(99.9^2 + 25.25^2 + 49.5^2) ≈ 114 m,
+            //  which is the same order of magnitude as the captured log's first-point |offset|=309m.)
+            Assert.True(offset.magnitude < 1000.0,
+                $"v6 RELATIVE offset must be metre-scale for co-located vessels; got {offset.magnitude:F2}m");
+
+            // The TrajectoryPoint that gets serialised carries (offset.x, offset.y, offset.z)
+            // in latitude/longitude/altitude — see FlightRecorder.cs:5533-5535.
+            var storedPoint = new TrajectoryPoint
+            {
+                latitude = offset.x,
+                longitude = offset.y,
+                altitude = offset.z,
+                bodyName = "Kerbin"
+            };
+
+            // Playback side: ResolveRelativePlaybackPosition with v6 must round-trip back
+            // to the focus world position. Uses RelativeLocalFrameFormatVersion (= current
+            // format version 6) so the v6 anchor-local branch fires.
+            Vector3d reconstructed = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchorWorld,
+                anchorRot,
+                storedPoint.latitude,
+                storedPoint.longitude,
+                storedPoint.altitude,
+                RecordingStore.RelativeLocalFrameFormatVersion);
+
+            Assert.Equal(focusWorld.x, reconstructed.x, 3);
+            Assert.Equal(focusWorld.y, reconstructed.y, 3);
+            Assert.Equal(focusWorld.z, reconstructed.z, 3);
+        }
+
+        [Fact]
+        public void RecorderContract_V6RelativeOffsetIndependentOfAnchorWorldVelocity()
+        {
+            // The contract is: anchor-local Cartesian offset. Two anchors at different world
+            // positions but with the same rotation must produce the same offset for the same
+            // anchor->focus world displacement. This pins the "world-velocity should not leak
+            // into the recorded offset" property — even if anchor moves at orbital velocity
+            // between two captures, the anchor-local offset only depends on the relative
+            // world position and the anchor rotation.
+            Quaternion anchorRot = TrajectoryMath.PureAngleAxis(45f, Vector3.up);
+            var displacement = new Vector3d(50, -25, 100);
+
+            var anchorA = new Vector3d(0, 0, 0);
+            var focusA = anchorA + displacement;
+            Vector3d offsetA = TrajectoryMath.ComputeRelativeLocalOffset(focusA, anchorA, anchorRot);
+
+            // Anchor moved 30 km in world space (one tick at orbital velocity). Same rotation,
+            // same relative displacement. Stored offset must be identical.
+            var anchorB = new Vector3d(30000, 0, 0);
+            var focusB = anchorB + displacement;
+            Vector3d offsetB = TrajectoryMath.ComputeRelativeLocalOffset(focusB, anchorB, anchorRot);
+
+            Assert.Equal(offsetA.x, offsetB.x, 4);
+            Assert.Equal(offsetA.y, offsetB.y, 4);
+            Assert.Equal(offsetA.z, offsetB.z, 4);
+        }
+
+        [Fact]
+        public void RecorderContract_V6RelativeFieldsAreNotBodyFixedLatLonAlt()
+        {
+            // Defensive regression: if a future refactor mistakes RELATIVE-frame TrajectoryPoint
+            // fields for body-fixed lat/lon/alt (the legacy ABSOLUTE-frame contract), the values
+            // returned by ComputeRelativeLocalOffset will fall outside legitimate KSP lat/lon
+            // ranges (lat in [-90, 90], lon in [-180, 180]). This pins that the recorder is
+            // free to write |dx| and |dy| above 180 — and the captured log demonstrates this
+            // with lat=-270.69 and lon=-149.22 in the first sample of the b85acd51 recording.
+            //
+            // Any future code path that interprets RELATIVE-frame point.latitude as a degrees
+            // value WILL go badly wrong; this test stands as a tripwire for that confusion.
+            Quaternion anchorRot = Quaternion.identity;
+            var anchor = new Vector3d(0, 0, 0);
+            // Focus at 300 m along the local x-axis — a normal RELATIVE-mode separation.
+            var focus = new Vector3d(300, 0, 0);
+
+            Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(focus, anchor, anchorRot);
+
+            // dx = 300 metres. If treated as a latitude in degrees, that would be nonsensical
+            // (lat must be in [-90, 90]). The contract is metres, not degrees.
+            Assert.Equal(300.0, offset.x, 3);
+            Assert.True(System.Math.Abs(offset.x) > 90.0,
+                "v6 RELATIVE dx exceeds the legitimate latitude-degrees range, " +
+                "confirming the field is metres-of-anchor-local-offset, not body-fixed lat. " +
+                "Captured log b85acd51… first sample stored lat=-270.69, lon=-149.22 — " +
+                "values that would be absurd as degrees but are correct as metres.");
+        }
+
+        #endregion
     }
 
     /// <summary>

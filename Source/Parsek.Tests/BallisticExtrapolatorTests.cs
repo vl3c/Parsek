@@ -123,7 +123,7 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", result.terminalBodyName);
             Assert.Empty(result.segments);
             Assert.Contains(logLines, l =>
-                l.Contains("[Extrapolator]")
+                l.Contains("[WARN][Extrapolator]")
                 && l.Contains("Start rejected: sub-surface state")
                 && l.Contains("body=Kerbin")
                 && l.Contains("classifying recording as Destroyed"));
