@@ -363,5 +363,99 @@ namespace Parsek.Tests
                 l.Contains("hasSnapshot=True") &&
                 l.Contains("canPersist=True"));
         }
+
+        // -------------------------------------------------------------
+        // PR #558 P2 review follow-up: after the marker swap mutates
+        // tree.ActiveRecordingId, the tree's BackgroundMap must exclude
+        // the new active recording. RebuildBackgroundMap re-runs
+        // IsBackgroundMapEligible against the swapped value -- without a
+        // post-swap rebuild, EnsureBackgroundRecorderAttached would seed
+        // the BackgroundRecorder from a map that lists the live recording
+        // as both active and background.
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void RebuildBackgroundMap_AfterSwapping_ActiveRecordingId_ExcludesSwappedTarget()
+        {
+            // Pre-rewind: capsule active, booster background. After in-place
+            // continuation swap: booster active, capsule should be the
+            // background entry (or skipped if its terminal disqualifies it).
+            var tree = new RecordingTree { Id = "tree-1", TreeName = "Kerbal X" };
+            var capsule = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065u,
+                TerminalStateValue = null, // still active in tree
+            };
+            var booster = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 3474243253u,
+                TerminalStateValue = null, // still active in tree
+            };
+            tree.AddOrReplaceRecording(capsule);
+            tree.AddOrReplaceRecording(booster);
+
+            // Pre-swap: capsule is the active recording, booster is in the
+            // background map.
+            tree.ActiveRecordingId = "rec-capsule";
+            tree.RebuildBackgroundMap();
+            Assert.True(tree.BackgroundMap.ContainsKey(3474243253u),
+                "before swap: booster pid expected in BackgroundMap (it's a non-active recording)");
+            Assert.False(tree.BackgroundMap.ContainsKey(2708531065u),
+                "before swap: capsule pid is ActiveRecordingId, must NOT be in BackgroundMap");
+
+            // Swap to in-place continuation target (the booster).
+            tree.ActiveRecordingId = "rec-booster";
+            tree.RebuildBackgroundMap();
+
+            // Post-swap: booster is active, must be excluded from
+            // BackgroundMap. Capsule is now eligible as a background entry.
+            Assert.False(tree.BackgroundMap.ContainsKey(3474243253u),
+                "after swap: booster pid is the new ActiveRecordingId, must NOT be in BackgroundMap");
+            Assert.True(tree.BackgroundMap.ContainsKey(2708531065u),
+                "after swap: capsule is non-active and tracked, must appear in BackgroundMap");
+        }
+
+        [Fact]
+        public void RebuildBackgroundMap_DestroyedRecording_NotInBackgroundMap()
+        {
+            // IsBackgroundMapEligible additionally excludes Destroyed
+            // recordings. Confirms the swap-then-rebuild behaviour
+            // composes with the existing eligibility filter (i.e.,
+            // swapping the active to a Destroyed-recording id would
+            // drop nothing else into the map).
+            var tree = new RecordingTree { Id = "tree-1", TreeName = "Kerbal X" };
+            var capsule = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065u,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            var booster = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 3474243253u,
+                TerminalStateValue = null,
+            };
+            tree.AddOrReplaceRecording(capsule);
+            tree.AddOrReplaceRecording(booster);
+
+            tree.ActiveRecordingId = "rec-booster";
+            tree.RebuildBackgroundMap();
+
+            Assert.False(tree.BackgroundMap.ContainsKey(2708531065u),
+                "Destroyed recording must not appear in BackgroundMap");
+            Assert.False(tree.BackgroundMap.ContainsKey(3474243253u),
+                "ActiveRecordingId must not appear in BackgroundMap");
+        }
     }
 }

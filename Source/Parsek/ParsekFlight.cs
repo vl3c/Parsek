@@ -7932,6 +7932,43 @@ namespace Parsek
             var tree = RecordingStore.PendingTree;
             string activeRecId = tree.ActiveRecordingId;
 
+            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
+            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
+            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
+            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
+            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
+            // deferred via WaitForFlightReadyAndInvoke until
+            // FlightGlobals.ready flips, which races with the
+            // GameEvents.onFlightReady fire that triggers us. If we read the
+            // marker before AtomicMarkerWrite completes we see it as null,
+            // fall through to no-swap, and the wait loop targets the stale
+            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
+            // Yield until the pending invocation context clears (or a bounded
+            // timeout) so the marker write is guaranteed to have completed.
+            if (RewindInvokeContext.Pending)
+            {
+                int markerWaitFrame = 0;
+                const int MaxMarkerWaitFrames = 300;
+                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
+                {
+                    markerWaitFrame++;
+                    yield return null;
+                }
+                if (RewindInvokeContext.Pending)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
+                        $"to clear after {MaxMarkerWaitFrames} frame(s); proceeding without marker swap " +
+                        $"(bug #585 follow-up: marker write race)");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
+                        $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
+                }
+            }
+
             // Bug #585: in-place continuation Re-Fly carve-out. The rewind
             // quicksave's ActiveRecordingId still points at the pre-rewind
             // active vessel (just killed by PostLoadStripper). The live
@@ -7964,12 +8001,25 @@ namespace Parsek
             {
                 tree.ActiveRecordingId = markerSwap.TargetRecordingId;
                 activeRecId = markerSwap.TargetRecordingId;
+                // Bug #585 follow-up (PR #558 P2 review): the tree was loaded
+                // with BackgroundMap rebuilt against the OLD ActiveRecordingId,
+                // so the NEW active recording may still appear as a background
+                // entry in tree.BackgroundMap. EnsureBackgroundRecorderAttached
+                // later seeds the BackgroundRecorder from this map -- without
+                // a rebuild, the recording would be tracked as both active
+                // (live recorder) and background (BackgroundRecorder).
+                // RebuildBackgroundMap re-runs IsBackgroundMapEligible against
+                // the swapped ActiveRecordingId and excludes it from the map.
+                int bgEntriesBefore = tree.BackgroundMap.Count;
+                tree.RebuildBackgroundMap();
+                int bgEntriesAfter = tree.BackgroundMap.Count;
                 ParsekLog.Info("Flight",
                     $"RestoreActiveTreeFromPending: in-place continuation marker swapped target " +
                     $"rec='{preMarkerActiveRecId ?? "<null>"}'->\'{markerSwap.TargetRecordingId}\' " +
                     $"vessel='{preMarkerActiveName ?? "<null>"}'->\'{markerSwap.TargetVesselName ?? "<null>"}\' " +
                     $"pid={preMarkerActivePid}->{markerSwap.TargetVesselPersistentId} " +
-                    $"sess={marker?.SessionId ?? "<no-id>"}");
+                    $"sess={marker?.SessionId ?? "<no-id>"} " +
+                    $"bgMapEntries={bgEntriesBefore}->{bgEntriesAfter}");
             }
             else if (marker != null)
             {

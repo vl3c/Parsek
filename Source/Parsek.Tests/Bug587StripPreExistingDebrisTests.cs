@@ -247,5 +247,133 @@ namespace Parsek.Tests
 
             Assert.Empty(kill);
         }
+
+        // -------------------------------------------------------------
+        // PR #558 P2 review follow-up: SnapshotKillTargets must build a
+        // stable snapshot of kill targets before any Die() runs against
+        // the live source list, so that source-list mutations during
+        // iteration cannot skip consecutive matching debris.
+        // -------------------------------------------------------------
+
+        private sealed class FakeVessel
+        {
+            public uint Pid;
+            public string Name;
+            public FakeVessel(uint pid, string name) { Pid = pid; Name = name; }
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_NullSource_ReturnsEmpty()
+        {
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                liveSource: null,
+                killPids: new HashSet<uint> { 1u },
+                pidGetter: v => v.Pid);
+
+            Assert.NotNull(snap);
+            Assert.Empty(snap);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_NullKillSet_ReturnsEmpty()
+        {
+            var live = new List<FakeVessel> { new FakeVessel(1u, "a") };
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, killPids: null, pidGetter: v => v.Pid);
+
+            Assert.Empty(snap);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_EmptyKillSet_ReturnsEmpty()
+        {
+            var live = new List<FakeVessel> { new FakeVessel(1u, "a") };
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, killPids: new HashSet<uint>(), pidGetter: v => v.Pid);
+
+            Assert.Empty(snap);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_NullPidGetter_ReturnsEmpty()
+        {
+            var live = new List<FakeVessel> { new FakeVessel(1u, "a") };
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, new HashSet<uint> { 1u }, pidGetter: null);
+
+            Assert.Empty(snap);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_FiltersByPidAndSkipsZeroAndNull()
+        {
+            var live = new List<FakeVessel>
+            {
+                new FakeVessel(1u, "alive"),
+                null,                                  // null entry skipped
+                new FakeVessel(0u, "zero-pid"),       // 0 pid skipped
+                new FakeVessel(2u, "kill-A"),         // matches
+                new FakeVessel(3u, "alive"),
+                new FakeVessel(4u, "kill-B"),         // matches
+            };
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, new HashSet<uint> { 2u, 4u }, v => v == null ? 0u : v.Pid);
+
+            Assert.Equal(2, snap.Count);
+            Assert.Contains(snap, v => v.Pid == 2u);
+            Assert.Contains(snap, v => v.Pid == 4u);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_SourceMutatedDuringConsumption_AllTargetsKilled()
+        {
+            // The exact failure mode of the pre-fix loop: walking
+            // FlightGlobals.Vessels while calling Vessel.Die() removes
+            // entries and shifts indices, skipping consecutive matches.
+            // With the snapshot pattern, mutating the source list after
+            // the snapshot has no effect on the iteration.
+            var live = new List<FakeVessel>
+            {
+                new FakeVessel(1u, "alive"),
+                new FakeVessel(2u, "kill-A"),
+                new FakeVessel(3u, "kill-B"), // adjacent kill -- pre-fix would skip this
+                new FakeVessel(4u, "alive"),
+            };
+            var killPids = new HashSet<uint> { 2u, 3u };
+
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, killPids, v => v == null ? 0u : v.Pid);
+
+            Assert.Equal(2, snap.Count);
+
+            // Simulate Die(): remove each target from the live list one at a time.
+            var killed = new List<uint>();
+            foreach (var v in snap)
+            {
+                bool removed = live.Remove(v);
+                Assert.True(removed, $"snapshot target pid={v.Pid} missing from live list");
+                killed.Add(v.Pid);
+            }
+
+            Assert.Contains(2u, killed);
+            Assert.Contains(3u, killed);
+            Assert.Equal(2, live.Count);
+            Assert.Contains(live, v => v.Pid == 1u);
+            Assert.Contains(live, v => v.Pid == 4u);
+        }
+
+        [Fact]
+        public void SnapshotKillTargets_NoneMatch_ReturnsEmpty()
+        {
+            var live = new List<FakeVessel>
+            {
+                new FakeVessel(1u, "alive"),
+                new FakeVessel(2u, "alive"),
+            };
+            var snap = RewindInvoker.SnapshotKillTargets<FakeVessel>(
+                live, new HashSet<uint> { 99u, 100u }, v => v.Pid);
+
+            Assert.Empty(snap);
+        }
     }
 }

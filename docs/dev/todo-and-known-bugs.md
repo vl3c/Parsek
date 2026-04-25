@@ -1024,6 +1024,25 @@ absence, placeholder pattern, tree-id mismatch, missing-from-tree,
 already-pointing-at-marker, pid-match-vs-pid-mismatch, post-fix
 merge dialog rendering with `canPersist=True`).
 
+**Review follow-ups (PR #558):** P1 review caught that the async-FLIGHT-load
+path schedules the restore coroutine before `RewindInvoker.RunStripActivateMarker`
+gets a chance to run `AtomicMarkerWrite` -- both are deferred to
+`onFlightReady` and can race. Fixed by gating the marker read on
+`RewindInvokeContext.Pending`: the restore coroutine yields until the
+context clears (or 300 frames timeout) before reading
+`ActiveReFlySessionMarker`, so the marker is guaranteed to be written
+before the swap decision. P2 review caught that the post-swap
+`tree.BackgroundMap` still contained the newly active recording, so
+`EnsureBackgroundRecorderAttached` would seed the background recorder
+from a map that listed the live recording as both active and background.
+The swap branch now calls `tree.RebuildBackgroundMap()` after mutating
+`ActiveRecordingId`, which re-runs `IsBackgroundMapEligible` against
+the swapped value and excludes it from the map. Two new tests in
+`Bug585InPlaceContinuationRestoreTests`
+(`RebuildBackgroundMap_AfterSwapping_ActiveRecordingId_ExcludesSwappedTarget`,
+`RebuildBackgroundMap_DestroyedRecording_NotInBackgroundMap`) pin the
+post-swap rebuild contract.
+
 **Status:** CLOSED 2026-04-26.
 
 ---
@@ -1147,6 +1166,20 @@ warn-and-continue diagnostic via
 `WarnOnLeftAloneNameCollisions` still fires for the
 non-in-place-continuation path so the original heads-up message
 about prior-career relics is preserved.
+
+**Review follow-up (PR #558):** P2 review caught that the kill loop walked
+`FlightGlobals.Vessels` while calling `Vessel.Die()`, which removes the
+vessel from the live list and shifts subsequent indices -- consecutive
+matching debris would be skipped, exactly the multi-debris case the PR
+is supposed to fix. Fixed by snapshotting the targets before any `Die()`
+runs via a new pure-static helper
+`RewindInvoker.SnapshotKillTargets<T>(IList<T>, HashSet<uint>, Func<T,uint>)`
+that returns a stable list of items to kill. The Die() loop then iterates
+this snapshot. Six new tests in `Bug587StripPreExistingDebrisTests`
+(null-source / null-killset / empty-killset / null-pidGetter / filter-and-skip-zero
+/ source-mutated-during-consumption / no-matches) pin the contract;
+the source-mutated case explicitly simulates Die-removes-from-live-list
+and asserts both targets are still killed.
 
 **Status:** CLOSED 2026-04-26.
 

@@ -1099,6 +1099,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug #587 follow-up (PR #558 P2 review): build a stable snapshot of
+        /// kill targets from a live <c>IList</c> before any
+        /// <c>Vessel.Die()</c> calls run. Walking the live
+        /// <c>FlightGlobals.Vessels</c> while calling <c>Die()</c> shifts
+        /// subsequent indices and can skip consecutive matching debris -- the
+        /// exact multi-debris pattern this PR claims to fix. The snapshot
+        /// captures every entry whose <paramref name="pidGetter"/> returns a
+        /// pid in <paramref name="killPids"/>, so subsequent iteration of the
+        /// returned list is unaffected by source-list mutations.
+        ///
+        /// <para>Generic over <typeparamref name="T"/> so unit tests can pin
+        /// the contract against a fake type without depending on KSP's
+        /// <c>Vessel</c>.</para>
+        /// </summary>
+        /// <param name="liveSource">Live source list (typically
+        /// <c>FlightGlobals.Vessels</c>).</param>
+        /// <param name="killPids">Pids to kill.</param>
+        /// <param name="pidGetter">Extracts the pid for an item; null items
+        /// pass-through and are skipped.</param>
+        internal static List<T> SnapshotKillTargets<T>(
+            IList<T> liveSource,
+            HashSet<uint> killPids,
+            Func<T, uint> pidGetter) where T : class
+        {
+            var result = new List<T>();
+            if (liveSource == null || killPids == null || killPids.Count == 0
+                || pidGetter == null)
+            {
+                return result;
+            }
+            for (int i = 0; i < liveSource.Count; i++)
+            {
+                T item = liveSource[i];
+                if (item == null) continue;
+                uint pid = pidGetter(item);
+                if (pid == 0u) continue;
+                if (!killPids.Contains(pid)) continue;
+                result.Add(item);
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Bug #587: production caller for <see cref="ResolveInPlaceContinuationDebrisToKill"/>.
         /// Runs after <see cref="AtomicMarkerWrite"/> (so the marker is set + the
         /// re-fly-active short-circuit in <c>RunSpawnDeathChecks</c> is engaged) and
@@ -1172,13 +1215,23 @@ namespace Parsek
                 protectedPids);
             if (kill.Count == 0) return;
 
+            // Bug #587 follow-up (PR #558 P2 review): snapshot the targets
+            // BEFORE iterating Die(). Vessel.Die() removes the vessel from
+            // FlightGlobals.Vessels, so walking the live IList while calling
+            // Die() shifts subsequent indices and can skip consecutive
+            // matching debris -- exactly the multi-debris case this PR is
+            // supposed to handle. SnapshotKillTargets builds a stable list
+            // before any Die() runs.
+            var killSet = new HashSet<uint>(kill);
+            var killTargets = SnapshotKillTargets(
+                liveVessels, killSet, v => v == null ? 0u : v.persistentId);
+
             int killed = 0;
             var killedNames = new List<string>();
-            for (int i = 0; i < liveVessels.Count; i++)
+            for (int i = 0; i < killTargets.Count; i++)
             {
-                var v = liveVessels[i];
+                var v = killTargets[i];
                 if (v == null) continue;
-                if (!kill.Contains(v.persistentId)) continue;
                 string name = v.vesselName ?? "<unnamed>";
                 try
                 {
