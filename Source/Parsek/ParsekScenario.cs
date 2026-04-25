@@ -4055,7 +4055,7 @@ namespace Parsek
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
             if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, vesselName))
-                LedgerOrchestrator.OnVesselRecoveryFunds(now, vesselName, fromTrackingStation);
+                LedgerOrchestrator.OnVesselRecoveryFunds(now, vesselName, fromTrackingStation, pv.vesselType);
         }
 
         private void OnVesselTerminated(ProtoVessel pv)

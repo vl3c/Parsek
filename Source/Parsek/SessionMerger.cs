@@ -89,6 +89,10 @@ namespace Parsek
                 // Resolve overlapping TrackSections
                 List<TrackSection> mergedSections = ResolveOverlaps(
                     srcRec.TrackSections ?? new List<TrackSection>());
+                int healedUnrecordedGaps = HealBackgroundActiveUnrecordedGapBoundaries(
+                    recId, srcRec.VesselName, mergedSections, out List<TrackSection> preHealMergedSections);
+                if (healedUnrecordedGaps > 0)
+                    RecomputeBoundaryDiscontinuities(mergedSections);
 
                 // Merge PartEvents (source recording may only have one list, just deduplicate+sort)
                 List<PartEvent> mergedEvents = MergePartEvents(
@@ -105,37 +109,12 @@ namespace Parsek
                 merged.TrackSections = mergedSections;
                 merged.PartEvents = mergedEvents;
 
-                // Preserve newer flat tail data when the resolved TrackSections are only a
-                // prefix of the source flat trajectory (e.g. board/merge appended points after
-                // the last flushed sparse section). Otherwise prefer the resolved sections and
-                // rebuild the flat lists from them.
-                bool flatTailExtendsResolvedSections =
-                    RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
-                        srcRec, mergedSections, allowRelativeSections: true);
-                bool rebuiltFlatTrajectory = false;
-                if (!flatTailExtendsResolvedSections)
-                    rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
-                        merged, allowRelativeSections: true);
-
-                if (!rebuiltFlatTrajectory)
-                {
-                    bool copiedFlatTrajectory = false;
-                    if (srcRec.Points != null && srcRec.Points.Count > 0)
-                    {
-                        merged.Points = new List<TrajectoryPoint>(srcRec.Points);
-                        copiedFlatTrajectory = true;
-                    }
-
-                    if (srcRec.OrbitSegments != null && srcRec.OrbitSegments.Count > 0)
-                    {
-                        merged.OrbitSegments = new List<OrbitSegment>(srcRec.OrbitSegments);
-                        copiedFlatTrajectory = true;
-                    }
-
-                    if (!copiedFlatTrajectory)
-                        rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
-                            merged, allowRelativeSections: true);
-                }
+                SyncMergedFlatTrajectory(
+                    srcRec,
+                    merged,
+                    preHealMergedSections,
+                    healedUnrecordedGaps,
+                    out string flatSyncMode);
 
                 // Copy SegmentEvents
                 if (srcRec.SegmentEvents != null)
@@ -163,16 +142,80 @@ namespace Parsek
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
                 ParsekLog.Verbose(Tag,
-                    $"MergeTree: recording='{recId}' flatSync=" +
-                    (rebuiltFlatTrajectory
-                        ? "track-sections"
-                        : (flatTailExtendsResolvedSections ? "preserved-flat-copy" : "track-sections-fallback")));
+                    $"MergeTree: recording='{recId}' flatSync={flatSyncMode}");
             }
 
             ParsekLog.Info(Tag,
                 $"MergeTree: completed merge for tree='{tree.TreeName}' merged={result.Count} recordings");
 
             return result;
+        }
+
+        private static bool SyncMergedFlatTrajectory(
+            Recording source,
+            Recording target,
+            List<TrackSection> preHealMergedSections,
+            int healedUnrecordedGaps,
+            out string flatSyncMode)
+        {
+            const bool allowRelativeSections = true;
+            flatSyncMode = "track-sections-fallback";
+
+            // Preserve newer flat tail data when the resolved TrackSections are only a
+            // prefix of the source flat trajectory (e.g. board/merge appended points after
+            // the last flushed sparse section). Otherwise prefer the resolved sections and
+            // rebuild the flat lists from them.
+            bool flatTailExtendsResolvedSections =
+                RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                    source, target.TrackSections, allowRelativeSections);
+
+            if (!flatTailExtendsResolvedSections)
+            {
+                if (healedUnrecordedGaps > 0
+                    && preHealMergedSections != null
+                    && RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                        target, source, preHealMergedSections, allowRelativeSections))
+                {
+                    flatSyncMode = "healed-track-sections-preserved-flat-tail";
+                    return true;
+                }
+
+                if (RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                        target, allowRelativeSections))
+                {
+                    flatSyncMode = "track-sections";
+                    return true;
+                }
+            }
+
+            bool copiedFlatTrajectory = false;
+            if (source.Points != null && source.Points.Count > 0)
+            {
+                target.Points = new List<TrajectoryPoint>(source.Points);
+                copiedFlatTrajectory = true;
+            }
+
+            if (source.OrbitSegments != null && source.OrbitSegments.Count > 0)
+            {
+                target.OrbitSegments = new List<OrbitSegment>(source.OrbitSegments);
+                copiedFlatTrajectory = true;
+            }
+
+            if (copiedFlatTrajectory)
+            {
+                flatSyncMode = flatTailExtendsResolvedSections
+                    ? "preserved-flat-copy"
+                    : "track-sections-fallback";
+                return false;
+            }
+
+            bool rebuiltFlatTrajectory =
+                RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                    target, allowRelativeSections);
+            flatSyncMode = rebuiltFlatTrajectory
+                ? "track-sections"
+                : "track-sections-fallback";
+            return rebuiltFlatTrajectory;
         }
 
         /// <summary>
@@ -525,22 +568,7 @@ namespace Parsek
             // Sort final output by startUT
             output.Sort((a, b) => a.startUT.CompareTo(b.startUT));
 
-            // Compute boundary discontinuities at each junction
-            for (int i = 1; i < output.Count; i++)
-            {
-                float disc = ComputeBoundaryDiscontinuity(output[i - 1], output[i]);
-                TrackSection s = output[i];
-                s.boundaryDiscontinuityMeters = disc;
-                output[i] = s;
-            }
-
-            // Clear discontinuity on first section
-            if (output.Count > 0)
-            {
-                TrackSection first = output[0];
-                first.boundaryDiscontinuityMeters = 0f;
-                output[0] = first;
-            }
+            RecomputeBoundaryDiscontinuities(output);
 
             ParsekLog.Verbose(Tag,
                 $"ResolveOverlaps: input={sections.Count} output={output.Count}");
@@ -591,6 +619,330 @@ namespace Parsek
             return (float)dist;
         }
 
+        private static int HealBackgroundActiveUnrecordedGapBoundaries(
+            string recId, string vesselName, List<TrackSection> sections,
+            out List<TrackSection> preHealSections)
+        {
+            preHealSections = null;
+            if (sections == null || sections.Count < 2)
+                return 0;
+
+            var ic = CultureInfo.InvariantCulture;
+            int healed = 0;
+
+            for (int i = 1; i < sections.Count; i++)
+            {
+                TrackSection prev = sections[i - 1];
+                TrackSection next = sections[i];
+                // #580 is specifically a resume-into-active seam: Background holds
+                // the tail and Active owns the next authoritative head. Leave the
+                // reverse direction diagnostic-only until its sampling semantics are
+                // proven equivalent.
+                if (prev.source != TrackSectionSource.Background
+                    || next.source != TrackSectionSource.Active
+                    || prev.referenceFrame != next.referenceFrame
+                    || prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                    || (prev.referenceFrame == ReferenceFrame.Relative
+                        && prev.anchorVesselId != next.anchorVesselId))
+                {
+                    continue;
+                }
+
+                float disc = next.boundaryDiscontinuityMeters > 0f
+                    ? next.boundaryDiscontinuityMeters
+                    : ComputeBoundaryDiscontinuity(prev, next);
+                if (disc <= 1.0f)
+                    continue;
+
+                ClassifyBoundaryDiscontinuity(
+                    prev,
+                    next,
+                    hasPrev: true,
+                    discMeters: disc,
+                    out double dt,
+                    out double expectedM,
+                    out string cause);
+                if (cause != "unrecorded-gap")
+                    continue;
+
+                if (!TryBuildBoundarySeamPoint(
+                        prev, next, next.startUT, out TrajectoryPoint seamPoint, out string reason))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"MergeTree: unable to heal unrecorded-gap at section[{i}] " +
+                        $"ut={next.startUT.ToString("F2", ic)} vessel='{vesselName}' " +
+                        $"recId={recId} prevSrc={prev.source} nextSrc={next.source} " +
+                        $"dt={dt.ToString("F2", ic)}s expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                        $"reason={reason}");
+                    continue;
+                }
+
+                bool appended = TryAppendSeamPoint(ref prev, seamPoint);
+                bool prepended = TryPrependSeamPoint(ref next, seamPoint);
+                if (!appended || !prepended)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"MergeTree: unable to heal unrecorded-gap at section[{i}] " +
+                        $"ut={next.startUT.ToString("F2", ic)} vessel='{vesselName}' " +
+                        $"recId={recId} prevSrc={prev.source} nextSrc={next.source} " +
+                        $"dt={dt.ToString("F2", ic)}s expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                        $"reason=seam-insert-failed");
+                    continue;
+                }
+
+                if (preHealSections == null)
+                    preHealSections = CloneTrackSections(sections);
+                sections[i - 1] = prev;
+                sections[i] = next;
+                healed++;
+
+                float residual = ComputeBoundaryDiscontinuity(prev, next);
+                ParsekLog.Info(Tag,
+                    $"MergeTree: healed unrecorded-gap at section[{i}] " +
+                    $"ut={next.startUT.ToString("F2", ic)} vessel='{vesselName}' " +
+                    $"recId={recId} prevRef={prev.referenceFrame} nextRef={next.referenceFrame} " +
+                    $"prevSrc={prev.source} nextSrc={next.source} " +
+                    $"dt={dt.ToString("F2", ic)}s expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                    $"insertedBoundaryPointUT={seamPoint.ut.ToString("F2", ic)} " +
+                    $"residual={residual.ToString("F2", ic)}m cause=unrecorded-gap #580");
+            }
+
+            return healed;
+        }
+
+        private static void RecomputeBoundaryDiscontinuities(List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count == 0)
+                return;
+
+            TrackSection first = sections[0];
+            first.boundaryDiscontinuityMeters = 0f;
+            sections[0] = first;
+
+            for (int i = 1; i < sections.Count; i++)
+            {
+                TrackSection section = sections[i];
+                section.boundaryDiscontinuityMeters =
+                    ComputeBoundaryDiscontinuity(sections[i - 1], section);
+                sections[i] = section;
+            }
+        }
+
+        private static List<TrackSection> CloneTrackSections(List<TrackSection> sections)
+        {
+            var clones = new List<TrackSection>();
+            if (sections == null)
+                return clones;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                TrackSection clone = sections[i];
+                if (clone.frames != null)
+                    clone.frames = new List<TrajectoryPoint>(clone.frames);
+                if (clone.checkpoints != null)
+                    clone.checkpoints = new List<OrbitSegment>(clone.checkpoints);
+                clones.Add(clone);
+            }
+
+            return clones;
+        }
+
+        private static bool TryBuildBoundarySeamPoint(
+            TrackSection prev, TrackSection next, double boundaryUT,
+            out TrajectoryPoint seamPoint, out string reason)
+        {
+            seamPoint = default(TrajectoryPoint);
+            reason = null;
+
+            if (prev.frames == null || prev.frames.Count == 0)
+            {
+                reason = "prev-no-frames";
+                return false;
+            }
+            if (next.frames == null || next.frames.Count == 0)
+            {
+                reason = "next-no-frames";
+                return false;
+            }
+            if (!IsFinite(boundaryUT))
+            {
+                reason = "boundary-ut-nonfinite";
+                return false;
+            }
+
+            TrajectoryPoint prevPoint = prev.frames[prev.frames.Count - 1];
+            TrajectoryPoint nextPoint = next.frames[0];
+            if (!IsFinite(prevPoint.ut) || !IsFinite(nextPoint.ut))
+            {
+                reason = "point-ut-nonfinite";
+                return false;
+            }
+            if (!string.Equals(prevPoint.bodyName, nextPoint.bodyName, StringComparison.Ordinal))
+            {
+                reason = "body-mismatch";
+                return false;
+            }
+            if (!IsFinite(prevPoint.latitude) || !IsFinite(prevPoint.longitude)
+                || !IsFinite(prevPoint.altitude) || !IsFinite(nextPoint.latitude)
+                || !IsFinite(nextPoint.longitude) || !IsFinite(nextPoint.altitude)
+                || !IsFiniteVector3(prevPoint.velocity) || !IsFiniteVector3(nextPoint.velocity)
+                || !IsFiniteQuaternion(prevPoint.rotation) || !IsFiniteQuaternion(nextPoint.rotation))
+            {
+                reason = "point-data-nonfinite";
+                return false;
+            }
+
+            const double epsilon = 1e-6;
+            double span = nextPoint.ut - prevPoint.ut;
+            if (Math.Abs(boundaryUT - prevPoint.ut) <= epsilon)
+            {
+                seamPoint = prevPoint;
+                seamPoint.ut = boundaryUT;
+                return true;
+            }
+            if (Math.Abs(boundaryUT - nextPoint.ut) <= epsilon)
+            {
+                seamPoint = nextPoint;
+                seamPoint.ut = boundaryUT;
+                return true;
+            }
+            if (span <= epsilon)
+            {
+                reason = "non-positive-span";
+                return false;
+            }
+
+            double t = (boundaryUT - prevPoint.ut) / span;
+            if (t < -epsilon || t > 1.0 + epsilon)
+            {
+                reason = "boundary-outside-point-span";
+                return false;
+            }
+
+            float tf = Mathf.Clamp01((float)t);
+            seamPoint = new TrajectoryPoint
+            {
+                ut = boundaryUT,
+                latitude = Lerp(prevPoint.latitude, nextPoint.latitude, t),
+                longitude = Lerp(prevPoint.longitude, nextPoint.longitude, t),
+                altitude = Lerp(prevPoint.altitude, nextPoint.altitude, t),
+                rotation = LerpRotation(prevPoint.rotation, nextPoint.rotation, tf),
+                velocity = Vector3.Lerp(prevPoint.velocity, nextPoint.velocity, tf),
+                bodyName = prevPoint.bodyName,
+                funds = prevPoint.funds,
+                science = prevPoint.science,
+                reputation = prevPoint.reputation
+            };
+            return true;
+        }
+
+        private static bool TryAppendSeamPoint(ref TrackSection section, TrajectoryPoint seamPoint)
+        {
+            if (section.frames == null)
+            {
+                section.frames = new List<TrajectoryPoint>();
+            }
+            else
+            {
+                if (section.frames.Count > 0)
+                {
+                    TrajectoryPoint last = section.frames[section.frames.Count - 1];
+                    if (SameBoundaryPoint(last, seamPoint))
+                        return true;
+                    if (last.ut > seamPoint.ut)
+                        return false;
+                }
+
+                section.frames = new List<TrajectoryPoint>(section.frames);
+            }
+
+            section.frames.Add(seamPoint);
+            ExpandAltitudeRange(ref section, seamPoint.altitude);
+            return true;
+        }
+
+        private static bool TryPrependSeamPoint(ref TrackSection section, TrajectoryPoint seamPoint)
+        {
+            if (section.frames == null)
+            {
+                section.frames = new List<TrajectoryPoint>();
+            }
+            else
+            {
+                if (section.frames.Count > 0)
+                {
+                    TrajectoryPoint first = section.frames[0];
+                    if (SameBoundaryPoint(first, seamPoint))
+                        return true;
+                    if (first.ut < seamPoint.ut)
+                        return false;
+                }
+
+                section.frames = new List<TrajectoryPoint>(section.frames);
+            }
+
+            section.frames.Insert(0, seamPoint);
+            ExpandAltitudeRange(ref section, seamPoint.altitude);
+            return true;
+        }
+
+        private static void ExpandAltitudeRange(ref TrackSection section, double altitude)
+        {
+            // The healer only inserts after TryBuildBoundarySeamPoint has verified
+            // non-empty frame lists; NaN guards keep synthetic tests and legacy
+            // sections from narrowing an uninitialized range.
+            float value = (float)altitude;
+            if (float.IsNaN(section.minAltitude) || value < section.minAltitude)
+                section.minAltitude = value;
+            if (float.IsNaN(section.maxAltitude) || value > section.maxAltitude)
+                section.maxAltitude = value;
+        }
+
+        private static bool SameBoundaryPoint(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            const double epsilon = 1e-6;
+            return Math.Abs(a.ut - b.ut) <= epsilon
+                && Math.Abs(a.latitude - b.latitude) <= epsilon
+                && Math.Abs(a.longitude - b.longitude) <= epsilon
+                && Math.Abs(a.altitude - b.altitude) <= epsilon
+                && string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal);
+        }
+
+        private static double Lerp(double a, double b, double t)
+        {
+            return a + (b - a) * t;
+        }
+
+        private static Quaternion LerpRotation(Quaternion a, Quaternion b, float t)
+        {
+            // UnityEngine.Quaternion.Slerp is an engine internal call and throws under
+            // the net472 headless test runner, so use hemisphere-corrected NLERP for
+            // this visual seam glue instead.
+            float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+            if (dot < 0f)
+                b = new Quaternion(-b.x, -b.y, -b.z, -b.w);
+
+            return NormalizeQuaternion(new Quaternion(
+                a.x + (b.x - a.x) * t,
+                a.y + (b.y - a.y) * t,
+                a.z + (b.z - a.z) * t,
+                a.w + (b.w - a.w) * t));
+        }
+
+        private static Quaternion NormalizeQuaternion(Quaternion q)
+        {
+            double magnitude = Math.Sqrt(
+                (double)q.x * q.x
+                + (double)q.y * q.y
+                + (double)q.z * q.z
+                + (double)q.w * q.w);
+            if (!IsFinite(magnitude) || magnitude < 0.001)
+                return new Quaternion(0f, 0f, 0f, 1f);
+
+            float inv = (float)(1.0 / magnitude);
+            return new Quaternion(q.x * inv, q.y * inv, q.z * inv, q.w * inv);
+        }
+
         /// <summary>
         /// Merges two PartEvent lists, deduplicating by (ut, partPersistentId, eventType)
         /// and sorting by UT with stable semantics so same-UT events keep their insertion
@@ -626,6 +978,14 @@ namespace Parsek
             return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
                 && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
                 && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+
+        private static bool IsFiniteQuaternion(Quaternion value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z)
+                && !float.IsNaN(value.w) && !float.IsInfinity(value.w);
         }
 
         private static void AddEventsWithDedup(
