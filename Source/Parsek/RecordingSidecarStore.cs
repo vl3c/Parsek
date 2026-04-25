@@ -6,6 +6,8 @@ namespace Parsek
 {
     internal static class RecordingSidecarStore
     {
+        // Kept local during the wrapper-facade split so legacy log text stays stable.
+        // Consolidate with RecordingStore.Log after sidecar/codec ownership settles.
         private const string LegacyPrefix = "[Parsek] ";
 
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
@@ -433,6 +435,7 @@ namespace Parsek
             SafeWriteConfigNode(precNode, path);
         }
 
+        // Thin duplicate of RecordingStore's snapshot writer until codec ownership settles.
         private static void WriteSnapshotSidecar(string path, ConfigNode node)
         {
             SnapshotSidecarCodec.Write(path, node);
@@ -494,11 +497,13 @@ namespace Parsek
             return string.IsNullOrEmpty(authoritativePath) ? null : authoritativePath + ".txt";
         }
 
+        // Thin duplicate of RecordingStore's config-node writer until codec ownership settles.
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
             FileIOUtils.SafeWriteConfigNode(node, path, "RecordingStore");
         }
 
+        // Mirrors RecordingStore.Log while preserving legacy prefix and WARN normalization.
         private static void Log(string message)
         {
             if (RecordingStore.SuppressLogging) return;
