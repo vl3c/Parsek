@@ -63,6 +63,8 @@ namespace Parsek
         public int warpHidden;
         public int visualLoadFailed;
         public int noRenderableData;
+        public int playbackDisabled;
+        public int externalVesselSuppressed;
         public int sessionSuppressed;
         public int active;
     }

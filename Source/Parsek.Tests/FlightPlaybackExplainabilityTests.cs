@@ -139,8 +139,10 @@ namespace Parsek.Tests
                 warpHidden = 8,
                 visualLoadFailed = 9,
                 noRenderableData = 10,
-                sessionSuppressed = 11,
-                active = 12
+                playbackDisabled = 11,
+                externalVesselSuppressed = 12,
+                sessionSuppressed = 13,
+                active = 14
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -156,8 +158,10 @@ namespace Parsek.Tests
             Assert.Contains("warpHidden=8", message);
             Assert.Contains("visualLoadFailed=9", message);
             Assert.Contains("noRenderableData=10", message);
-            Assert.Contains("sessionSuppressed=11", message);
-            Assert.Contains("active=12", message);
+            Assert.Contains("playbackDisabled=11", message);
+            Assert.Contains("externalVesselSuppressed=12", message);
+            Assert.Contains("sessionSuppressed=13", message);
+            Assert.Contains("active=14", message);
         }
 
         [Fact]

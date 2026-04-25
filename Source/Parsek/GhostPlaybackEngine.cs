@@ -72,6 +72,8 @@ namespace Parsek
         private int frameSkipWarpHidden;
         private int frameSkipVisualLoadFailed;
         private int frameSkipNoRenderableData;
+        private int frameSkipPlaybackDisabled;
+        private int frameSkipExternalVesselSuppressed;
         private int frameSkipSessionSuppressed;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
@@ -246,6 +248,12 @@ namespace Parsek
                 case GhostPlaybackSkipReason.NoRenderableData:
                     frameSkipNoRenderableData++;
                     break;
+                case GhostPlaybackSkipReason.PlaybackDisabled:
+                    frameSkipPlaybackDisabled++;
+                    break;
+                case GhostPlaybackSkipReason.ExternalVesselSuppressed:
+                    frameSkipExternalVesselSuppressed++;
+                    break;
                 case GhostPlaybackSkipReason.BeforeActivation:
                     frameSkipBeforeActivation++;
                     break;
@@ -282,6 +290,8 @@ namespace Parsek
                 || counters.warpHidden > 0
                 || counters.visualLoadFailed > 0
                 || counters.noRenderableData > 0
+                || counters.playbackDisabled > 0
+                || counters.externalVesselSuppressed > 0
                 || counters.sessionSuppressed > 0;
         }
 
@@ -291,7 +301,8 @@ namespace Parsek
                 "Frame: spawned={0} destroyed={1} deferred={2} " +
                 "skips[beforeActivation={3} anchorMissing={4} loopSyncFailed={5} " +
                 "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
-                "noRenderableData={9} sessionSuppressed={10}] active={11}",
+                "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
+                "sessionSuppressed={12}] active={13}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -302,6 +313,8 @@ namespace Parsek
                 counters.warpHidden,
                 counters.visualLoadFailed,
                 counters.noRenderableData,
+                counters.playbackDisabled,
+                counters.externalVesselSuppressed,
                 counters.sessionSuppressed,
                 counters.active);
         }
@@ -320,6 +333,8 @@ namespace Parsek
                 warpHidden = frameSkipWarpHidden,
                 visualLoadFailed = frameSkipVisualLoadFailed,
                 noRenderableData = frameSkipNoRenderableData,
+                playbackDisabled = frameSkipPlaybackDisabled,
+                externalVesselSuppressed = frameSkipExternalVesselSuppressed,
                 sessionSuppressed = frameSkipSessionSuppressed,
                 active = ghostStates.Count
             };
@@ -816,6 +831,8 @@ namespace Parsek
             frameSkipWarpHidden = 0;
             frameSkipVisualLoadFailed = 0;
             frameSkipNoRenderableData = 0;
+            frameSkipPlaybackDisabled = 0;
+            frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
@@ -3177,6 +3194,8 @@ namespace Parsek
             frameSkipWarpHidden = 0;
             frameSkipVisualLoadFailed = 0;
             frameSkipNoRenderableData = 0;
+            frameSkipPlaybackDisabled = 0;
+            frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so

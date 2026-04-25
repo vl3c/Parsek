@@ -2540,7 +2540,11 @@ namespace Parsek
             bool hasOrbitRenderer = hasGhostVessel && ghostVessel.orbitRenderer != null;
             ParsekLog.VerboseOnChange(
                 "GhostMap",
-                "map-focus-restore|" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                string.Format(CultureInfo.InvariantCulture,
+                    "map-focus-restore|{0}|{1}|{2}",
+                    string.IsNullOrEmpty(watchedRecordingId) ? "(none)" : watchedRecordingId,
+                    watchedRecordingIndex,
+                    ghostPid),
                 reason ?? "(none)",
                 BuildMapFocusRestoreDecisionMessage(
                     watchedRecordingIndex,
