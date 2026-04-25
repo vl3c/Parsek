@@ -57,6 +57,7 @@ namespace Parsek
                 StrippedPids = new List<uint>(),
                 GhostsGuarded = 0,
                 LeftAlone = 0,
+                LeftAloneNames = new List<string>(),
                 FallbackMatches = 0,
             };
 
@@ -119,6 +120,8 @@ namespace Parsek
 
                 // Unrelated vessel.
                 result.LeftAlone++;
+                if (!string.IsNullOrEmpty(v.VesselName))
+                    result.LeftAloneNames.Add(v.VesselName);
                 ParsekLog.Verbose(Tag,
                     $"Strip leaveAlone: unrelated v={pid} name='{v.VesselName}'");
             }
@@ -166,7 +169,20 @@ namespace Parsek
             uint pid = v.PersistentId;
             try
             {
-                v.Die();
+                // §6.4 step 4 contract: Strip is a SILENT vessel removal — the
+                // despawned siblings must not look like player-driven deaths
+                // to GameStateRecorder (no CrewKilled / CrewRemoved / etc.
+                // events should fan out to the ledger). The active call site
+                // already unsubscribes GameStateRecorder before Strip runs,
+                // so today this guard is belt-and-suspenders. Wrapping each
+                // Die() locally keeps the silent-removal contract owned by
+                // the stripper so a future refactor that reorders the
+                // unsubscribe/strip dance cannot accidentally let strip-time
+                // crew/resource deltas leak into the ledger.
+                using (SuppressionGuard.Crew())
+                {
+                    v.Die();
+                }
                 result.StrippedPids.Add(pid);
             }
             catch (Exception ex)
@@ -174,6 +190,42 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"Strip Die() threw for v={pid} name='{v.VesselName}': {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Cross-references vessel names the strip left alone against the
+        /// re-fly tree's committed recording vessel names and returns the
+        /// intersection. A match means a pre-existing quicksave vessel
+        /// (e.g. an orbital "Kerbal X" from an earlier career run) shares
+        /// its name with a recording in the active tree — the player will
+        /// see both in-scene and usually mistakes the real vessel for a
+        /// second ghost of the current flight. Caller toasts a warning so
+        /// the situation is diagnosable.
+        /// </summary>
+        /// <param name="leftAloneNames">Names from <see cref="PostLoadStripResult.LeftAloneNames"/>.</param>
+        /// <param name="treeVesselNames">Distinct vessel names from the re-fly tree's committed recordings.</param>
+        /// <returns>Distinct collision names (ordinal compare). Empty list when nothing matches or any input is null.</returns>
+        internal static List<string> FindTreeNameCollisions(
+            IEnumerable<string> leftAloneNames, IEnumerable<string> treeVesselNames)
+        {
+            var matches = new List<string>();
+            if (leftAloneNames == null || treeVesselNames == null) return matches;
+
+            var treeSet = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string n in treeVesselNames)
+            {
+                if (!string.IsNullOrEmpty(n)) treeSet.Add(n);
+            }
+            if (treeSet.Count == 0) return matches;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string n in leftAloneNames)
+            {
+                if (string.IsNullOrEmpty(n)) continue;
+                if (!treeSet.Contains(n)) continue;
+                if (seen.Add(n)) matches.Add(n);
+            }
+            return matches;
         }
     }
 
@@ -276,6 +328,16 @@ namespace Parsek
 
         /// <summary>Count of vessels left alone because they did not match any slot map.</summary>
         public int LeftAlone;
+
+        /// <summary>
+        /// Names of vessels the strip left alone (collected alongside
+        /// <see cref="LeftAlone"/>). Used by the caller to surface a diagnostic
+        /// warning when a left-alone vessel shares its name with a committed
+        /// recording in the re-fly tree — a classic case is a prior-career
+        /// "Kerbal X" still orbiting that the player confuses with the
+        /// current flight's ghost.
+        /// </summary>
+        public List<string> LeftAloneNames;
 
         /// <summary>Count of matches that used the root-part fallback path.</summary>
         public int FallbackMatches;

@@ -275,92 +275,79 @@ namespace Parsek
                 return ReFlyMergeCommitResult.Interrupted;
             }
 
-            // `RewindInvoker.AtomicMarkerWrite` added a placeholder provisional
-            // with only metadata (no trajectory) and pointed the marker at it.
-            // Normal flight recording creates its OWN recording(s) in the
-            // restored tree with fresh ids — the placeholder never receives
-            // the re-fly's actual trajectory. If we let the journal merge
-            // use the placeholder, the supersede relation would read
-            // `origin -> <metadata-only>` and the player's actual re-flight
-            // would not be linked to the origin slot.
-            //
-            // Redirect to the live re-fly recording when the placeholder is
-            // empty. Match criteria (all must hold, keep conservative):
-            //   - Same TreeId as the placeholder (so we stay inside the
-            //     origin's tree that TryRestoreActiveTreeNode re-committed).
-            //   - Same VesselPersistentId as the placeholder (the selected
-            //     slot's vessel, which Strip+Activate focused just before
-            //     AtomicMarkerWrite).
-            //   - Non-empty trajectory (this is the whole point).
-            //   - MergeState is NotCommitted or CommittedProvisional —
-            //     i.e. it was part of the just-committed tree, not an
-            //     unrelated Immutable pre-rewind recording.
-            //   - Not the placeholder itself.
-            // If zero or multiple candidates match, fall through with the
-            // placeholder and log so the edge case stays diagnosable.
-            if (provisional.Points == null || provisional.Points.Count == 0)
+            // In-place continuation guard: if the Limbo-restore path kept
+            // the origin recording alive across an RP-quicksave reload and
+            // the re-fly continued writing into that SAME recording,
+            // `RewindInvoker.AtomicMarkerWrite` already detected the case
+            // and pointed `marker.ActiveReFlyRecordingId` directly at the
+            // origin id (no placeholder created). At merge time
+            // `provisional.RecordingId == marker.OriginChildRecordingId`
+            // — there is no separate "retired attempt" to supersede.
+            // Writing a supersede relation with old==new would create a
+            // 1-node cycle that poisons EffectiveRecordingId (WARN
+            // `cycle detected` every lookup) and keeps the recording
+            // permanently visible to ERS. Skip the journaled merge entirely
+            // and do only the finalization the orchestrator would have
+            // done around AppendRelations: flip MergeState, clear transient
+            // fields, bump versions, durable save. We deliberately skip
+            // tombstones in this v1 path — any prior kerbal-death actions
+            // credited during the original Destroyed run-through were
+            // already finalized in that earlier session, and the same
+            // recording's subsequent continuation doesn't retroactively
+            // un-do them. If the player needs a deeper unwind they can
+            // re-rewind from the RP.
+            if (provisional != null
+                && !string.IsNullOrEmpty(provisional.RecordingId)
+                && string.Equals(provisional.RecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
             {
-                Recording redirected = null;
-                int matches = 0;
-                var committed = RecordingStore.CommittedRecordings;
-                if (committed != null)
+                ParsekLog.Info("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation detected " +
+                    $"(provisional == origin == {provisional.RecordingId}); skipping " +
+                    $"supersede merge (no self-supersede row) and finalizing continuation. " +
+                    $"Tombstones from the prior Destroyed run are left as-is in v1.");
+                try
                 {
-                    for (int i = 0; i < committed.Count; i++)
+                    // FlipMergeStateAndClearTransient with preserveMarker=false
+                    // flips MergeState, clears SupersedeTargetId, bumps
+                    // SupersedeStateVersion, clears the ActiveReFlySessionMarker
+                    // (and bumps again), and logs the End reason=merged line.
+                    // That covers all the in-memory scenario mutations that a
+                    // normal RunMerge does around AppendRelations + tombstones.
+                    // Also clear CreatingSessionId / ProvisionalForRpId on the
+                    // continuation recording so it no longer looks like a
+                    // session-scoped zombie to the load-time sweep.
+                    provisional.CreatingSessionId = null;
+                    provisional.ProvisionalForRpId = null;
+                    SupersedeCommit.FlipMergeStateAndClearTransient(
+                        marker, provisional, scenario, preserveMarker: false);
+
+                    // Mirror the orchestrator's Durable Save #1 barrier so
+                    // the flipped MergeState + cleared marker survive a
+                    // quit/reload right after the merge dialog.
+                    if (HighLogic.CurrentGame != null
+                        && !string.IsNullOrEmpty(HighLogic.SaveFolder))
                     {
-                        var cand = committed[i];
-                        if (cand == null) continue;
-                        if (ReferenceEquals(cand, provisional)) continue;
-                        if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
-                            continue;
-                        if (cand.VesselPersistentId != provisional.VesselPersistentId)
-                            continue;
-                        if (cand.Points == null || cand.Points.Count == 0) continue;
-                        if (cand.MergeState != MergeState.NotCommitted
-                            && cand.MergeState != MergeState.CommittedProvisional)
-                            continue;
-                        matches++;
-                        redirected = cand;
+                        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                        ParsekLog.Info("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation persisted via persistent.sfs");
                     }
+                    else
+                    {
+                        ParsekLog.Verbose("MergeDialog",
+                            "TryCommitReFlySupersede: in-place continuation skipped durable save " +
+                            "(no HighLogic.CurrentGame / SaveFolder — test harness or pre-scene path)");
+                    }
+                    return ReFlyMergeCommitResult.Completed;
                 }
-
-                if (matches == 1 && redirected != null)
+                catch (System.Exception ex)
                 {
-                    ParsekLog.Info("MergeDialog",
-                        $"TryCommitReFlySupersede: placeholder provisional {provisionalId} " +
-                        $"has no trajectory; redirecting merge target to live re-fly " +
-                        $"recording={redirected.RecordingId} points={redirected.Points.Count} " +
-                        $"pid={redirected.VesselPersistentId} tree={redirected.TreeId ?? "<none>"}");
-                    // Preserve the placeholder's supersede lineage metadata on
-                    // the live recording so the journal's FlipMergeStateAndClearTransient
-                    // walk finds the right hooks.
-                    if (string.IsNullOrEmpty(redirected.SupersedeTargetId))
-                        redirected.SupersedeTargetId = provisional.SupersedeTargetId;
-                    if (string.IsNullOrEmpty(redirected.CreatingSessionId))
-                        redirected.CreatingSessionId = provisional.CreatingSessionId;
-                    if (string.IsNullOrEmpty(redirected.ProvisionalForRpId))
-                        redirected.ProvisionalForRpId = provisional.ProvisionalForRpId;
-
-                    // Drop the now-stale placeholder so it doesn't appear in
-                    // the timeline as a zero-point recording.
-                    RecordingStore.RemoveCommittedInternal(provisional);
-                    provisional = redirected;
-                }
-                else if (matches > 1)
-                {
-                    ParsekLog.Warn("MergeDialog",
-                        $"TryCommitReFlySupersede: placeholder {provisionalId} has no trajectory, " +
-                        $"but {matches} candidate live re-fly recordings match " +
-                        $"(tree={provisional.TreeId ?? "<none>"} pid={provisional.VesselPersistentId}); " +
-                        "cannot redirect unambiguously, falling through with placeholder");
-                }
-                else
-                {
-                    ParsekLog.Warn("MergeDialog",
-                        $"TryCommitReFlySupersede: placeholder {provisionalId} has no trajectory " +
-                        $"and no live re-fly recording matches (tree={provisional.TreeId ?? "<none>"} " +
-                        $"pid={provisional.VesselPersistentId}); supersede relation will point at " +
-                        "metadata-only placeholder — playback of the superseded slot will show " +
-                        "the pre-rewind trajectory with no re-fly continuation");
+                    ParsekLog.Error("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation finalization threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — marker left in place for load-time sweep");
+                    ParsekLog.ScreenMessage(
+                        "Merge interrupted — will finish on next load", 3f);
+                    return ReFlyMergeCommitResult.Interrupted;
                 }
             }
 

@@ -122,6 +122,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StartInvoke_CanInvokeFailsAfterDialog_AbortsBeforeStaging()
+        {
+            // TOCTOU defense (review item 15): CanInvoke is checked at UI
+            // render time AND at confirm-dialog show time, but state can
+            // flip between dialog open and confirm click (RP marked
+            // corrupted by load-time sweep, save file removed, another
+            // re-fly session activates, scene transition starts).
+            // StartInvoke must re-run CanInvoke at the action boundary so a
+            // stale confirmation cannot bypass the safety gates. This test
+            // drives the TOCTOU scenario: a dialog opens, then mid-dialog
+            // the RP gets marked corrupted, then the user clicks Rewind.
+            // StartInvoke must abort early — no provisional add, no marker
+            // write, no context parked — and the WARN log must record the
+            // reason from CanInvoke.
+            MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Headless: keep CanInvoke off the disk-access path entirely.
+            // Setting Corrupted=true short-circuits CanInvoke before it
+            // resolves the quicksave path or runs the part-loader probe,
+            // so the test does not depend on KSPUtil.ApplicationRootPath
+            // or HighLogic.SaveFolder being set.
+            rp.QuicksaveFilename = "Parsek/RewindPoints/" + rp.RewindPointId + ".sfs";
+            rp.Corrupted = false; // dialog-time state: passes CanInvoke
+
+            // Mid-dialog, between confirm-dialog show and confirm click,
+            // the load-time sweep / external pipeline marks the RP
+            // corrupted. The next CanInvoke now returns false.
+            rp.Corrupted = true;
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+            Assert.False(RewindInvokeContext.Pending);
+            Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+
+            // CanInvoke checks the scene first. Pin to FLIGHT so the test
+            // exercises the Corrupted branch instead of the scene branch.
+            GameScenes priorScene = HighLogic.LoadedScene;
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            try
+            {
+                RewindInvoker.StartInvoke(rp, slot);
+            }
+            finally
+            {
+                HighLogic.LoadedScene = priorScene;
+            }
+
+            // No state-mutating work ran past the precondition gate.
+            Assert.False(
+                RewindInvokeContext.Pending,
+                "StartInvoke must not park context when CanInvoke fails");
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+
+            // WARN log records the reason returned by CanInvoke, the rp id,
+            // and the slot — so a regression that loses the precondition
+            // re-run is diagnosable from the log alone.
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Rewind]") &&
+                l.Contains("precondition failed after dialog confirm") &&
+                l.Contains("corrupted") &&
+                l.Contains(rp.RewindPointId));
+        }
+
+        [Fact]
         public void ConsumePostLoad_StartInvokeGatePreventsStaleContext_PinnedBySourceInspection()
         {
             // Review item: StartInvoke must re-run CanInvoke so a stale
@@ -268,6 +334,11 @@ namespace Parsek.Tests
         [Fact]
         public void Phase1And2_SameSyncBlock_NoInterleaving()
         {
+            // New-recording path (origin tree gone / origin recording not
+            // committed): AtomicMarkerWrite creates a fresh placeholder
+            // provisional and points the marker at it. No origin recording
+            // is installed in the test fixture, so this exercises the
+            // placeholder branch.
             var scenario = MakeScenario();
             var (rp, slot) = MakeRpAndSlot();
 
@@ -435,6 +506,203 @@ namespace Parsek.Tests
                     catch { /* swallow unsubscribe errors in test teardown */ }
                 }
             }
+        }
+
+        // ---------- In-place continuation vs new-recording paths (item 11) -----
+
+        /// <summary>
+        /// In-place continuation path: when the Limbo-restore kept the origin
+        /// recording alive in the restored tree AND the strip-selected vessel
+        /// pid matches the origin's <see cref="Recording.VesselPersistentId"/>,
+        /// AtomicMarkerWrite must point the marker directly at the origin id
+        /// without creating a placeholder. This eliminates the legacy
+        /// placeholder-and-redirect cascade and the cycle-poisoning class of
+        /// bug it introduced (#568).
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder()
+        {
+            const uint kOriginPid = 9999u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Install the origin recording (committed) with the same pid as
+            // the strip-selected vessel. AtomicMarkerWrite must detect this
+            // and skip the placeholder.
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+            // Helper either adds 1 (TreeId already set) or creates a tree
+            // that may carry a wrapper recording — capture the actual count
+            // and assert delta semantics rather than absolute equality.
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_inplace");
+
+            // No placeholder added — committed list size unchanged.
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            // The pre-existing origin recording is still in the list (by reference).
+            bool foundOrigin = false;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                if (ReferenceEquals(RecordingStore.CommittedRecordings[i], origin))
+                {
+                    foundOrigin = true;
+                    break;
+                }
+            }
+            Assert.True(foundOrigin, "origin recording must remain committed across in-place continuation");
+
+            // Marker points directly at the origin id.
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            Assert.Equal("sess_inplace", marker.SessionId);
+            Assert.Equal(origin.RecordingId, marker.ActiveReFlyRecordingId);
+            Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            // Origin's TreeId is reused on the marker.
+            Assert.Equal("tree_origin", marker.TreeId);
+
+            // INFO log advertises the in-place continuation diagnosis so a
+            // future regression that loses the detection is diagnosable.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("in-place continuation detected")
+                && l.Contains(origin.RecordingId)
+                && l.Contains("no placeholder created"));
+
+            // Started log carries inPlaceContinuation=True.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Started sess=sess_inplace")
+                && l.Contains("inPlaceContinuation=True"));
+        }
+
+        /// <summary>
+        /// New-recording path: when the origin recording is committed but its
+        /// VesselPersistentId does not match the strip-selected pid (e.g. the
+        /// origin tree was restored but the player is flying a different
+        /// vessel slot), AtomicMarkerWrite falls back to creating a fresh
+        /// placeholder provisional and pointing the marker at it. This is
+        /// the original Phase 6 behavior; it is preserved for cases where
+        /// the in-place continuation detection rejects.
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_OriginPidMismatch_CreatesPlaceholder()
+        {
+            const uint kOriginPid = 1111u;
+            const uint kActivePid = 2222u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Install an origin recording but with a DIFFERENT pid than the
+            // strip-selected vessel. This forces the placeholder path even
+            // though the recording is committed.
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kActivePid), "sess_placeholder");
+
+            // A new placeholder was added — committed list grew by exactly 1.
+            Assert.Equal(committedCountBefore + 1, RecordingStore.CommittedRecordings.Count);
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            // Marker DOES NOT point at the origin id — it points at the
+            // freshly-built placeholder.
+            Assert.NotEqual(origin.RecordingId, marker.ActiveReFlyRecordingId);
+            Assert.False(string.IsNullOrEmpty(marker.ActiveReFlyRecordingId));
+            // Origin's lineage metadata is still preserved on the marker.
+            Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            Assert.Equal("tree_origin", marker.TreeId);
+
+            // The placeholder is a NotCommitted recording with the active
+            // vessel's pid and no trajectory.
+            Recording placeholder = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var r = RecordingStore.CommittedRecordings[i];
+                if (r.RecordingId == marker.ActiveReFlyRecordingId)
+                {
+                    placeholder = r;
+                    break;
+                }
+            }
+            Assert.NotNull(placeholder);
+            Assert.Equal(MergeState.NotCommitted, placeholder.MergeState);
+            Assert.Equal(kActivePid, placeholder.VesselPersistentId);
+
+            // Started log carries inPlaceContinuation=False.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Started sess=sess_placeholder")
+                && l.Contains("inPlaceContinuation=False"));
+
+            // The pid mismatch took the placeholder branch — no in-place
+            // continuation log line should appear.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("in-place continuation detected"));
+        }
+
+        /// <summary>
+        /// Reverse of the in-place test: even when the origin recording is
+        /// committed and the pids match, an exception during marker write
+        /// must NOT remove the (pre-existing) origin recording. The rollback
+        /// only touches a placeholder that this path never added.
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_ExceptionDoesNotRemoveOrigin()
+        {
+            const uint kOriginPid = 7777u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            RewindInvoker.CheckpointHookForTesting = tag =>
+            {
+                if (tag == "CheckpointB:BeforeMarker")
+                    throw new InvalidOperationException("simulated marker failure");
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                RewindInvoker.AtomicMarkerWrite(
+                    rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_inplace_fail");
+            });
+
+            // Origin is NOT removed — the rollback path skips the recording-
+            // remove call when no placeholder was added.
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            // Marker is cleared (rollback).
+            Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
         }
     }
 }

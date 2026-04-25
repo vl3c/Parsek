@@ -47,8 +47,13 @@ namespace Parsek.Tests
             public Vessel LiveVessel => null; // tests do not construct live Unity objects
             public bool Died { get; private set; }
             public bool ThrowOnDie { get; set; }
+            // Captures GameStateRecorder.SuppressCrewEvents at the moment
+            // Die() runs so the StripVessel_DiePathIsGuarded test can verify
+            // the suppression guard is active across the silent-removal path.
+            public bool? SuppressCrewObservedDuringDie { get; private set; }
             public void Die()
             {
+                SuppressCrewObservedDuringDie = GameStateRecorder.SuppressCrewEvents;
                 if (ThrowOnDie) throw new InvalidOperationException("simulated");
                 Died = true;
             }
@@ -242,6 +247,122 @@ namespace Parsek.Tests
             Assert.Empty(result.StrippedPids);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") && l.Contains("null rp"));
+        }
+
+        [Fact]
+        public void Strip_CapturesLeftAloneNamesForCollisionDetection()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 600u, 0 },
+            });
+            var selected = new StubVessel { PersistentId = 600u, VesselName = "Kerbal X Probe" };
+            var preexistingOrbiter = new StubVessel { PersistentId = 700u, VesselName = "Kerbal X" };
+            var asteroid = new StubVessel { PersistentId = 701u, VesselName = "Ast. ABC-123" };
+            var source = new StubEnumeration(new IStrippableVessel[]
+            {
+                selected, preexistingOrbiter, asteroid,
+            });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.Equal(2, result.LeftAlone);
+            Assert.NotNull(result.LeftAloneNames);
+            Assert.Equal(2, result.LeftAloneNames.Count);
+            Assert.Contains("Kerbal X", result.LeftAloneNames);
+            Assert.Contains("Ast. ABC-123", result.LeftAloneNames);
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_ReturnsIntersectionDedupedOrdinal()
+        {
+            var leftAlone = new[] { "Kerbal X", "Kerbal X", "Ast. ABC-123", "Kerbal X Debris" };
+            var treeNames = new[] { "Kerbal X", "Kerbal X Probe", "Kerbal X Debris" };
+
+            var collisions = PostLoadStripper.FindTreeNameCollisions(leftAlone, treeNames);
+
+            Assert.Equal(2, collisions.Count);
+            Assert.Contains("Kerbal X", collisions);
+            Assert.Contains("Kerbal X Debris", collisions);
+            // Dedup: duplicate "Kerbal X" in input produces a single output entry.
+            Assert.Single(collisions.FindAll(s => s == "Kerbal X"));
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_NullInputsReturnEmpty()
+        {
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(null, new[] { "X" }));
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(new[] { "X" }, null));
+            Assert.Empty(PostLoadStripper.FindTreeNameCollisions(null, null));
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_NoOverlapReturnsEmpty()
+        {
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                new[] { "Ast. ABC-123", "UnknownComet" },
+                new[] { "Kerbal X", "Kerbal X Probe" });
+            Assert.Empty(collisions);
+        }
+
+        [Fact]
+        public void FindTreeNameCollisions_CaseSensitive()
+        {
+            // Ordinal comparison: "Kerbal X" != "kerbal x".
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                new[] { "kerbal x" }, new[] { "Kerbal X" });
+            Assert.Empty(collisions);
+        }
+
+        [Fact]
+        public void StripVessel_DiePathIsGuarded()
+        {
+            // §6.4 step 4 contract: Strip is a SILENT vessel removal. The
+            // SuppressionGuard wrapped around v.Die() inside StripVessel
+            // raises GameStateRecorder.SuppressCrewEvents for the duration
+            // of the call so any CrewKilled / CrewRemoved fanout from
+            // Vessel.Die() does not leak into the ledger as a player-driven
+            // kerbal death. This test pins that contract by capturing the
+            // suppression flag inside the stub's Die() and asserting it
+            // was true at call time and false afterwards (Dispose runs).
+            bool priorSuppress = GameStateRecorder.SuppressCrewEvents;
+            try
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
+
+                var rp = MakeRp(new Dictionary<uint, int>
+                {
+                    { 800u, 0 }, // selected (not stripped)
+                    { 801u, 1 }, // stripped — Die() must run inside the guard
+                });
+                var selected = new StubVessel { PersistentId = 800u };
+                var stripped = new StubVessel { PersistentId = 801u, VesselName = "Sib" };
+                var source = new StubEnumeration(new IStrippableVessel[] { selected, stripped });
+
+                var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+                Assert.True(stripped.Died);
+                Assert.True(stripped.SuppressCrewObservedDuringDie.HasValue);
+                Assert.True(
+                    stripped.SuppressCrewObservedDuringDie.Value,
+                    "SuppressCrewEvents must be true while StripVessel runs Die()");
+
+                // Selected vessel was not stripped, so its Die() never ran.
+                Assert.False(selected.Died);
+                Assert.Null(selected.SuppressCrewObservedDuringDie);
+
+                // Guard's Dispose must reset the flag back to false after
+                // StripVessel returns; nothing leaks past the using-block.
+                Assert.False(
+                    GameStateRecorder.SuppressCrewEvents,
+                    "SuppressionGuard.Dispose must clear SuppressCrewEvents after Strip");
+
+                Assert.Contains(801u, result.StrippedPids);
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = priorSuppress;
+            }
         }
     }
 }

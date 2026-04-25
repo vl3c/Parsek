@@ -157,6 +157,13 @@ namespace Parsek
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
         private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
+        // Tracks rows where the legacy rewind-to-launch R button is suppressed
+        // because the recording is a non-owner tree branch (the rewind save
+        // belongs to the tree root). Keyed by row index so the debounce
+        // mirrors lastCanRewind. Logged once per transition so a tree merge
+        // doesn't flood the log with one line per branch every frame.
+        private Dictionary<int, bool> lastSuppressedTreeBranch = new Dictionary<int, bool>();
+
         // Watch button enabled-state tracking for transition logging (bug #279).
         // Both dicts are keyed by RecordingId (stable across rewind/truncate
         // index reuse, unlike the existing index-keyed lastCanFF/lastCanRewind
@@ -1535,16 +1542,17 @@ namespace Parsek
                     }
                     GUI.enabled = true;
                 }
-                else if (hasRewindSave && !EffectiveState.IsChainMemberOfUnfinishedFlight(rec))
+                else if (ShouldShowLegacyRewindButton(rec, now))
                 {
-                    // Past/active recording with save: R button loads quicksave.
-                    // Suppressed on rows that belong to an Unfinished Flight
-                    // chain — those should expose only the chain head's
-                    // Rewind-to-Staging button (drawn above by
-                    // DrawUnfinishedFlightRewindButton). Offering a legacy
-                    // rewind-to-launch on a chain continuation would silently
-                    // rewind the whole mission to the pad, which the player
-                    // almost never wants when they're eyeing a re-fly.
+                    // Past/active recording with save AND we are the rewind
+                    // owner: render the R button. The owner gate inside
+                    // ShouldShowLegacyRewindButton suppresses tree branches
+                    // (debris / decouple children / EVA splits) so the player
+                    // only sees one R per tree — on the launch row.
+                    // The unfinished-flight chain check inside the helper
+                    // keeps Rewind-to-Staging chains from falling back to
+                    // rewind-to-launch (drawn above via
+                    // DrawUnfinishedFlightRewindButton).
                     string rewindReason;
                     bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
@@ -1553,6 +1561,14 @@ namespace Parsek
                     {
                         lastCanRewind[ri] = canRewind;
                         ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
+                    }
+                    // Owner row → suppression flag is now false; clear the
+                    // debounce + log the flip if it was true previously.
+                    bool prevSuppressed;
+                    if (lastSuppressedTreeBranch.TryGetValue(ri, out prevSuppressed) && prevSuppressed)
+                    {
+                        lastSuppressedTreeBranch[ri] = false;
+                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": no longer suppressed — owner row");
                     }
                     GUI.enabled = canRewind;
                     string tooltip = canRewind
@@ -1567,6 +1583,32 @@ namespace Parsek
                 }
                 else
                 {
+                    // Tree-branch suppression: log once when this row first
+                    // becomes a non-owner with a (resolved) rewind save, and
+                    // again whenever it flips back. hasRewindSave is true via
+                    // the tree root, but GetRewindRecording != rec, so the R
+                    // button would have been redundant.
+                    var owner = RecordingStore.GetRewindRecording(rec);
+                    bool suppressedTreeBranch = hasRewindSave
+                        && owner != null
+                        && !ReferenceEquals(owner, rec)
+                        && !EffectiveState.IsChainMemberOfUnfinishedFlight(rec);
+                    bool prevSuppressed;
+                    if (!lastSuppressedTreeBranch.TryGetValue(ri, out prevSuppressed)
+                        || prevSuppressed != suppressedTreeBranch)
+                    {
+                        lastSuppressedTreeBranch[ri] = suppressedTreeBranch;
+                        if (suppressedTreeBranch)
+                        {
+                            ParsekLog.Verbose("UI",
+                                $"R #{ri} \"{rec.VesselName}\": suppressed — tree branch, use root recording's R button");
+                        }
+                        else
+                        {
+                            ParsekLog.Verbose("UI",
+                                $"R #{ri} \"{rec.VesselName}\": no longer suppressed");
+                        }
+                    }
                     GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
                 }
             }
@@ -2072,8 +2114,14 @@ namespace Parsek
                     }
                     GUI.enabled = true;
                 }
-                else if (hasRewindSave)
+                else if (ShouldShowLegacyRewindButton(mainRec, now))
                 {
+                    // Mirror of the per-row gate. Group's main recording must
+                    // be the rewind owner — tree roots are the typical case.
+                    // If the group's main happens to be a non-owner branch
+                    // (rare, but possible for a group whose root is hidden or
+                    // pruned), suppress the R button here too so the column
+                    // doesn't render a redundant duplicate.
                     string rewindReason;
                     bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
@@ -2565,6 +2613,42 @@ namespace Parsek
             }
 
             return UnfinishedFlightRewindRoute.Resolved;
+        }
+
+        /// <summary>
+        /// Decides whether a row should render the legacy "R"
+        /// (Rewind-to-launch) button. The legacy button only makes sense on the
+        /// recording that actually owns the quicksave: standalone recordings
+        /// (own <c>RewindSaveFileName</c>) and tree roots that captured the
+        /// save on behalf of their tree. Tree branches (debris, decouple
+        /// children, EVA splits) inherited the save through
+        /// <see cref="RecordingStore.GetRewindRecording"/> and would draw
+        /// duplicate buttons that all rewind to the same root launch — the
+        /// player sees four identical "R" buttons after a normal merge and
+        /// reasonably concludes they're broken. Future rows take the FF path
+        /// instead, and rows that are part of an unfinished-flight chain use
+        /// the Rewind-to-Staging button drawn separately by
+        /// <c>DrawUnfinishedFlightRewindButton</c>.
+        /// </summary>
+        internal static bool ShouldShowLegacyRewindButton(Recording rec, double now)
+        {
+            if (rec == null) return false;
+            // Future recording — the FF path renders instead. Keep the legacy
+            // gate strictly past/active so a flipped clock can't double-render.
+            if (now < rec.StartUT) return false;
+            // Owner gate: only the recording that holds the rewind save
+            // (standalone or tree root) should expose the legacy button.
+            // Reference equality — GetRewindRecording returns the same instance
+            // when rec is the owner and the tree root recording instance
+            // otherwise.
+            var owner = RecordingStore.GetRewindRecording(rec);
+            if (owner == null) return false;
+            if (!ReferenceEquals(owner, rec)) return false;
+            // Unfinished-flight chain members get the Rewind-to-Staging button
+            // (drawn by DrawUnfinishedFlightRewindButton); silently rewinding
+            // the whole mission to the pad here would be a footgun.
+            if (EffectiveState.IsChainMemberOfUnfinishedFlight(rec)) return false;
+            return true;
         }
 
         /// <summary>

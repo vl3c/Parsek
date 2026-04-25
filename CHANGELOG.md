@@ -40,6 +40,18 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
+
+- Re-fly merges now refuse to write supersede rows when the re-fly recording has no trajectory points or no terminal state, catching the placeholder-as-supersede-target class of bug at commit time instead of silently shipping a zero-trajectory replacement.
+
+- Rewind to Staging now re-checks its preconditions when the user clicks Rewind in the confirmation dialog, so a state change between dialog show and confirm (RP marked corrupted, quicksave file removed, another re-fly session activates, scene transition starts) cancels the action with a toast instead of staging a half-written invocation on top of invalid state.
+
+- Recordings table no longer renders duplicate rewind-to-launch `R` buttons on tree branches (debris, decouple children, EVA splits) after a normal merge; only the recording that owns the launch save (standalone, or the tree root) shows the legacy `R` button, while branch rows reserve the column slot for layout alignment.
+
+- Re-fly merges where the Limbo-restore path kept the origin recording alive across the RP-quicksave reload no longer write a self-supersede row that turns the supersede chain into a 1-node cycle; in-place continuations now skip the journaled merge, flip MergeState, and clear the marker, and load-time sweep purges any legacy self-supersede rows from older saves.
+
+- Rewind-to-Staging now warns after post-load strip when a vessel left in the quicksave shares its name with a recording in the re-fly tree, so players can tell an unrelated pre-existing "Kerbal X" in orbit apart from the current flight's ghost.
+
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
 - Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.

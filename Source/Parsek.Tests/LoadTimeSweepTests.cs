@@ -651,6 +651,62 @@ namespace Parsek.Tests
             Assert.NotEqual(beforeTombstone, scenario.TombstoneStateVersion);
         }
 
+        // ---------- Self-supersede cleanup (bug/rewind-self-supersede) ----
+
+        /// <summary>
+        /// Regression: saves written before the caller-side guard shipped can
+        /// contain self-supersede rows (old==new). The load-time sweep must
+        /// remove them and leave healthy rows alone.
+        /// </summary>
+        [Fact]
+        public void SelfSupersedeRow_RemovedAtLoadTime()
+        {
+            // Two recordings so the healthy row is not also an orphan.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_live", MergeState.Immutable),
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint>());
+            var selfRow = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_self",
+                OldRecordingId = "rec_live",
+                NewRecordingId = "rec_live", // cycle
+            };
+            var healthyRow = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_healthy",
+                OldRecordingId = "rec_origin",
+                NewRecordingId = "rec_live",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { selfRow, healthyRow });
+
+            LoadTimeSweep.Run();
+
+            // Only the healthy row remains.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rsr_healthy", scenario.RecordingSupersedes[0].RelationId);
+
+            // Cleanup count logged in the dedicated line.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Cleaned 1 self-supersede row"));
+
+            // Summary log includes selfSupersedes=1.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("selfSupersedes=1"));
+
+            // Per-row WARN logged on removal.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Self-supersede row rel=rsr_self")
+                && l.Contains("removing"));
+        }
+
         // ---------- Internal helpers --------------------------------------
 
         private static Recording FindRecording(string recordingId)

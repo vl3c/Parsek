@@ -559,6 +559,15 @@ namespace Parsek
                 ParsekLog.Info(InvokeTag,
                     $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
                     $"slot={slotIdx} activePid={stripResult.SelectedPid}");
+
+                // Diagnostic hint: a pre-existing quicksave vessel whose name
+                // matches a recording in the re-fly tree produces two
+                // identical-looking objects in the scene (real orbital relic +
+                // playback ghost). The 01:53 playtest hit exactly this with a
+                // prior-career "Kerbal X" at 162 km. Warn so the player knows
+                // not to blame the re-fly pipeline — the real vessel predates
+                // the rewind and is outside the tree.
+                WarnOnLeftAloneNameCollisions(stripResult);
             }
             finally
             {
@@ -677,6 +686,31 @@ namespace Parsek
         /// §6.3 step 4 critical section. Runs synchronously; throws MUST
         /// leave the global state untouched (we roll back the provisional
         /// add before rethrowing). NO yield, NO await, NO deferred save.
+        ///
+        /// <para>
+        /// Two paths, decided up front:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     <b>In-place continuation</b> — when the Limbo-restore path
+        ///     kept the origin recording alive in the restored tree and the
+        ///     active vessel pid (just focused by Strip+Activate) matches the
+        ///     origin's <see cref="Recording.VesselPersistentId"/>, the
+        ///     recorder will append new samples directly to the origin
+        ///     recording. Point <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        ///     at the origin id and create no placeholder. This eliminates
+        ///     the legacy placeholder-then-redirect dance: the marker now
+        ///     points directly at the recording that will receive samples.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <b>New-recording path</b> — origin tree is gone or the active
+        ///     pid does not match the origin's pid. Create a fresh
+        ///     placeholder recording (no trajectory yet), add it via
+        ///     <see cref="RecordingStore.AddProvisional"/>, and point the
+        ///     marker at its id. The recorder will populate this placeholder
+        ///     as the player flies.
+        ///   </description></item>
+        /// </list>
         /// </summary>
         internal static void AtomicMarkerWrite(
             RewindPoint rp, ChildSlot selected,
@@ -691,14 +725,42 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
                 throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
 
-            // Resolve the origin recording so we can clone its lineage metadata.
+            // Resolve the origin recording. If it survived the Limbo-restore
+            // and its VesselPersistentId matches the strip-selected pid, the
+            // recorder will continue writing into THIS recording; we point
+            // the marker at it directly with no placeholder. Otherwise we
+            // build a fresh placeholder.
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+            bool inPlaceContinuation =
+                originChild != null
+                && IsCommittedRecording(originChild)
+                && originChild.VesselPersistentId == stripResult.SelectedPid;
 
-            var provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+            Recording provisional = null;
+            string activeReFlyRecordingId;
+            string treeIdForMarker;
 
-            CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-            RecordingStore.AddProvisional(provisional);
-            CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            if (inPlaceContinuation)
+            {
+                activeReFlyRecordingId = originChild.RecordingId;
+                treeIdForMarker = originChild.TreeId;
+                ParsekLog.Info(InvokeTag,
+                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                    $"{originChild.RecordingId} (no placeholder created)");
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
+            else
+            {
+                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                activeReFlyRecordingId = provisional.RecordingId;
+                treeIdForMarker = provisional.TreeId;
+
+                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                RecordingStore.AddProvisional(provisional);
+                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+            }
 
             ReFlySessionMarker marker;
             try
@@ -706,8 +768,8 @@ namespace Parsek
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
-                    TreeId = provisional.TreeId,
-                    ActiveReFlyRecordingId = provisional.RecordingId,
+                    TreeId = treeIdForMarker,
+                    ActiveReFlyRecordingId = activeReFlyRecordingId,
                     OriginChildRecordingId = selected.OriginChildRecordingId,
                     RewindPointId = rp.RewindPointId,
                     InvokedUT = SafeNow(),
@@ -721,11 +783,15 @@ namespace Parsek
             }
             catch
             {
-                // Roll back the provisional AND the marker so no half-written
-                // pair leaks out of the critical section. Both clears are
-                // idempotent (RemoveCommittedInternal returns false if absent;
-                // marker clear is a null-assignment).
-                RecordingStore.RemoveCommittedInternal(provisional);
+                // Roll back the provisional (when we added one) AND the
+                // marker so no half-written pair leaks out of the critical
+                // section. Both clears are idempotent
+                // (RemoveCommittedInternal returns false if absent; marker
+                // clear is a null-assignment). In-place continuation paths
+                // did not add anything to the committed list, so there's
+                // nothing to roll back on the recording side.
+                if (provisional != null)
+                    RecordingStore.RemoveCommittedInternal(provisional);
                 try
                 {
                     if (ParsekScenario.Instance != null)
@@ -737,9 +803,30 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
-                $"provisional={provisional.RecordingId} " +
+                $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
-                $"tree={provisional.TreeId ?? "<none>"}");
+                $"tree={treeIdForMarker ?? "<none>"} " +
+                $"inPlaceContinuation={inPlaceContinuation}");
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> currently appears in
+        /// <see cref="RecordingStore.CommittedRecordings"/> by reference.
+        /// Used by <see cref="AtomicMarkerWrite"/> to decide between the
+        /// in-place continuation path (origin survived Limbo restore) and
+        /// the placeholder path (origin tree was gone / pid mismatched).
+        /// </summary>
+        private static bool IsCommittedRecording(Recording rec)
+        {
+            if (rec == null) return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (ReferenceEquals(committed[i], rec))
+                    return true;
+            }
+            return false;
         }
 
         internal static Recording BuildProvisionalRecording(
@@ -869,6 +956,56 @@ namespace Parsek
             return scene == GameScenes.FLIGHT
                 || scene == GameScenes.SPACECENTER
                 || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAloneNames"/>
+        /// against the committed-recording vessel names in the scenario's
+        /// trees. A match means the player has a pre-existing quicksave
+        /// vessel sharing a name with a recording in the active tree — they
+        /// will see both in-scene and almost always mistake the real vessel
+        /// for a second ghost. WARN-log + ScreenMessage so the situation is
+        /// diagnosable without reading KSP.log.
+        /// </summary>
+        internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
+        {
+            if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
+                return;
+
+            IEnumerable<string> treeNames = EnumerateCommittedVesselNames();
+            var collisions = PostLoadStripper.FindTreeNameCollisions(
+                stripResult.LeftAloneNames, treeNames);
+            if (collisions == null || collisions.Count == 0)
+                return;
+
+            string joined = string.Join(", ", collisions.ToArray());
+            ParsekLog.Warn(InvokeTag,
+                $"Strip left {collisions.Count} pre-existing vessel(s) whose name matches a " +
+                $"tree recording: [{joined}] — not related to the re-fly, will appear as " +
+                $"second Kerbal X-shaped object in scene");
+            ShowUserError(
+                $"Heads up: pre-existing vessel(s) [{joined}] share a name with your re-fly " +
+                $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
+        }
+
+        private static IEnumerable<string> EnumerateCommittedVesselNames()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null) yield break;
+
+            // Pull names straight from the committed-recording list. Any recording
+            // in an active tree is in scope here; the goal is a cheap diagnostic,
+            // not a strict ERS-filtered view.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) yield break;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                string name = rec.VesselName;
+                if (!string.IsNullOrEmpty(name)) yield return name;
+            }
         }
 
         /// <summary>
