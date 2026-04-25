@@ -138,6 +138,11 @@ low external coupling. Candidate files: `Diagnostics/DiagnosticsComputation.cs`,
 The canary validates extraction style, review checklist usage, and baseline
 test commands before touching central files.
 
+Selected canary: `Timeline/TimelineBuilder.cs`. The first code commit extracts
+recording-start, separation, vessel-spawn, and crew-death row emission from
+`CollectRecordingEntries` into private same-file helpers. This is intentionally
+limited to contiguous block extraction with no cross-file movement.
+
 ### Tier 1 - Sequential
 
 These files are too large or central for parallel edits:

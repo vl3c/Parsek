@@ -199,6 +199,10 @@ All notable changes to Parsek are documented here.
 - `#564` Tracking Station ghost selections now open a Parsek-owned ghost action panel with safe Focus, Target, Recording details, and a selected-recording-only Materialize action keyed by stable recording ID; the panel refreshes action eligibility every GUI frame, and when that ghost resolves, Target and map Focus now hand off to the materialized real vessel, while stock Fly/Delete/Recover remain explicitly blocked and the private KSP selected-vessel field is still cleared on every ghost block.
 - Timeline initial-resource rows now respect the save mode: Sandbox hides resource seed rows entirely, and Science mode shows only the science baseline instead of zero funds/reputation noise.
 
+### Code Quality
+
+- Started refactor-4 with a behavior-neutral `TimelineBuilder` canary: the recording collector now delegates recording-start, separation, vessel-spawn, and crew-death row emission to private same-file helpers while preserving ordering, counts, and existing timeline logging.
+
 ### Tests
 
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.

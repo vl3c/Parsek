@@ -193,32 +193,16 @@ namespace Parsek
                 else if (isTreeChild)
                     treeChildSkipped++;
 
-                if (!isChainChild && !isTreeChild)
-                {
-                    double duration = rec.EndUT - rec.StartUT;
-                    if (!string.IsNullOrEmpty(rec.ChainId))
-                        duration = GetChainDuration(rec.ChainId, recordings);
-
-                    var startType = TimelineEntryType.RecordingStart;
-                    string displayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome, rec.LaunchSiteName);
-                    entries.Add(new TimelineEntry
-                    {
-                        UT = rec.StartUT,
-                        Type = startType,
-                        DisplayText = displayText,
-                        Source = TimelineSource.Recording,
-                        Tier = TimelineEntryDisplay.GetTier(startType),
-                        DisplayColor = Color.white,
-                        RecordingId = rec.RecordingId,
-                        VesselName = rec.VesselName
-                    });
+                if (TryAddRecordingStartEntry(
+                    rec,
+                    i,
+                    isEva,
+                    isChainChild,
+                    isTreeChild,
+                    parentVesselName,
+                    recordings,
+                    entries))
                     count++;
-
-                    ParsekLog.Verbose("Timeline",
-                        $"  +Start #{i} '{rec.VesselName}' UT={rec.StartUT:F1} " +
-                        $"isEva={isEva} chainIdx={rec.ChainIndex} terminal={rec.TerminalStateValue} " +
-                        $"text=\"{displayText}\"");
-                }
 
                 // Separation — tree-child split point. Two flavours:
                 //
@@ -242,32 +226,8 @@ namespace Parsek
                 // timeline — they make the list too long without telling
                 // the player anything they didn't already know from
                 // watching the rocket break apart.
-                if (isTreeChild && !rec.IsDebris)
-                {
-                    bool isUf = EffectiveState.IsUnfinishedFlight(rec);
-                    var sepType = isUf
-                        ? TimelineEntryType.UnfinishedFlightSeparation
-                        : TimelineEntryType.Separation;
-                    string displayText = isUf
-                        ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
-                        : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
-                    entries.Add(new TimelineEntry
-                    {
-                        UT = rec.StartUT,
-                        Type = sepType,
-                        DisplayText = displayText,
-                        Source = TimelineSource.Recording,
-                        Tier = TimelineEntryDisplay.GetTier(sepType),
-                        DisplayColor = Color.white,
-                        RecordingId = rec.RecordingId,
-                        VesselName = rec.VesselName,
-                    });
+                if (TryAddSeparationEntry(rec, i, isTreeChild, entries))
                     count++;
-
-                    ParsekLog.Verbose("Timeline",
-                        $"  +{(isUf ? "UF-Separation" : "Separation")} #{i} '{rec.VesselName}' " +
-                        $"UT={rec.StartUT:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
-                }
 
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
                 // Skip: mid-chain segments, destroyed terminals (can't spawn a destroyed
@@ -282,57 +242,26 @@ namespace Parsek
                 if (isMidChain) midChainSkipped++;
                 else if (isDestroyedTerminal) destroyedSkipped++;
 
-                if (!isMidChain && !isDestroyedTerminal && !suppressTreeSpawn && !suppressSupersededSpawn)
-                {
-                    var spawnType = TimelineEntryType.VesselSpawn;
-                    string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
-                    entries.Add(new TimelineEntry
-                    {
-                        UT = rec.EndUT,
-                        Type = spawnType,
-                        DisplayText = displayText,
-                        Source = TimelineSource.Recording,
-                        Tier = TimelineEntryDisplay.GetTier(spawnType),
-                        DisplayColor = Color.white,
-                        RecordingId = rec.RecordingId,
-                        VesselName = rec.VesselName
-                    });
+                if (TryAddVesselSpawnEntry(
+                    rec,
+                    i,
+                    isEva,
+                    parentVesselName,
+                    isMidChain,
+                    isDestroyedTerminal,
+                    suppressTreeSpawn,
+                    suppressSupersededSpawn,
+                    entries))
                     count++;
-
-                    ParsekLog.Verbose("Timeline",
-                        $"  +Spawn #{i} '{rec.VesselName}' UT={rec.EndUT:F1} " +
-                        $"terminal={rec.TerminalStateValue} sit=\"{rec.VesselSituation}\" " +
-                        $"text=\"{displayText}\"");
-                }
 
                 // CrewDeath — one entry per dead kerbal (bug #229).
                 // Uses CrewEndStates populated by KerbalsModule at commit time.
                 // Placed at rec.EndUT because CrewEndStates has no per-kerbal death
                 // timestamp — usually correct (death = vessel destruction at EndUT),
                 // but inaccurate if crew died mid-recording (e.g., decoupled crew cabin).
-                if (rec.CrewEndStates != null)
-                {
-                    foreach (var kvp in rec.CrewEndStates)
-                    {
-                        if (kvp.Value != KerbalEndState.Dead) continue;
-
-                        var deathType = TimelineEntryType.CrewDeath;
-                        string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
-                        entries.Add(new TimelineEntry
-                        {
-                            UT = rec.EndUT,
-                            Type = deathType,
-                            DisplayText = deathText,
-                            Source = TimelineSource.Recording,
-                            Tier = TimelineEntryDisplay.GetTier(deathType),
-                            DisplayColor = new Color(1f, 0.4f, 0.4f), // red-ish
-                            RecordingId = rec.RecordingId,
-                            VesselName = rec.VesselName
-                        });
-                        count++;
-                        crewDeathCount++;
-                    }
-                }
+                int addedCrewDeaths = AddCrewDeathEntries(rec, entries);
+                count += addedCrewDeaths;
+                crewDeathCount += addedCrewDeaths;
             }
 
             ParsekLog.Verbose("Timeline",
@@ -340,6 +269,161 @@ namespace Parsek
                 $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
                 $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
                 $"midChain={midChainSkipped} crewDeath={crewDeathCount})");
+
+            return count;
+        }
+
+        private static bool TryAddRecordingStartEntry(
+            Recording rec,
+            int recordingIndex,
+            bool isEva,
+            bool isChainChild,
+            bool isTreeChild,
+            string parentVesselName,
+            IReadOnlyList<Recording> recordings,
+            List<TimelineEntry> entries)
+        {
+            if (isChainChild || isTreeChild)
+                return false;
+
+            double duration = rec.EndUT - rec.StartUT;
+            if (!string.IsNullOrEmpty(rec.ChainId))
+                duration = GetChainDuration(rec.ChainId, recordings);
+
+            var startType = TimelineEntryType.RecordingStart;
+            string displayText = TimelineEntryDisplay.GetRecordingStartText(
+                rec.VesselName,
+                duration,
+                isEva,
+                parentVesselName,
+                rec.StartBodyName,
+                rec.StartBiome,
+                rec.LaunchSiteName);
+            entries.Add(new TimelineEntry
+            {
+                UT = rec.StartUT,
+                Type = startType,
+                DisplayText = displayText,
+                Source = TimelineSource.Recording,
+                Tier = TimelineEntryDisplay.GetTier(startType),
+                DisplayColor = Color.white,
+                RecordingId = rec.RecordingId,
+                VesselName = rec.VesselName
+            });
+
+            ParsekLog.Verbose("Timeline",
+                $"  +Start #{recordingIndex} '{rec.VesselName}' UT={rec.StartUT:F1} " +
+                $"isEva={isEva} chainIdx={rec.ChainIndex} terminal={rec.TerminalStateValue} " +
+                $"text=\"{displayText}\"");
+
+            return true;
+        }
+
+        private static bool TryAddSeparationEntry(
+            Recording rec,
+            int recordingIndex,
+            bool isTreeChild,
+            List<TimelineEntry> entries)
+        {
+            if (!isTreeChild || rec.IsDebris)
+                return false;
+
+            bool isUf = EffectiveState.IsUnfinishedFlight(rec);
+            var sepType = isUf
+                ? TimelineEntryType.UnfinishedFlightSeparation
+                : TimelineEntryType.Separation;
+            string displayText = isUf
+                ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
+                : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
+            entries.Add(new TimelineEntry
+            {
+                UT = rec.StartUT,
+                Type = sepType,
+                DisplayText = displayText,
+                Source = TimelineSource.Recording,
+                Tier = TimelineEntryDisplay.GetTier(sepType),
+                DisplayColor = Color.white,
+                RecordingId = rec.RecordingId,
+                VesselName = rec.VesselName,
+            });
+
+            ParsekLog.Verbose("Timeline",
+                $"  +{(isUf ? "UF-Separation" : "Separation")} #{recordingIndex} '{rec.VesselName}' " +
+                $"UT={rec.StartUT:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
+
+            return true;
+        }
+
+        private static bool TryAddVesselSpawnEntry(
+            Recording rec,
+            int recordingIndex,
+            bool isEva,
+            string parentVesselName,
+            bool isMidChain,
+            bool isDestroyedTerminal,
+            bool suppressTreeSpawn,
+            bool suppressSupersededSpawn,
+            List<TimelineEntry> entries)
+        {
+            if (isMidChain || isDestroyedTerminal || suppressTreeSpawn || suppressSupersededSpawn)
+                return false;
+
+            var spawnType = TimelineEntryType.VesselSpawn;
+            string displayText = TimelineEntryDisplay.GetVesselSpawnText(
+                rec.VesselName,
+                rec.TerminalStateValue,
+                rec.VesselSituation,
+                isEva,
+                parentVesselName,
+                rec.TerminalOrbitBody,
+                rec.SegmentBodyName,
+                rec.EndBiome);
+            entries.Add(new TimelineEntry
+            {
+                UT = rec.EndUT,
+                Type = spawnType,
+                DisplayText = displayText,
+                Source = TimelineSource.Recording,
+                Tier = TimelineEntryDisplay.GetTier(spawnType),
+                DisplayColor = Color.white,
+                RecordingId = rec.RecordingId,
+                VesselName = rec.VesselName
+            });
+
+            ParsekLog.Verbose("Timeline",
+                $"  +Spawn #{recordingIndex} '{rec.VesselName}' UT={rec.EndUT:F1} " +
+                $"terminal={rec.TerminalStateValue} sit=\"{rec.VesselSituation}\" " +
+                $"text=\"{displayText}\"");
+
+            return true;
+        }
+
+        private static int AddCrewDeathEntries(Recording rec, List<TimelineEntry> entries)
+        {
+            if (rec.CrewEndStates == null)
+                return 0;
+
+            int count = 0;
+            foreach (var kvp in rec.CrewEndStates)
+            {
+                if (kvp.Value != KerbalEndState.Dead)
+                    continue;
+
+                var deathType = TimelineEntryType.CrewDeath;
+                string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
+                entries.Add(new TimelineEntry
+                {
+                    UT = rec.EndUT,
+                    Type = deathType,
+                    DisplayText = deathText,
+                    Source = TimelineSource.Recording,
+                    Tier = TimelineEntryDisplay.GetTier(deathType),
+                    DisplayColor = new Color(1f, 0.4f, 0.4f), // red-ish
+                    RecordingId = rec.RecordingId,
+                    VesselName = rec.VesselName
+                });
+                count++;
+            }
 
             return count;
         }

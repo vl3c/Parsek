@@ -116,7 +116,7 @@ classification before they are assigned to extraction tiers.
 | `Source/Parsek/RevertInterceptor.cs` | 794 | Revert interception surface |
 | `Source/Parsek/ParsekTrackingStation.cs` | 778 | Tracking Station controller |
 | `Source/Parsek/EffectiveState.cs` | 744 | Rewind/effective-state logic |
-| `Source/Parsek/Timeline/TimelineBuilder.cs` | 711 | Timeline builder |
+| `Source/Parsek/Timeline/TimelineBuilder.cs` | 711 | Timeline builder; Pass1 canary completed |
 | `Source/Parsek/RecordingFinalizationCacheProducer.cs` | 702 | Finalization cache producer |
 
 ## Initial Tiering
@@ -189,6 +189,26 @@ Examples from the current snapshot: `IncompleteBallisticSceneExitFinalizer.cs`,
 `SupersedeCommit.cs`, `MergeJournalOrchestrator.cs`, `LoadTimeSweep.cs`,
 `Patches/GhostVesselLoadPatch.cs`, `RewindPointAuthor.cs`, and
 `GameStateEvent.cs`.
+
+## Pass 1 Canary
+
+`Source/Parsek/Timeline/TimelineBuilder.cs` was selected as the first canary
+because it is smaller than the Tier 1 files, has clear ordered phases in the
+recording collector, and has a dedicated `TimelineBuilderTests` suite.
+
+The canary extracted only same-file private helpers from `CollectRecordingEntries`:
+
+- `TryAddRecordingStartEntry`
+- `TryAddSeparationEntry`
+- `TryAddVesselSpawnEntry`
+- `AddCrewDeathEntries`
+
+No conditions, counters, sort order, or logging text were intentionally changed.
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~TimelineBuilderTests`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 ## Mechanical Long-Method Scan
 
