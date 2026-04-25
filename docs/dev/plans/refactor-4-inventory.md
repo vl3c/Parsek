@@ -53,7 +53,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass0-OpportunityMap; Tracking Station map candidates mapped |
-| `Source/Parsek/WatchModeController.cs` | 3,197 | Pass0-OpportunityMap; watch-mode candidates mapped |
+| `Source/Parsek/WatchModeController.cs` | 3,197 | Pass1-Done; watch entry helpers extracted |
 | `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
 | `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass1-Done; `Build` tab view-model helpers extracted |
 | `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass0-OpportunityMap; patcher candidates mapped |
@@ -627,12 +627,22 @@ This controller owns watch target state, overlap bridge state, camera memories,
 overlay drawing, map focus, camera transfer, horizon math, validation/update,
 and watch-hold timers.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `EnterWatchMode` into target resolution, camera state capture,
-  overlay/map setup, watch activation, and logging helpers.
-- Split `ProcessWatchEndHoldTimer` and `TryResolveOverlapBridgeRetarget` only
-  if the control flow stays linear.
+- Split `EnterWatchMode` into same-file helpers for entry validation/range
+  gating, unattended-flight warning, and hold-state reset. The camera
+  capture/switch preservation block remains inline because it owns a dense
+  set of preserved fields; target activation, input lock setup, focus logging,
+  and watch session state remain in the original order.
+- Left `ProcessWatchEndHoldTimer` and `TryResolveOverlapBridgeRetarget` inline
+  for Pass 1 because the existing control flow is already guarded by focused
+  pure helpers and extra extraction would add plumbing without reducing risk.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~WatchModeControllerTests|FullyQualifiedName~CameraFollowTests|FullyQualifiedName~Issue316WatchProtectionTests|FullyQualifiedName~WatchModeCleanupRegressionTests|FullyQualifiedName~BugFixTests|FullyQualifiedName~SessionSuppressionWiringTests|FullyQualifiedName~DeferredSpawnTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: camera state service, overlap bridge owner, and lineage
 protection owner.

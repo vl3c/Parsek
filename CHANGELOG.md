@@ -213,6 +213,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 with behavior-neutral `RecordingStore` extractions: optimization merge/split/trim phases and rewind setup/strip/temp-save cleanup now live in private same-file helpers while preserving optimizer order and rewind load behavior.
 - Continued refactor-4 with behavior-neutral `BackgroundRecorder` extractions: background split child-vessel discovery, inherited loaded-state merge, and loaded seed-event emission now live in private same-file helpers while preserving split registration and environment initialization order.
 - Continued refactor-4 with a behavior-neutral `ParsekScenario.LoadRecordingMetadata` extraction: identity/loop, budget/rewind, grouping/segment, location/terminal, playback flag, and manifest loading now live in private same-file helpers while preserving save-node read order.
+- Continued refactor-4 with a behavior-neutral `WatchModeController.EnterWatchMode` extraction: watch entry validation/range gating, unattended-flight warning, and hold-state reset now live in private same-file helpers while preserving camera switching and focus behavior.
 
 ### Tests
 
