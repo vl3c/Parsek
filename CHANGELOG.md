@@ -42,6 +42,8 @@ All notable changes to Parsek are documented here.
 
 - Spawn-death detection now skips while a re-fly session marker is active, so the `PostLoadStripper` killing sibling vessels (upper stage, debris) at re-fly invocation no longer arms a duplicate materialization that spawned a real upper-stage vessel next to the player's re-fly booster.
 
+- Merging an in-place re-fly continuation now reaps the originating Rewind Point and forces the recording to `Immutable` even if the re-flight crashed, so the recording is promoted out of the Unfinished Flights virtual group instead of staying duplicated in both Unfinished Flights and the regular tree row. "Merge to Timeline" is treated as the player's commitment that the re-flight is final regardless of outcome.
+
 - Unfinished Flights rows now use the same `R` / `FF` button glyph as every other recording row (was the longer `Rewind` label), so the Rewind/FF column lines up consistently across the table.
 
 - Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.

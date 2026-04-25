@@ -591,6 +591,114 @@ namespace Parsek.Tests
                 && l.Contains("rec_origin"));
         }
 
+        /// <summary>
+        /// After an in-place continuation merge, the recording's RP must be
+        /// reaped so the row stops satisfying <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// (terminal=Destroyed AND matching RP). Without the reap, the row
+        /// stays duplicated in the Unfinished Flights virtual group even
+        /// though the player has already "committed" the re-flight by
+        /// merging — observed in the 10:47 playtest. Reap must run even
+        /// when the re-fly itself crashed (terminal stays Destroyed).
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ReapsRpAndPromotesOutOfUnfinishedFlights()
+        {
+            const string kBpId = "bp_breakup_test";
+            var origin = Rec("rec_origin", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.CommittedProvisional,
+                terminal: TerminalState.Destroyed);
+            // Non-empty trajectory satisfies the supersede-target invariant
+            // in case the in-place guard ever falls through.
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_origin" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin");
+            var scenario = InstallScenario(marker);
+            // Seed the RP that pins the recording into the Unfinished Flights
+            // group: it shares its BranchPointId with the recording's
+            // ParentBranchPointId, and its only slot points at the origin id.
+            // SessionProvisional=false so the reaper considers it (session-
+            // provisional RPs are reaped via a different code path).
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_test_uf_reap",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_origin",
+                    },
+                },
+                SessionProvisional = false,
+            });
+
+            // Pre-merge: the recording IS an Unfinished Flight.
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "expected origin recording to satisfy IsUnfinishedFlight pre-merge " +
+                "(terminal=Destroyed + matching RP via ParentBranchPointId)");
+            Assert.Single(scenario.RewindPoints);
+
+            // Avoid touching the disk when the in-place merge calls
+            // RewindPointReaper to delete the quicksave file.
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Post-merge:
+            // 1) The RP is reaped, so the recording no longer matches an RP
+            //    even though terminal stays Destroyed.
+            Assert.Empty(scenario.RewindPoints);
+            // 2) IsUnfinishedFlight returns false — promoted out of UF.
+            Assert.False(EffectiveState.IsUnfinishedFlight(origin),
+                "expected origin recording to drop out of IsUnfinishedFlight post-merge " +
+                "(RP reaped, no matching slot)");
+            // 3) MergeState flipped to Immutable (Destroyed terminal).
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            // 4) Marker cleared.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            // 5) Reaper attempted to delete the quicksave file.
+            Assert.Equal(1, deletes);
+            // 6) INFO log advertises the reap count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation reaped 1 orphaned RP")
+                && l.Contains("post-merge"));
+        }
+
         // The runtime `old==new` self-skip defense in
         // `SupersedeCommit.AppendRelations` was removed when the placeholder-
         // and-redirect cascade was retired (item 11). The new design makes

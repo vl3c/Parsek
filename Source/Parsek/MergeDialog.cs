@@ -322,9 +322,67 @@ namespace Parsek
                     SupersedeCommit.FlipMergeStateAndClearTransient(
                         marker, provisional, scenario, preserveMarker: false);
 
+                    // Force MergeState to Immutable for the in-place
+                    // continuation path. The default flip in
+                    // FlipMergeStateAndClearTransient picks
+                    // CommittedProvisional for Crashed re-flies so a
+                    // separate-recording journaled merge can offer "re-fly
+                    // again" against the same RP. That semantic does NOT
+                    // apply here: there IS no separate provisional, and a
+                    // second re-fly would just extend the SAME recording
+                    // in place again. Treat the merge dialog confirm as
+                    // the player's commitment to the timeline, regardless
+                    // of whether the re-flight survived. Otherwise the
+                    // recording keeps MergeState=CommittedProvisional,
+                    // RewindPointReaper.IsReapEligible refuses to reap
+                    // (only Immutable counts), and the row stays in
+                    // Unfinished Flights forever — the duplicate the
+                    // 10:47 playtest reported.
+                    if (provisional.MergeState != MergeState.Immutable)
+                    {
+                        var priorState = provisional.MergeState;
+                        provisional.MergeState = MergeState.Immutable;
+                        scenario.BumpSupersedeStateVersion();
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation forced " +
+                            $"MergeState {priorState} → Immutable on {provisional.RecordingId} " +
+                            "(merge is the player's commitment; no separate provisional " +
+                            "exists to track a future re-fly)");
+                    }
+
+                    // Reap the RP whose only slot is now Immutable (the
+                    // recording we just flipped). The journaled merge runs
+                    // RpReap as a checkpoint; the in-place continuation
+                    // path skips the journal but the same housekeeping
+                    // applies — without it the RP lingers, the recording
+                    // keeps satisfying IsUnfinishedFlight (terminal=Destroyed
+                    // + matching RP slot), and the row stays duplicated in
+                    // the Unfinished Flights virtual group after merge.
+                    int reapedCount;
+                    try
+                    {
+                        reapedCount = RewindPointReaper.ReapOrphanedRPs();
+                    }
+                    catch (System.Exception reapEx)
+                    {
+                        // Reap is best-effort: a failure here leaves the RP
+                        // around for LoadTimeSweep / next reap pass to
+                        // collect, so we log + continue rather than rolling
+                        // the merge back. The MergeState flip + marker
+                        // clear above are already durable in memory and
+                        // will be persisted by the SaveGame below.
+                        reapedCount = 0;
+                        ParsekLog.Warn("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation post-merge reap threw " +
+                            $"{reapEx.GetType().Name}: {reapEx.Message} — leaving RP for next sweep");
+                    }
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation reaped " +
+                        $"{reapedCount} orphaned RP(s) post-merge");
+
                     // Mirror the orchestrator's Durable Save #1 barrier so
-                    // the flipped MergeState + cleared marker survive a
-                    // quit/reload right after the merge dialog.
+                    // the flipped MergeState + cleared marker + reaped RP
+                    // survive a quit/reload right after the merge dialog.
                     if (HighLogic.CurrentGame != null
                         && !string.IsNullOrEmpty(HighLogic.SaveFolder))
                     {
