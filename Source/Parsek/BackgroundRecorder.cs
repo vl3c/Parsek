@@ -463,29 +463,7 @@ namespace Parsek
                 return;
             }
 
-            // Find new vessel PIDs that appeared since the pre-break snapshot
-            var newVesselInfos = new List<(uint pid, string name, bool hasController)>();
-            if (FlightGlobals.Vessels != null)
-            {
-                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                {
-                    Vessel v = FlightGlobals.Vessels[i];
-                    if (v == null) continue;
-                    if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
-                    if (v.persistentId == parentPid) continue;
-
-                    // Only consider vessels that didn't exist before the break
-                    if (preBreakPids != null && preBreakPids.Contains(v.persistentId))
-                        continue;
-
-                    // Skip vessels we're already tracking in the tree
-                    if (tree.BackgroundMap.ContainsKey(v.persistentId))
-                        continue;
-
-                    bool hasController = ParsekFlight.IsTrackableVessel(v);
-                    newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
-                }
-            }
+            var newVesselInfos = CollectNewBackgroundSplitVessels(parentPid, preBreakPids);
 
             if (newVesselInfos.Count == 0)
             {
@@ -626,6 +604,37 @@ namespace Parsek
             // the active-vessel path in ParsekFlight.TryAuthorRewindPointForSplit.
             TryAuthorRewindPointForBackgroundSplit(
                 bp, parentVessel, parentContRec, newVesselInfos, childRecordings);
+        }
+
+        private List<(uint pid, string name, bool hasController)> CollectNewBackgroundSplitVessels(
+            uint parentPid,
+            HashSet<uint> preBreakPids)
+        {
+            // Find new vessel PIDs that appeared since the pre-break snapshot
+            var newVesselInfos = new List<(uint pid, string name, bool hasController)>();
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    Vessel v = FlightGlobals.Vessels[i];
+                    if (v == null) continue;
+                    if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                    if (v.persistentId == parentPid) continue;
+
+                    // Only consider vessels that didn't exist before the break
+                    if (preBreakPids != null && preBreakPids.Contains(v.persistentId))
+                        continue;
+
+                    // Skip vessels we're already tracking in the tree
+                    if (tree.BackgroundMap.ContainsKey(v.persistentId))
+                        continue;
+
+                    bool hasController = ParsekFlight.IsTrackableVessel(v);
+                    newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
+                }
+            }
+
+            return newVesselInfos;
         }
 
         /// <summary>
@@ -2260,41 +2269,7 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
-            // Bug #298: merge inherited parent engine/RCS state for child debris.
-            // SeedEngines checks engine.isOperational which is false after fuel severance,
-            // so child debris recordings get zero engine seed events. Merge from the parent's
-            // known-good state to fill in the gaps.
-            if (inherited.HasValue)
-            {
-                var inh = inherited.Value;
-                ParsekLog.Verbose("BgRecorder",
-                    $"InitializeLoadedState: inherited state for pid={vesselPid}: " +
-                    $"engines={inh.activeEngineKeys?.Count ?? 0} rcs={inh.activeRcsKeys?.Count ?? 0} " +
-                    $"childParts={v.parts?.Count ?? 0}");
-
-                var childPartPids = new HashSet<uint>();
-                if (v.parts != null)
-                    for (int i = 0; i < v.parts.Count; i++)
-                        if (v.parts[i] != null)
-                            childPartPids.Add(v.parts[i].persistentId);
-
-                int merged = MergeInheritedEngineState(inherited,
-                    state.activeEngineKeys, state.lastThrottle,
-                    state.activeRcsKeys, state.lastRcsThrottle,
-                    childPartPids, state.allEngineKeys);
-                if (merged > 0)
-                    ParsekLog.Info("BgRecorder",
-                        $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#298)");
-                else
-                    ParsekLog.Verbose("BgRecorder",
-                        $"InitializeLoadedState: 0 inherited keys merged for pid={vesselPid} " +
-                        $"(no matching PIDs on child, or all already seeded)");
-            }
-            else
-            {
-                ParsekLog.Verbose("BgRecorder",
-                    $"InitializeLoadedState: no inherited state for pid={vesselPid} (inherited=null)");
-            }
+            MergeInheritedLoadedEngineState(v, vesselPid, recordingId, inherited, state);
 
             // Emit seed events ONLY if the recording has no part events yet.
             // If a prior active recorder (or earlier background load) already seeded events,
@@ -2302,49 +2277,7 @@ namespace Parsek
             // trimming (bug A / #263 sibling — rover recording not trimmed because of stale
             // DeployableExtended events at UT 2068).
             Recording treeRecForSeed;
-            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRecForSeed);
-            if (!hasTreeRecording)
-            {
-                // Tree recording not found — unexpected state. The caller supplied a recordingId
-                // that doesn't exist in the tree's Recordings dict, which means a lifecycle bug
-                // somewhere upstream (tree corrupted, recording deleted without updating the
-                // background map, race between StopRecording and InitializeLoadedState, etc.).
-                // Log loud so we notice; seeding is skipped because there's no target anyway.
-                ParsekLog.Warn("BgRecorder",
-                    $"InitializeLoadedState: tree recording '{recordingId}' not found for " +
-                    $"pid={vesselPid} — skipping seed events (upstream lifecycle bug)");
-            }
-            else if (treeRecForSeed.PartEvents.Count > 0)
-            {
-                ParsekLog.Verbose("BgRecorder",
-                    $"InitializeLoadedState: skipping seed events for pid={vesselPid} recId={recordingId} " +
-                    $"— recording already has {treeRecForSeed.PartEvents.Count} part event(s)");
-            }
-            else
-            {
-                var partNamesByPid = new Dictionary<uint, string>();
-                if (v.parts != null)
-                {
-                    for (int i = 0; i < v.parts.Count; i++)
-                    {
-                        Part p = v.parts[i];
-                        if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
-                            partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
-                    }
-                }
-                double seedUT = Planetarium.GetUniversalTime();
-                var seedSets = BuildPartTrackingSetsFromState(state);
-                var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
-                if (seedEvents.Count > 0)
-                {
-                    treeRecForSeed.PartEvents.AddRange(seedEvents);
-                    // If the very next event is an OnSave (e.g., the player
-                    // F5s immediately after a background vessel enters loaded
-                    // physics), the seed events would otherwise be lost because
-                    // nothing else marks dirty until the next poll emits an event.
-                    treeRecForSeed.MarkFilesDirty();
-                }
-            }
+            bool hasTreeRecording = TrySeedLoadedPartEvents(v, vesselPid, recordingId, state, out treeRecForSeed);
 
             // Initialize environment tracking and open first TrackSection
             double ut = Planetarium.GetUniversalTime();
@@ -2389,6 +2322,104 @@ namespace Parsek
                 $"robotics={state.cachedRoboticModules?.Count ?? 0} initialEnv={initialEnv}");
 
             loadedStates[vesselPid] = state;
+        }
+
+        private void MergeInheritedLoadedEngineState(
+            Vessel v,
+            uint vesselPid,
+            string recordingId,
+            InheritedEngineState? inherited,
+            BackgroundVesselState state)
+        {
+            // Bug #298: merge inherited parent engine/RCS state for child debris.
+            // SeedEngines checks engine.isOperational which is false after fuel severance,
+            // so child debris recordings get zero engine seed events. Merge from the parent's
+            // known-good state to fill in the gaps.
+            if (inherited.HasValue)
+            {
+                var inh = inherited.Value;
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: inherited state for pid={vesselPid}: " +
+                    $"engines={inh.activeEngineKeys?.Count ?? 0} rcs={inh.activeRcsKeys?.Count ?? 0} " +
+                    $"childParts={v.parts?.Count ?? 0}");
+
+                var childPartPids = new HashSet<uint>();
+                if (v.parts != null)
+                    for (int i = 0; i < v.parts.Count; i++)
+                        if (v.parts[i] != null)
+                            childPartPids.Add(v.parts[i].persistentId);
+
+                int merged = MergeInheritedEngineState(inherited,
+                    state.activeEngineKeys, state.lastThrottle,
+                    state.activeRcsKeys, state.lastRcsThrottle,
+                    childPartPids, state.allEngineKeys);
+                if (merged > 0)
+                    ParsekLog.Info("BgRecorder",
+                        $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#298)");
+                else
+                    ParsekLog.Verbose("BgRecorder",
+                        $"InitializeLoadedState: 0 inherited keys merged for pid={vesselPid} " +
+                        $"(no matching PIDs on child, or all already seeded)");
+            }
+            else
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: no inherited state for pid={vesselPid} (inherited=null)");
+            }
+        }
+
+        private bool TrySeedLoadedPartEvents(
+            Vessel v,
+            uint vesselPid,
+            string recordingId,
+            BackgroundVesselState state,
+            out Recording treeRecForSeed)
+        {
+            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRecForSeed);
+            if (!hasTreeRecording)
+            {
+                // Tree recording not found — unexpected state. The caller supplied a recordingId
+                // that doesn't exist in the tree's Recordings dict, which means a lifecycle bug
+                // somewhere upstream (tree corrupted, recording deleted without updating the
+                // background map, race between StopRecording and InitializeLoadedState, etc.).
+                // Log loud so we notice; seeding is skipped because there's no target anyway.
+                ParsekLog.Warn("BgRecorder",
+                    $"InitializeLoadedState: tree recording '{recordingId}' not found for " +
+                    $"pid={vesselPid} — skipping seed events (upstream lifecycle bug)");
+            }
+            else if (treeRecForSeed.PartEvents.Count > 0)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: skipping seed events for pid={vesselPid} recId={recordingId} " +
+                    $"— recording already has {treeRecForSeed.PartEvents.Count} part event(s)");
+            }
+            else
+            {
+                var partNamesByPid = new Dictionary<uint, string>();
+                if (v.parts != null)
+                {
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                            partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                    }
+                }
+                double seedUT = Planetarium.GetUniversalTime();
+                var seedSets = BuildPartTrackingSetsFromState(state);
+                var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
+                if (seedEvents.Count > 0)
+                {
+                    treeRecForSeed.PartEvents.AddRange(seedEvents);
+                    // If the very next event is an OnSave (e.g., the player
+                    // F5s immediately after a background vessel enters loaded
+                    // physics), the seed events would otherwise be lost because
+                    // nothing else marks dirty until the next poll emits an event.
+                    treeRecForSeed.MarkFilesDirty();
+                }
+            }
+
+            return hasTreeRecording;
         }
 
         /// <summary>

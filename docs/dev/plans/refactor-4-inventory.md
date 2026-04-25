@@ -48,7 +48,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
-| `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass0-OpportunityMap; split/init candidates mapped |
+| `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass0-OpportunityMap; persistence/lifecycle candidates mapped |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
@@ -521,13 +521,23 @@ background vessels. It owns background vessel state, GameEvent subscriptions,
 split detection, lifecycle transitions, finalization cache support, environment
 and track recording, and part-event polling.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `HandleBackgroundVesselSplit` by ordered phases: parent validation,
-  branch-point creation, parent close, child recording registration,
-  TTL/debris/pending environment setup, and logging.
-- Split `InitializeLoadedState` into state creation, inherited engine merge,
-  module cache setup, seed part state, and track/environment initialization.
+- Extracted background split child-vessel discovery from
+  `HandleBackgroundVesselSplit` into a same-file helper. Parent validation,
+  cascade-cap checks, branch construction, parent close/continuation,
+  child registration, rewind-point authoring, and logging order remain
+  unchanged.
+- Extracted `InitializeLoadedState` inherited engine/RCS merge and seed-event
+  emission into same-file helpers. Module cache setup, part-state seeding,
+  environment classification, initial trajectory point handling, track-section
+  startup, and loaded-state registration remain unchanged.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~BackgroundRecorderTests|FullyQualifiedName~BackgroundPartEventAuditTests|FullyQualifiedName~BackgroundTrackSectionTests|FullyQualifiedName~SeedEventTests|FullyQualifiedName~ReviewFollowupTests|FullyQualifiedName~RecordingOptimizerTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: shared foreground/background part-event pollers and
 cross-file recorder state owners.
