@@ -301,11 +301,7 @@ namespace Parsek.Patches
                 new DialogGUIButton("Set As Target", () =>
                 {
                     currentGhostMenu = null;
-                    if (FlightGlobals.fetch != null)
-                    {
-                        FlightGlobals.fetch.SetVesselTarget(v);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
-                    }
+                    GhostMapPresence.SetGhostMapNavigationTarget(v, recIndex, "icon click");
                 }, dismissOnSelect: true),
                 new DialogGUIButton(() =>
                 {

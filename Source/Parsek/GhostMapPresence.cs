@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
@@ -51,6 +52,17 @@ namespace Parsek
                 WasNavigationTarget = wasNavigationTarget;
                 WasMapFocus = wasMapFocus;
             }
+        }
+
+        internal enum GhostTargetVerificationStatus
+        {
+            Accepted,
+            MissingFlightGlobals,
+            NullTarget,
+            CurrentMainBody,
+            ParentBody,
+            WrongVessel,
+            WrongObject
         }
 
         private const string Tag = "GhostMap";
@@ -781,7 +793,7 @@ namespace Parsek
                 lifecycleCreatedThisTick++;
 
                 Vector3d worldPos = vessel.GetWorldPos3D();
-                string body = vessel.orbitDriver?.celestialBody?.name ?? traj.TerminalOrbitBody;
+                string body = vessel.orbitDriver?.referenceBody?.name ?? traj.TerminalOrbitBody;
 
                 var done = NewDecisionFields("create-chain-done");
                 done.RecordingId = traj.RecordingId;
@@ -937,6 +949,440 @@ namespace Parsek
             bool isTrackingStationScene)
         {
             return mapViewEnabled || isTrackingStationScene;
+        }
+
+        internal static void SetGhostMapNavigationTarget(
+            Vessel vessel,
+            int recordingIndex,
+            string source)
+        {
+            string safeSource = string.IsNullOrEmpty(source) ? "unknown" : source;
+            string vesselName = vessel != null ? (vessel.vesselName ?? "Ghost") : "Ghost";
+            if (vessel == null)
+            {
+                LogGhostTargetVerificationOutcome(
+                    vesselName,
+                    recordingIndex,
+                    safeSource,
+                    GhostTargetVerificationStatus.WrongObject,
+                    "ghost-vessel-null",
+                    "target-request-vessel=null",
+                    "(not-captured)",
+                    "(not-captured)",
+                    "preflight");
+                return;
+            }
+
+            if (FlightGlobals.fetch == null)
+            {
+                LogGhostTargetVerificationOutcome(
+                    vesselName,
+                    recordingIndex,
+                    safeSource,
+                    GhostTargetVerificationStatus.MissingFlightGlobals,
+                    "FlightGlobals.fetch=null",
+                    CaptureGhostTargetState(vessel, "missing-flightglobals"),
+                    "(not-captured)",
+                    "(not-captured)",
+                    "preflight");
+                return;
+            }
+
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, safeSource);
+
+            string before = CaptureGhostTargetState(vessel, "before");
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Ghost target request via {0}: recIndex={1} ghost='{2}' before=[{3}]",
+                    safeSource,
+                    recordingIndex,
+                    vesselName,
+                    before));
+
+            FlightGlobals.fetch.SetVesselTarget(vessel, overrideInputLock: true);
+
+            string immediate = CaptureGhostTargetState(vessel, "after-set");
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Ghost target request via {0}: recIndex={1} ghost='{2}' afterSet=[{3}]",
+                    safeSource,
+                    recordingIndex,
+                    vesselName,
+                    immediate));
+
+            ParsekScenario host = ParsekScenario.Instance;
+            if (host != null)
+            {
+                host.StartCoroutine(VerifyGhostMapNavigationTargetAfterKspValidation(
+                    vessel,
+                    recordingIndex,
+                    safeSource,
+                    vesselName,
+                    before,
+                    immediate));
+                return;
+            }
+
+            GhostTargetVerificationStatus status = EvaluateGhostTargetVerification(vessel, out string reason);
+            LogGhostTargetVerificationOutcome(
+                vesselName,
+                recordingIndex,
+                safeSource,
+                status,
+                reason,
+                CaptureGhostTargetState(vessel, "immediate-no-coroutine"),
+                before,
+                immediate,
+                "immediate-no-coroutine");
+        }
+
+        private static IEnumerator VerifyGhostMapNavigationTargetAfterKspValidation(
+            Vessel vessel,
+            int recordingIndex,
+            string source,
+            string vesselName,
+            string before,
+            string immediate)
+        {
+            yield return null;
+            yield return null;
+
+            GhostTargetVerificationStatus status = EvaluateGhostTargetVerification(vessel, out string reason);
+            string final = CaptureGhostTargetState(vessel, "after-ksp-validation");
+            LogGhostTargetVerificationOutcome(
+                vesselName,
+                recordingIndex,
+                source,
+                status,
+                reason,
+                final,
+                before,
+                immediate,
+                "after-ksp-validation");
+        }
+
+        internal static bool LogGhostTargetVerificationForTesting(
+            string vesselName,
+            int recordingIndex,
+            string source,
+            GhostTargetVerificationStatus status,
+            string reason,
+            string finalState)
+        {
+            return LogGhostTargetVerificationOutcome(
+                vesselName,
+                recordingIndex,
+                source,
+                status,
+                reason,
+                finalState,
+                "(test-before)",
+                "(test-immediate)",
+                "test");
+        }
+
+        private static bool LogGhostTargetVerificationOutcome(
+            string vesselName,
+            int recordingIndex,
+            string source,
+            GhostTargetVerificationStatus status,
+            string reason,
+            string finalState,
+            string beforeState,
+            string immediateState,
+            string phase)
+        {
+            string safeName = string.IsNullOrEmpty(vesselName) ? "Ghost" : vesselName;
+            string safeSource = string.IsNullOrEmpty(source) ? "unknown" : source;
+            string safeReason = string.IsNullOrEmpty(reason) ? "(none)" : reason;
+            string safeFinal = string.IsNullOrEmpty(finalState) ? "(none)" : finalState;
+
+            if (status == GhostTargetVerificationStatus.Accepted)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Ghost '{0}' set as target via {1} (verified {2}; recIndex={3}; final=[{4}])",
+                        safeName,
+                        safeSource,
+                        phase ?? "(unknown)",
+                        recordingIndex,
+                        safeFinal));
+                return true;
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(ic,
+                    "Ghost '{0}' target rejected via {1}: status={2} reason={3} recIndex={4} phase={5} before=[{6}] immediate=[{7}] final=[{8}]",
+                    safeName,
+                    safeSource,
+                    status,
+                    safeReason,
+                    recordingIndex,
+                    phase ?? "(unknown)",
+                    string.IsNullOrEmpty(beforeState) ? "(none)" : beforeState,
+                    string.IsNullOrEmpty(immediateState) ? "(none)" : immediateState,
+                    safeFinal));
+            return false;
+        }
+
+        private static GhostTargetVerificationStatus EvaluateGhostTargetVerification(
+            Vessel ghost,
+            out string reason)
+        {
+            reason = null;
+            if (FlightGlobals.fetch == null)
+            {
+                reason = "FlightGlobals.fetch=null";
+                return GhostTargetVerificationStatus.MissingFlightGlobals;
+            }
+
+            ITargetable target = FlightGlobals.fetch.VesselTarget;
+            if (target == null)
+            {
+                reason = "FlightGlobals.fetch.VesselTarget=null";
+                return GhostTargetVerificationStatus.NullTarget;
+            }
+
+            Vessel targetVessel = SafeGetTargetVessel(target);
+            if (targetVessel != null)
+            {
+                if (IsSameVessel(targetVessel, ghost))
+                {
+                    reason = "target-vessel-matches-ghost";
+                    return GhostTargetVerificationStatus.Accepted;
+                }
+
+                reason = string.Format(ic,
+                    "target-vessel-mismatch ghostPid={0} targetPid={1} targetName=\"{2}\"",
+                    ghost != null ? ghost.persistentId : 0u,
+                    targetVessel.persistentId,
+                    targetVessel.vesselName ?? "(null)");
+                return GhostTargetVerificationStatus.WrongVessel;
+            }
+
+            OrbitDriver targetDriver = SafeGetTargetOrbitDriver(target);
+            CelestialBody targetBody = targetDriver != null ? targetDriver.celestialBody : null;
+            CelestialBody currentBody = ResolveCurrentMainBody();
+            if (targetBody != null)
+            {
+                if (IsSameBody(targetBody, currentBody))
+                {
+                    reason = string.Format(ic,
+                        "target-driver-celestialBody-is-current-main-body body={0}",
+                        targetBody.name ?? "(null)");
+                    return GhostTargetVerificationStatus.CurrentMainBody;
+                }
+
+                if (currentBody != null && currentBody.HasParent(targetBody))
+                {
+                    reason = string.Format(ic,
+                        "target-driver-celestialBody-is-parent-body targetBody={0} currentBody={1}",
+                        targetBody.name ?? "(null)",
+                        currentBody.name ?? "(null)");
+                    return GhostTargetVerificationStatus.ParentBody;
+                }
+            }
+
+            reason = "target-is-not-the-ghost-vessel: " + DescribeTargetable(target);
+            return GhostTargetVerificationStatus.WrongObject;
+        }
+
+        private static string CaptureGhostTargetState(Vessel ghost, string phase)
+        {
+            FlightGlobals globals = FlightGlobals.fetch;
+            Vessel active = globals != null ? FlightGlobals.ActiveVessel : null;
+            CelestialBody currentBody = ResolveCurrentMainBody();
+            string mode = globals != null
+                ? globals.vesselTargetMode.ToString()
+                : "(no-flightglobals)";
+
+            return string.Format(ic,
+                "phase={0} mode={1} currentMainBody={2} active={3} target={4} activeTargetObject={5} ghost={6} ghostRegistered={7}",
+                phase ?? "(null)",
+                mode,
+                currentBody != null ? (currentBody.name ?? "(unnamed-body)") : "(null)",
+                DescribeVessel(active),
+                globals != null ? DescribeTargetable(globals.VesselTarget) : "(no-flightglobals)",
+                active != null ? DescribeTargetable(active.targetObject) : "(no-active-vessel)",
+                DescribeVessel(ghost) + " " + BuildGhostOrbitDriverIdentity(ghost),
+                IsVesselRegistered(ghost));
+        }
+
+        internal static void NormalizeGhostOrbitDriverTargetIdentity(
+            Vessel vessel,
+            string context)
+        {
+            if (vessel == null || vessel.orbitDriver == null)
+                return;
+
+            OrbitDriver driver = vessel.orbitDriver;
+            bool changed = false;
+            string before = BuildGhostOrbitDriverIdentity(vessel);
+
+            if (!IsSameVessel(driver.vessel, vessel))
+            {
+                driver.vessel = vessel;
+                changed = true;
+            }
+
+            if (driver.celestialBody != null)
+            {
+                driver.celestialBody = null;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Normalized ghost target identity for {0}: before=[{1}] after=[{2}]",
+                        string.IsNullOrEmpty(context) ? "(none)" : context,
+                        before,
+                        BuildGhostOrbitDriverIdentity(vessel)));
+            }
+        }
+
+        internal static string BuildGhostOrbitDriverIdentity(Vessel vessel)
+        {
+            if (vessel == null)
+                return "driver=(ghost-null)";
+            OrbitDriver driver = vessel.orbitDriver;
+            if (driver == null)
+                return "driver=(null)";
+
+            string driverVessel = driver.vessel != null
+                ? string.Format(ic,
+                    "{0}/pid={1}",
+                    driver.vessel.vesselName ?? "(null)",
+                    driver.vessel.persistentId)
+                : "(null)";
+            string driverBody = driver.celestialBody != null
+                ? (driver.celestialBody.name ?? "(unnamed-body)")
+                : "(null)";
+            string referenceBody = driver.referenceBody != null
+                ? (driver.referenceBody.name ?? "(unnamed-body)")
+                : "(null)";
+
+            return string.Format(ic,
+                "driverVessel={0} driverCelestialBody={1} referenceBody={2} orbit={3} mapObj={4} orbitRenderer={5}",
+                driverVessel,
+                driverBody,
+                referenceBody,
+                driver.orbit != null,
+                vessel.mapObject != null,
+                vessel.orbitRenderer != null);
+        }
+
+        private static string DescribeTargetable(ITargetable target)
+        {
+            if (target == null)
+                return "null";
+
+            string typeName = target.GetType().Name;
+            Vessel vessel = SafeGetTargetVessel(target);
+            OrbitDriver driver = SafeGetTargetOrbitDriver(target);
+            string name = SafeGetTargetName(target);
+            string vesselText = vessel != null
+                ? DescribeVessel(vessel)
+                : "(null)";
+            string driverVessel = driver != null && driver.vessel != null
+                ? DescribeVessel(driver.vessel)
+                : "(null)";
+            string driverBody = driver != null && driver.celestialBody != null
+                ? (driver.celestialBody.name ?? "(unnamed-body)")
+                : "(null)";
+            string referenceBody = driver != null && driver.referenceBody != null
+                ? (driver.referenceBody.name ?? "(unnamed-body)")
+                : "(null)";
+
+            return string.Format(ic,
+                "type={0} name=\"{1}\" vessel={2} driverVessel={3} driverCelestialBody={4} referenceBody={5} transform={6}",
+                typeName,
+                name ?? "(null)",
+                vesselText,
+                driverVessel,
+                driverBody,
+                referenceBody,
+                SafeHasTransform(target));
+        }
+
+        private static string DescribeVessel(Vessel vessel)
+        {
+            if (vessel == null)
+                return "null";
+            return string.Format(ic,
+                "\"{0}\"/pid={1}/ghost={2}",
+                vessel.vesselName ?? "(null)",
+                vessel.persistentId,
+                IsGhostMapVessel(vessel.persistentId));
+        }
+
+        private static Vessel SafeGetTargetVessel(ITargetable target)
+        {
+            if (target == null) return null;
+            try { return target.GetVessel(); }
+            catch { return null; }
+        }
+
+        private static OrbitDriver SafeGetTargetOrbitDriver(ITargetable target)
+        {
+            if (target == null) return null;
+            try { return target.GetOrbitDriver(); }
+            catch { return null; }
+        }
+
+        private static string SafeGetTargetName(ITargetable target)
+        {
+            if (target == null) return null;
+            try { return target.GetName(); }
+            catch { return null; }
+        }
+
+        private static bool SafeHasTransform(ITargetable target)
+        {
+            if (target == null) return false;
+            try { return target.GetTransform() != null; }
+            catch { return false; }
+        }
+
+        private static CelestialBody ResolveCurrentMainBody()
+        {
+            if (FlightGlobals.currentMainBody != null)
+                return FlightGlobals.currentMainBody;
+            if (FlightGlobals.fetch == null)
+                return null;
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active != null && active.mainBody != null)
+                return active.mainBody;
+            return null;
+        }
+
+        internal static bool IsVesselRegistered(Vessel vessel)
+        {
+            if (vessel == null || FlightGlobals.fetch == null || FlightGlobals.Vessels == null)
+                return false;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                if (IsSameVessel(FlightGlobals.Vessels[i], vessel))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsSameVessel(Vessel a, Vessel b)
+        {
+            if (a == null || b == null)
+                return false;
+            return ReferenceEquals(a, b)
+                || (a.persistentId != 0u && a.persistentId == b.persistentId);
+        }
+
+        private static bool IsSameBody(CelestialBody a, CelestialBody b)
+        {
+            if (a == null || b == null)
+                return false;
+            return ReferenceEquals(a, b)
+                || string.Equals(a.name, b.name, StringComparison.Ordinal);
         }
 
         private static TrackingStationSpawnHandoffState CaptureTrackingStationSpawnHandoffState(
@@ -1269,7 +1715,7 @@ namespace Parsek
                 lifecycleCreatedThisTick++;
 
                 Vector3d worldPos = vessel.GetWorldPos3D();
-                string body = vessel.orbitDriver?.celestialBody?.name ?? traj.TerminalOrbitBody;
+                string body = vessel.orbitDriver?.referenceBody?.name ?? traj.TerminalOrbitBody;
 
                 var done = NewDecisionFields("create-terminal-orbit-done");
                 done.RecordingId = traj.RecordingId;
@@ -3206,11 +3652,12 @@ namespace Parsek
                 }
             }
 
-            // SOI transition handling (same pattern as ApplyOrbitToVessel)
-            bool soiChanged = vessel.orbitDriver.celestialBody != body;
+            // SOI transition handling (same pattern as ApplyOrbitToVessel).
+            // OrbitDriver.celestialBody is only for real CelestialBody drivers;
+            // vessel targets must keep identity in OrbitDriver.vessel.
+            bool soiChanged = vessel.orbitDriver.referenceBody != body;
             if (soiChanged)
             {
-                vessel.orbitDriver.celestialBody = body;
                 var soi = NewDecisionFields("update-state-vector-soi-change");
                 soi.RecordingId = traj?.RecordingId;
                 soi.RecordingIndex = recordingIndex;
@@ -3228,6 +3675,7 @@ namespace Parsek
 
             vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
             vessel.orbitDriver.updateFromParameters();
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
             if (soiChanged && vessel.orbitRenderer != null)
             {
@@ -3296,13 +3744,12 @@ namespace Parsek
                 return;
             }
 
-            // SOI transition: update celestialBody BEFORE SetOrbit so that
-            // orbitDriver and orbit.referenceBody are consistent when
-            // updateFromParameters recalculates the orbit line (#189).
-            bool soiChanged = vessel.orbitDriver.celestialBody != body;
+            // SOI transition: compare the Orbit reference body. OrbitDriver.celestialBody
+            // must stay null for vessel targets; stock OrbitTargeter treats a non-null
+            // celestialBody on a target driver as a body target and drops same-body ghosts.
+            bool soiChanged = vessel.orbitDriver.referenceBody != body;
             if (soiChanged)
             {
-                vessel.orbitDriver.celestialBody = body;
                 ParsekLog.Info(Tag,
                     string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
             }
@@ -3321,6 +3768,7 @@ namespace Parsek
                 body);
 
             vessel.orbitDriver.updateFromParameters();
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
 
             // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
             ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
@@ -4517,6 +4965,7 @@ namespace Parsek
 
                 // Log creation + OrbitDriver state for diagnostics (#172)
                 Vessel v = pv.vesselRef;
+                NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
                 {
@@ -4524,11 +4973,13 @@ namespace Parsek
 
                     driverState = string.Format(ic,
                         "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
-                        "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1})",
+                        "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1}) {10} registered={11}",
                         v.orbitDriver.updateMode,
                         drv.semiMajorAxis, drv.eccentricity, drv.inclination,
                         drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
-                        v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z);
+                        v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z,
+                        BuildGhostOrbitDriverIdentity(v),
+                        IsVesselRegistered(v));
                 }
 
                 // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
