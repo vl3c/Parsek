@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) {
 }
 
 $lines = Get-Content -LiteralPath $LogPath
-$parsekLines = $lines | Where-Object { $_ -like "*[Parsek]*" }
+$parsekLines = $lines | Where-Object { $_.Contains("[Parsek]") }
 
 Write-Output "Log signal summary"
 Write-Output "Path: $LogPath"
