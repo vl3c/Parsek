@@ -538,7 +538,79 @@ namespace Parsek
             if (facilityStateTerm.TryGetValue("Administration", out adminTerm))
                 adminLevelTerm = adminTerm.Level;
 
-            // --- Contracts tab ---
+            var contractsVM = CreateContractsTabVM(
+                activeContractsCurSnap,
+                activeContractsTerm,
+                missionControlLevelCur,
+                missionControlLevelTerm,
+                liveUT,
+                contractsVisible);
+            var strategiesVM = CreateStrategiesTabVM(
+                activeStrategiesCurSnap,
+                activeStrategiesTerm,
+                adminLevelCur,
+                adminLevelTerm,
+                liveUT,
+                strategiesVisible);
+            var facilitiesVM = CreateFacilitiesTabVM(
+                facilityStateCurSnap,
+                facilityStateTerm,
+                facilitiesVisible);
+            var milestonesVM = CreateMilestonesTabVM(
+                allMilestoneRows,
+                creditedMilestonesCurSnap,
+                creditedMilestonesTerm,
+                liveUT,
+                milestonesVisible);
+
+            // --- Divergence (any tab where current != projected). ---
+            bool divergence =
+                contractsVM.CurrentActive != contractsVM.ProjectedActive
+                || strategiesVM.CurrentActive != strategiesVM.ProjectedActive
+                || milestonesVM.CurrentCreditedCount != milestonesVM.ProjectedCreditedCount
+                || AnyFacilityUpcomingChange(facilitiesVM.Rows)
+                || adminLevelCur != adminLevelTerm;
+
+            var vm = new CareerStateViewModel
+            {
+                Contracts = contractsVM,
+                Strategies = strategiesVM,
+                Facilities = facilitiesVM,
+                Milestones = milestonesVM,
+                Mode = mode,
+                LiveUT = liveUT,
+                TerminalUT = terminalUT,
+                NextRelevantActionUT = nextRelevantActionUT,
+                HasDivergence = divergence,
+                IsTransientFallback = false
+            };
+
+            ParsekLog.Verbose("UI",
+                "CareerStateWindow: rebuilt VM "
+                + $"liveUT={GetDisplayedUtText(liveUT)} "
+                + $"terminalUT={GetDisplayedUtText(terminalUT)} "
+                + $"divergence={divergence} "
+                + $"mode={mode} "
+                + $"contracts={contractsVM.CurrentActive}/{contractsVM.ProjectedActive} "
+                + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
+                + $"facilities={facilitiesVM.Rows.Count} "
+                + $"milestones={milestonesVM.CurrentCreditedCount}/{milestonesVM.ProjectedCreditedCount}");
+
+            return vm;
+        }
+
+        // ================================================================
+        // Helpers
+        // ================================================================
+
+        private static ContractsTabVM CreateContractsTabVM(
+            Dictionary<string, ContractAcc> activeContractsCurSnap,
+            Dictionary<string, ContractAcc> activeContractsTerm,
+            int missionControlLevelCur,
+            int missionControlLevelTerm,
+            double liveUT,
+            bool contractsVisible)
+        {
             var contractsVM = new ContractsTabVM
             {
                 CurrentRows = new List<ContractRow>(),
@@ -586,8 +658,17 @@ namespace Parsek
             }
             contractsVM.CurrentActive = contractsVM.CurrentRows.Count;
             contractsVM.ProjectedActive = contractsVM.ProjectedRows.Count;
+            return contractsVM;
+        }
 
-            // --- Strategies tab ---
+        private static StrategiesTabVM CreateStrategiesTabVM(
+            Dictionary<string, StrategyAcc> activeStrategiesCurSnap,
+            Dictionary<string, StrategyAcc> activeStrategiesTerm,
+            int adminLevelCur,
+            int adminLevelTerm,
+            double liveUT,
+            bool strategiesVisible)
+        {
             var strategiesVM = new StrategiesTabVM
             {
                 CurrentRows = new List<StrategyRow>(),
@@ -637,8 +718,14 @@ namespace Parsek
             }
             strategiesVM.CurrentActive = strategiesVM.CurrentRows.Count;
             strategiesVM.ProjectedActive = strategiesVM.ProjectedRows.Count;
+            return strategiesVM;
+        }
 
-            // --- Facilities tab ---
+        private static FacilitiesTabVM CreateFacilitiesTabVM(
+            Dictionary<string, FacilityAcc> facilityStateCurSnap,
+            Dictionary<string, FacilityAcc> facilityStateTerm,
+            bool facilitiesVisible)
+        {
             var facilitiesVM = new FacilitiesTabVM { Rows = new List<FacilityRow>() };
             if (facilitiesVisible)
             {
@@ -666,8 +753,16 @@ namespace Parsek
                     });
                 }
             }
+            return facilitiesVM;
+        }
 
-            // --- Milestones tab ---
+        private static MilestonesTabVM CreateMilestonesTabVM(
+            List<MilestoneRow> allMilestoneRows,
+            HashSet<string> creditedMilestonesCurSnap,
+            HashSet<string> creditedMilestonesTerm,
+            double liveUT,
+            bool milestonesVisible)
+        {
             var milestonesVM = new MilestonesTabVM
             {
                 Rows = new List<MilestoneRow>()
@@ -689,46 +784,8 @@ namespace Parsek
                 milestonesVM.CurrentCreditedCount = 0;
                 milestonesVM.ProjectedCreditedCount = 0;
             }
-
-            // --- Divergence (any tab where current != projected). ---
-            bool divergence =
-                contractsVM.CurrentActive != contractsVM.ProjectedActive
-                || strategiesVM.CurrentActive != strategiesVM.ProjectedActive
-                || milestonesVM.CurrentCreditedCount != milestonesVM.ProjectedCreditedCount
-                || AnyFacilityUpcomingChange(facilitiesVM.Rows)
-                || adminLevelCur != adminLevelTerm;
-
-            var vm = new CareerStateViewModel
-            {
-                Contracts = contractsVM,
-                Strategies = strategiesVM,
-                Facilities = facilitiesVM,
-                Milestones = milestonesVM,
-                Mode = mode,
-                LiveUT = liveUT,
-                TerminalUT = terminalUT,
-                NextRelevantActionUT = nextRelevantActionUT,
-                HasDivergence = divergence,
-                IsTransientFallback = false
-            };
-
-            ParsekLog.Verbose("UI",
-                "CareerStateWindow: rebuilt VM "
-                + $"liveUT={GetDisplayedUtText(liveUT)} "
-                + $"terminalUT={GetDisplayedUtText(terminalUT)} "
-                + $"divergence={divergence} "
-                + $"mode={mode} "
-                + $"contracts={contractsVM.CurrentActive}/{contractsVM.ProjectedActive} "
-                + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
-                + $"facilities={facilitiesVM.Rows.Count} "
-                + $"milestones={milestonesVM.CurrentCreditedCount}/{milestonesVM.ProjectedCreditedCount}");
-
-            return vm;
+            return milestonesVM;
         }
-
-        // ================================================================
-        // Helpers
-        // ================================================================
 
         private static CareerStateViewModel EmptyVM(
             double liveUT,

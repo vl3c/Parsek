@@ -352,12 +352,67 @@ namespace Parsek
                 return;
             }
 
-            double droppedFundsDelta = 0;
-            double droppedRepDelta = 0;
-            double droppedSciDelta = 0;
-            double windowScopedSciDelta = 0;
-            int scopeSkipped = 0;
+            var storeDeltas = ComputeEarningsWindowStoreDeltas(
+                events,
+                startUT,
+                endUT,
+                recordingId);
+            LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
+            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions);
+
+            if (scienceTracked)
+            {
+                storeDeltas.DroppedSciDelta = SumCommitWindowScienceDelta(
+                    events,
+                    emittedDeltas.EffectiveScienceActions,
+                    startUT,
+                    endUT,
+                    recordingId,
+                    storeDeltas.WindowScopedSciDelta);
+            }
+
+            LogEarningsWindowActionSummary(emittedDeltas, startUT, endUT);
+            WarnOnEarningsWindowMismatches(
+                storeDeltas,
+                emittedDeltas,
+                events,
+                startUT,
+                endUT,
+                recordingId,
+                fundsTracked,
+                scienceTracked,
+                repTracked);
+        }
+
+        private struct EarningsWindowStoreDeltas
+        {
+            public double DroppedFundsDelta;
+            public double DroppedRepDelta;
+            public double DroppedSciDelta;
+            public double WindowScopedSciDelta;
+            public int ScopeSkipped;
+        }
+
+        private struct EarningsWindowEmittedDeltas
+        {
+            public double EmittedFundsDelta;
+            public double EmittedRepDelta;
+            public double EmittedSciDelta;
+            // Assigned once by ComputeEarningsWindowEmittedDeltas and treated read-only after return.
+            public List<GameAction> EffectiveScienceActions;
+            public int ContractAcceptCount;
+            public int FacilityUpgradeCount;
+            public int FacilityRepairCount;
+        }
+
+        private static EarningsWindowStoreDeltas ComputeEarningsWindowStoreDeltas(
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            var deltas = new EarningsWindowStoreDeltas();
             if (events != null)
             {
                 for (int i = 0; i < events.Count; i++)
@@ -366,41 +421,48 @@ namespace Parsek
                     if (e.ut < startUT || e.ut > endUT) continue;
                     if (!EventMatchesRecordingScope(e, recordingId))
                     {
-                        scopeSkipped++;
+                        deltas.ScopeSkipped++;
                         continue;
                     }
                     switch (e.eventType)
                     {
                         case GameStateEventType.FundsChanged:
-                            droppedFundsDelta += (e.valueAfter - e.valueBefore);
+                            deltas.DroppedFundsDelta += (e.valueAfter - e.valueBefore);
                             break;
                         case GameStateEventType.ReputationChanged:
-                            droppedRepDelta += (e.valueAfter - e.valueBefore);
+                            deltas.DroppedRepDelta += (e.valueAfter - e.valueBefore);
                             break;
                         case GameStateEventType.ScienceChanged:
-                            windowScopedSciDelta += (e.valueAfter - e.valueBefore);
+                            deltas.WindowScopedSciDelta += (e.valueAfter - e.valueBefore);
                             break;
                     }
                 }
             }
 
-            if (scopeSkipped > 0)
+            return deltas;
+        }
+
+        private static void LogEarningsWindowScopeSkipped(
+            EarningsWindowStoreDeltas storeDeltas,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (storeDeltas.ScopeSkipped > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
+                    $"ReconcileEarningsWindow: skipped {storeDeltas.ScopeSkipped} event(s) tagged to other recordings " +
                     $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
             }
+        }
 
-            double emittedFundsDelta = 0;
-            double emittedRepDelta = 0;
-            double emittedSciDelta = 0;
-            var effectiveScienceActions = new List<GameAction>();
-            // #438 batch counters for the three newly-added cases — a single Verbose
-            // summary is emitted below so the reconciliation path's handling of these
-            // action types is visible per project logging rules without per-item spam.
-            int contractAcceptCount = 0;
-            int facilityUpgradeCount = 0;
-            int facilityRepairCount = 0;
+        private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
+            List<GameAction> newActions)
+        {
+            var deltas = new EarningsWindowEmittedDeltas
+            {
+                EffectiveScienceActions = new List<GameAction>()
+            };
 
             // newActions already contains vesselCostActions + scienceActions (merged by
             // OnRecordingCommitted before this runs), so a single walk suffices.
@@ -416,125 +478,136 @@ namespace Parsek
                             // crediting when !Effective. No TransformedFundsAwarded
                             // exists today; read raw FundsAwarded.
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.FundsAwarded;
+                            deltas.EmittedFundsDelta += a.FundsAwarded;
                             break;
                         case GameActionType.FundsSpending:
-                            emittedFundsDelta -= a.FundsSpent;
+                            deltas.EmittedFundsDelta -= a.FundsSpent;
                             break;
                         case GameActionType.ReputationEarning:
                             // #440B: EffectiveRep is curve-applied by ReputationModule
                             // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ReputationPenalty:
                             // #440B: EffectiveRep is signed negative for penalties
                             // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractComplete:
                             // #440B: read post-walk Transformed* / EffectiveRep. Gate on
                             // Effective to skip duplicate completions (module skips credit).
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.TransformedFundsReward;
-                            emittedRepDelta += a.EffectiveRep;
-                            emittedSciDelta += a.TransformedScienceReward;
+                            deltas.EmittedFundsDelta += a.TransformedFundsReward;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedSciDelta += a.TransformedScienceReward;
                             break;
                         case GameActionType.ContractFail:
                         case GameActionType.ContractCancel:
                             // #440B: funds penalty has no transform today; keep raw.
                             // Rep penalty: EffectiveRep is already signed negative.
-                            emittedFundsDelta -= a.FundsPenalty;
-                            emittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedFundsDelta -= a.FundsPenalty;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractAccept:
                             // #438 gap #1: without this case the advance payment's
                             // FundsChanged(ContractAdvance) delta had no emitted-side
                             // counterpart and every accepted contract whose UT fell
                             // inside a commit window produced a spurious funds WARN.
-                            emittedFundsDelta += a.AdvanceFunds;
-                            contractAcceptCount++;
+                            deltas.EmittedFundsDelta += a.AdvanceFunds;
+                            deltas.ContractAcceptCount++;
                             break;
                         case GameActionType.FacilityUpgrade:
                             // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
                             // path -- a facility spend inside a recording's commit window
                             // must subtract from the emitted delta to match the store's
                             // negative FundsChanged.
-                            emittedFundsDelta -= a.FacilityCost;
-                            facilityUpgradeCount++;
+                            deltas.EmittedFundsDelta -= a.FacilityCost;
+                            deltas.FacilityUpgradeCount++;
                             break;
                         case GameActionType.FacilityRepair:
-                            emittedFundsDelta -= a.FacilityCost;
-                            facilityRepairCount++;
+                            deltas.EmittedFundsDelta -= a.FacilityCost;
+                            deltas.FacilityRepairCount++;
                             break;
                         case GameActionType.MilestoneAchievement:
                             // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
                             // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
                             // (no transform today). Gate on Effective for duplicate milestones.
                             if (!a.Effective) break;
-                            emittedFundsDelta += a.MilestoneFundsAwarded;
-                            emittedRepDelta += a.EffectiveRep;
-                            emittedSciDelta += a.MilestoneScienceAwarded;
+                            deltas.EmittedFundsDelta += a.MilestoneFundsAwarded;
+                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedSciDelta += a.MilestoneScienceAwarded;
                             break;
                         case GameActionType.ScienceEarning:
                             // #440B: EffectiveScience is post-subject-cap (ScienceModule).
                             // At cap, EffectiveScience=0 while ScienceAwarded != 0 --
                             // this silences a false-positive WARN on capped subjects.
                             if (!a.Effective) break;
-                            emittedSciDelta += a.EffectiveScience;
-                            effectiveScienceActions.Add(a);
+                            deltas.EmittedSciDelta += a.EffectiveScience;
+                            deltas.EffectiveScienceActions.Add(a);
                             break;
                         case GameActionType.ScienceSpending:
-                            emittedSciDelta -= a.Cost;
+                            deltas.EmittedSciDelta -= a.Cost;
                             break;
                     }
                 }
             }
 
-            if (scienceTracked)
-            {
-                droppedSciDelta = SumCommitWindowScienceDelta(
-                    events,
-                    effectiveScienceActions,
-                    startUT,
-                    endUT,
-                    recordingId,
-                    windowScopedSciDelta);
-            }
+            return deltas;
+        }
 
+        private static void LogEarningsWindowActionSummary(
+            EarningsWindowEmittedDeltas emittedDeltas,
+            double startUT,
+            double endUT)
+        {
             // #438: single Verbose summary covering the three newly-handled action
             // types so their contribution to emittedFundsDelta is visible in KSP.log
             // without emitting one log line per loop iteration.
-            if (contractAcceptCount > 0 || facilityUpgradeCount > 0 || facilityRepairCount > 0)
+            if (emittedDeltas.ContractAcceptCount > 0
+                || emittedDeltas.FacilityUpgradeCount > 0
+                || emittedDeltas.FacilityRepairCount > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReconcileEarningsWindow: summed {contractAcceptCount} ContractAccept, " +
-                    $"{facilityUpgradeCount} FacilityUpgrade, {facilityRepairCount} FacilityRepair " +
+                    $"ReconcileEarningsWindow: summed {emittedDeltas.ContractAcceptCount} ContractAccept, " +
+                    $"{emittedDeltas.FacilityUpgradeCount} FacilityUpgrade, {emittedDeltas.FacilityRepairCount} FacilityRepair " +
                     $"into emittedFundsDelta window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
+        }
 
+        private static void WarnOnEarningsWindowMismatches(
+            EarningsWindowStoreDeltas storeDeltas,
+            EarningsWindowEmittedDeltas emittedDeltas,
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
             const double repTol = 0.1f;
             const double sciTol = 0.1f;
 
-            if (fundsTracked && Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            if (fundsTracked && Math.Abs(storeDeltas.DroppedFundsDelta - emittedDeltas.EmittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (funds): store delta={FormatFixed1(droppedFundsDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedFundsDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (funds): store delta={FormatFixed1(storeDeltas.DroppedFundsDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedFundsDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (repTracked && Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            if (repTracked && Math.Abs(storeDeltas.DroppedRepDelta - emittedDeltas.EmittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (rep): store delta={FormatFixed1(droppedRepDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedRepDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (rep): store delta={FormatFixed1(storeDeltas.DroppedRepDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedRepDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
-            if (scienceTracked && Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            if (scienceTracked && Math.Abs(storeDeltas.DroppedSciDelta - emittedDeltas.EmittedSciDelta) > sciTol)
             {
                 string message =
-                    $"Earnings reconciliation (sci): store delta={FormatFixed1(droppedSciDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedSciDelta)} — missing earning channel? " +
+                    $"Earnings reconciliation (sci): store delta={FormatFixed1(storeDeltas.DroppedSciDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedSciDelta)} — missing earning channel? " +
                     $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]";
                 string warnKey = string.Format(
                     CultureInfo.InvariantCulture,
@@ -542,14 +615,14 @@ namespace Parsek
                     recordingId ?? "",
                     startUT,
                     endUT,
-                    droppedSciDelta,
-                    emittedSciDelta);
+                    storeDeltas.DroppedSciDelta,
+                    emittedDeltas.EmittedSciDelta);
                 if (LogReconcileWarnOnce(warnKey, message))
                 {
                     LogScienceCommitReconcileDumpOnce(
                         warnKey,
                         events,
-                        effectiveScienceActions,
+                        emittedDeltas.EffectiveScienceActions,
                         startUT,
                         endUT,
                         recordingId);
@@ -833,6 +906,20 @@ namespace Parsek
             double firstFunds = rec.Points[0].funds;
             double buildCost = rec.PreLaunchFunds - firstFunds;
 
+            AddVesselBuildCostActions(result, recordingId, startUT, rec, firstFunds, buildCost);
+            AddVesselRecoveryCostActions(result, recordingId, endUT, rec);
+
+            return result;
+        }
+
+        private static void AddVesselBuildCostActions(
+            List<GameAction> result,
+            string recordingId,
+            double startUT,
+            Recording rec,
+            double firstFunds,
+            double buildCost)
+        {
             // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
             // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
             // runs later in the FLIGHT scene). So in the normal pad-start record flow the
@@ -881,7 +968,14 @@ namespace Parsek
                     $"CreateVesselCostActions: zero build cost and no rollout adoption " +
                     $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
             }
+        }
 
+        private static void AddVesselRecoveryCostActions(
+            List<GameAction> result,
+            string recordingId,
+            double endUT,
+            Recording rec)
+        {
             // Recovery funds: prefer the paired FundsChanged(VesselRecovery) event near
             // the recording end UT. This covers recoveries that happen after the last
             // recorded point but before commit outside FLIGHT (e.g. post-flight KSC
@@ -946,8 +1040,6 @@ namespace Parsek
                     }
                 }
             }
-
-            return result;
         }
 
         /// <summary>
@@ -1452,41 +1544,8 @@ namespace Parsek
             // tagged action via some other path.
             PurgeGhostOnlyActionsFromLedger();
 
-            // Phase 9 of Rewind-to-Staging (design §3.2): route the walk input
-            // through the Effective Ledger Set so any tombstoned action is
-            // excluded. Tombstones are the only filter — the recording-level
-            // filter (v0.4) was explicitly dropped in v0.5's narrow-supersede
-            // design, and ComputeELS implements exactly that rule. Pre-Phase-9
-            // behavior (Ledger.Actions raw) matches the Phase 9 output on a
-            // save with no tombstones (trivially), so this is a drop-in for
-            // existing behavior plus the new tombstone filter.
-            //
-            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
-            // so ComputeELS (which derives from Ledger.Actions) correctly
-            // reflects the post-purge state.
-            var actions = new List<GameAction>(EffectiveState.ComputeELS());
-
-            // Count how many actions survive the cutoff filter for the log summary.
-            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
-            int actionsAfterCutoff = actions.Count;
-            if (utCutoff.HasValue)
-            {
-                double cutoff = utCutoff.Value;
-                actionsAfterCutoff = 0;
-                for (int i = 0; i < actions.Count; i++)
-                {
-                    var a = actions[i];
-                    if (a == null) continue;
-                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
-                        actionsAfterCutoff++;
-                }
-            }
-            string cutoffLabel = utCutoff.HasValue
-                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
-                : "null";
-            ParsekLog.Info(Tag,
-                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
-                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+            var actions = BuildRecalculationActions();
+            LogRecalculationInputSummary(actions, utCutoff);
 
             RecalculationEngine.Recalculate(actions, utCutoff);
 
@@ -1511,45 +1570,10 @@ namespace Parsek
             }
             else
             {
-                // KSP state mutations (PostWalk already called by engine). Repeatable
-                // Records* nodes only rebuild strictly from ledger-backed thresholds on
-                // rewind-style cutoff walks; normal same-branch recalculations preserve the
-                // live in-tier best value because that finer-grained partial progress is not
-                // persisted in the ledger.
-                kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-                // #559: tech-tree patching is rewind-only. Live unlocks that happened after
-                // the latest captured baseline are not replayed by any ledger action, so a
-                // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
-                // the target tech set when a cutoff is supplied; the null branch no-ops
-                // through PatchTechTree's existing null-target guard.
-                HashSet<string> targetTechIds = null;
-                double? techBaselineUt = null;
-                if (utCutoff.HasValue)
-                {
-                    targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
-                        GameStateStore.Baselines,
-                        actions,
-                        utCutoff);
-                    techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
-                        GameStateStore.Baselines,
-                        utCutoff);
-                    ParsekLog.Verbose(Tag,
-                        "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
-                        $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                        $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
-                        $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag,
-                        "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
-                }
-                KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                    milestonesModule, facilitiesModule, contractsModule,
-                    targetTechIds,
-                    authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
-                    techUtCutoff: utCutoff,
-                    techBaselineUt: techBaselineUt);
+                ApplyRecalculatedStateToKsp(
+                    actions,
+                    utCutoff,
+                    authoritativeRepeatableRecordState);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1563,6 +1587,98 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        private static List<GameAction> BuildRecalculationActions()
+        {
+            // Phase 9 of Rewind-to-Staging (design §3.2): route the walk input
+            // through the Effective Ledger Set so any tombstoned action is
+            // excluded. Tombstones are the only filter — the recording-level
+            // filter (v0.4) was explicitly dropped in v0.5's narrow-supersede
+            // design, and ComputeELS implements exactly that rule. Pre-Phase-9
+            // behavior (Ledger.Actions raw) matches the Phase 9 output on a
+            // save with no tombstones (trivially), so this is a drop-in for
+            // existing behavior plus the new tombstone filter.
+            //
+            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
+            // so ComputeELS (which derives from Ledger.Actions) correctly
+            // reflects the post-purge state.
+            return new List<GameAction>(EffectiveState.ComputeELS());
+        }
+
+        private static void LogRecalculationInputSummary(
+            List<GameAction> actions,
+            double? utCutoff)
+        {
+            // Count how many actions survive the cutoff filter for the log summary.
+            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
+            int actionsAfterCutoff = actions.Count;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                actionsAfterCutoff = 0;
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null) continue;
+                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
+                        actionsAfterCutoff++;
+                }
+            }
+
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
+                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+        }
+
+        private static void ApplyRecalculatedStateToKsp(
+            List<GameAction> actions,
+            double? utCutoff,
+            bool authoritativeRepeatableRecordState)
+        {
+            // KSP state mutations (PostWalk already called by engine). Repeatable
+            // Records* nodes only rebuild strictly from ledger-backed thresholds on
+            // rewind-style cutoff walks; normal same-branch recalculations preserve the
+            // live in-tier best value because that finer-grained partial progress is not
+            // persisted in the ledger.
+            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+            // #559: tech-tree patching is rewind-only. Live unlocks that happened after
+            // the latest captured baseline are not replayed by any ledger action, so a
+            // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
+            // the target tech set when a cutoff is supplied; the null branch no-ops
+            // through PatchTechTree's existing null-target guard.
+            HashSet<string> targetTechIds = null;
+            double? techBaselineUt = null;
+            if (utCutoff.HasValue)
+            {
+                targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
+                    GameStateStore.Baselines,
+                    actions,
+                    utCutoff);
+                techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
+                    GameStateStore.Baselines,
+                    utCutoff);
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
+                    $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
+            }
+
+            KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
+                milestonesModule, facilitiesModule, contractsModule,
+                targetTechIds,
+                authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
+                techUtCutoff: utCutoff,
+                techBaselineUt: techBaselineUt);
         }
 
         internal static bool HasActionsAfterUT(double ut)
