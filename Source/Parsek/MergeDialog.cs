@@ -187,7 +187,7 @@ namespace Parsek
         // (the lambda itself isn't reachable from outside Unity).
         //
         // Phase C of the ledger / lump-sum reconciliation fix
-        // (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`) wires
+        // (`docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md`) wires
         // <see cref="RecordingStore.MarkTreeAsApplied"/> into the merge path
         // so committed tree recordings are immediately marked fully applied
         // (the in-flight commit path <see cref="ParsekFlight.CommitTreeFlight"/>

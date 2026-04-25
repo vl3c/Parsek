@@ -144,7 +144,7 @@ namespace Parsek.Tests
             // the reward before the FundsChanged event fired (which is what the
             // recorder reads via contract.FundsCompletion). Applying Commitment a
             // second time would double-divert. See
-            // docs/dev/plans/fix-439-strategy-lifecycle-capture.md section 3.5.
+            // docs/dev/done/plans/fix-439-strategy-lifecycle-capture.md section 3.5.
             //
             // This test pins the invariant at the cross-tier level: with an active
             // strategy, TransformedFundsReward stays equal to FundsReward, and the

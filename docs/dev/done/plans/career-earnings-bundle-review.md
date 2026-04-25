@@ -2,7 +2,7 @@
 
 ## Meta: the plan file is missing
 
-The reviewer was asked to audit `docs/dev/plans/career-earnings-bundle.md`. That file does **not exist** in this worktree. `docs/dev/plans/` only contains `fix-three-bugs.md`, `kerbals-cold-start-and-roster-coverage.md`, and `rsw-departure-aware-spawn-warp.md`. No career-earnings-bundle plan was authored.
+The reviewer was asked to audit `docs/dev/done/plans/career-earnings-bundle.md`. That file does **not exist** in this worktree. `docs/dev/plans/` only contains `fix-three-bugs.md`, `kerbals-cold-start-and-roster-coverage.md`, and `rsw-departure-aware-spawn-warp.md`. No career-earnings-bundle plan was authored.
 
 This review therefore reports my independent findings and treats each as a "must-be-in-the-plan" item. Any future plan should be measured against the checklist at the bottom.
 
@@ -368,5 +368,5 @@ When the plan is written, it must include all of the following — no more, no l
 
 - `CHANGELOG.md` — ONE line grouping all bugs, user-facing only, ≤2 sentences (CLAUDE.md HARD RULE).
 - `docs/dev/todo-and-known-bugs.md` — mark each of #394, #395, #396, #397, #398, #400, #401, #402, #403, #404, #405 as ~~done~~; if any are intentionally deferred (e.g., #399 suspect), keep them open with an explicit note.
-- `docs/dev/plans/career-earnings-bundle.md` — write the plan, then fold it into `done/` when the PR merges.
+- `docs/dev/done/plans/career-earnings-bundle.md` — write the plan, then fold it into `done/` when the PR merges.
 - No `.claude/CLAUDE.md` update needed — no workflow change.

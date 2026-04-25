@@ -1836,7 +1836,7 @@ namespace Parsek
 
         /// <summary>
         /// Phase A of the ledger / lump-sum resource reconciliation fix
-        /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>). Walks the
+        /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>). Walks the
         /// committed trees and, for each tree whose <see cref="RecordingTree.Load"/>
         /// hydrated a transient legacy residual with any persisted
         /// <c>deltaFunds</c>/<c>deltaScience</c>/<c>deltaReputation</c> outside
@@ -4778,7 +4778,7 @@ namespace Parsek
         // FundsEarning and ScienceEarning). Other action types are reconciled
         // per-action by ReconcileKscAction and return Reconcile=false here.
         //
-        // See docs/dev/plans/fix-440-post-walk-reconciliation.md.
+        // See docs/dev/done/plans/fix-440-post-walk-reconciliation.md.
         // ================================================================
 
         /// <summary>

@@ -37,6 +37,7 @@ namespace Parsek
         // Spawn Control column widths (matches recordings window style)
         private const float SpawnColW_Name = 0f;    // expand
         private const float SpawnColW_Dist = 55f;
+        private const float SpawnColW_RelSpeed = 70f;
         private const float SpawnColW_SpawnTime = 100f;
         private const float SpawnColW_Countdown = 95f;
         private const float SpawnColW_State = 110f;
@@ -76,7 +77,7 @@ namespace Parsek
             if (spawnControlWindowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 680, 200);
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 750, 200);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
@@ -168,6 +169,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
+            DrawSpawnSortableHeader("Rel Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_RelSpeed);
             DrawSpawnSortableHeader("Spawns at", SpawnControlSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnControlSortColumn.SpawnTime, SpawnColW_Countdown);
             GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
@@ -208,13 +210,27 @@ namespace Parsek
                 var cand = sorted[i];
                 double delta = cand.endUT - currentUT;
                 SpawnCandidateRowPresentation row =
-                    SpawnControlPresentation.BuildRowPresentation(cand, currentUT);
+                    SpawnControlPresentation.BuildRowPresentation(
+                        cand, currentUT,
+                        ParsekFlight.NearbySpawnRadius,
+                        ParsekFlight.MaxRelativeSpeed);
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
+
+                // Distance + Rel Speed share a green tint when both gates pass (FF button enable
+                // preconditions) so the user can read the window at a glance: green = warpable.
+                Color savedColor = GUI.contentColor;
+                if (row.ConditionsMet)
+                    GUI.contentColor = new Color(0.55f, 1f, 0.55f);
                 GUILayout.Label(
                     string.Format(ic, "{0:F0}m", cand.distance),
                     GUILayout.Width(SpawnColW_Dist));
+                GUILayout.Label(
+                    SpawnControlPresentation.FormatRelativeSpeed(cand.relativeSpeed, ic),
+                    GUILayout.Width(SpawnColW_RelSpeed));
+                GUI.contentColor = savedColor;
+
                 GUILayout.Label(
                     KSPUtil.PrintDateCompact(cand.endUT, true),
                     GUILayout.Width(SpawnColW_SpawnTime));
@@ -272,7 +288,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             GUILayout.BeginHorizontal();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed);
             GUI.enabled = next != null;
             string tooltip = next != null
                 ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";

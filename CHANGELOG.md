@@ -33,6 +33,7 @@ All notable changes to Parsek are documented here.
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
+- Real Spawn Control window adds a `Rel Speed` column and tints the distance + relative-speed cells green when the FF button preconditions are met; ghosts within an outer 1 km / 50 m/s "show in list" envelope now stay listed (with a disabled FF button) so the player can see what is blocking the warp ("still too far", "closing too fast"). The FF-enable gate stays at 250 m / 2 m/s.
 - `#542` Ghost watch range is now a fixed 300 km config default instead of a user-editable setting. Watch eligibility, watch-mode auto-exit, and watched-ghost full-fidelity checks now all read the shared config constant directly; the Settings window and persistence layer no longer expose or restore a mutable camera-cutoff override.
 - `#543` `LoopTimeUnit.Auto` now uses one global launch queue instead of per-recording independent cadence. Flight playback, KSC playback, and watch-mode loop reconstruction all schedule Auto recordings from the shared queue order, so the global Auto interval is the gap between successive launches across the queue and each recording's relaunch cadence scales by queue length instead of clumping at each recording's own start UT.
 - `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
@@ -76,9 +77,13 @@ All notable changes to Parsek are documented here.
 
 - Rewind to Staging warns after Strip when a left-alone vessel shares a name with a tree recording, so players can tell a pre-existing orbital "Kerbal X" apart from the current flight's ghost.
 
+- `#533` Timeline kerbal-hire rows now live in the Details tier instead of the Overview tier. Sandbox, Mission, and Science saves render hire rows as `Hire: <kerbal>` without a funds suffix because those modes have no funds ledger.
+
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
 - Contextual auto-record starts now show one notification: pad/runway launches, post-switch first-modification starts, and EVA-from-pad starts suppress the generic `Recording STARTED` toast when they post their own `(auto)` message.
+
+- Deferred spawn queue waits outside the physics bubble now log a rate-limited queue summary instead of repeating the same kept/warp-ended pair every frame while the spawn remains queued.
 
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
@@ -266,7 +271,7 @@ All notable changes to Parsek are documented here.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 ### Documentation
 
-- Added `docs/parsek-recording-finalization-design.md` and `docs/dev/plans/recording-finalization-reliability.md`. Specifies the terminal-state/synthetic-tail reliability contract for scene exit, crash, vessel unload/delete, and background recording end paths that Rewind-to-Staging depends on.
+- Added `docs/parsek-recording-finalization-design.md` and `docs/dev/done/plans/recording-finalization-reliability.md`. Specifies the terminal-state/synthetic-tail reliability contract for scene exit, crash, vessel unload/delete, and background recording end paths that Rewind-to-Staging depends on.
 - Added the Tracking Station audit action plan (`#551`-`#556`) covering Map View lifecycle parity, a TS control surface, safe ghost actions, TS runtime coverage, orbit-source diagnostics, and the broad `buildVesselsList` finalizer.
 - `#558` Updated the game-actions design document to define top-bar funds/science as current-UT cashflow-projected spendable resources and to clarify that rewound R&D state locks future tech nodes while keeping their future costs in the projection.
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.

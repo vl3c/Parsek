@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Regression tests for Phase F of the ledger/lump-sum reconciliation fix
-    /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
+    /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
     /// <para>The reproducer scenario is the +34400 stress-test save: a committed
     /// tree with <c>tree.DeltaFunds=+34400, ResourcesApplied=false</c> persisted

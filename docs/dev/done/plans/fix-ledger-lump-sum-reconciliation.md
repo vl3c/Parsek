@@ -174,7 +174,7 @@ This phase blocks Phase E2 for strategy. Without it, strategy income permanently
 
 ### Phase E2 — Plug remaining channels
 
-**Status:** Delivered in v0.8.2 via #440 (`feat/440-post-walk-reconciliation`); see `docs/dev/plans/fix-440-post-walk-reconciliation.md` for the per-action-type audit and the reviewer-corrected event keys. Remaining reconciliation follow-ups (non-blocking) tracked as #440B (switch `ReconcileEarningsWindow` to Transformed* fields) and #439B (multi-resource `KscActionExpectation` for strategy setup costs).
+**Status:** Delivered in v0.8.2 via #440 (`feat/440-post-walk-reconciliation`); see `docs/dev/done/plans/fix-440-post-walk-reconciliation.md` for the per-action-type audit and the reviewer-corrected event keys. Remaining reconciliation follow-ups (non-blocking) tracked as #440B (switch `ReconcileEarningsWindow` to Transformed* fields) and #439B (multi-resource `KscActionExpectation` for strategy setup costs).
 
 **Branch family:** `fix/ledger-channel-<channel>`
 
