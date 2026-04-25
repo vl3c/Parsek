@@ -4042,6 +4042,16 @@ namespace Parsek
                     rec.TerminalSpawnSupersededByRecordingId);
             }
 
+            // Plain Rewind-to-Launch ghost-only past (#573 / PR #541 follow-up):
+            // After HandleRewindOnLoad marks the rewound tree's recordings, chain replay
+            // must not materialize a duplicate real vessel even when a chain leaf has
+            // a VesselSnapshot. The flag persists with tree mutable state so the
+            // suppression survives quickload, scene change, and warp-deferred spawn.
+            if (rec.SpawnSuppressedByRewind)
+            {
+                return (false, "spawn suppressed post-rewind (ghost-only past, #573)");
+            }
+
             // Preserve the existing "already spawned" precedence, but make destroyed
             // recordings win over the generic missing-snapshot diagnostic.
             if (rec.VesselSpawned)

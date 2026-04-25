@@ -1299,6 +1299,314 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region #580 — Background to Active unrecorded-gap healing
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_InsertsSharedBoundaryPoint()
+        {
+            // Regresses the largest 2026-04-25 Kerbal X handoff citation:
+            // section[1] ut=193985.09, dt=3.36s, discontinuity=4029.13m,
+            // expectedFromVel=4128.99m, prevSrc=Background, nextSrc=Active.
+            const double boundaryUT = 193985.090668523;
+            const double bgTailUT = 193981.75066852474;
+            const double activeHeadUT = 193985.11066852298;
+            const double bgAlt = 26477.944626131211;
+            const double activeAlt = bgAlt - 4029.13013;
+
+            var background = MakeSectionWithFrame(
+                bgTailUT, lat: 0, lon: 0, alt: bgAlt,
+                velocity: new Vector3(1228.866f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background.startUT = 193981.73066852475;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                activeHeadUT, lat: 0, lon: 0, alt: activeAlt,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = boundaryUT + 120.0;
+
+            var rec = MakeRecording("rec-580", "Kerbal X",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Handoff", rec);
+
+            var mergedById = SessionMerger.MergeTree(tree);
+
+            var merged = mergedById["rec-580"];
+            Assert.Equal(2, merged.TrackSections.Count);
+            Assert.True(merged.TrackSections[0].frames.Count >= 2);
+            Assert.Equal(boundaryUT, merged.TrackSections[0].frames.Last().ut, 6);
+            Assert.Equal(boundaryUT, merged.TrackSections[1].frames[0].ut, 6);
+            Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 0f, 0.01f);
+            Assert.Equal(3, merged.Points.Count);
+            Assert.Contains(merged.Points, p => Math.Abs(p.ut - boundaryUT) <= 1e-6);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("section[1]") &&
+                l.Contains("prevSrc=Background") &&
+                l.Contains("nextSrc=Active") &&
+                l.Contains("cause=unrecorded-gap #580"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Kerbal X'") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_PreservesValidatedFlatTail()
+        {
+            const double boundaryUT = 2.0;
+
+            var background = MakeSectionWithFrame(
+                0.0, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(50f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                3.0, lat: 0, lon: 0, alt: 250.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 4.0;
+
+            var tailPoint = new TrajectoryPoint
+            {
+                ut = 5.0,
+                latitude = 0,
+                longitude = 0,
+                altitude = 280.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            };
+
+            var rec = MakeRecording("rec-580-tail", "Kerbal X",
+                new List<TrackSection> { background, active });
+            rec.Points = new List<TrajectoryPoint>
+            {
+                background.frames[0],
+                active.frames[0],
+                tailPoint
+            };
+            var tree = MakeTree("580 Handoff Tail", rec);
+
+            var mergedById = SessionMerger.MergeTree(tree);
+
+            var merged = mergedById["rec-580-tail"];
+            Assert.Equal(new[] { 0.0, boundaryUT, 3.0, 5.0 },
+                merged.Points.Select(p => p.ut).ToArray());
+            Assert.Equal(2, merged.TrackSections[0].frames.Count);
+            Assert.Equal(2, merged.TrackSections[1].frames.Count);
+            Assert.Single(rec.TrackSections[0].frames);
+            Assert.Single(rec.TrackSections[1].frames);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("section[1]") &&
+                l.Contains("cause=unrecorded-gap #580"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-580-tail'") &&
+                l.Contains("flatSync=healed-track-sections-preserved-flat-tail"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveSampleSkip_LeavesBoundaryWarningUnhealed()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(1f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 1000.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+
+            var rec = MakeRecording("rec-580-sample-skip", "Kerbal X",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Sample Skip", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-sample-skip"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(2.0, merged.TrackSections[1].frames[0].ut);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-sample-skip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Kerbal X'") &&
+                l.Contains("prevSrc=Background") &&
+                l.Contains("nextSrc=Active") &&
+                l.Contains("cause=sample-skip"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveRelativeAnchorMismatch_SkipsHeal()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 0.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+            background.anchorVesselId = 101;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 50.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+            active.anchorVesselId = 202;
+
+            var rec = MakeRecording("rec-580-anchor", "Anchor Vessel",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Anchor Mismatch", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-anchor"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(2.0, merged.TrackSections[1].frames[0].ut);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-anchor"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Anchor Vessel'") &&
+                l.Contains("prevRef=Relative") &&
+                l.Contains("nextRef=Relative") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_HealsMultipleBoundaries()
+        {
+            var background1 = MakeSectionWithFrame(
+                0.0, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background1.startUT = 0.0;
+            background1.endUT = 1.0;
+
+            var active1 = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 200.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active1.startUT = 1.0;
+            active1.endUT = 3.0;
+
+            var background2 = MakeSectionWithFrame(
+                3.0, lat: 0, lon: 0, alt: 200.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background2.startUT = 3.0;
+            background2.endUT = 4.0;
+
+            var active2 = MakeSectionWithFrame(
+                5.0, lat: 0, lon: 0, alt: 350.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active2.startUT = 4.0;
+            active2.endUT = 6.0;
+
+            var rec = MakeRecording("rec-580-multi", "Multi Vessel",
+                new List<TrackSection> { background1, active1, background2, active2 });
+            var tree = MakeTree("580 Multiple Handoffs", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-multi"];
+
+            Assert.Equal(4, merged.TrackSections.Count);
+            Assert.Equal(1.0, merged.TrackSections[0].frames.Last().ut);
+            Assert.Equal(1.0, merged.TrackSections[1].frames[0].ut);
+            Assert.Equal(4.0, merged.TrackSections[2].frames.Last().ut);
+            Assert.Equal(4.0, merged.TrackSections[3].frames[0].ut);
+            Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 0f, 0.01f);
+            Assert.InRange(merged.TrackSections[3].boundaryDiscontinuityMeters, 0f, 0.01f);
+            Assert.Contains(merged.Points, p => Math.Abs(p.ut - 1.0) <= 1e-6);
+            Assert.Contains(merged.Points, p => Math.Abs(p.ut - 4.0) <= 1e-6);
+            Assert.Equal(2, logLines.Count(l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("recId=rec-580-multi") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("cause=unrecorded-gap #580")));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_LogsUnhealableSeam()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                bodyName: "Kerbin",
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 150.0,
+                velocity: Vector3.zero,
+                bodyName: "Mun",
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+
+            var rec = MakeRecording("rec-580-body-mismatch", "Body Mismatch",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Body Mismatch", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-body-mismatch"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("rec-580-body-mismatch") &&
+                l.Contains("healed unrecorded-gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("unable to heal unrecorded-gap") &&
+                l.Contains("recId=rec-580-body-mismatch") &&
+                l.Contains("reason=body-mismatch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Body Mismatch'") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
+        #endregion
+
         #region ResolveOverlaps — frame trimming
 
         [Fact]
