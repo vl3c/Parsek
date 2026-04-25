@@ -1228,6 +1228,139 @@ namespace Parsek.Tests
             Assert.Equal("rp_refly", restoredRoot.ProvisionalForRpId);
         }
 
+        // PR #572 P2 review follow-up: the repair must be scoped to records
+        // that explicitly failed to hydrate from sidecar. A dirty + empty
+        // record without `SidecarLoadFailed=true` is a legitimate metadata
+        // / snapshot-only edit; copying the committed trajectory over it
+        // would silently overwrite the in-memory mutation.
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_DirtyEmptyButNotHydrationFailed_NotRepaired()
+        {
+            var committedTree = MakeTree("tree_p2_scope", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_scope"];
+            committedRoot.VesselName = "Committed Root";
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 4;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_scope", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_scope"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.VesselName = "Mid-edit Name";
+            // No SidecarLoadFailed: the record is dirty for a legitimate
+            // reason (e.g. mid-flight metadata edit before any trajectory
+            // sample was flushed).
+            activeRoot.SidecarLoadFailed = false;
+            activeRoot.SidecarLoadFailureReason = null;
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.Equal("Mid-edit Name", activeRoot.VesselName);
+            Assert.True(activeRoot.FilesDirty);
+        }
+
+        // PR #572 P2 review follow-up: snapshot-only hydration failures route
+        // through the pending-tree salvage path; the committed-tree repair
+        // must NOT overwrite their in-memory state with a stale committed
+        // copy (the snapshot-only-rescue path's #585 carve-out already
+        // restores the snapshot bytes from the pending tree).
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_SnapshotOnlyHydrationFailure_NotRepaired()
+        {
+            var committedTree = MakeTree("tree_p2_snapshot", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_snapshot"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 5;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_snapshot", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_snapshot"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarLoadFailed = true;
+            // Snapshot-only failure: the trajectory sidecar was fine, only
+            // the snapshot blob failed to hydrate.
+            activeRoot.SidecarLoadFailureReason = "snapshot-vessel-invalid";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.True(activeRoot.SidecarLoadFailed);
+        }
+
+        // PR #572 P2 review follow-up: ApplyPersistenceArtifactsFrom copies
+        // CrewEndStatesResolved but NOT the CrewEndStates dictionary itself.
+        // Verify that the repair copies both, so the safety-net population
+        // doesn't skip an already-resolved record with a null/stale dict.
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_CopiesCrewEndStatesAndSpawnSuppression()
+        {
+            var committedTree = MakeTree("tree_p2_crew", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_crew"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 7;
+            committedRoot.FilesDirty = false;
+            committedRoot.CrewEndStates = new Dictionary<string, KerbalEndState>(StringComparer.Ordinal)
+            {
+                { "Jeb", KerbalEndState.Recovered },
+                { "Bob", KerbalEndState.Aboard },
+            };
+            committedRoot.CrewEndStatesResolved = true;
+            committedRoot.SpawnSuppressedByRewind = true;
+            committedRoot.SpawnSuppressedByRewindReason = "same-recording-active-source";
+            committedRoot.SpawnSuppressedByRewindUT = 12.5;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_crew", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_crew"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.CrewEndStates = null;
+            activeRoot.CrewEndStatesResolved = false;
+            activeRoot.SpawnSuppressedByRewind = false;
+            activeRoot.SpawnSuppressedByRewindReason = null;
+            activeRoot.SpawnSuppressedByRewindUT = double.NaN;
+            activeRoot.SidecarEpoch = 2;
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(1, restored);
+            var restoredRoot = activeTree.Recordings["root_tree_p2_crew"];
+            // CrewEndStates: dictionary populated, NOT null + resolved=true.
+            Assert.True(restoredRoot.CrewEndStatesResolved);
+            Assert.NotNull(restoredRoot.CrewEndStates);
+            Assert.Equal(2, restoredRoot.CrewEndStates.Count);
+            Assert.Equal(KerbalEndState.Recovered, restoredRoot.CrewEndStates["Jeb"]);
+            Assert.Equal(KerbalEndState.Aboard, restoredRoot.CrewEndStates["Bob"]);
+            // The dictionary must be a fresh instance, not a shared reference
+            // (mutation of the source must not affect the restored target).
+            Assert.NotSame(committedRoot.CrewEndStates, restoredRoot.CrewEndStates);
+            // SpawnSuppressedByRewind* triplet round-trips.
+            Assert.True(restoredRoot.SpawnSuppressedByRewind);
+            Assert.Equal("same-recording-active-source", restoredRoot.SpawnSuppressedByRewindReason);
+            Assert.Equal(12.5, restoredRoot.SpawnSuppressedByRewindUT);
+        }
+
         [Fact]
         public void RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording()
         {

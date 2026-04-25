@@ -3065,16 +3065,18 @@ namespace Parsek
             if (!HasTrajectoryPayload(sourceRec))
                 return false;
 
-            if (loadedRec.SidecarLoadFailed
+            // Repair must be scoped to records that explicitly failed to
+            // hydrate from sidecar (PR #572 P2 review). Without this gate, any
+            // dirty active-tree record with empty trajectory lists would match
+            // — including legitimate metadata-only / snapshot-only edits where
+            // the trajectory hasn't been seeded yet — and the committed copy
+            // would silently overwrite the in-memory mutation. Snapshot-only
+            // hydration failures route through the pending-tree salvage path
+            // (`TryRestoreSnapshotStateFromPendingRecording`) and are excluded
+            // here so that snapshot/trajectory recoveries cannot cross-pollute.
+            return loadedRec.SidecarLoadFailed
                 && !IsSnapshotHydrationFailure(loadedRec.SidecarLoadFailureReason)
-                && IsTrajectoryPayloadEmpty(loadedRec))
-            {
-                return true;
-            }
-
-            return loadedRec.FilesDirty
-                && IsTrajectoryPayloadEmpty(loadedRec)
-                && HasTrajectoryPayload(sourceRec);
+                && IsTrajectoryPayloadEmpty(loadedRec);
         }
 
         private static void RestoreCommittedSidecarPayloadIntoActiveTreeRecording(
@@ -3103,6 +3105,24 @@ namespace Parsek
             target.SegmentEvents = sourceClone.SegmentEvents ?? new List<SegmentEvent>();
             target.TrackSections = sourceClone.TrackSections ?? new List<TrackSection>();
             target.Controllers = sourceClone.Controllers;
+            // PR #572 P2 review follow-up: ApplyPersistenceArtifactsFrom copies
+            // `CrewEndStatesResolved` but NOT the `CrewEndStates` dictionary
+            // itself; without this explicit copy, a source with populated crew
+            // end-states would repair the target into `resolved=true` with a
+            // null/stale dict, and the safety-net population path skips
+            // already-resolved records on the next save (loss persisted).
+            // Mirror DeepClone's CrewEndStates copy.
+            target.CrewEndStates = sourceClone.CrewEndStates != null
+                ? new Dictionary<string, KerbalEndState>(sourceClone.CrewEndStates)
+                : null;
+            // PR #572 P2 review follow-up: SpawnSuppressedByRewind / Reason / UT
+            // are persisted (#573 / #589 active/source recording protection)
+            // but ApplyPersistenceArtifactsFrom doesn't copy them. Mirror
+            // DeepClone so the repair preserves rewind-strip-protection scope
+            // alongside the trajectory data.
+            target.SpawnSuppressedByRewind = sourceClone.SpawnSuppressedByRewind;
+            target.SpawnSuppressedByRewindReason = sourceClone.SpawnSuppressedByRewindReason;
+            target.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
             target.FilesDirty = false;
             target.SidecarEpoch = sourceClone.SidecarEpoch;
             RecordingStore.ClearSidecarLoadFailure(target);
