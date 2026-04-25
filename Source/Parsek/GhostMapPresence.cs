@@ -687,22 +687,38 @@ namespace Parsek
         /// Pure: does this recording have orbital data suitable for map presence?
         /// True if terminal orbit body is set and SMA > 0.
         /// </summary>
+        /// <remarks>
+        /// Logs via <see cref="ParsekLog.VerboseOnChange"/> keyed on
+        /// <c>(recordingId, body, smaBucket, result)</c> so per-frame stable
+        /// callers do not flood KSP.log: the 2026-04-25 playtest recorded
+        /// ~1678 redundant emissions in a 27-minute session before this gate.
+        /// </remarks>
         internal static bool HasOrbitData(Recording rec)
         {
             if (rec == null)
             {
-                ParsekLog.Verbose(Tag, "HasOrbitData(Recording): null recording — returning false");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    "has-orbit-data-rec|null",
+                    "null",
+                    "HasOrbitData(Recording): null recording — returning false");
                 return false;
             }
 
             bool hasOrbit = HasTerminalOrbitData(rec);
 
-            ParsekLog.Verbose(Tag,
+            string recId = rec.RecordingId ?? "(null)";
+            string body = rec.TerminalOrbitBody ?? "(null)";
+            double sma = rec.TerminalOrbitSemiMajorAxis;
+            ParsekLog.VerboseOnChange(
+                Tag,
+                string.Format(ic, "has-orbit-data-rec|{0}", recId),
+                BuildHasOrbitDataStateKey(body, sma, hasOrbit),
                 string.Format(ic,
                     "HasOrbitData(Recording): rec={0} body={1} sma={2} result={3}",
-                    rec.RecordingId ?? "(null)",
-                    rec.TerminalOrbitBody ?? "(null)",
-                    rec.TerminalOrbitSemiMajorAxis,
+                    recId,
+                    body,
+                    sma,
                     hasOrbit));
 
             return hasOrbit;
@@ -712,24 +728,63 @@ namespace Parsek
         /// Pure: does this trajectory have orbital data suitable for map presence?
         /// Overload accepting IPlaybackTrajectory for engine-side use.
         /// </summary>
+        /// <remarks>
+        /// Per-frame map-view callers (<see cref="ParsekPlaybackPolicy"/> + the
+        /// shared map-presence resolver) hammered this method ~11/sec in the
+        /// 2026-04-25 playtest. Logging is gated through
+        /// <see cref="ParsekLog.VerboseOnChange"/> so a stable
+        /// <c>(recordingId, body, smaBucket)</c> tuple emits exactly once per
+        /// state change with <c>| suppressed=N</c> on the next flip.
+        /// </remarks>
         internal static bool HasOrbitData(IPlaybackTrajectory traj)
         {
             if (traj == null)
             {
-                ParsekLog.Verbose(Tag, "HasOrbitData(IPlaybackTrajectory): null trajectory — returning false");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    "has-orbit-data-traj|null",
+                    "null",
+                    "HasOrbitData(IPlaybackTrajectory): null trajectory — returning false");
                 return false;
             }
 
             bool hasOrbit = HasTerminalOrbitData(traj);
 
             if (hasOrbit)
-                ParsekLog.Verbose(Tag,
+            {
+                string recId = traj.RecordingId;
+                string identityScope = !string.IsNullOrEmpty(recId)
+                    ? string.Format(ic, "has-orbit-data-traj|rec={0}", recId)
+                    : string.Format(ic, "has-orbit-data-traj|name={0}",
+                        traj.VesselName ?? "(unnamed)");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    identityScope,
+                    BuildHasOrbitDataStateKey(traj.TerminalOrbitBody, traj.TerminalOrbitSemiMajorAxis, true),
                     string.Format(ic,
                         "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result=True",
                         traj.TerminalOrbitBody,
                         traj.TerminalOrbitSemiMajorAxis));
+            }
 
             return hasOrbit;
+        }
+
+        /// <summary>
+        /// Stable state-key builder for HasOrbitData log emissions. Buckets
+        /// SMA to 1km so trivial floating-point drift between frames does not
+        /// pop the on-change gate; <see cref="HasTerminalOrbitData"/>
+        /// classifies "has orbit" as <c>SMA &gt; 0</c>, so a 1km bucket is
+        /// far below any meaningful Recording terminal orbit.
+        /// </summary>
+        private static string BuildHasOrbitDataStateKey(string body, double sma, bool hasOrbit)
+        {
+            string safeBody = string.IsNullOrEmpty(body) ? "(null)" : body;
+            long smaBucket = double.IsNaN(sma) || double.IsInfinity(sma)
+                ? long.MinValue
+                : (long)Math.Round(sma / 1000.0);
+            return string.Format(ic, "{0}|sma={1}|res={2}",
+                safeBody, smaBucket, hasOrbit);
         }
 
         /// <summary>

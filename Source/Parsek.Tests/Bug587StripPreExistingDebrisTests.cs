@@ -574,5 +574,120 @@ namespace Parsek.Tests
 
             Assert.Empty(snap);
         }
+
+        // 2026-04-25 log-hygiene: WarnOnLeftAloneNameCollisions misreported
+        // "Strip left N pre-existing vessel(s)" because it summed the live
+        // vessel count from a stale pre-supplement-kill list and used the
+        // deduped name count as the vessel-instance count. The new contract:
+        // vessels=N is the actual instance count from the live survey,
+        // collidingNames=M is the unique-name count, and an all-killed
+        // colliding set produces no WARN at all.
+        [Fact]
+        public void CountLiveCollidingVessels_AllInstancesKilled_ReturnsZero()
+        {
+            var collisions = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Kerbal X Debris",
+            };
+            // Live survey post-supplement-kill: nothing matches.
+            IEnumerable<string> liveNames = new List<string>
+            {
+                "Kerbal X",       // active vessel, not a collision
+                "Other Vessel",
+            };
+
+            int live = RewindInvoker.CountLiveCollidingVessels(
+                collisions, liveNames, out var stillPresent);
+
+            Assert.Equal(0, live);
+            Assert.Empty(stillPresent);
+        }
+
+        [Fact]
+        public void CountLiveCollidingVessels_MultipleInstancesSameName_CountsInstancesNotNames()
+        {
+            var collisions = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Kerbal X Debris",
+            };
+            // Three real Kerbal X Debris in scene, one unique name.
+            IEnumerable<string> liveNames = new List<string>
+            {
+                "Kerbal X",
+                "Kerbal X Debris",
+                "Kerbal X Debris",
+                "Kerbal X Debris",
+                "Other",
+            };
+
+            int live = RewindInvoker.CountLiveCollidingVessels(
+                collisions, liveNames, out var stillPresent);
+
+            Assert.Equal(3, live);
+            Assert.Single(stillPresent);
+            Assert.Equal("Kerbal X Debris", stillPresent[0]);
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_AllKilled_LogsVerboseAndNoWarn()
+        {
+            var collisions = new List<string> { "Kerbal X Debris" };
+            // 2026-04-25 playtest scenario: post-supplement strip killed all
+            // 3 Kerbal X Debris, so liveVesselCount=0 and the WARN must
+            // not fire. The original code emitted a misleading
+            // "Strip left 1 pre-existing vessel(s)" WARN here.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions, liveVesselCount: 0, stillPresentNames: new List<string>());
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]") && l.Contains("Strip left"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Rewind]")
+                && l.Contains("Strip left no live pre-existing vessel(s)")
+                && l.Contains("collidingNames=1"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_LiveVesselsRemain_LogsSeparateInstanceAndNameCounts()
+        {
+            var collisions = new List<string> { "Kerbal X Debris" };
+            // 3 still-live Kerbal X Debris under the same colliding name.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                liveVesselCount: 3,
+                stillPresentNames: new List<string> { "Kerbal X Debris" });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]")
+                && l.Contains("Strip left vessels=3 collidingNames=1")
+                && l.Contains("[Kerbal X Debris]")
+                && l.Contains("not related to the re-fly"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors()
+        {
+            // 2 colliding names; one was killed (only "Foo" survives), one
+            // had two instances ("Bar" twice). vessels=3, collidingNames=2.
+            var collisions = new List<string> { "Foo", "Bar" };
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                liveVesselCount: 3,
+                stillPresentNames: new List<string> { "Foo", "Bar" });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]")
+                && l.Contains("Strip left vessels=3 collidingNames=2"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_NoCollidingNames_NoLog()
+        {
+            // Defensive: empty colliding list should not log anything.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                new List<string>(), liveVesselCount: 0, stillPresentNames: new List<string>());
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Strip left"));
+        }
     }
 }

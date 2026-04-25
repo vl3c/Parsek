@@ -43,6 +43,12 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#601` Map-view `HasOrbitData(IPlaybackTrajectory)` no longer floods `KSP.log` with ~1678 identical `body=… sma=… result=True` lines per session. The diagnostic now emits once per state change keyed on `(recording, body, sma)` and surfaces a `| suppressed=N` counter on the next flip.
+
+- `#602` `FinalizerCache refresh summary` periodic no-op passes (no fresh classification) now log at Verbose instead of Info, so the 156× `recordingsExamined=1 alreadyClassified=0 newlyClassified=0` per session no longer drowns real classification milestones. Every 64th consecutive no-delta pass still emits at Info as a long-session backstop.
+
+- `#603` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys live `FlightGlobals.Vessels` at warn time, so it no longer reports stale pre-kill counts after the post-supplement strip drained the colliding set, and stops conflating instance counts with deduped name counts.
+
 - `#600` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
 
 - `#585` follow-up: Re-Fly load no longer destroys the on-disk `.prec` of sibling tree recordings whose sidecar load was skipped by bug `#270`'s stale-epoch mitigation. Two layers of protection: `SaveActiveTreeIfAny` first attempts to repair hydration-failed records by copying trajectory data from the matching committed tree (`RestoreHydrationFailedRecordingsFromCommittedTree`), so the in-memory state is restored and the recording remains playable in-session; if no committed-tree donor is available, the save path then refuses to overwrite a recording whose `SidecarLoadFailed` flag is still set AND whose in-memory state has no trajectory points, orbit segments, track sections, snapshots, or part events, preserving the original `.prec` until either the recorder rebinds (which clears the flag) or an explicit deletion path runs. The 2026-04-25 playtest's launch recording (`22c28f04`) was being clobbered with `points=0 wroteVessel=False` on scene exit; a structured `SaveRecordingFiles: skipping write … preserving on-disk .prec` WARN reports each callee-side save-skip decision and `SaveActiveTreeIfAny: skipped empty sidecar overwrite` reports each caller-side skip.

@@ -970,6 +970,33 @@ namespace Parsek
         /// for a second ghost. WARN-log + ScreenMessage so the situation is
         /// diagnosable without reading KSP.log.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The 2026-04-25 playtest exposed two bugs in the original wiring:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description>
+        /// <see cref="PostLoadStripper.FindTreeNameCollisions"/> dedupes by
+        /// name, so 3 actual <c>Kerbal X Debris</c> instances were summarized
+        /// as <c>Strip left 1 pre-existing vessel(s)</c> — wrong instance
+        /// count.
+        /// </description></item>
+        /// <item><description>
+        /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/> runs
+        /// before this WARN and may have killed every colliding vessel via
+        /// <see cref="Vessel.Die"/>; the WARN still emitted because it read
+        /// the original pre-kill <c>LeftAloneNames</c> list, falsely
+        /// reporting collisions that no longer exist.
+        /// </description></item>
+        /// </list>
+        /// <para>
+        /// This implementation requeries <see cref="FlightGlobals.Vessels"/>
+        /// at warn time, intersects with the colliding name set, and reports
+        /// vessel-instance and name counts separately. It also short-circuits
+        /// when the post-supplement strip already cleared every colliding
+        /// vessel.
+        /// </para>
+        /// </remarks>
         internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
         {
             if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
@@ -981,14 +1008,103 @@ namespace Parsek
             if (collisions == null || collisions.Count == 0)
                 return;
 
-            string joined = string.Join(", ", collisions.ToArray());
+            // Recount instances against the live FlightGlobals.Vessels list
+            // because StripPreExistingDebrisForInPlaceContinuation runs
+            // earlier and may have killed every colliding vessel between the
+            // strip and this warn. stripResult.LeftAloneNames is a stale
+            // snapshot of the pre-kill set; reading it directly produces
+            // misleading "Strip left N" counts in both directions.
+            var collisionSet = new HashSet<string>(collisions, StringComparer.Ordinal);
+            IEnumerable<string> liveNames = EnumerateLiveVesselNames();
+            int liveVesselCount = CountLiveCollidingVessels(
+                collisionSet, liveNames, out var stillPresentNames);
+            EmitStripLeftAloneWarn(collisions, liveVesselCount, stillPresentNames);
+        }
+
+        /// <summary>
+        /// Pure helper: emit the strip-left-alone diagnostic and the matching
+        /// player toast based on a live-vessel survey result. Split out so
+        /// unit tests can exercise the message format without
+        /// <see cref="FlightGlobals"/> wiring.
+        /// </summary>
+        internal static void EmitStripLeftAloneWarn(
+            List<string> collidingNames,
+            int liveVesselCount,
+            List<string> stillPresentNames)
+        {
+            if (collidingNames == null || collidingNames.Count == 0)
+                return;
+            if (liveVesselCount <= 0)
+            {
+                // Post-supplement kill drained every match. Verbose is the
+                // right tier for a "nothing to warn about" diagnostic — keeps
+                // a trail without pretending there is an issue.
+                ParsekLog.Verbose(InvokeTag,
+                    $"Strip left no live pre-existing vessel(s) whose name matches a tree recording " +
+                    $"(post-supplement kill drained the colliding set): collidingNames={collidingNames.Count} " +
+                    $"[{string.Join(", ", collidingNames.ToArray())}]");
+                return;
+            }
+
+            stillPresentNames = stillPresentNames ?? new List<string>();
+            string joinedLiveNames = string.Join(", ", stillPresentNames.ToArray());
             ParsekLog.Warn(InvokeTag,
-                $"Strip left {collisions.Count} pre-existing vessel(s) whose name matches a " +
-                $"tree recording: [{joined}] — not related to the re-fly, will appear as " +
-                $"second Kerbal X-shaped object in scene");
+                $"Strip left vessels={liveVesselCount} collidingNames={stillPresentNames.Count} pre-existing " +
+                $"vessel(s) whose name matches a tree recording: [{joinedLiveNames}] — not related to the " +
+                $"re-fly, will appear as second Kerbal X-shaped object in scene");
             ShowUserError(
-                $"Heads up: pre-existing vessel(s) [{joined}] share a name with your re-fly " +
+                $"Heads up: pre-existing vessel(s) [{joinedLiveNames}] share a name with your re-fly " +
                 $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
+        }
+
+        /// <summary>
+        /// Pure helper: count vessel-name occurrences in
+        /// <paramref name="liveVesselNames"/> that match
+        /// <paramref name="collisionNames"/>. Outputs the deduped list of
+        /// names actually present.
+        /// </summary>
+        /// <remarks>
+        /// <c>vessels=N</c> in the strip-left-alone WARN is the total
+        /// instance count (3 Kerbal X Debris ⇒ 3); <c>collidingNames=M</c> is
+        /// the unique name count (1 distinct name). The 2026-04-25 playtest
+        /// captured the original WARN reporting only <c>collisions.Count</c>,
+        /// which conflated the two.
+        /// </remarks>
+        internal static int CountLiveCollidingVessels(
+            HashSet<string> collisionNames,
+            IEnumerable<string> liveVesselNames,
+            out List<string> stillPresentNames)
+        {
+            stillPresentNames = new List<string>();
+            if (collisionNames == null || collisionNames.Count == 0)
+                return 0;
+            if (liveVesselNames == null)
+                return 0;
+
+            int instanceCount = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string name in liveVesselNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                if (!collisionNames.Contains(name)) continue;
+                instanceCount++;
+                if (seen.Add(name)) stillPresentNames.Add(name);
+            }
+            return instanceCount;
+        }
+
+        private static IEnumerable<string> EnumerateLiveVesselNames()
+        {
+            IList<Vessel> liveVessels;
+            try { liveVessels = FlightGlobals.Vessels; }
+            catch { liveVessels = null; }
+            if (liveVessels == null) yield break;
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                var v = liveVessels[i];
+                if (v == null) continue;
+                yield return v.vesselName;
+            }
         }
 
         private static IEnumerable<string> EnumerateCommittedVesselNames()
