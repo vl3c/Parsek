@@ -121,7 +121,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MapSourceLog_CheckpointPointsUseStructuredStateVectorDecision()
+        public void MapSourceLog_CheckpointPointsDoNotOverrideSegmentDecision()
         {
             Recording rec = BuildWarpRecording(LongWarpEndUT);
             DensifySynthetic(rec);
@@ -137,21 +137,28 @@ namespace Parsek.Tests
                     allowTerminalOrbitFallback: true,
                     logOperationName: "571a-map-source-test",
                     ref cachedIndex,
-                    out _,
+                    out OrbitSegment segment,
                     out TrajectoryPoint stateVectorPoint,
                     out string skipReason);
 
-            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
             Assert.Null(skipReason);
-            Assert.Equal("Kerbin", stateVectorPoint.bodyName);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Equal(default(TrajectoryPoint), stateVectorPoint);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostMap]")
                 && line.Contains("571a-map-source-test")
                 && line.Contains("rec=571a-long-warp")
-                && line.Contains("source=StateVector")
-                && line.Contains("stateVectorSource=OrbitalCheckpoint")
-                && line.Contains("sourceKind=StateVector")
+                && line.Contains("source=Segment")
+                && line.Contains("segmentBody=Kerbin")
+                && line.Contains("sourceKind=Segment")
                 && line.Contains("world="));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("571a-map-source-test")
+                && line.Contains("rec=571a-long-warp")
+                && line.Contains("stateVectorSource=OrbitalCheckpoint")
+                && line.Contains("fallbackReason=orbital-checkpoint-state-vector-safer-segment-source"));
         }
 
         [Fact]

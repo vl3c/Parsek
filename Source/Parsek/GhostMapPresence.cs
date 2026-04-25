@@ -33,7 +33,14 @@ namespace Parsek
             None = 0,
             Segment = 1,
             TerminalOrbit = 2,
-            StateVector = 3
+            StateVector = 3,
+            StateVectorSoiGap = 4
+        }
+
+        internal static bool IsStateVectorGhostSource(TrackingStationGhostSource source)
+        {
+            return source == TrackingStationGhostSource.StateVector
+                || source == TrackingStationGhostSource.StateVectorSoiGap;
         }
 
         internal struct TrackingStationSpawnHandoffState
@@ -321,6 +328,23 @@ namespace Parsek
             public string FallbackReason;
         }
 
+        internal struct OrbitalCheckpointStateVectorFallbackDecision
+        {
+            public bool Accepted;
+            public string Reason;
+            public string ExpectedBody;
+            public string StateVectorBody;
+            public bool SegmentSourceAvailable;
+            public bool IsSoiGapRecovery;
+            public bool GapBodyTransition;
+            public bool BodyMatches;
+            public bool WithinPlaybackWindow;
+            public string GapPreviousBody;
+            public string GapNextBody;
+            public double ActivationStartUT;
+            public double EndUT;
+        }
+
         private sealed class TrackingStationGhostSourceBatch
         {
             private readonly string context;
@@ -348,7 +372,7 @@ namespace Parsek
                     segmentCount++;
                 else if (source == TrackingStationGhostSource.TerminalOrbit)
                     terminalCount++;
-                else if (source == TrackingStationGhostSource.StateVector)
+                else if (IsStateVectorGhostSource(source))
                     stateVectorCount++;
                 else
                     skippedCount++;
@@ -532,6 +556,8 @@ namespace Parsek
                     return "terminal-orbit";
                 case TrackingStationGhostSource.StateVector:
                     return "state-vector";
+                case TrackingStationGhostSource.StateVectorSoiGap:
+                    return "soi-gap-state-vector";
                 default:
                     return "none";
             }
@@ -1546,6 +1572,131 @@ namespace Parsek
             return false;
         }
 
+        internal static bool TryFindOrbitSegmentGap(
+            IReadOnlyList<OrbitSegment> segments,
+            double ut,
+            out OrbitSegment previous,
+            out OrbitSegment next)
+        {
+            previous = default(OrbitSegment);
+            next = default(OrbitSegment);
+            if (segments == null || segments.Count < 2)
+                return false;
+
+            int previousIndex = -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment candidate = segments[i];
+                if (candidate.endUT <= ut)
+                {
+                    previousIndex = i;
+                    continue;
+                }
+
+                if (previousIndex < 0 || candidate.startUT <= ut)
+                    return false;
+
+                previous = segments[previousIndex];
+                next = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static OrbitalCheckpointStateVectorFallbackDecision EvaluateOrbitalCheckpointStateVectorFallback(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            TrajectoryPoint point,
+            bool segmentSourceAvailable,
+            bool allowSoiGapRecovery,
+            string expectedSoiGapBody)
+        {
+            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+            double endUT = traj?.EndUT ?? double.NaN;
+            bool withinPlaybackWindow =
+                traj != null
+                && currentUT >= activationStartUT
+                && currentUT <= endUT
+                && point.ut >= activationStartUT
+                && point.ut <= endUT;
+
+            string expectedBody = expectedSoiGapBody;
+            bool hasGap = false;
+            bool gapBodyTransition = false;
+            string gapPreviousBody = null;
+            string gapNextBody = null;
+            if (traj?.OrbitSegments != null
+                && TryFindOrbitSegmentGap(traj.OrbitSegments, currentUT, out OrbitSegment previousSegment, out OrbitSegment nextSegment))
+            {
+                hasGap = true;
+                gapPreviousBody = previousSegment.bodyName;
+                gapNextBody = nextSegment.bodyName;
+                gapBodyTransition = !string.Equals(
+                    previousSegment.bodyName,
+                    nextSegment.bodyName,
+                    StringComparison.Ordinal);
+                expectedBody = nextSegment.bodyName;
+            }
+
+            bool isSoiGapRecovery = allowSoiGapRecovery && hasGap && gapBodyTransition;
+            bool bodyMatches = !string.IsNullOrEmpty(expectedBody)
+                && string.Equals(point.bodyName, expectedBody, StringComparison.Ordinal);
+
+            string reason;
+            bool accepted = false;
+            if (segmentSourceAvailable)
+                reason = "orbital-checkpoint-state-vector-safer-segment-source";
+            else if (!isSoiGapRecovery)
+                reason = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
+            else if (!bodyMatches)
+                reason = "orbital-checkpoint-state-vector-body-mismatch";
+            else if (!withinPlaybackWindow)
+                reason = "orbital-checkpoint-state-vector-outside-window";
+            else
+            {
+                accepted = true;
+                reason = "soi-gap-state-vector-fallback";
+            }
+
+            return new OrbitalCheckpointStateVectorFallbackDecision
+            {
+                Accepted = accepted,
+                Reason = reason,
+                ExpectedBody = expectedBody,
+                StateVectorBody = point.bodyName,
+                SegmentSourceAvailable = segmentSourceAvailable,
+                IsSoiGapRecovery = isSoiGapRecovery,
+                GapBodyTransition = gapBodyTransition,
+                BodyMatches = bodyMatches,
+                WithinPlaybackWindow = withinPlaybackWindow,
+                GapPreviousBody = gapPreviousBody,
+                GapNextBody = gapNextBody,
+                ActivationStartUT = activationStartUT,
+                EndUT = endUT
+            };
+        }
+
+        private static string FormatOrbitalCheckpointStateVectorFallbackDecision(
+            OrbitalCheckpointStateVectorFallbackDecision decision)
+        {
+            return string.Format(ic,
+                "orbitalCheckpointFallback={0} fallbackReason={1} isSoiGapRecovery={2} gapBodyTransition={3} gapPreviousBody={4} gapNextBody={5} segmentSourceAvailable={6} bodyMatches={7} stateVectorBody={8} expectedBody={9} withinPlaybackWindow={10} activationStartUT={11:F1} endUT={12:F1}",
+                decision.Accepted ? "accept" : "reject",
+                decision.Reason ?? "(none)",
+                decision.IsSoiGapRecovery,
+                decision.GapBodyTransition,
+                decision.GapPreviousBody ?? "(none)",
+                decision.GapNextBody ?? "(none)",
+                decision.SegmentSourceAvailable,
+                decision.BodyMatches,
+                decision.StateVectorBody ?? "(null)",
+                decision.ExpectedBody ?? "(none)",
+                decision.WithinPlaybackWindow,
+                decision.ActivationStartUT,
+                decision.EndUT);
+        }
+
         internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
         {
             if (!traj.HasOrbitSegments)
@@ -1598,7 +1749,7 @@ namespace Parsek
                 srf.Body = resolvedSegment.bodyName;
                 srf.Segment = resolvedSegment;
             }
-            else if (source == TrackingStationGhostSource.StateVector)
+            else if (IsStateVectorGhostSource(source))
             {
                 srf.Body = resolvedStatePoint.bodyName;
                 srf.StateVecAlt = resolvedStatePoint.altitude;
@@ -1632,7 +1783,9 @@ namespace Parsek
             out OrbitSegment segment,
             out TrajectoryPoint stateVectorPoint,
             out string skipReason,
-            int recordingIndex = -1)
+            int recordingIndex = -1,
+            bool allowSoiGapStateVectorFallback = false,
+            string expectedSoiGapBody = null)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -1736,30 +1889,8 @@ namespace Parsek
                     string.Format(ic, "terminal={0}", terminal.Value));
             }
 
-            // Dense OrbitalCheckpoint frames are derived from the matching OrbitSegment,
-            // but they are the higher-fidelity source for map icons during the checkpoint window.
-            if (TryResolveCheckpointStateVectorMapPoint(
-                traj,
-                currentUT,
-                ref stateVectorCachedIndex,
-                out stateVectorPoint,
-                out _,
-                out TrackSection checkpointSection))
-            {
-                resolvedStatePoint = stateVectorPoint;
-                return ReturnDecision(
-                    TrackingStationGhostSource.StateVector,
-                    skipReason,
-                    string.Format(ic,
-                        "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1}",
-                        checkpointSection.startUT,
-                        checkpointSection.endUT,
-                        stateVectorPoint.ut,
-                        stateVectorPoint.bodyName ?? "(null)",
-                        stateVectorPoint.altitude,
-                        stateVectorPoint.velocity.magnitude));
-            }
-
+            string checkpointFallbackDetail = null;
+            string checkpointFallbackRejectReason = null;
             if (traj.HasOrbitSegments)
             {
                 OrbitSegment? currentSegment =
@@ -1768,15 +1899,89 @@ namespace Parsek
                 {
                     segment = currentSegment.Value;
                     resolvedSegment = segment;
+
+                    if (TryResolveCheckpointStateVectorMapPoint(
+                        traj,
+                        currentUT,
+                        ref stateVectorCachedIndex,
+                        out TrajectoryPoint checkpointPoint,
+                        out _,
+                        out TrackSection checkpointSection))
+                    {
+                        OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
+                            EvaluateOrbitalCheckpointStateVectorFallback(
+                                traj,
+                                currentUT,
+                                checkpointPoint,
+                                segmentSourceAvailable: true,
+                                allowSoiGapRecovery: allowSoiGapStateVectorFallback,
+                                expectedSoiGapBody: expectedSoiGapBody);
+                        checkpointFallbackDetail = string.Format(ic,
+                            "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
+                            checkpointSection.startUT,
+                            checkpointSection.endUT,
+                            checkpointPoint.ut,
+                            checkpointPoint.bodyName ?? "(null)",
+                            checkpointPoint.altitude,
+                            checkpointPoint.velocity.magnitude,
+                            FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
+                    }
+
                     return ReturnDecision(
                         TrackingStationGhostSource.Segment,
                         skipReason,
-                        string.Format(ic,
+                        CombineSourceDetails(string.Format(ic,
                             "segmentBody={0} segmentUT={1:F1}-{2:F1}",
                             segment.bodyName ?? "(null)",
                             segment.startUT,
-                            segment.endUT));
+                            segment.endUT),
+                            checkpointFallbackDetail));
                 }
+            }
+
+            // Dense OrbitalCheckpoint frames are only safe as a map-presence
+            // state-vector source when a caller explicitly marks the create/update
+            // as recovery from an orbit-segment gap. Normal checkpoint windows keep
+            // using segment or terminal-orbit sources so stale/wrong-frame checkpoint
+            // data cannot reintroduce the #571 / #584 wrong-position class.
+            if (TryResolveCheckpointStateVectorMapPoint(
+                traj,
+                currentUT,
+                ref stateVectorCachedIndex,
+                out stateVectorPoint,
+                out _,
+                out TrackSection fallbackCheckpointSection))
+            {
+                OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
+                    EvaluateOrbitalCheckpointStateVectorFallback(
+                        traj,
+                        currentUT,
+                        stateVectorPoint,
+                        segmentSourceAvailable: false,
+                        allowSoiGapRecovery: allowSoiGapStateVectorFallback,
+                        expectedSoiGapBody: expectedSoiGapBody);
+                string detail = string.Format(ic,
+                    "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
+                    fallbackCheckpointSection.startUT,
+                    fallbackCheckpointSection.endUT,
+                    stateVectorPoint.ut,
+                    stateVectorPoint.bodyName ?? "(null)",
+                    stateVectorPoint.altitude,
+                    stateVectorPoint.velocity.magnitude,
+                    FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
+
+                if (checkpointDecision.Accepted)
+                {
+                    resolvedStatePoint = stateVectorPoint;
+                    skipReason = checkpointDecision.Reason;
+                    return ReturnDecision(
+                        TrackingStationGhostSource.StateVectorSoiGap,
+                        checkpointDecision.Reason,
+                        detail);
+                }
+
+                checkpointFallbackRejectReason = checkpointDecision.Reason;
+                checkpointFallbackDetail = detail;
             }
 
             string stateVectorSkipReason = null;
@@ -1804,23 +2009,27 @@ namespace Parsek
             if (!allowTerminalOrbitFallback)
             {
                 skipReason = traj.HasOrbitSegments
-                    ? "no-current-segment"
+                    ? checkpointFallbackRejectReason ?? "no-current-segment"
                     : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments));
+                    CombineSourceDetails(
+                        string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments),
+                        checkpointFallbackDetail));
             }
 
             if (!HasOrbitData(traj))
             {
                 skipReason = traj.HasOrbitSegments
-                    ? "no-current-segment"
+                    ? checkpointFallbackRejectReason ?? "no-current-segment"
                     : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments));
+                    CombineSourceDetails(
+                        string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments),
+                        checkpointFallbackDetail));
             }
 
             if (!IsTerminalStateEligibleForTerminalOrbitMapPresence(terminal))
@@ -1829,17 +2038,21 @@ namespace Parsek
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "terminal={0} terminalOrbitFallback=True", terminal.Value));
+                    CombineSourceDetails(
+                        string.Format(ic, "terminal={0} terminalOrbitFallback=True", terminal.Value),
+                        checkpointFallbackDetail));
             }
 
             double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
             if (currentUT < activationStartUT)
             {
-                skipReason = "before-activation";
+                skipReason = checkpointFallbackRejectReason ?? "before-activation";
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT));
+                    CombineSourceDetails(
+                        string.Format(ic, "activationStartUT={0:F1}", activationStartUT),
+                        checkpointFallbackDetail));
             }
 
             bool allowSparseOrbitGapFallback =
@@ -1848,11 +2061,13 @@ namespace Parsek
                 && !HasRecordedTrackCoverageAtUT(traj, currentUT);
             if (currentUT < traj.EndUT && !allowSparseOrbitGapFallback)
             {
-                skipReason = "before-terminal-orbit";
+                skipReason = checkpointFallbackRejectReason ?? "before-terminal-orbit";
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "endUT={0:F1}", traj.EndUT));
+                    CombineSourceDetails(
+                        string.Format(ic, "endUT={0:F1}", traj.EndUT),
+                        checkpointFallbackDetail));
             }
 
             if (!TryResolveGhostProtoOrbitSeed(
@@ -1873,12 +2088,13 @@ namespace Parsek
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic,
+                    CombineSourceDetails(string.Format(ic,
                         "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
                         traj.TerminalOrbitBody ?? "(null)",
                         traj.EndUT,
                         seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)"));
+                        seedDiagnostics.EndpointBodyName ?? "(none)"),
+                        checkpointFallbackDetail));
             }
 
             segment = new OrbitSegment
@@ -1899,14 +2115,15 @@ namespace Parsek
             return ReturnDecision(
                 TrackingStationGhostSource.TerminalOrbit,
                 skipReason,
-                string.Format(ic,
+                CombineSourceDetails(string.Format(ic,
                     "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
                     traj.TerminalOrbitBody ?? "(null)",
                     traj.EndUT,
                     seedBodyName ?? "(null)",
                     seedDiagnostics.Source ?? "(none)",
                     seedDiagnostics.EndpointBodyName ?? "(none)",
-                    seedDiagnostics.FallbackReason ?? "(none)"));
+                    seedDiagnostics.FallbackReason ?? "(none)"),
+                    checkpointFallbackDetail));
         }
 
         private static string BuildTrackingStationGhostSourceDetail(
@@ -1941,6 +2158,7 @@ namespace Parsek
                         segment.endUT));
 
                 case TrackingStationGhostSource.StateVector:
+                case TrackingStationGhostSource.StateVectorSoiGap:
                     return WithStructured(string.Format(ic,
                         "stateVectorBody={0} alt={1:F0} speed={2:F1}",
                         stateVectorPoint.bodyName ?? "(null)",
@@ -2051,7 +2269,10 @@ namespace Parsek
                     return BuildOrbitSourceStructuredDetail("TerminalOrbit", recId, currentUT, segment);
 
                 case TrackingStationGhostSource.StateVector:
-                    return BuildStateVectorSourceStructuredDetail(recId, stateVectorPoint);
+                    return BuildStateVectorSourceStructuredDetail("StateVector", recId, stateVectorPoint);
+
+                case TrackingStationGhostSource.StateVectorSoiGap:
+                    return BuildStateVectorSourceStructuredDetail("SoiGapStateVector", recId, stateVectorPoint);
 
                 default:
                     return string.Format(ic,
@@ -2083,6 +2304,7 @@ namespace Parsek
         }
 
         private static string BuildStateVectorSourceStructuredDetail(
+            string sourceKind,
             string recId,
             TrajectoryPoint point)
         {
@@ -2090,7 +2312,8 @@ namespace Parsek
                 ? FormatWorldPosition(worldPos)
                 : "(unresolved)";
             return string.Format(ic,
-                "sourceKind=StateVector rec={0} body={1} sourceUT={2:F1} pointUT={3:F1} alt={4:F0} speed={5:F1} world={6}",
+                "sourceKind={0} rec={1} body={2} sourceUT={3:F1} pointUT={4:F1} alt={5:F0} speed={6:F1} world={7}",
+                sourceKind,
                 recId,
                 point.bodyName ?? "(null)",
                 point.ut,
@@ -2304,9 +2527,12 @@ namespace Parsek
                     dispatch.Segment = segment;
                     break;
                 case TrackingStationGhostSource.StateVector:
+                case TrackingStationGhostSource.StateVectorSoiGap:
                     dispatch.Body = stateVectorPoint.bodyName;
                     dispatch.StateVecAlt = stateVectorPoint.altitude;
                     dispatch.StateVecSpeed = stateVectorPoint.velocity.magnitude;
+                    if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                        dispatch.Reason = "soi-gap-state-vector-fallback";
                     break;
                 case TrackingStationGhostSource.TerminalOrbit:
                     dispatch.Body = traj?.TerminalOrbitBody;
@@ -2329,11 +2555,16 @@ namespace Parsek
                     return segmentGhost;
 
                 case TrackingStationGhostSource.StateVector:
+                case TrackingStationGhostSource.StateVectorSoiGap:
                     return CreateGhostVesselFromStateVectors(
                         recordingIndex,
                         traj,
                         stateVectorPoint,
-                        currentUT);
+                        currentUT,
+                        allowOrbitalCheckpointStateVector: source == TrackingStationGhostSource.StateVectorSoiGap,
+                        stateVectorCreateReason: source == TrackingStationGhostSource.StateVectorSoiGap
+                            ? "soi-gap-state-vector-fallback"
+                            : null);
 
                 default:
                     return null;
@@ -2439,7 +2670,7 @@ namespace Parsek
                 if (v != null)
                 {
                     lifecycleCreated++;
-                    if (source == TrackingStationGhostSource.StateVector)
+                    if (IsStateVectorGhostSource(source))
                         trackingStationStateVectorOrbitTrajectories[i] = rec;
                     else
                         trackingStationStateVectorOrbitTrajectories.Remove(i);
@@ -2829,7 +3060,8 @@ namespace Parsek
             bool anchorFound,
             Vector3d anchorWorldPos,
             Quaternion anchorWorldRot,
-            uint anchorVesselId)
+            uint anchorVesselId,
+            bool allowOrbitalCheckpointStateVector = false)
         {
             // No track sections at all — fall back to the original Absolute interpretation.
             // This preserves behaviour for legacy / synthetic recordings that have not yet
@@ -2897,9 +3129,25 @@ namespace Parsek
                 };
             }
 
-            // OrbitalCheckpoint: state-vector entry points should never come from a
-            // checkpoint section (those carry Keplerian elements, not point samples).
-            // If we get here, the upstream caller fed mismatched data — refuse.
+            // OrbitalCheckpoint state-vector entry points are normally refused:
+            // checkpoint sections are supposed to have segment/terminal-orbit
+            // sources available, and stale checkpoint-frame interpretation can
+            // reintroduce wrong-position bugs. The only caller that may opt in is
+            // the explicit SOI/orbit-segment-gap recovery path after it has already
+            // proven there is no safer source and the body/window match.
+            if (allowOrbitalCheckpointStateVector)
+            {
+                Vector3d pos = absoluteSurfaceLookup(point.latitude, point.longitude, point.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "orbital-checkpoint",
+                    FailureReason = null,
+                    AnchorPid = 0
+                };
+            }
+
             return new StateVectorWorldFrame
             {
                 Resolved = false,
@@ -2917,7 +3165,8 @@ namespace Parsek
         private static StateVectorWorldFrame ResolveStateVectorWorldPosition(
             IPlaybackTrajectory traj,
             TrajectoryPoint point,
-            CelestialBody body)
+            CelestialBody body,
+            bool allowOrbitalCheckpointStateVector = false)
         {
             TrackSection? section = null;
             if (traj?.TrackSections != null && traj.TrackSections.Count > 0)
@@ -2955,7 +3204,8 @@ namespace Parsek
                 anchorFound,
                 anchorPos,
                 anchorRot,
-                anchorPid);
+                anchorPid,
+                allowOrbitalCheckpointStateVector);
         }
 
         /// <summary>
@@ -2968,7 +3218,10 @@ namespace Parsek
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
-            TrajectoryPoint point, double ut)
+            TrajectoryPoint point,
+            double ut,
+            bool allowOrbitalCheckpointStateVector = false,
+            string stateVectorCreateReason = null)
         {
             if (traj == null) return null;
 
@@ -2994,6 +3247,7 @@ namespace Parsek
                 intent.StateVecAlt = point.altitude;
                 intent.StateVecSpeed = point.velocity.magnitude;
                 intent.UT = ut;
+                intent.Reason = stateVectorCreateReason;
                 ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
             }
 
@@ -3013,7 +3267,11 @@ namespace Parsek
             }
 
             StateVectorWorldFrame resolution =
-                ResolveStateVectorWorldPosition(traj, point, body);
+                ResolveStateVectorWorldPosition(
+                    traj,
+                    point,
+                    body,
+                    allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
                 var skip = NewDecisionFields("create-state-vector-skip");
@@ -3054,12 +3312,15 @@ namespace Parsek
             string logContext = string.Format(ic,
                 "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
                 recordingIndex, point.altitude, point.velocity.magnitude, resolution.Branch);
+            string protoSource = string.IsNullOrEmpty(stateVectorCreateReason)
+                ? "state-vector-fallback"
+                : stateVectorCreateReason;
             Vessel vessel = BuildAndLoadGhostProtoVesselCore(
                 traj,
                 orbit,
                 body,
                 logContext,
-                "state-vector-fallback",
+                protoSource,
                 string.Format(ic,
                     "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1} frame={4} anchorPid={5}",
                     point.bodyName ?? "(null)",
@@ -3089,7 +3350,9 @@ namespace Parsek
                 done.StateVecAlt = point.altitude;
                 done.StateVecSpeed = point.velocity.magnitude;
                 done.UT = ut;
-                done.Reason = string.Format(ic, "formatV={0}", traj.RecordingFormatVersion);
+                done.Reason = string.IsNullOrEmpty(stateVectorCreateReason)
+                    ? string.Format(ic, "formatV={0}", traj.RecordingFormatVersion)
+                    : string.Format(ic, "{0} formatV={1}", stateVectorCreateReason, traj.RecordingFormatVersion);
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(done));
 
                 StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
@@ -3136,7 +3399,10 @@ namespace Parsek
         /// </summary>
         internal static void UpdateGhostOrbitFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
-            TrajectoryPoint point, double ut)
+            TrajectoryPoint point,
+            double ut,
+            bool allowOrbitalCheckpointStateVector = false,
+            string stateVectorUpdateReason = null)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
@@ -3173,7 +3439,11 @@ namespace Parsek
             }
 
             StateVectorWorldFrame resolution =
-                ResolveStateVectorWorldPosition(traj, point, body);
+                ResolveStateVectorWorldPosition(
+                    traj,
+                    point,
+                    body,
+                    allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
                 var skip = NewDecisionFields("update-state-vector-skip");
@@ -3220,6 +3490,7 @@ namespace Parsek
                 soi.Body = body.name;
                 soi.GhostPid = vessel.persistentId;
                 soi.UT = ut;
+                soi.Reason = stateVectorUpdateReason;
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(soi));
             }
 
@@ -3258,6 +3529,7 @@ namespace Parsek
             done.StateVecAlt = point.altitude;
             done.StateVecSpeed = point.velocity.magnitude;
             done.UT = ut;
+            done.Reason = stateVectorUpdateReason;
             ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
 
             StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
@@ -3717,7 +3989,7 @@ namespace Parsek
                     sourceTerminalOrbit++;
                 else if (source == TrackingStationGhostSource.Segment)
                     sourceVisibleSegment++;
-                else if (source == TrackingStationGhostSource.StateVector)
+                else if (IsStateVectorGhostSource(source))
                     sourceStateVector++;
 
                 Vessel v = CreateGhostVesselFromSource(
@@ -3731,7 +4003,7 @@ namespace Parsek
                 if (v != null)
                 {
                     created++;
-                    if (source == TrackingStationGhostSource.StateVector)
+                    if (IsStateVectorGhostSource(source))
                     {
                         trackingStationStateVectorOrbitTrajectories[i] = rec;
                     }

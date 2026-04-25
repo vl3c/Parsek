@@ -287,6 +287,39 @@ namespace Parsek.Tests
             Assert.Equal("state-vector-from-orbital-checkpoint", result.FailureReason);
         }
 
+        [Fact]
+        public void OrbitalCheckpoint_ExplicitSoiGapRecovery_UsesSurfaceLookup()
+        {
+            var point = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 47481.0,
+                bodyName = "Mun",
+            };
+            var sentinel = new Vector3d(10.0, 20.0, 30.0);
+            var section = OrbitalCheckpointSection(50.0, 150.0);
+
+            var result = GhostMapPresence.ResolveStateVectorWorldPositionPure(
+                point,
+                section,
+                recordingFormatVersion: 6,
+                absoluteSurfaceLookup: SurfaceLookupReturning(sentinel),
+                anchorFound: false,
+                anchorWorldPos: default(Vector3d),
+                anchorWorldRot: Quaternion.identity,
+                anchorVesselId: 0u,
+                allowOrbitalCheckpointStateVector: true);
+
+            Assert.True(result.Resolved);
+            Assert.Equal("orbital-checkpoint", result.Branch);
+            Assert.Null(result.FailureReason);
+            Assert.Equal(sentinel.x, result.WorldPos.x, 6);
+            Assert.Equal(sentinel.y, result.WorldPos.y, 6);
+            Assert.Equal(sentinel.z, result.WorldPos.z, 6);
+        }
+
         // -----------------------------------------------------------------
         // No-section fallback — preserves Absolute interpretation for legacy
         // recordings that have not been split into sections.
