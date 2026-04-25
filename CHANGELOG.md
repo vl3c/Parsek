@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` load-path extraction: trajectory probe/id/epoch validation, sidecar load-failure marking, post-hydration loop and endpoint repairs, terminal-orbit backfill, and snapshot fallback policy now live behind `RecordingStore` wrappers while codecs stay in their existing owners.
 
 ## 0.9.0
 

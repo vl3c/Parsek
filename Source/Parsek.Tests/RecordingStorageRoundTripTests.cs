@@ -1107,6 +1107,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingSidecarStore_LoadRecordingFilesFromPaths_PreservesHydratedTrajectoryOnSnapshotFailure()
+        {
+            string dir = Path.Combine(tempDir, "sidecar-store-direct-load");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "sidecar-store-direct-load.prec");
+            string vesselPath = Path.Combine(dir, "sidecar-store-direct-load_vessel.craft");
+            string ghostPath = Path.Combine(dir, "sidecar-store-direct-load_ghost.craft");
+
+            Recording written = BuildRecordingWithSnapshots(
+                "sidecar-store-direct-load",
+                sidecarEpoch: 7,
+                vesselName: "Direct Load Vessel",
+                ghostName: "Direct Load Ghost",
+                pidBase: 5375,
+                pointUt: 777);
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
+                written, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+            WriteUnsupportedSnapshotSidecar(vesselPath);
+
+            var loaded = new Recording
+            {
+                RecordingId = written.RecordingId,
+                SidecarEpoch = written.SidecarEpoch,
+                GhostSnapshotMode = written.GhostSnapshotMode
+            };
+
+            logLines.Clear();
+            Assert.False(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
+                loaded, precPath, vesselPath, ghostPath));
+            Assert.True(loaded.SidecarLoadFailed);
+            Assert.Equal("snapshot-vessel-unsupported", loaded.SidecarLoadFailureReason);
+            Assert.Single(loaded.Points);
+            Assert.Equal(777, loaded.Points[0].ut);
+            Assert.Null(loaded.VesselSnapshot);
+            Assert.NotNull(loaded.GhostVisualSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("unsupported vessel snapshot sidecar"));
+        }
+
+        [Fact]
         public void SaveRecordingFiles_ReadableMirrorsDisabled_DeletesExistingMirrorFiles()
         {
             string dir = Path.Combine(tempDir, "readable-mirrors-disabled");
