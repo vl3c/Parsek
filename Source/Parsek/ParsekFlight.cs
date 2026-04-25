@@ -93,6 +93,39 @@ namespace Parsek
             PackedOrOnRails
         }
 
+        internal struct MissedVesselSwitchRecoveryDiagnosticContext
+        {
+            public bool IsRecovery;
+            public uint ActiveVesselPid;
+            public uint RecorderVesselPid;
+            public bool HasRecorder;
+            public bool RecorderIsRecording;
+            public bool RecorderIsBackgrounded;
+            public bool RecorderChainToVesselPending;
+            public bool ActiveVesselTrackedInBackground;
+            public bool ActiveVesselAlreadyArmedForPostSwitchAutoRecord;
+            public string ActiveTreeRecordingId;
+            public int ActiveTreeBackgroundMapCount;
+
+            internal string BuildRecStateRateLimitKey()
+            {
+                if (!IsRecovery) return null;
+
+                return string.Format(CultureInfo.InvariantCulture,
+                    "missed-vessel-switch|activePid={0}|recorderPid={1}|hasRecorder={2}|rec={3}/{4}|chain={5}|tracked={6}|armed={7}|activeRec={8}|bgCount={9}",
+                    ActiveVesselPid,
+                    RecorderVesselPid,
+                    HasRecorder ? 1 : 0,
+                    RecorderIsRecording ? 1 : 0,
+                    RecorderIsBackgrounded ? 1 : 0,
+                    RecorderChainToVesselPending ? 1 : 0,
+                    ActiveVesselTrackedInBackground ? 1 : 0,
+                    ActiveVesselAlreadyArmedForPostSwitchAutoRecord ? 1 : 0,
+                    string.IsNullOrEmpty(ActiveTreeRecordingId) ? "-" : ActiveTreeRecordingId,
+                    ActiveTreeBackgroundMapCount);
+            }
+        }
+
         internal struct PostSwitchOrbitSnapshot
         {
             public bool IsValid;
@@ -210,11 +243,13 @@ namespace Parsek
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
         private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
+        internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
         private float nextCommittedSpawnedRestoreRetryAt;
+        private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
@@ -1878,7 +1913,10 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnVesselSwitchComplete:entry", CaptureRecorderState());
+            LogOnVesselSwitchCompleteRecState(
+                "OnVesselSwitchComplete:entry",
+                CaptureRecorderState(),
+                currentVesselSwitchRecoveryDiagnosticContext);
 
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
@@ -2027,7 +2065,44 @@ namespace Parsek
                         freshStartParentRecordingId);
                     break;
             }
-            ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+            LogOnVesselSwitchCompleteRecState(
+                "OnVesselSwitchComplete:post",
+                CaptureRecorderState(),
+                currentVesselSwitchRecoveryDiagnosticContext);
+        }
+
+        private void ReplayVesselSwitchCompleteForMissedSwitchRecovery(
+            Vessel activeVessel,
+            MissedVesselSwitchRecoveryDiagnosticContext recoveryDiagnosticContext)
+        {
+            var previousContext = currentVesselSwitchRecoveryDiagnosticContext;
+            currentVesselSwitchRecoveryDiagnosticContext = recoveryDiagnosticContext;
+            try
+            {
+                OnVesselSwitchComplete(activeVessel);
+            }
+            finally
+            {
+                currentVesselSwitchRecoveryDiagnosticContext = previousContext;
+            }
+        }
+
+        internal static void LogOnVesselSwitchCompleteRecState(
+            string phase,
+            RecorderStateSnapshot snapshot,
+            MissedVesselSwitchRecoveryDiagnosticContext recoveryDiagnosticContext)
+        {
+            if (!recoveryDiagnosticContext.IsRecovery)
+            {
+                ParsekLog.RecState(phase, snapshot);
+                return;
+            }
+
+            ParsekLog.RecStateRateLimited(
+                phase,
+                snapshot,
+                recoveryDiagnosticContext.BuildRecStateRateLimitKey(),
+                MissedVesselSwitchRecoveryRecStateIntervalSeconds);
         }
 
         /// <summary>
@@ -6673,9 +6748,15 @@ namespace Parsek
 
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
+            bool hasRecorder = recorder != null;
+            bool recorderIsRecording = hasRecorder && recorder.IsRecording;
+            bool recorderChainToVesselPending = hasRecorder && recorder.ChainToVesselPending;
+            uint recorderPid = hasRecorder ? recorder.RecordingVesselId : 0;
             bool activeVesselTrackedInBackground = activeTree != null
                 && activeVesselPid != 0
                 && activeTree.BackgroundMap.ContainsKey(activeVesselPid);
+            bool activeVesselAlreadyArmedForPostSwitchAutoRecord =
+                IsPostSwitchAutoRecordArmedForPid(activeVesselPid);
 
             if (!ShouldRecoverMissedVesselSwitch(
                     restoringActiveTree,
@@ -6683,31 +6764,52 @@ namespace Parsek
                     pendingTreeDockMerge,
                     pendingSplitRecorder != null,
                     pendingSplitInProgress,
-                    recorder != null,
-                    recorder != null && recorder.IsRecording,
-                    recorder != null && recorder.ChainToVesselPending,
-                    recorder != null ? recorder.RecordingVesselId : 0,
+                    hasRecorder,
+                    recorderIsRecording,
+                    recorderChainToVesselPending,
+                    recorderPid,
                     activeVesselPid,
                     activeVesselTrackedInBackground,
-                    IsPostSwitchAutoRecordArmedForPid(activeVesselPid)))
+                    activeVesselAlreadyArmedForPostSwitchAutoRecord))
             {
                 return;
             }
 
             if (GhostMapPresence.IsGhostMapVessel(activeVesselPid)) return;
 
-            uint recorderPid = recorder != null ? recorder.RecordingVesselId : 0;
+            var recoveryDiagnosticContext = new MissedVesselSwitchRecoveryDiagnosticContext
+            {
+                IsRecovery = true,
+                ActiveVesselPid = activeVesselPid,
+                RecorderVesselPid = recorderPid,
+                HasRecorder = hasRecorder,
+                RecorderIsRecording = recorderIsRecording,
+                RecorderIsBackgrounded = hasRecorder && recorder.IsBackgrounded,
+                RecorderChainToVesselPending = recorderChainToVesselPending,
+                ActiveVesselTrackedInBackground = activeVesselTrackedInBackground,
+                ActiveVesselAlreadyArmedForPostSwitchAutoRecord =
+                    activeVesselAlreadyArmedForPostSwitchAutoRecord,
+                ActiveTreeRecordingId = activeTree != null ? activeTree.ActiveRecordingId : null,
+                ActiveTreeBackgroundMapCount = activeTree != null && activeTree.BackgroundMap != null
+                    ? activeTree.BackgroundMap.Count
+                    : 0
+            };
+
             // Update() runs every frame; if the recovery handler does not clear
             // the predicate immediately (e.g. background recorder still pending),
             // this branch fires repeatedly for the same vessel. Rate-limit by
             // activePid so each vessel logs at most once per window — visibility
-            // is preserved (still a WARN), spam is bounded.
+            // is preserved (still a WARN), spam is bounded. The recovery context
+            // applies the same cadence to the nested RecState entry/post snapshots
+            // without affecting real onVesselChange boundaries.
             ParsekLog.WarnRateLimited("Flight",
                 $"missed-vessel-switch-{activeVesselPid}",
                 $"Update: recovering missed vessel switch for active vessel '{activeVessel.vesselName}' " +
                 $"(activePid={activeVesselPid}, recorderPid={recorderPid}, " +
                 $"trackedInBackground={activeVesselTrackedInBackground})");
-            OnVesselSwitchComplete(activeVessel);
+            ReplayVesselSwitchCompleteForMissedSwitchRecovery(
+                activeVessel,
+                recoveryDiagnosticContext);
         }
 
         /// <summary>

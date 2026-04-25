@@ -1292,7 +1292,7 @@ questions consistently.
 
 ---
 
-## 591. Log spam: `OnVesselSwitchComplete:entry/post` RecState lines fire ~10000 times in a single session during missed-vessel-switch recovery
+## ~~591. Log spam: `OnVesselSwitchComplete:entry/post` RecState lines fire ~10000 times in a single session during missed-vessel-switch recovery~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 9969
 occurrences of `RecState [#NNNN][OnVesselSwitchComplete:entry|post]`,
@@ -1335,8 +1335,16 @@ shape, no useful per-frame state changes, on a hot path
   "recoverer is firing for the same activePid as last frame" and
   short-circuit before logging.
 
-**Status:** Open. Spam-only — no functional defect, but masks real
-state transitions in the log when grepping for `OnVesselSwitchComplete`.
+**Status:** ~~Open.~~ Done. Fix: the recovery branch still calls
+`OnVesselSwitchComplete(activeVessel)`, preserving the recovery behavior,
+but passes a recovery diagnostic context so only the nested
+`RecState("OnVesselSwitchComplete:entry"/":post")` lines are
+rate-limited. The key includes activePid plus recorder/tracking
+fingerprint (recorder pid, live/background flags, tracked/armed state,
+chain-to-vessel pending flag, active recording id, and BackgroundMap
+count), so repeated identical Update frames coalesce into 5s
+`suppressed=N` summaries while changed state or normal non-recovery
+vessel-switch boundaries emit fresh diagnostics.
 
 ---
 
