@@ -1694,6 +1694,53 @@ ghost-orbit anomaly points at it.
 
 ---
 
+## ~~525-followup. In-game terrain-clearance regression `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` failed at the cycle-boundary camera-event count assertion~~
+
+**Source:** `logs/2026-04-25_2147/parsek-test-results.txt`,
+`logs/2026-04-25_2147/Player.log:137286-137304`. The original `#525`
+fix added an in-game pin that drives a Destroyed loop recording across
+a cycle boundary and asserts (a) the explosion anchor is terrain-clamped
+before any watch hold reads it, and (b) the engine emits exactly one
+`OnLoopCameraAction` event for the cycle boundary. The pin was authored
+in commit `814fbf53` (2026-04-22) but only ran for the first time on the
+2026-04-25_2147 playtest, where it failed:
+
+```
+[VERBOSE][TerrainCorrect] Explosion anchor clamp #525 ("Bug525ExplosionAnchor"): alt=63.8 terrain=64.8 -> 65.3 (clearance=0.5m) cycle=0
+[VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #525 ...
+[VERBOSE][Engine] Ghost #525 parts hidden after explosion
+[VERBOSE][Engine] Ghost #525 "Bug525ExplosionAnchor" ghost reused across loop cycle: from cycle=0 to cycle=1
+[WARN][TestRunner] FAILED: ... - Loop cycle-change explosion should emit exactly one camera hold event
+```
+
+**Cause:** `GhostPlaybackEngine.UpdateLoopingPlayback`'s loaded-visuals
+loop-cycle branch fired `OnLoopCameraAction(ExplosionHoldStart)`
+correctly, then called `ReusePrimaryGhostAcrossCycle` which fired a
+second `OnLoopCameraAction(RetargetToNewGhost)` at the end. The watch
+handler ignored the second event because `ExplosionHoldStart` had set
+`watchedOverlapCycleIndex = -2` and `RetargetToNewGhost` is a no-op in
+that state — so production behaviour was correct — but the API noise
+broke the "exactly one camera hold event per cycle boundary" contract
+that the regression test exercises.
+
+**Fix:** Added an `emitRetargetEvent = true` parameter to
+`ReusePrimaryGhostAcrossCycle`. The destroyed loop-cycle path now passes
+`emitRetargetEvent: !needsExplosion` so the redundant retarget event is
+suppressed only when an explosion was just emitted. The non-destroyed
+boundary (`ExplosionHoldEnd`) still fires `RetargetToNewGhost` because
+the watch handler genuinely needs it to swap the bridge anchor for the
+new cycle's pivot. xUnit pins in
+`Source/Parsek.Tests/Bug406GhostReuseLoopCycleTests.cs`
+(`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventFalse_StillNoEvent`,
+`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventTrue_NoEvent`)
+fence the parameter API surface; the original
+`ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` in-game
+test now passes against a real ghost in flight.
+
+**Status:** CLOSED 2026-04-25. Fixed on `fix/explosion-camera-hold-event`.
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
