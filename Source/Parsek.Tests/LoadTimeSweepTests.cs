@@ -449,15 +449,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MarkerInvalid_InPlaceContinuation_Immutable_Cleared()
+        public void MarkerValid_InPlaceContinuation_Immutable_Preserved()
         {
-            // Regression: even for in-place continuation, an Immutable
-            // recording cannot be a re-fly target. A finalized recording
-            // is the canonical historical record; mutating it is a write
-            // through the tombstone supersede chain, never a marker
-            // pointing at the row directly. Reject the marker so the
-            // load-time sweep wipes any stale shape that landed via legacy
-            // migration or a previous force-flip.
+            // Review follow-up: an Immutable recording IS a valid re-fly
+            // target when it is also an Unfinished Flight (terminal=
+            // Destroyed + matching RP). EffectiveState.IsUnfinishedFlight
+            // accepts both Immutable and CommittedProvisional (line 156-
+            // 157), and RewindInvoker.AtomicMarkerWrite has no MergeState
+            // gate — so the validator must accept the same shape it can
+            // legitimately produce. Without this carve-out, a save/load
+            // during an in-place re-fly of an Immutable UF wipes the
+            // marker and the merge falls through to the regular tree-
+            // merge path (no force-Immutable, no RP reap). The
+            // CommittedProvisional sister case is pinned by the test
+            // immediately above.
             InstallTree("tree_1",
                 new List<Recording>
                 {
@@ -473,10 +478,9 @@ namespace Parsek.Tests
 
             LoadTimeSweep.Run();
 
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ReFlySession]") &&
-                l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.ActiveReFlyRecordingId);
+            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.OriginChildRecordingId);
         }
 
         // ---------- Spare + discard sets ----------------------------------

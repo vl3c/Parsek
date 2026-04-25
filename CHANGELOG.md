@@ -44,7 +44,7 @@ All notable changes to Parsek are documented here.
 
 - EVA splits now author a Rewind Point, so a destroyed EVA kerbal becomes an Unfinished Flight with a Re-Fly button. Previously `IsTrackableVessel` only recognised parts with `ModuleCommand`, so the kerbal didn't count as a controllable output, the split classified as single-controllable, and no RP was authored.
 
-- Re-Fly session marker now survives the SPACECENTER round-trip that precedes the merge dialog when the active recording is a previously-promoted Unfinished Flight; previously the load-time validator wiped it and the merge fell through to the regular tree-merge path (no force-Immutable, no RP reap, no UF clear-out).
+- Re-Fly session marker now survives the SPACECENTER round-trip that precedes the merge dialog when the active recording is a previously-promoted Unfinished Flight; previously the load-time validator wiped it and the merge fell through to the regular tree-merge path (no force-Immutable, no RP reap, no UF clear-out). The carve-out covers both `CommittedProvisional` and `Immutable` in-place origins — `IsUnfinishedFlight` accepts both, so the validator must too.
 
 - Re-Fly confirmation dialog renamed to `Parsek - Finish Flight` with a plain-language prompt ("Do you want to fly this again?") and a `Re-Fly` accept button instead of `Rewind`.
 
