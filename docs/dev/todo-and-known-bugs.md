@@ -636,6 +636,83 @@ being addressed by the sibling
 
 ---
 
+## 583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section
+
+**Source:** PR #547 review follow-up — out-of-scope note attached to the
+P1 fix that landed in commit `57aec636` on
+`fix/ghostmap-state-vector-relative-frame` (now merged into main as
+`8eaebfbb`). Distinct from PR #547's P1 review item ("flight-scene update
+path thresholds dz as altitude") which covered the *"ghost already
+exists, then enters Relative section"* case.
+
+**Concern:** the create / pending-create resolver path still treats a
+Relative-frame current UT as "no map-visible source" and returns
+`TrackingStationGhostSource.None`. After the PR #547 P1 follow-up, an
+existing map ghost survives a Relative section and stays attached to its
+anchor through `UpdateGhostOrbitFromStateVectors`'s Relative branch. But
+the symmetric "no ghost exists yet, and the first map-visible source is
+inside a Relative section" case still produces missing map presence —
+the resolver never picks `StateVector` for a Relative-frame point, so
+`CreateGhostVesselFromStateVectors` (which already has a working
+Relative branch since PR #547) never gets called for that path.
+
+This is a missing-ghost defect, not a wrong-position one — the #584 fix
+(merged via PR #547) already prevents the icon-deep-inside-planet
+outcome for ghosts that get created. Likeliest player-visible scenario:
+a docking / rendezvous recording whose first map-visible UT is inside
+the docking-relative section never gets a map vessel until the
+trajectory crosses out of the Relative section (e.g., undock + re-enter
+Absolute or OrbitalCheckpoint frame).
+
+**Files to investigate:**
+
+- `Source/Parsek/GhostMapPresence.cs` — `ResolveMapPresenceGhostSource`
+  (line 1619). Specifically the `if (!traj.HasOrbitSegments)` branch
+  around line 1741 that gates state-vector resolution: a Relative-frame
+  current UT short-circuits there because the trajectory may have
+  OrbitalCheckpoint segments elsewhere. Decide whether to: (a) extend
+  the state-vector branch to fire when the current UT is in a Relative
+  section regardless of `HasOrbitSegments`, gated on anchor-resolvability;
+  or (b) introduce a new `TrackingStationGhostSource.Relative` source
+  kind that flows through to `CreateGhostVesselFromStateVectors`'s
+  existing Relative branch.
+- `Source/Parsek/ParsekPlaybackPolicy.cs:795-870` — `CheckPendingMapVessels`
+  pending-create flow. Whatever the resolver returns must dispatch
+  cleanly through `CreateGhostVesselFromSource`.
+- `Source/Parsek/GhostMapPresence.cs:2861` —
+  `CreateGhostVesselFromStateVectors`. Already dispatches on
+  `referenceFrame` (#584). Verify it handles the "anchor unresolvable
+  at create-time" case sensibly (defer? skip with VERBOSE? warn?).
+
+**Design questions to answer in the implementing PR:**
+
+- When the anchor vessel for a Relative-frame point is not resolvable
+  at create-time (e.g., anchor not yet in `FlightGlobals.Vessels`), what
+  should happen? Re-defer until the next tick? Skip silently? Skip with
+  WARN? Fall back to terminal-orbit if available?
+- If the recording is mid-section and the anchor disappears mid-flight
+  (vessel destroyed), should the existing ghost stay parked at last
+  known position, or be removed? Today
+  `UpdateGhostOrbitFromStateVectors`'s Relative branch presumably
+  already handles this — the create-side decision needs to match.
+
+**Coordination note:** PR #547 (which closed #584) is already merged
+into `main`. The two `CHANGELOG.md` lines under v0.9.0 Bug Fixes that
+prefix `#584` describe the existing-ghost path: *"a ghost that
+traverses a Relative-frame docking/rendezvous segment stays attached
+to its anchor vessel"* and *"a ghost in a docking/rendezvous Relative
+section is no longer wrongly removed and re-deferred"*. Both are
+existing-ghost claims, not "all map creation" claims, so neither
+overclaims relative to the resolver gap left here. When the
+implementing PR for #583 lands, add a sibling `#583` line under v0.9.0
+Bug Fixes naming the creation-side fix.
+
+**Status:** Open. Not a regression of any shipped fix; a known remaining
+edge case that was deliberately left out of PR #547's scope (PR #547
+merged 2026-04-25 as commit `8eaebfbb`).
+
+---
+
 ## ~~584. State-vector ghost map paths fed RELATIVE-frame anchor offsets into `body.GetWorldSurfacePosition`~~
 
 **Source:** code-review observation while triaging #571. Latent in
