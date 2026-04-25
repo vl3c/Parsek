@@ -1673,16 +1673,25 @@ version vs. in-memory semantic version) as the same number. They diverge by
 design at v4 and above whenever a legacy save loads.
 
 **Fix:** `RuntimeTests.CurrentFormatTrajectorySidecarsProbeAsBinary` now
-asserts the asymmetric contract `probe.FormatVersion <=
-rec.RecordingFormatVersion <= CurrentRecordingFormatVersion`, with an inline
-comment documenting the on-disk-binary vs. in-memory-semantic split. The
-production read path in `TrajectorySidecarBinary.Read` already uses
-promote-only (`if (rec.RecordingFormatVersion < probe.FormatVersion)`), so no
-production code change was needed. New xUnit regression
-`TrajectorySidecarProbeVersionContractTests` builds a recording at v3, writes
-the sidecar, simulates the legacy-loop migration, and pins the asymmetric
-contract; the matching freshly-written-at-current-version case pins that the
-contract reduces to equality when the sidecar is up to date.
+asserts a narrow contract via the new
+`RecordingStore.IsAcceptableSidecarVersionLag(probe, rec)` predicate:
+equality is the ordinary case, and the only allowed lag is v3 sidecar with
+v4 recording (the documented metadata-only legacy-loop migration). Every
+other lag fails the assertion. v5 added serialized
+`OrbitSegment.isPredicted` and v6 changed RELATIVE TrackSection point
+semantics, so a v3-or-older sidecar paired with a v5 / v6 recording would
+mean the binary on disk predates a contract change and the trajectory
+data is genuinely stale. The first PR #567 relaxation to the broad
+asymmetric `probe <= rec` would have hidden that case; review note P2
+narrowed the exception. The runtime test also now explicitly asserts
+`probe.Supported`. The production read path in `TrajectorySidecarBinary.Read`
+already uses promote-only (`if (rec.RecordingFormatVersion <
+probe.FormatVersion)`), so no production runtime code change was needed
+beyond exposing the predicate. xUnit
+`TrajectorySidecarProbeVersionContractTests` covers v3 / v3 (equality),
+v3 / v4 (allowed legacy-loop migration), v3 / v5, v3 / v6, v4 / v6, and
+probe&gt;rec (all rejected), plus the freshly-written-at-current-version
+case that reduces to equality.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 

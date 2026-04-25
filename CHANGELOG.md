@@ -43,7 +43,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The on-disk binary version is allowed to lag the in-memory recording version because v4 was a metadata-only change.
+- In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
 
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
