@@ -171,6 +171,11 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: terminal,
                 supersedeTargetId: supersedeTargetId);
+            // Satisfy SupersedeCommit.AppendRelations supersede-target
+            // invariant (>=1 trajectory point + non-null terminal). Tests
+            // exercising the empty / null-terminal cases construct
+            // provisionals directly.
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(provisional, treeId);
             return provisional;
         }
@@ -602,7 +607,12 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(origin);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var provisional = Rec("rec_same", "tree_1", state: MergeState.NotCommitted);
+            var provisional = Rec("rec_same", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            // Satisfy AppendRelations supersede-target invariant so the
+            // self-supersede defense is the only refusal exercised here.
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             var marker = Marker("rec_same", "rec_same");
             var scenario = InstallScenario(marker);
 
@@ -617,6 +627,103 @@ namespace Parsek.Tests
                 && l.Contains("old=rec_same") && l.Contains("new=rec_same"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") && l.Contains("selfSkipped=1"));
+        }
+
+        // ---------- Supersede-target invariant (item 10) -------------------
+
+        [Fact]
+        public void AppendRelations_EmptyProvisional_RefusesAndWarns()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: "rec_origin");
+            Assert.Empty(provisional.Points);
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+
+#if DEBUG
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.AppendRelations(
+                    scenario.ActiveReFlySessionMarker, provisional, scenario));
+            Assert.Contains("invariant violation", ex.Message);
+            Assert.Contains("empty Points", ex.Message);
+#else
+            var subtree = SupersedeCommit.AppendRelations(
+                scenario.ActiveReFlySessionMarker, provisional, scenario);
+            Assert.Empty(subtree);
+#endif
+
+            Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("provisional=rec_provisional")
+                && l.Contains("reason=empty Points")
+                && l.Contains("refusing to write supersede rows"));
+        }
+
+        [Fact]
+        public void AppendRelations_NullTerminalProvisional_RefusesAndWarns()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: "rec_origin");
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            Assert.Null(provisional.TerminalStateValue);
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+
+#if DEBUG
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.AppendRelations(
+                    scenario.ActiveReFlySessionMarker, provisional, scenario));
+            Assert.Contains("invariant violation", ex.Message);
+            Assert.Contains("null TerminalState", ex.Message);
+#else
+            var subtree = SupersedeCommit.AppendRelations(
+                scenario.ActiveReFlySessionMarker, provisional, scenario);
+            Assert.Empty(subtree);
+#endif
+
+            Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("provisional=rec_provisional")
+                && l.Contains("reason=null TerminalState")
+                && l.Contains("refusing to write supersede rows"));
+        }
+
+        [Fact]
+        public void ValidateSupersedeTarget_ReasonStrings()
+        {
+            string reason;
+
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(null, out reason));
+            Assert.Equal("null recording", reason);
+
+            var emptyPoints = new Recording { Points = new List<TrajectoryPoint>(), TerminalStateValue = TerminalState.Landed };
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(emptyPoints, out reason));
+            Assert.Equal("empty Points", reason);
+
+            var nullTerminal = new Recording { TerminalStateValue = null };
+            nullTerminal.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(nullTerminal, out reason));
+            Assert.Equal("null TerminalState", reason);
+
+            var ok = new Recording { TerminalStateValue = TerminalState.Landed };
+            ok.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            Assert.True(SupersedeCommit.ValidateSupersedeTarget(ok, out reason));
+            Assert.Null(reason);
         }
     }
 }

@@ -127,6 +127,27 @@ namespace Parsek
             string nowIso = DateTime.UtcNow.ToString("o");
             var ic = CultureInfo.InvariantCulture;
 
+            // Invariant: a supersede target is by design a recording with at
+            // least one trajectory point AND a non-null terminal state. A
+            // placeholder (zero points) cannot validly replace a destroyed
+            // origin -- the placeholder-redirect bug class shipped twice in
+            // 2026-04 (items 5, 568). Catch it at commit time so the next
+            // variant fails loud instead of silently poisoning ERS with a
+            // zero-trajectory replacement.
+            string invariantReason;
+            if (!ValidateSupersedeTarget(provisional, out invariantReason))
+            {
+                ParsekLog.Warn(Tag,
+                    $"AppendRelations invariant violation: provisional={provisional?.RecordingId ?? "<null>"} " +
+                    $"reason={invariantReason} -- refusing to write supersede rows in this batch");
+#if DEBUG
+                throw new InvalidOperationException(
+                    $"AppendRelations invariant violation: provisional={provisional?.RecordingId ?? "<null>"} reason={invariantReason}");
+#else
+                return new List<string>();
+#endif
+            }
+
             int added = 0;
             int skippedExisting = 0;
             int selfSkipped = 0;
@@ -489,6 +510,40 @@ namespace Parsek
                     other++;
                     break;
             }
+        }
+
+        /// <summary>
+        /// Design invariant for re-fly merge supersede targets: the recording
+        /// pointed at by <see cref="RecordingSupersedeRelation.NewRecordingId"/>
+        /// must have at least one trajectory point AND a non-null terminal
+        /// state. Returns true iff the target satisfies both clauses;
+        /// otherwise <paramref name="reason"/> carries one of "null recording",
+        /// "null Points", "empty Points", or "null TerminalState".
+        /// </summary>
+        internal static bool ValidateSupersedeTarget(Recording rec, out string reason)
+        {
+            if (rec == null)
+            {
+                reason = "null recording";
+                return false;
+            }
+            if (rec.Points == null)
+            {
+                reason = "null Points";
+                return false;
+            }
+            if (rec.Points.Count == 0)
+            {
+                reason = "empty Points";
+                return false;
+            }
+            if (!rec.TerminalStateValue.HasValue)
+            {
+                reason = "null TerminalState";
+                return false;
+            }
+            reason = null;
+            return true;
         }
 
         private static bool RelationExists(

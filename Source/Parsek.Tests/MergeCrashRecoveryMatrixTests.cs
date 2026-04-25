@@ -122,6 +122,9 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted,
                 terminal: TerminalState.Landed,
                 supersedeTargetId: "rec_origin");
+            // Satisfy SupersedeCommit.AppendRelations supersede-target
+            // invariant (>=1 trajectory point + non-null terminal).
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
 
             kerbalDeath = new GameAction
