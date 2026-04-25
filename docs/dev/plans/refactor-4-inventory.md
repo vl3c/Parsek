@@ -45,7 +45,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass0-Done; same-file candidates exist, cross-file split deferred |
 | `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
-| `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass0-OpportunityMap; old large sampling/event file included in sweep |
+| `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Partial; ghost info population helpers extracted, `ApplyPartEvents` remains |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass0-OpportunityMap; split/init candidates mapped |
@@ -410,10 +410,21 @@ owns recorder state, part subscriptions, many event pollers, engine/RCS/robotic
 caches, environment/altitude/track sampling, start/stop/finalization, physics
 sampling, rails transitions, and visual coverage logging.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Extract category-specific accumulation helpers from
-  `LogVisualRecordingCoverage`, preserving logging text and order exactly.
+- Extracted `LogVisualRecordingCoverage` into same-file helpers for part
+  visual coverage accumulation, cached engine/RCS/robotic coverage
+  accumulation, summary logging, and detail logging. Category order, counts,
+  and log strings remain unchanged.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~FlightRecorderExtractedTests|FullyQualifiedName~BackgroundPartEventAuditTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
+
+Remaining Pass 1 same-file candidates:
+
 - Consider narrow same-file part-category scanning helpers only where the loop
   body is contiguous and does not change subscription/polling order.
 
@@ -706,8 +717,7 @@ raw scan with a manual map for the high-risk owners:
 
 1. Select the next Pass 1 same-file extraction from the low-to-medium risk
    candidates in the large-file opportunity map. Good next choices are
-   `FlightRecorder.LogVisualRecordingCoverage`,
-   `GhostPlaybackLogic.ApplyPartEvents`, or
+   `GhostPlaybackLogic.ApplyPartEvents` or
    `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger`.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
