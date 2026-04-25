@@ -4549,10 +4549,39 @@ namespace Parsek.InGameTests
                 TrajectorySidecarProbe probe;
                 InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
+                InGameAssert.IsTrue(probe.Supported,
+                    $"Current-format recording '{rec.RecordingId}' has unsupported sidecar version " +
+                    $"{probe.FormatVersion}; this build only understands up to v{RecordingStore.CurrentRecordingFormatVersion}");
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
-                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
-                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+
+                // probe.FormatVersion is the on-disk binary-encoding version stamped at the
+                // last .prec write. rec.RecordingFormatVersion is the in-memory semantic
+                // version, which post-load migrations can promote without rewriting the
+                // sidecar. The contract is intentionally narrow: equality is the ordinary
+                // case, and the only allowed lag is the documented v3 -> v4 metadata-only
+                // migration (LaunchToLaunchLoopIntervalFormatVersion changed the meaning of
+                // loopIntervalSeconds without altering binary layout, so a v3 sidecar paired
+                // with a v4-promoted in-memory recording is correct on disk; see
+                // RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration).
+                // Every other lag must fail: v5 added serialized OrbitSegment.isPredicted and
+                // v6 changed RELATIVE TrackSection point semantics, so a v3-or-older sidecar
+                // paired with a v5/v6 recording would mean the binary on disk predates a
+                // contract change and the data is genuinely stale. The probe must always be
+                // a known schema this build understands.
+                InGameAssert.IsTrue(
+                    RecordingStore.IsAcceptableSidecarVersionLag(probe.FormatVersion, rec.RecordingFormatVersion),
+                    $"Current-format recording '{rec.RecordingId}' fails the probe/recording " +
+                    $"version contract: on-disk binary version {probe.FormatVersion} vs " +
+                    $"in-memory recording format version {rec.RecordingFormatVersion}. " +
+                    $"Allowed combinations are equality, or v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion - 1} " +
+                    $"sidecar with v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion} recording " +
+                    $"(the documented metadata-only legacy-loop migration). Anything else " +
+                    $"indicates stale or incomplete trajectory data on disk.");
+                InGameAssert.IsTrue(probe.FormatVersion <= RecordingStore.CurrentRecordingFormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' has on-disk binary version " +
+                    $"{probe.FormatVersion}; latest known schema is " +
+                    $"{RecordingStore.CurrentRecordingFormatVersion}");
                 checkedCount++;
             }
 

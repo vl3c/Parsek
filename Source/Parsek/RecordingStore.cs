@@ -6400,6 +6400,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #565 / #567: encodes the narrow contract between a trajectory sidecar's on-disk
+        /// binary-encoding version (<c>probe.FormatVersion</c>) and the in-memory recording's
+        /// semantic version (<c>rec.RecordingFormatVersion</c>) for a current-format committed
+        /// recording. The two values can differ ONLY by the v3 -&gt; v4 metadata-only
+        /// migration: <see cref="LaunchToLaunchLoopIntervalFormatVersion"/> changed the
+        /// meaning of <c>loopIntervalSeconds</c> without altering binary layout, so a v3
+        /// sidecar with a v4 in-memory recording is correct on disk and only the in-memory
+        /// state was promoted (see
+        /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
+        /// Every other lag is rejected: v5 added serialized
+        /// <c>OrbitSegment.isPredicted</c> and v6 changed RELATIVE TrackSection point
+        /// semantics, so a v3 sidecar paired with a v5- or v6-tagged recording indicates
+        /// stale or incomplete trajectory data on disk that the runtime test must catch.
+        /// </summary>
+        internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
+        {
+            // Equality: the ordinary case (sidecar was rewritten at the in-memory version).
+            if (probeFormatVersion == recordingFormatVersion)
+                return true;
+
+            // The single explicit metadata-only exception: v3 sidecar + v4 recording from the
+            // legacy-loop migration. v3 (sparse-point binary) and v4 (launch-to-launch loop
+            // interval semantic) share an identical binary layout, so an unrewritten v3
+            // sidecar is correct on disk for a v4-promoted in-memory recording.
+            int metadataOnlyProbeVersion = LaunchToLaunchLoopIntervalFormatVersion - 1;
+            if (probeFormatVersion == metadataOnlyProbeVersion
+                && recordingFormatVersion == LaunchToLaunchLoopIntervalFormatVersion)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
         /// <see cref="LoopTiming.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
         /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every

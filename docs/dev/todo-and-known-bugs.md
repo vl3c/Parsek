@@ -1673,6 +1673,50 @@ in-game during the next playtest pass instead of an xUnit canary.
 
 ---
 
+## ~~599. In-game test: `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` failed for legacy-loop-migrated recording in every scene~~
+
+**Source:** `logs/2026-04-25_2147` playtest. The in-game test failed for
+recording `1bbb50cf98654a23a60b3248848b0301` ("Learstar A1") in EDITOR /
+FLIGHT / MAINMENU / SPACECENTER / TRACKSTATION with
+`Current-format recording '…' should keep its on-disk format version`.
+
+**Diagnosis (2026-04-25):** the recording loaded at `formatVersion=3`
+(`Player.log:31418`). `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
+then ran (`Player.log:31487`) and called
+`NormalizeRecordingFormatVersionAfterLegacyLoopMigration`, which bumps the
+in-memory `RecordingFormatVersion` to v4 (the launch-to-launch loop interval
+semantic). The `.prec` sidecar stayed at `BinaryV3 version=3` because v4 was
+metadata-only — the binary layout is byte-identical to v3 and no rewrite was
+required. The test asserted `AreEqual(rec.RecordingFormatVersion,
+probe.FormatVersion)`, treating two distinct concepts (on-disk binary-encoding
+version vs. in-memory semantic version) as the same number. They diverge by
+design at v4 and above whenever a legacy save loads.
+
+**Fix:** `RuntimeTests.CurrentFormatTrajectorySidecarsProbeAsBinary` now
+asserts a narrow contract via the new
+`RecordingStore.IsAcceptableSidecarVersionLag(probe, rec)` predicate:
+equality is the ordinary case, and the only allowed lag is v3 sidecar with
+v4 recording (the documented metadata-only legacy-loop migration). Every
+other lag fails the assertion. v5 added serialized
+`OrbitSegment.isPredicted` and v6 changed RELATIVE TrackSection point
+semantics, so a v3-or-older sidecar paired with a v5 / v6 recording would
+mean the binary on disk predates a contract change and the trajectory
+data is genuinely stale. The first PR #567 relaxation to the broad
+asymmetric `probe <= rec` would have hidden that case; review note P2
+narrowed the exception. The runtime test also now explicitly asserts
+`probe.Supported`. The production read path in `TrajectorySidecarBinary.Read`
+already uses promote-only (`if (rec.RecordingFormatVersion <
+probe.FormatVersion)`), so no production runtime code change was needed
+beyond exposing the predicate. xUnit
+`TrajectorySidecarProbeVersionContractTests` covers v3 / v3 (equality),
+v3 / v4 (allowed legacy-loop migration), v3 / v5, v3 / v6, v4 / v6, and
+probe&gt;rec (all rejected), plus the freshly-written-at-current-version
+case that reduces to equality.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
 ## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
