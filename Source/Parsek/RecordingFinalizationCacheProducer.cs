@@ -54,6 +54,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TryBuildDefaultFinalizationResultOverrideForTesting = null;
+            ResetSuppressedNoDeltaCountForTesting();
         }
 
         internal static bool ShouldRefresh(
@@ -301,6 +302,13 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        // Backstop counter: when the no-delta refresh-summary line has been
+        // demoted to Verbose for many consecutive passes, we still want a
+        // periodic Info marker so a long session keeps a discoverable trail
+        // of "the producer is still running, it just has nothing to do".
+        private const int NoDeltaInfoBackstopEvery = 64;
+        private static int suppressedNoDeltaCount;
+
         internal static void LogRefreshSummary(
             FinalizationCacheOwner owner,
             string reason,
@@ -311,16 +319,58 @@ namespace Parsek
             if (recordingsExamined <= 0 && alreadyClassified <= 0 && newlyClassified <= 0)
                 return;
 
-            ParsekLog.Info("Extrapolator",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "FinalizerCache refresh summary: owner={0} reason={1} " +
-                    "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}",
-                    owner,
-                    reason ?? "(none)",
-                    recordingsExamined,
-                    alreadyClassified,
-                    newlyClassified));
+            // Demote to Verbose when the pass did not produce a fresh
+            // classification; Info is reserved for state changes (a recording
+            // moving from unclassified to classified). The 2026-04-25 playtest
+            // captured 156 of these as Info despite ~all of them being
+            // periodic no-ops, drowning real classification transitions.
+            bool emitInfo = newlyClassified > 0;
+            string suffix = string.Empty;
+            if (!emitInfo)
+            {
+                int now = ++suppressedNoDeltaCount;
+                if (now >= NoDeltaInfoBackstopEvery)
+                {
+                    emitInfo = true;
+                    suffix = string.Format(
+                        CultureInfo.InvariantCulture,
+                        " | backstop=every{0}thNoDeltaPass suppressedNoDeltaPasses={1}",
+                        NoDeltaInfoBackstopEvery,
+                        now - 1);
+                    suppressedNoDeltaCount = 0;
+                }
+            }
+            else
+            {
+                suppressedNoDeltaCount = 0;
+            }
+
+            string message = string.Format(
+                CultureInfo.InvariantCulture,
+                "FinalizerCache refresh summary: owner={0} reason={1} " +
+                "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}{5}",
+                owner,
+                reason ?? "(none)",
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                suffix);
+
+            if (emitInfo)
+                ParsekLog.Info("Extrapolator", message);
+            else
+                ParsekLog.Verbose("Extrapolator", message);
+        }
+
+        /// <summary>
+        /// Test-only reset: clears the no-delta backstop counter so subsequent
+        /// passes restart from zero. <see cref="LogRefreshSummary"/> uses a
+        /// process-wide counter to throttle the periodic Info marker; tests
+        /// rely on this hook to keep state-driven assertions deterministic.
+        /// </summary>
+        internal static void ResetSuppressedNoDeltaCountForTesting()
+        {
+            suppressedNoDeltaCount = 0;
         }
 
         internal static bool HasMeaningfulThrust(

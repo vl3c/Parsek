@@ -1744,6 +1744,241 @@ in-game during the next playtest pass instead of an xUnit canary.
 
 ---
 
+## ~~605. Log spam: `HasOrbitData(IPlaybackTrajectory)` fires ~1678 times per session from per-frame map-view callers~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13777` and
+~1677 sibling lines. Shape:
+
+```
+[Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=742959.380465312 result=True
+```
+
+`grep -c 'HasOrbitData(IPlaybackTrajectory)'` ⇒ 1678 in a single
+27-minute playtest, ~11/sec, multiple per frame.
+
+**Cause:** `GhostMapPresence.HasOrbitData(IPlaybackTrajectory)` is
+called from `ParsekPlaybackPolicy.MaybeCreateInitialGhostMap` and the
+shared map-presence resolver every map-view frame. The verbose log
+inside the helper was an unconditional `ParsekLog.Verbose` so each
+caller flooded the log with the same `(body, sma)` decision while the
+recording sat in steady state. The pre-existing `Recording`-overload
+emitted the same line at the same cadence whenever a map-view caller
+reached it, contributing a parallel stream.
+
+**Resolution (2026-04-26):** Routed both `HasOrbitData` overloads
+through `ParsekLog.VerboseOnChange`, identity scoped per
+recording (or vessel name when `RecordingId` is empty), state key
+`(body, smaBucket1km, result)`. A stable per-frame stream now emits
+exactly once on entry and surfaces `| suppressed=N` on the next state
+flip. Regression coverage:
+`GhostMapPresenceTests.HasOrbitData_TrajectoryStableCalls_LogOnceWithSuppressedCounter`
+(100 stable calls ⇒ 1 emission, 99 suppressed; state change emits with
+`suppressed=99`) and
+`GhostMapPresenceTests.HasOrbitData_TrajectoryDistinctRecordings_LogIndependently`
+(distinct recording ids each get their own first emission).
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~606. Log spam: `FinalizerCache refresh summary` Info-tier emits 156× per session for periodic no-op passes~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:9528+`
+and 155 sibling lines. Steady-state shape:
+
+```
+[Parsek][INFO][Extrapolator] FinalizerCache refresh summary: owner=ActiveRecorder reason=periodic recordingsExamined=1 alreadyClassified=0 newlyClassified=0
+```
+
+Counts:
+
+```bash
+grep -c "FinalizerCache refresh summary" KSP.log    # 156
+```
+
+Most are `alreadyClassified=0 newlyClassified=0` periodic cadence
+re-runs that did no real classification work.
+
+**Cause:** `RecordingFinalizationCacheProducer.LogRefreshSummary`
+emitted every refresh at INFO regardless of whether the pass produced
+a fresh classification. The diagnostic was originally meant to
+surface "a recording crossed from unclassified to classified", but the
+gate `recordingsExamined<=0 && alreadyClassified<=0 && newlyClassified<=0`
+let `examined=1, classified=0, fresh=0` through every refresh.
+
+**Resolution (2026-04-26):** Demoted no-delta passes
+(`newlyClassified == 0`) to Verbose; passes that produced a fresh
+classification (`newlyClassified > 0`) keep INFO. Added a backstop:
+every 64th consecutive no-delta pass still emits at INFO with
+`backstop=every64thNoDeltaPass suppressedNoDeltaPasses=N` so a long
+session retains discoverable INFO markers in case the diagnostic is
+needed post-hoc. Tests:
+`RecordingFinalizationCacheProducerTests.LogRefreshSummary_NoDeltaPass_RoutesThroughVerbose`,
+`LogRefreshSummary_FreshClassification_StaysInfo`,
+`LogRefreshSummary_NoDeltaBackstop_PromotesEvery64thPassToInfo`.
+Existing `BackgroundRecorderTests.RefreshOnRailsFinalizationCache_AlreadyDestroyedSkipRefreshesOnCadence`
++ `RecordingFinalizationCacheProducerTests.TryBuildAlreadyClassifiedDestroyedSkip_LiveVesselSecondCall_ReusesExistingFailureCacheAndUpdatesObservation`
+flipped to assert Verbose for `alreadyClassified=1, newlyClassified=0`.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~607. Misleading `Strip left N pre-existing vessel(s)` WARN reports stale, deduped count after post-supplement kill~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906-12907`:
+
+```
+[WARN][Rewind] Strip post-supplement: killed 3 pre-existing debris vessel(s) for in-place continuation re-fly: [Kerbal X Debris, Kerbal X Debris, Kerbal X Debris] (...)
+[WARN][Rewind] Strip left 1 pre-existing vessel(s) whose name matches a tree recording: [Kerbal X Debris] — not related to the re-fly...
+```
+
+Same playtest: 3 actual `Kerbal X Debris` instances were in
+`stripResult.LeftAloneNames`; `StripPreExistingDebrisForInPlaceContinuation`
+killed all 3; the WARN still fired and reported `1` (the deduped
+unique-name count) — wrong on both counts (1 vs the original 3,
+0 vs the post-kill survivors).
+
+**Cause:** `RewindInvoker.WarnOnLeftAloneNameCollisions` formatted
+`collisions.Count` as the vessel-instance count. `collisions` came
+from `PostLoadStripper.FindTreeNameCollisions`, which dedupes by
+name. And the WARN ran AFTER the post-supplement kill but read from
+the original pre-kill list, so it could fire even when no colliding
+vessel survived.
+
+**Resolution (2026-04-26):** Re-survey
+`FlightGlobals.Vessels` at warn time; intersect with the colliding
+name set; report `vessels=N collidingNames=M` separately so the two
+counts cannot be conflated; suppress the WARN entirely (Verbose-only
+diagnostic) when the colliding set has been fully drained. Helpers
+`CountLiveCollidingVessels` (pure) and `EmitStripLeftAloneWarn`
+(pure) extracted so unit tests can exercise the format without
+`FlightGlobals` wiring. Tests in
+`Bug587StripPreExistingDebrisTests`:
+`CountLiveCollidingVessels_AllInstancesKilled_ReturnsZero`,
+`CountLiveCollidingVessels_MultipleInstancesSameName_CountsInstancesNotNames`,
+`EmitStripLeftAloneWarn_AllKilled_LogsVerboseAndNoWarn`,
+`EmitStripLeftAloneWarn_LiveVesselsRemain_LogsSeparateInstanceAndNameCounts`,
+`EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors`,
+`EmitStripLeftAloneWarn_NoCollidingNames_NoLog`.
+
+**P2 review follow-up (PR #577):** the original re-survey walked
+every live vessel name and counted every match — including the
+actively re-flown vessel (`SelectedPid`), GhostMap ProtoVessels,
+freshly stripped pids whose `Die()` event hadn't drained from the
+live list, and any other legitimate same-name vessel from a parallel
+flight. Any of those producing a name match would re-emit the
+misleading WARN this fix was supposed to suppress.
+
+**Resolution (2026-04-25):** Renamed
+`PostLoadStripResult.LeftAloneNames` (`List<string>`) →
+`LeftAlonePidNames` (`List<(uint pid, string name)>`) so the strip
+phase persists the pid alongside the name. The new pure helper
+`RewindInvoker.SurveyLiveLeftAloneCollisions` walks ONLY the
+`LeftAlonePidNames` set, defensively drops entries matching
+`SelectedPid` / `StrippedPids` / `GhostMapPresence.IsGhostMapVessel`,
+verifies pid liveness against a `FlightGlobals.Vessels` snapshot,
+and only then counts collisions. The `liveVesselCount` is now
+bounded by the pre-strip leftAlone set, so a same-name active vessel
+or a ghost ProtoVessel can no longer be miscounted as a "leftover".
+The structured WARN payload gained `leftAlonePidsAlive=N
+excludedSelected=N excludedStripped=N excludedGhostMap=N` so the
+exclusion path is post-mortem visible.
+
+New tests in `Bug587StripPreExistingDebrisTests` (replacing the
+`CountLiveCollidingVessels_*` cases):
+`SurveyLiveLeftAloneCollisions_AllLeftAlonePidsKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_PartialKill_ReportsSurvivorInstanceAndNameCount`,
+`SurveyLiveLeftAloneCollisions_MultipleInstancesSameName_CountsInstancesNotNames`,
+`SurveyLiveLeftAloneCollisions_SelectedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_StrippedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_GhostMapPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_AllExcludedAndAllKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_NullInputs_AreDefensive`,
+plus `EmitStripLeftAloneWarn_AllExcluded_LogsVerboseWithExclusionCounters`
+to pin the structured-log shape.
+`PostLoadStripperTests.Strip_CapturesLeftAlonePidNamesForCollisionDetection`
+flipped to assert `(pid, name)` tuples are captured.
+
+**Status:** CLOSED 2026-04-25 (PR #577 P2 follow-up).
+
+---
+
+## 608. Crew-reservation orphan placement deferred for original-crew kerbals after Re-Fly merge
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13401-13404`
+and `Player.log:73024+`. After the in-place continuation Re-Fly
+re-loaded into FLIGHT, the orphan-placement pass deferred all three
+original-crew kerbals (Jeb / Bill / Bob) to their stand-ins (Lola /
+Milfrey / Jesrick); the booster was the active vessel post-Re-Fly,
+not the capsule that has them:
+
+```
+[WARN][CrewReservation] Orphan placement deferred: no matching part with free seat in active vessel for 'Jebediah Kerman' → 'Lola Kerman' (snapshot pid=10668187 name='mk1-3pod') — stand-in kept in roster; reason=active-vessel-missing-snapshot-part activeParts=13 freeSeatParts=0 pidMatches=0 pidFreeSeats=0 nameMatches=0 nameFreeSeats=0 (attempted pidTier=yes nameTier=yes; cumulative pidHits=0 nameHitFallbacks=0)
+```
+
+Same shape repeats for Bill→Milfrey and Bob→Jesrick. The
+single-pass summary follows at line 13404:
+
+```
+[INFO][CrewReservation] Orphan placement pass: orphans=3 placed=0 ... skippedNoMatchingPart=3
+```
+
+KSP-stock then warns 60+ seconds later that the original kerbals are
+still assigned-but-no-vessels-references-them and flips them to
+"missing":
+
+```
+[Player.log:73024] [ProtoCrewMember Warning]: Crewmember Jebediah Kerman found assigned but no vessels reference him. Last vessel: ID 0. ProtoCrewMember set as missing.
+```
+
+(Same warn for Bill and Bob.)
+
+**Files to investigate:**
+
+- `Source/Parsek/CrewReservationManager.cs` — orphan placement pass,
+  the `active-vessel-missing-snapshot-part` deferral path, and
+  whether end-of-recording capsule respawn (or the FLIGHT→TRACKSTATION
+  trip that follows merge) re-runs the placement against the right
+  vessel.
+- `Source/Parsek/KerbalsModule.cs` — replacement dispatch.
+- Cross-reference `#578` (recent crew-orphan-placement fix) — the
+  `active-vessel-missing-snapshot-part` reason was the diagnostic
+  that closure introduced. The deferral itself worked as intended in
+  this playtest (stand-ins kept in roster, skipped fallback), but the
+  player's expectation is that the original crew eventually get
+  re-placed once the capsule re-spawns at end-of-recording.
+
+**Open questions:**
+
+1. Is this expected post-Re-Fly behaviour? The booster is the active
+   vessel during the re-fly continuation; the capsule has its own
+   recording that materializes later. The original 3 crew are
+   reservation-bound to the capsule's command-pod pid=10668187, but
+   that pid is not in scene at orphan-placement time.
+2. Or is the orphan-placement deferral missing a path to re-run when
+   the capsule re-spawns at end-of-recording (or the player switches
+   to it)? `activeParts=13 freeSeatParts=0` suggests the booster's
+   13 parts genuinely have no command-pod free seats, so the pass
+   correctly defers. The question is whether there is a follow-up
+   trigger.
+3. Are the KSP-stock "set as missing" warns a downstream effect we
+   need to handle? If Parsek's crew-reservation reset path eventually
+   clears this state when the capsule re-spawns, the missing-flag
+   should be reversible. If it does not, the original crew remain
+   "missing" and are unrecoverable without manual save editing — a
+   silent data-loss bug.
+
+**Reproduction:** From the playtest, an in-place continuation Re-Fly
+where the active-on-load vessel is the booster (not the capsule
+holding the original crew). Active recording ends with the booster's
+own destroyed terminal; the capsule's recording is still live in the
+tree.
+
+**Status:** Open — needs investigation. Not fixed in PR #(this).
+
+---
+
 ## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
 
 **Source:** `logs/2026-04-25_2147/KSP.log` lines 75858 (`Time-jump launch auto-record suppression armed: jump=epoch-shift`) and 76410 (`FAILED: FlightIntegrationTests.RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording — Real Spawn Control pad canary should exercise the time-jump transient suppression path`); same shape for `TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording` at lines 81376 / 81654.

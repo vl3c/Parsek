@@ -574,5 +574,371 @@ namespace Parsek.Tests
 
             Assert.Empty(snap);
         }
+
+        // 2026-04-25 log-hygiene: WarnOnLeftAloneNameCollisions misreported
+        // "Strip left N pre-existing vessel(s)" because it summed the live
+        // vessel count from a stale pre-supplement-kill list and used the
+        // deduped name count as the vessel-instance count. The new contract:
+        // vessels=N is the actual instance count from the live survey,
+        // collidingNames=M is the unique-name count, and an all-killed
+        // colliding set produces no WARN at all.
+        //
+        // PR #577 P2 review: the live-name-only resurvey caught false
+        // positives (active re-fly vessel, ghost ProtoVessels, freshly
+        // stripped pids whose Die() event lagged). The new contract scopes
+        // the resurvey to the (pid, name) pairs the stripper actually left
+        // alone (PostLoadStripResult.LeftAlonePidNames), then defensively
+        // excludes SelectedPid / StrippedPids / GhostMap pids before
+        // counting survivors.
+
+        private static RewindInvoker.LeftAloneSurveyResult Survey(
+            IReadOnlyList<(uint pid, string name)> leftAlonePidNames,
+            HashSet<string> collisionNames,
+            HashSet<uint> liveVesselPids,
+            uint selectedPid = 0u,
+            IList<uint> strippedPids = null,
+            Func<uint, bool> isGhostMapVessel = null)
+        {
+            return RewindInvoker.SurveyLiveLeftAloneCollisions(
+                leftAlonePidNames,
+                collisionNames,
+                liveVesselPids,
+                selectedPid,
+                strippedPids,
+                isGhostMapVessel ?? (_ => false));
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_AllLeftAlonePidsKilled_ReturnsZero()
+        {
+            // 3 leftAlone vessels existed pre-strip; the post-supplement
+            // kill drained all three, so liveVesselPids no longer contains
+            // any of them. Result must be 0 instance count + 0 unique
+            // names, and the leftAlonePidsAlive counter must be 0.
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Debris"),
+                (102u, "Kerbal X Debris"),
+                (103u, "Kerbal X Debris"),
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Debris" };
+            // No leftAlone pid is still live.
+            var live = new HashSet<uint> { 999u };
+
+            var survey = Survey(leftAlone, collisions, live);
+
+            Assert.Equal(0, survey.LiveCollidingVesselCount);
+            Assert.Empty(survey.StillPresentNames);
+            Assert.Equal(0, survey.LeftAlonePidsAliveCount);
+            Assert.Equal(0, survey.ExcludedSelectedCount);
+            Assert.Equal(0, survey.ExcludedStrippedCount);
+            Assert.Equal(0, survey.ExcludedGhostMapCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_PartialKill_ReportsSurvivorInstanceAndNameCount()
+        {
+            // 3 leftAlone vessels; 2 die between Strip and warn. The 1
+            // still-alive matches the colliding name set, so vessels=1,
+            // collidingNames=1.
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Debris"),
+                (102u, "Kerbal X Debris"),
+                (103u, "Kerbal X Debris"),
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Debris" };
+            var live = new HashSet<uint> { 103u }; // only one survived
+
+            var survey = Survey(leftAlone, collisions, live);
+
+            Assert.Equal(1, survey.LiveCollidingVesselCount);
+            Assert.Single(survey.StillPresentNames);
+            Assert.Equal("Kerbal X Debris", survey.StillPresentNames[0]);
+            Assert.Equal(1, survey.LeftAlonePidsAliveCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_MultipleInstancesSameName_CountsInstancesNotNames()
+        {
+            // 3 leftAlone "Kerbal X Debris" all alive and colliding. Result
+            // is 3 instances under 1 unique name.
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Debris"),
+                (102u, "Kerbal X Debris"),
+                (103u, "Kerbal X Debris"),
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Debris" };
+            var live = new HashSet<uint> { 101u, 102u, 103u };
+
+            var survey = Survey(leftAlone, collisions, live);
+
+            Assert.Equal(3, survey.LiveCollidingVesselCount);
+            Assert.Single(survey.StillPresentNames);
+            Assert.Equal("Kerbal X Debris", survey.StillPresentNames[0]);
+            Assert.Equal(3, survey.LeftAlonePidsAliveCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_SelectedPidExcluded_DoesNotCountAsLeftover()
+        {
+            // PR #577 P2 defense case 1: even if SelectedPid somehow leaks
+            // into LeftAlonePidNames (it shouldn't), the survey excludes
+            // it. The active re-fly vessel sharing a name with a
+            // recording is the WHOLE POINT of a re-fly — never a
+            // "leftover".
+            var leftAlone = new List<(uint, string)>
+            {
+                (200u, "Kerbal X Probe"),   // simulates active re-fly vessel
+                (101u, "Kerbal X Probe"),   // legitimate same-name leftover
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Probe" };
+            var live = new HashSet<uint> { 200u, 101u };
+
+            var survey = Survey(
+                leftAlone, collisions, live,
+                selectedPid: 200u);
+
+            Assert.Equal(1, survey.LiveCollidingVesselCount);
+            Assert.Single(survey.StillPresentNames);
+            Assert.Equal(1, survey.LeftAlonePidsAliveCount);
+            Assert.Equal(1, survey.ExcludedSelectedCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_StrippedPidExcluded_DoesNotCountAsLeftover()
+        {
+            // PR #577 P2 defense case 1b: a freshly stripped pid whose
+            // Die() event hasn't drained from FlightGlobals yet must not
+            // re-enter the survey via the live-pid set.
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Debris"), // freshly stripped, still in live list one frame later
+                (102u, "Kerbal X Debris"), // legitimate leftover
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Debris" };
+            // Both still appear in the live snapshot due to lag.
+            var live = new HashSet<uint> { 101u, 102u };
+
+            var survey = Survey(
+                leftAlone, collisions, live,
+                strippedPids: new List<uint> { 101u });
+
+            Assert.Equal(1, survey.LiveCollidingVesselCount);
+            Assert.Single(survey.StillPresentNames);
+            Assert.Equal(1, survey.LeftAlonePidsAliveCount);
+            Assert.Equal(1, survey.ExcludedStrippedCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_GhostMapPidExcluded_DoesNotCountAsLeftover()
+        {
+            // PR #577 P2 defense case 2: a Parsek ghost ProtoVessel
+            // registered in FlightGlobals.Vessels must never count as a
+            // "pre-existing leftover" — it's the re-fly's own playback,
+            // not a prior-career relic.
+            var ghostPid = 9001u;
+            var leftAlone = new List<(uint, string)>
+            {
+                (ghostPid, "Kerbal X Probe"),  // simulates ghost ProtoVessel name overlap
+                (101u, "Kerbal X Probe"),      // legitimate leftover
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal) { "Kerbal X Probe" };
+            var live = new HashSet<uint> { ghostPid, 101u };
+
+            var survey = Survey(
+                leftAlone, collisions, live,
+                isGhostMapVessel: pid => pid == ghostPid);
+
+            Assert.Equal(1, survey.LiveCollidingVesselCount);
+            Assert.Single(survey.StillPresentNames);
+            Assert.Equal(1, survey.LeftAlonePidsAliveCount);
+            Assert.Equal(1, survey.ExcludedGhostMapCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_AllExcludedAndAllKilled_ReturnsZero()
+        {
+            // Composite: one selected, one stripped, one ghost, one
+            // already-killed leftover. Nothing legitimate survives -> zero
+            // count, every exclusion counter populated.
+            var leftAlone = new List<(uint, string)>
+            {
+                (200u, "Kerbal X Probe"),
+                (101u, "Kerbal X Debris"),
+                (9001u, "Ghost: Kerbal X"),
+                (300u, "Kerbal X Debris"),
+            };
+            var collisions = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Kerbal X Probe", "Kerbal X Debris", "Ghost: Kerbal X",
+            };
+            // 200, 101, 9001 still live; 300 already gone.
+            var live = new HashSet<uint> { 200u, 101u, 9001u };
+
+            var survey = Survey(
+                leftAlone, collisions, live,
+                selectedPid: 200u,
+                strippedPids: new List<uint> { 101u },
+                isGhostMapVessel: pid => pid == 9001u);
+
+            Assert.Equal(0, survey.LiveCollidingVesselCount);
+            Assert.Empty(survey.StillPresentNames);
+            Assert.Equal(0, survey.LeftAlonePidsAliveCount);
+            Assert.Equal(1, survey.ExcludedSelectedCount);
+            Assert.Equal(1, survey.ExcludedStrippedCount);
+            Assert.Equal(1, survey.ExcludedGhostMapCount);
+        }
+
+        [Fact]
+        public void SurveyLiveLeftAloneCollisions_NullInputs_AreDefensive()
+        {
+            // Null leftAlone -> empty result. Null live set is treated as
+            // "nothing alive" (defensive — the caller's snapshot helper
+            // returns an empty set, not null, in production).
+            var survey = Survey(
+                leftAlonePidNames: null,
+                collisionNames: new HashSet<string> { "X" },
+                liveVesselPids: new HashSet<uint> { 1u });
+            Assert.Equal(0, survey.LiveCollidingVesselCount);
+
+            var leftAlone = new List<(uint, string)> { (1u, "X") };
+            survey = Survey(
+                leftAlonePidNames: leftAlone,
+                collisionNames: null,
+                liveVesselPids: new HashSet<uint> { 1u });
+            Assert.Equal(0, survey.LiveCollidingVesselCount);
+            Assert.Equal(1, survey.LeftAlonePidsAliveCount);
+
+            survey = Survey(
+                leftAlonePidNames: leftAlone,
+                collisionNames: new HashSet<string> { "X" },
+                liveVesselPids: null);
+            Assert.Equal(0, survey.LiveCollidingVesselCount);
+            Assert.Equal(0, survey.LeftAlonePidsAliveCount);
+        }
+
+        // -------------------------------------------------------------
+        // EmitStripLeftAloneWarn structured log shape pinning.
+        // -------------------------------------------------------------
+
+        private static RewindInvoker.LeftAloneSurveyResult MakeSurvey(
+            int liveCollidingVesselCount,
+            List<string> stillPresentNames,
+            int leftAlonePidsAlive = 0,
+            int excludedSelected = 0,
+            int excludedStripped = 0,
+            int excludedGhostMap = 0)
+        {
+            return new RewindInvoker.LeftAloneSurveyResult
+            {
+                LiveCollidingVesselCount = liveCollidingVesselCount,
+                StillPresentNames = stillPresentNames,
+                LeftAlonePidsAliveCount = leftAlonePidsAlive,
+                ExcludedSelectedCount = excludedSelected,
+                ExcludedStrippedCount = excludedStripped,
+                ExcludedGhostMapCount = excludedGhostMap,
+            };
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_AllKilled_LogsVerboseAndNoWarn()
+        {
+            var collisions = new List<string> { "Kerbal X Debris" };
+            // 2026-04-25 playtest scenario: post-supplement strip killed all
+            // 3 Kerbal X Debris, so liveVesselCount=0 and the WARN must
+            // not fire. The original code emitted a misleading
+            // "Strip left 1 pre-existing vessel(s)" WARN here.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                MakeSurvey(0, new List<string>()));
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]") && l.Contains("Strip left"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Rewind]")
+                && l.Contains("Strip left no live pre-existing vessel(s)")
+                && l.Contains("collidingNames=1")
+                && l.Contains("leftAlonePidsAlive=0")
+                && l.Contains("excludedSelected=0")
+                && l.Contains("excludedStripped=0")
+                && l.Contains("excludedGhostMap=0"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_LiveVesselsRemain_LogsSeparateInstanceAndNameCounts()
+        {
+            var collisions = new List<string> { "Kerbal X Debris" };
+            // 3 still-live Kerbal X Debris under the same colliding name.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                MakeSurvey(3, new List<string> { "Kerbal X Debris" }, leftAlonePidsAlive: 3));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]")
+                && l.Contains("Strip left vessels=3 collidingNames=1")
+                && l.Contains("leftAlonePidsAlive=3")
+                && l.Contains("excludedSelected=0")
+                && l.Contains("excludedStripped=0")
+                && l.Contains("excludedGhostMap=0")
+                && l.Contains("[Kerbal X Debris]")
+                && l.Contains("not related to the re-fly"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors()
+        {
+            // 2 colliding names; one was killed (only "Foo" survives), one
+            // had two instances ("Bar" twice). vessels=3, collidingNames=2.
+            var collisions = new List<string> { "Foo", "Bar" };
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                MakeSurvey(3, new List<string> { "Foo", "Bar" }, leftAlonePidsAlive: 3));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]")
+                && l.Contains("Strip left vessels=3 collidingNames=2")
+                && l.Contains("leftAlonePidsAlive=3"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_NoCollidingNames_NoLog()
+        {
+            // Defensive: empty colliding list should not log anything.
+            RewindInvoker.EmitStripLeftAloneWarn(
+                new List<string>(),
+                MakeSurvey(0, new List<string>()));
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Strip left"));
+        }
+
+        [Fact]
+        public void EmitStripLeftAloneWarn_AllExcluded_LogsVerboseWithExclusionCounters()
+        {
+            // PR #577 P2 review: when every leftAlone pid was excluded
+            // (selected/stripped/ghost) and nothing remains to flag, the
+            // VERBOSE diagnostic must report the per-class exclusion
+            // counts so post-mortem analysis can see WHY no WARN fired.
+            var collisions = new List<string> { "Kerbal X Probe" };
+            RewindInvoker.EmitStripLeftAloneWarn(
+                collisions,
+                MakeSurvey(
+                    liveCollidingVesselCount: 0,
+                    stillPresentNames: new List<string>(),
+                    leftAlonePidsAlive: 0,
+                    excludedSelected: 1,
+                    excludedStripped: 2,
+                    excludedGhostMap: 1));
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Rewind]") && l.Contains("Strip left"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Rewind]")
+                && l.Contains("Strip left no live pre-existing vessel(s)")
+                && l.Contains("excludedSelected=1")
+                && l.Contains("excludedStripped=2")
+                && l.Contains("excludedGhostMap=1"));
+        }
     }
 }

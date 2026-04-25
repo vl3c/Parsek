@@ -357,6 +357,86 @@ namespace Parsek.Tests
             Assert.True(GhostMapPresence.HasOrbitData(traj));
         }
 
+        /// <summary>
+        /// Stable HasOrbitData(IPlaybackTrajectory) calls collapse to a single
+        /// log line via VerboseOnChange — guards bug "1678 lines per session"
+        /// captured in the 2026-04-25 playtest.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_TrajectoryStableCalls_LogOnceWithSuppressedCounter()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-stable-traj",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 742959.0
+            };
+            IPlaybackTrajectory traj = rec;
+
+            // Hit the per-frame path 100 times with stable state.
+            for (int i = 0; i < 100; i++)
+            {
+                Assert.True(GhostMapPresence.HasOrbitData(traj));
+            }
+
+            int firstEmissionCount = logLines.FindAll(l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("HasOrbitData(IPlaybackTrajectory)")
+                && l.Contains("result=True")).Count;
+            // First call emits, the next 99 are suppressed (no state flip).
+            Assert.Equal(1, firstEmissionCount);
+
+            // Force a state change so the suppressed-counter surfaces on the
+            // next emission.
+            rec.TerminalOrbitBody = "Mun";
+            rec.TerminalOrbitSemiMajorAxis = 200000.0;
+            Assert.True(GhostMapPresence.HasOrbitData(traj));
+
+            // Second emission carries `| suppressed=99`.
+            Assert.Contains(logLines, l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)")
+                && l.Contains("Mun")
+                && l.Contains("suppressed=99"));
+        }
+
+        /// <summary>
+        /// HasOrbitData(IPlaybackTrajectory) on a different recording id
+        /// emits independently of a stable stream on another id — the gate
+        /// must be keyed per (recording, body, sma) so distinct trajectories
+        /// each get their own first emission.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_TrajectoryDistinctRecordings_LogIndependently()
+        {
+            var first = new Recording
+            {
+                RecordingId = "rec-id-A",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+            var second = new Recording
+            {
+                RecordingId = "rec-id-B",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            // Saturate first recording's gate.
+            for (int i = 0; i < 5; i++)
+                Assert.True(GhostMapPresence.HasOrbitData((IPlaybackTrajectory)first));
+
+            int firstEmits = logLines.FindAll(l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)") && l.Contains("True")).Count;
+            Assert.Equal(1, firstEmits);
+
+            // Second recording has identical body/sma but a different id —
+            // identity scope must change, so it gets its own first emission.
+            Assert.True(GhostMapPresence.HasOrbitData((IPlaybackTrajectory)second));
+            int secondEmits = logLines.FindAll(l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)") && l.Contains("True")).Count;
+            Assert.Equal(2, secondEmits);
+        }
+
         #endregion
 
         #region ResolveVesselType

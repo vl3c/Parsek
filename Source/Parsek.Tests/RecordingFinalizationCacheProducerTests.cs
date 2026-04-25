@@ -116,6 +116,91 @@ namespace Parsek.Tests
                 "reason=unit-zero-records"));
         }
 
+        /// <summary>
+        /// 2026-04-25 log-hygiene fix: a no-delta refresh pass
+        /// (newlyClassified=0) routes through Verbose instead of Info so the
+        /// 156× per-session periodic Info spam stops without losing the
+        /// diagnostic line entirely. Pinned shape:
+        /// <c>recordingsExamined=1 alreadyClassified=0 newlyClassified=0</c>
+        /// (matches the playtest's most common spammy form).
+        /// </summary>
+        [Fact]
+        public void LogRefreshSummary_NoDeltaPass_RoutesThroughVerbose()
+        {
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                recordingsExamined: 1,
+                alreadyClassified: 0,
+                newlyClassified: 0);
+
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "reason=periodic",
+                "newlyClassified=0"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "reason=periodic",
+                "alreadyClassified=0",
+                "newlyClassified=0"));
+        }
+
+        /// <summary>
+        /// A refresh pass that produces a fresh classification keeps Info,
+        /// because crossing from unclassified to classified is the milestone
+        /// the diagnostic was originally built to surface.
+        /// </summary>
+        [Fact]
+        public void LogRefreshSummary_FreshClassification_StaysInfo()
+        {
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                recordingsExamined: 1,
+                alreadyClassified: 0,
+                newlyClassified: 1);
+
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "reason=periodic",
+                "newlyClassified=1"));
+        }
+
+        /// <summary>
+        /// Backstop: every Nth no-delta pass still fires Info so a long
+        /// session has discoverable markers in case the diagnostic is needed
+        /// post-hoc. Lines emitted at Info under the backstop are tagged with
+        /// <c>backstop=every64thNoDeltaPass</c>.
+        /// </summary>
+        [Fact]
+        public void LogRefreshSummary_NoDeltaBackstop_PromotesEvery64thPassToInfo()
+        {
+            // 64 no-delta passes is the configured cadence; the 64th
+            // emission promotes back to Info, the next 63 stay Verbose.
+            for (int i = 0; i < 64; i++)
+            {
+                RecordingFinalizationCacheProducer.LogRefreshSummary(
+                    FinalizationCacheOwner.ActiveRecorder,
+                    "periodic",
+                    recordingsExamined: 1,
+                    alreadyClassified: 0,
+                    newlyClassified: 0);
+            }
+
+            Assert.Equal(63, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "reason=periodic"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "backstop=every64thNoDeltaPass",
+                "suppressedNoDeltaPasses=63"));
+        }
+
         [Fact]
         public void TryBuildFromLiveVessel_SurfaceTerminal_CachesSurfaceMetadataAndLogs()
         {
@@ -279,8 +364,19 @@ namespace Parsek.Tests
                 line.Contains("already classified Destroyed at terminalUT=180.0") &&
                 line.Contains("rec-already-destroyed") &&
                 line.Contains("skipping re-run"));
-            Assert.Equal(2, CountLogLines(
+            // newlyClassified=0 routes through Verbose now (post-2026-04-25
+            // log-hygiene pass) so 156 periodic no-op refreshes per session
+            // no longer flood Info. Already-classified-only is still a no-op
+            // from the player's perspective; only fresh classifications keep
+            // their Info status.
+            Assert.Equal(0, CountLogLines(
                 "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "recordingsExamined=1",
+                "alreadyClassified=1",
+                "newlyClassified=0"));
+            Assert.Equal(2, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
                 "FinalizerCache refresh summary",
                 "recordingsExamined=1",
                 "alreadyClassified=1",
