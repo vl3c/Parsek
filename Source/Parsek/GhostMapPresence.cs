@@ -301,6 +301,18 @@ namespace Parsek
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
         internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
+        // #583: Relative-frame state-vector ghost CREATION reaches the resolver
+        // when the first map-visible UT lies inside a Relative section. We allow
+        // creation through the existing StateVector source kind iff the section's
+        // anchor vessel is resolvable in the scene (CreateGhostVesselFromStateVectors
+        // already dispatches on referenceFrame and resolves world position via the
+        // anchor in the Relative branch — PR #547). When the anchor is not yet
+        // resolvable, defer with this dedicated skip reason so the pending-create
+        // queue retries on the next tick. Distinct from `relative-frame` (the
+        // legacy "always defer" reason kept for sections without an anchor id —
+        // those have no resolvable anchor by construction and are unreachable
+        // from the new path).
+        internal const string TrackingStationGhostSkipRelativeAnchorUnresolved = "relative-anchor-unresolved";
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
@@ -312,6 +324,13 @@ namespace Parsek
         internal const double StateVectorRemoveSpeed = 30;        // m/s
         private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
+
+        // #583 test seam: production looks the anchor up via
+        // FlightRecorder.FindVesselByPid (which short-circuits to null when
+        // FlightGlobals.Vessels is unavailable, e.g. xUnit). Tests that need
+        // to exercise the "anchor resolvable in scene" branch override this
+        // delegate; ResetForTesting clears it back to null.
+        internal static Func<uint, bool> AnchorResolvableForTesting = null;
 
         internal struct GhostProtoOrbitSeedDiagnostics
         {
@@ -1780,7 +1799,18 @@ namespace Parsek
             }
 
             string stateVectorSkipReason = null;
-            if (!traj.HasOrbitSegments)
+            // #583: try state-vector resolution when there are no orbit segments
+            // (the original physics-only-suborbital case) OR when the current UT
+            // sits inside a Relative-frame section. The latter widens the gate
+            // so a recording with OrbitalCheckpoint segments elsewhere can still
+            // get a map ghost while the playback head is in the docking /
+            // rendezvous section — CreateGhostVesselFromStateVectors's Relative
+            // branch (PR #547) handles the world-position resolution against
+            // the anchor vessel.
+            bool considerStateVector =
+                !traj.HasOrbitSegments
+                || IsInRelativeFrame(traj, currentUT);
+            if (considerStateVector)
             {
                 if (TryResolveStateVectorMapPoint(
                     traj,
@@ -1803,9 +1833,8 @@ namespace Parsek
 
             if (!allowTerminalOrbitFallback)
             {
-                skipReason = traj.HasOrbitSegments
-                    ? "no-current-segment"
-                    : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
+                skipReason = ResolveStateVectorOrSegmentSkipReason(
+                    traj, considerStateVector, stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
@@ -1814,9 +1843,8 @@ namespace Parsek
 
             if (!HasOrbitData(traj))
             {
-                skipReason = traj.HasOrbitSegments
-                    ? "no-current-segment"
-                    : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
+                skipReason = ResolveStateVectorOrSegmentSkipReason(
+                    traj, considerStateVector, stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
@@ -2230,10 +2258,77 @@ namespace Parsek
             return true;
         }
 
+        // #583: when state-vector resolution was attempted (either because
+        // there are no orbit segments OR because we're in a Relative section)
+        // and produced a meaningful skip reason — relative-frame /
+        // relative-anchor-unresolved / state-vector-threshold — surface that
+        // reason. Otherwise fall back to the legacy split between
+        // `no-current-segment` (orbit-bearing recording) and `no-orbit-data`
+        // (state-vector-only recording with no points). Preserves the prior
+        // log-shape contract for callers that don't reach the new Relative
+        // gate while making the new defer-and-retry skip reasons visible in
+        // the structured source-resolve line.
+        private static string ResolveStateVectorOrSegmentSkipReason(
+            IPlaybackTrajectory traj,
+            bool considerStateVector,
+            string stateVectorSkipReason)
+        {
+            if (considerStateVector
+                && !string.IsNullOrEmpty(stateVectorSkipReason)
+                && stateVectorSkipReason != "no-points"
+                && stateVectorSkipReason != "no-state-vector-point")
+            {
+                return stateVectorSkipReason;
+            }
+            return traj.HasOrbitSegments
+                ? "no-current-segment"
+                : NormalizeStateVectorSkipReasonForNoOrbit(stateVectorSkipReason);
+        }
+
         private static bool TryResolveStateVectorMapPoint(
             IPlaybackTrajectory traj,
             double currentUT,
             ref int cachedIndex,
+            out TrajectoryPoint point,
+            out string skipReason)
+        {
+            return TryResolveStateVectorMapPointPure(
+                traj,
+                currentUT,
+                ref cachedIndex,
+                ResolveAnchorInScene,
+                out point,
+                out skipReason);
+        }
+
+        // Production anchor-resolvability lookup. Honours the test seam so
+        // pure-xUnit cases can exercise the "anchor resolvable" Relative-frame
+        // branch without instantiating Unity's FlightGlobals.
+        private static bool ResolveAnchorInScene(uint anchorPid)
+        {
+            if (anchorPid == 0u) return false;
+            if (AnchorResolvableForTesting != null)
+                return AnchorResolvableForTesting(anchorPid);
+            return FlightRecorder.FindVesselByPid(anchorPid) != null;
+        }
+
+        /// <summary>
+        /// Resolve whether a state-vector trajectory point exists at the current
+        /// UT and is suitable for ghost map creation. #583: when the current UT
+        /// lies inside a Relative-frame section, the recorded
+        /// <c>point.altitude</c> is the anchor-local dz offset (metres), not
+        /// geographic altitude — the create/remove altitude thresholds are
+        /// meaningless and are skipped. Creation in that branch is gated on the
+        /// section's anchor being resolvable in the scene; otherwise we defer
+        /// to the next tick so <see cref="ParsekPlaybackPolicy.CheckPendingMapVessels"/>
+        /// can retry. Pure: the caller supplies the anchor-resolvability lookup
+        /// so xUnit tests can exercise both branches without FlightGlobals.
+        /// </summary>
+        internal static bool TryResolveStateVectorMapPointPure(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref int cachedIndex,
+            Func<uint, bool> anchorResolvable,
             out TrajectoryPoint point,
             out string skipReason)
         {
@@ -2253,10 +2348,53 @@ namespace Parsek
                 return false;
             }
 
-            if (IsInRelativeFrame(traj, currentUT))
+            // Resolve the section covering currentUT once — the Relative branch
+            // needs the anchorVesselId, the Absolute branch needs nothing more.
+            TrackSection? currentSection = null;
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
-                skipReason = TrackingStationGhostSkipRelativeFrame;
-                return false;
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, currentUT);
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                    currentSection = traj.TrackSections[sectionIdx];
+            }
+
+            bool inRelative = currentSection.HasValue
+                && currentSection.Value.referenceFrame == ReferenceFrame.Relative;
+
+            if (inRelative)
+            {
+                uint anchorPid = currentSection.Value.anchorVesselId;
+                // Sections without an anchor id (legacy/synthetic) have no
+                // resolvable anchor pose by construction. Surface as the
+                // long-standing `relative-frame` reason to preserve pre-#583
+                // behaviour for that subset (no map presence inside the
+                // section, no log churn from a new reason kind).
+                if (anchorPid == 0u)
+                {
+                    skipReason = TrackingStationGhostSkipRelativeFrame;
+                    return false;
+                }
+                if (anchorResolvable == null || !anchorResolvable(anchorPid))
+                {
+                    skipReason = TrackingStationGhostSkipRelativeAnchorUnresolved;
+                    return false;
+                }
+
+                TrajectoryPoint? relPt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cachedIndex);
+                if (!relPt.HasValue)
+                {
+                    skipReason = "no-state-vector-point";
+                    return false;
+                }
+
+                // Threshold check is intentionally skipped: point.altitude is
+                // the anchor-local dz (metres along the anchor's local z), not
+                // geographic altitude. Symmetric to the PR #547 P1 update-path
+                // gate in ParsekPlaybackPolicy.CheckPendingMapVessels (lines
+                // 1042-1056) which skips ShouldRemoveStateVectorOrbit for the
+                // same reason.
+                point = relPt.Value;
+                return true;
             }
 
             TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cachedIndex);
@@ -2542,22 +2680,41 @@ namespace Parsek
                         ref cachedStateVectorIndex);
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
-                    if (!pt.HasValue || IsInRelativeFrame(rec, currentUT))
+                    if (!pt.HasValue)
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, "tracking-station-state-vector-expired"));
                         continue;
                     }
 
-                    double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
-                    if (ShouldRemoveStateVectorOrbit(
-                        pt.Value.altitude,
-                        pt.Value.velocity.magnitude,
-                        atmosphereDepth))
+                    // PR #556 follow-up: a Relative-frame state-vector ghost
+                    // must NOT be expired/removed just because the section is
+                    // Relative — pre-#583 the only way to get a Relative
+                    // currentUT here was a stale ghost the resolver would
+                    // never recreate, so killing it was safe. After #583 the
+                    // resolver creates these on purpose; the threshold check
+                    // is meaningless for Relative-frame points (point.altitude
+                    // is anchor-local dz, not geographic altitude) and would
+                    // tear the ghost down every cycle, then the create path
+                    // re-adds it next tick → flicker. Mirror the flight-scene
+                    // gate in ParsekPlaybackPolicy.CheckPendingMapVessels and
+                    // skip the threshold for Relative-frame points;
+                    // UpdateGhostOrbitFromStateVectors already dispatches on
+                    // referenceFrame and resolves world position via the
+                    // anchor for that branch.
+                    bool inRelativeFrame = IsInRelativeFrame(rec, currentUT);
+                    if (!inRelativeFrame)
                     {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, "below-state-vector-threshold"));
-                        continue;
+                        double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
+                        if (ShouldRemoveStateVectorOrbit(
+                            pt.Value.altitude,
+                            pt.Value.velocity.magnitude,
+                            atmosphereDepth))
+                        {
+                            if (toRemove == null) toRemove = new List<(int, string)>();
+                            toRemove.Add((idx, "below-state-vector-threshold"));
+                            continue;
+                        }
                     }
 
                     UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);
@@ -4095,6 +4252,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             CurrentUTNow = GetCurrentUTSafe;
+            AnchorResolvableForTesting = null;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
