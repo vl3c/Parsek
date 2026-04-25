@@ -93,6 +93,39 @@ namespace Parsek
             PackedOrOnRails
         }
 
+        internal struct MissedVesselSwitchRecoveryDiagnosticContext
+        {
+            public bool IsRecovery;
+            public uint ActiveVesselPid;
+            public uint RecorderVesselPid;
+            public bool HasRecorder;
+            public bool RecorderIsRecording;
+            public bool RecorderIsBackgrounded;
+            public bool RecorderChainToVesselPending;
+            public bool ActiveVesselTrackedInBackground;
+            public bool ActiveVesselAlreadyArmedForPostSwitchAutoRecord;
+            public string ActiveTreeRecordingId;
+            public int ActiveTreeBackgroundMapCount;
+
+            internal string BuildRecStateRateLimitKey()
+            {
+                if (!IsRecovery) return null;
+
+                return string.Format(CultureInfo.InvariantCulture,
+                    "missed-vessel-switch|activePid={0}|recorderPid={1}|hasRecorder={2}|rec={3}/{4}|chain={5}|tracked={6}|armed={7}|activeRec={8}|bgCount={9}",
+                    ActiveVesselPid,
+                    RecorderVesselPid,
+                    HasRecorder ? 1 : 0,
+                    RecorderIsRecording ? 1 : 0,
+                    RecorderIsBackgrounded ? 1 : 0,
+                    RecorderChainToVesselPending ? 1 : 0,
+                    ActiveVesselTrackedInBackground ? 1 : 0,
+                    ActiveVesselAlreadyArmedForPostSwitchAutoRecord ? 1 : 0,
+                    string.IsNullOrEmpty(ActiveTreeRecordingId) ? "-" : ActiveTreeRecordingId,
+                    ActiveTreeBackgroundMapCount);
+            }
+        }
+
         internal struct PostSwitchOrbitSnapshot
         {
             public bool IsValid;
@@ -210,11 +243,13 @@ namespace Parsek
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
         private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
+        internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
         private float nextCommittedSpawnedRestoreRetryAt;
+        private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
@@ -289,7 +324,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
 
         private struct GhostPosEntry
         {
@@ -310,7 +345,7 @@ namespace Parsek
 
 
             // Orbit fields
-            public int orbitCacheKey;
+            public long orbitCacheKey;
             public double orbitUT;
 
             // Orbital rotation fields (Phase: orbital-rotation)
@@ -586,8 +621,8 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        private HashSet<int> loggedOrbitSegments = new HashSet<int>();
-        private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
+        private HashSet<long> loggedOrbitSegments = new HashSet<long>();
+        private HashSet<long> loggedOrbitRotationSegments = new HashSet<long>();
 
         // Anchor vessel tracking moved to engine (T25).
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
@@ -1068,6 +1103,75 @@ namespace Parsek
                                 // Prograde fallback (old recordings)
                                 e.ghost.transform.rotation = Quaternion.LookRotation(vel);
                             }
+                        }
+                        break;
+                    }
+                    case GhostPosMode.CheckpointPoint:
+                    {
+                        if (e.bodyBefore == null || e.bodyAfter == null) break;
+                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                            e.latAfter, e.lonAfter, e.altAfter);
+                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        e.ghost.transform.position = pos;
+
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+                        {
+                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+
+                            if (e.isSpinning)
+                            {
+                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrameAtStart;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                                    else
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
+                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                                }
+                                else if (vel.sqrMagnitude > 0.001)
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                }
+                            }
+                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                            {
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrame;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                                    else
+                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
+                                }
+                                else
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                }
+                            }
+                            else if (vel.sqrMagnitude > 0.001)
+                            {
+                                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                            }
+                        }
+                        else
+                        {
+                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         }
                         break;
                     }
@@ -1809,7 +1913,10 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnVesselSwitchComplete:entry", CaptureRecorderState());
+            LogOnVesselSwitchCompleteRecState(
+                "OnVesselSwitchComplete:entry",
+                CaptureRecorderState(),
+                currentVesselSwitchRecoveryDiagnosticContext);
 
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
@@ -1940,6 +2047,29 @@ namespace Parsek
                     newVesselIsGhost,
                     newVessel.isEVA),
                 trackedInActiveTree);
+
+            // Bug #585: in-place continuation Re-Fly suppression. When the live
+            // marker pins the new active vessel as the in-place continuation
+            // target, the restore coroutine fired by OnFlightReady will resume
+            // into the marker's recording. Arming the post-switch outsider
+            // watcher here would log a misleading "outsider while idle" line
+            // and risk a brief race where the watcher's first physics frame
+            // captures a baseline before the coroutine binds the recorder.
+            // The watcher already gates on IsRecording / restoringActiveTree
+            // via EvaluatePostSwitchAutoRecordSuppression, so this is mostly a
+            // diagnostics-clarity fix: we explicitly skip arming and log the
+            // marker reason so the post-mortem in KSP.log reads as expected.
+            if (armDecision != PostSwitchAutoRecordArmDecision.None
+                && IsInPlaceContinuationArrivalForMarker(newPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"Post-switch auto-record suppressed: vessel='{newVessel.vesselName ?? "<unnamed>"}' " +
+                    $"pid={newPid} reason=marker-in-place-continuation " +
+                    $"sess={ParsekScenario.Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
+                ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+                return;
+            }
+
             switch (armDecision)
             {
                 case PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember:
@@ -1958,7 +2088,98 @@ namespace Parsek
                         freshStartParentRecordingId);
                     break;
             }
-            ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+            LogOnVesselSwitchCompleteRecState(
+                "OnVesselSwitchComplete:post",
+                CaptureRecorderState(),
+                currentVesselSwitchRecoveryDiagnosticContext);
+        }
+
+        private void ReplayVesselSwitchCompleteForMissedSwitchRecovery(
+            Vessel activeVessel,
+            MissedVesselSwitchRecoveryDiagnosticContext recoveryDiagnosticContext)
+        {
+            var previousContext = currentVesselSwitchRecoveryDiagnosticContext;
+            currentVesselSwitchRecoveryDiagnosticContext = recoveryDiagnosticContext;
+            try
+            {
+                OnVesselSwitchComplete(activeVessel);
+            }
+            finally
+            {
+                currentVesselSwitchRecoveryDiagnosticContext = previousContext;
+            }
+        }
+
+        internal static void LogOnVesselSwitchCompleteRecState(
+            string phase,
+            RecorderStateSnapshot snapshot,
+            MissedVesselSwitchRecoveryDiagnosticContext recoveryDiagnosticContext)
+        {
+            if (!recoveryDiagnosticContext.IsRecovery)
+            {
+                ParsekLog.RecState(phase, snapshot);
+                return;
+            }
+
+            ParsekLog.RecStateRateLimited(
+                phase,
+                snapshot,
+                recoveryDiagnosticContext.BuildRecStateRateLimitKey(),
+                MissedVesselSwitchRecoveryRecStateIntervalSeconds);
+        }
+
+        /// <summary>
+        /// Bug #585: returns true when the live <see cref="ReFlySessionMarker"/>
+        /// indicates an in-place continuation Re-Fly AND the just-activated
+        /// vessel's <c>persistentId</c> matches the marker's active recording.
+        /// In that state, post-switch auto-record arming is a no-op at best and
+        /// a diagnostics nuisance at worst -- the
+        /// <see cref="RestoreActiveTreeFromPending"/> coroutine will bind the
+        /// recorder to the marker's recording once <see cref="OnFlightReady"/>
+        /// fires.
+        /// </summary>
+        private bool IsInPlaceContinuationArrivalForMarker(uint newPid)
+        {
+            return IsInPlaceContinuationArrivalForMarker(
+                newPid,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                RecordingStore.CommittedRecordings);
+        }
+
+        /// <summary>
+        /// Pure-static overload for unit testing: caller injects the marker
+        /// and committed-recordings list rather than reading from
+        /// <see cref="ParsekScenario.Instance"/> + <see cref="RecordingStore.CommittedRecordings"/>.
+        /// Use raw committed-recordings read because the marker resolution at
+        /// this point is a physical-identity correlation, not a supersede-aware
+        /// ERS query (RewindInvoker.cs has the same ERS-exempt pattern in its
+        /// FindRecordingById helper).
+        /// </summary>
+        internal static bool IsInPlaceContinuationArrivalForMarker(
+            uint newPid,
+            ReFlySessionMarker marker,
+            System.Collections.Generic.IReadOnlyList<Recording> committedRecordings)
+        {
+            if (newPid == 0u) return false;
+            if (marker == null) return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+                return false;
+            if (committedRecordings == null) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    continue;
+                return rec.VesselPersistentId == newPid;
+            }
+            return false;
         }
 
         /// <summary>
@@ -5817,8 +6038,17 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
 
-            ParsekLog.Verbose("Checkpoint",
-                $"Time warp rate changed to {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x " +
+            // Bug #592: KSP fires onTimeWarpRateChanged very chattily — a single
+            // playtest produced ~1090 events at 1.0x without any actual rate change
+            // (scene transitions, warp-to-here, etc. retrigger the GameEvent).
+            // Rate-limit by warpRate so transitions between distinct rates still log
+            // immediately, but a burst of redundant 1x->1x fires collapses into one
+            // line per window.
+            string warpRateKey = warpRate.ToString("F1",
+                System.Globalization.CultureInfo.InvariantCulture);
+            ParsekLog.VerboseRateLimited("Checkpoint",
+                $"warp-rate-changed-{warpRateKey}",
+                $"Time warp rate changed to {warpRateKey}x " +
                 $"at UT={ut:F2} — checkpointing all background vessels");
 
             // Checkpoint background vessels first (before any state changes)
@@ -5827,7 +6057,8 @@ namespace Parsek
             // The active vessel's orbit segments are already handled by
             // onVesselGoOnRails/onVesselGoOffRails events which fire when
             // time warp transitions between physics and rails modes.
-            ParsekLog.Verbose("Checkpoint",
+            ParsekLog.VerboseRateLimited("Checkpoint",
+                $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
         }
 
@@ -6604,9 +6835,15 @@ namespace Parsek
 
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
+            bool hasRecorder = recorder != null;
+            bool recorderIsRecording = hasRecorder && recorder.IsRecording;
+            bool recorderChainToVesselPending = hasRecorder && recorder.ChainToVesselPending;
+            uint recorderPid = hasRecorder ? recorder.RecordingVesselId : 0;
             bool activeVesselTrackedInBackground = activeTree != null
                 && activeVesselPid != 0
                 && activeTree.BackgroundMap.ContainsKey(activeVesselPid);
+            bool activeVesselAlreadyArmedForPostSwitchAutoRecord =
+                IsPostSwitchAutoRecordArmedForPid(activeVesselPid);
 
             if (!ShouldRecoverMissedVesselSwitch(
                     restoringActiveTree,
@@ -6614,31 +6851,52 @@ namespace Parsek
                     pendingTreeDockMerge,
                     pendingSplitRecorder != null,
                     pendingSplitInProgress,
-                    recorder != null,
-                    recorder != null && recorder.IsRecording,
-                    recorder != null && recorder.ChainToVesselPending,
-                    recorder != null ? recorder.RecordingVesselId : 0,
+                    hasRecorder,
+                    recorderIsRecording,
+                    recorderChainToVesselPending,
+                    recorderPid,
                     activeVesselPid,
                     activeVesselTrackedInBackground,
-                    IsPostSwitchAutoRecordArmedForPid(activeVesselPid)))
+                    activeVesselAlreadyArmedForPostSwitchAutoRecord))
             {
                 return;
             }
 
             if (GhostMapPresence.IsGhostMapVessel(activeVesselPid)) return;
 
-            uint recorderPid = recorder != null ? recorder.RecordingVesselId : 0;
+            var recoveryDiagnosticContext = new MissedVesselSwitchRecoveryDiagnosticContext
+            {
+                IsRecovery = true,
+                ActiveVesselPid = activeVesselPid,
+                RecorderVesselPid = recorderPid,
+                HasRecorder = hasRecorder,
+                RecorderIsRecording = recorderIsRecording,
+                RecorderIsBackgrounded = hasRecorder && recorder.IsBackgrounded,
+                RecorderChainToVesselPending = recorderChainToVesselPending,
+                ActiveVesselTrackedInBackground = activeVesselTrackedInBackground,
+                ActiveVesselAlreadyArmedForPostSwitchAutoRecord =
+                    activeVesselAlreadyArmedForPostSwitchAutoRecord,
+                ActiveTreeRecordingId = activeTree != null ? activeTree.ActiveRecordingId : null,
+                ActiveTreeBackgroundMapCount = activeTree != null && activeTree.BackgroundMap != null
+                    ? activeTree.BackgroundMap.Count
+                    : 0
+            };
+
             // Update() runs every frame; if the recovery handler does not clear
             // the predicate immediately (e.g. background recorder still pending),
             // this branch fires repeatedly for the same vessel. Rate-limit by
             // activePid so each vessel logs at most once per window — visibility
-            // is preserved (still a WARN), spam is bounded.
+            // is preserved (still a WARN), spam is bounded. The recovery context
+            // applies the same cadence to the nested RecState entry/post snapshots
+            // without affecting real onVesselChange boundaries.
             ParsekLog.WarnRateLimited("Flight",
                 $"missed-vessel-switch-{activeVesselPid}",
                 $"Update: recovering missed vessel switch for active vessel '{activeVessel.vesselName}' " +
                 $"(activePid={activeVesselPid}, recorderPid={recorderPid}, " +
                 $"trackedInBackground={activeVesselTrackedInBackground})");
-            OnVesselSwitchComplete(activeVessel);
+            ReplayVesselSwitchCompleteForMissedSwitchRecovery(
+                activeVessel,
+                recoveryDiagnosticContext);
         }
 
         /// <summary>
@@ -7785,6 +8043,103 @@ namespace Parsek
 
             var tree = RecordingStore.PendingTree;
             string activeRecId = tree.ActiveRecordingId;
+
+            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
+            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
+            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
+            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
+            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
+            // deferred via WaitForFlightReadyAndInvoke until
+            // FlightGlobals.ready flips, which races with the
+            // GameEvents.onFlightReady fire that triggers us. If we read the
+            // marker before AtomicMarkerWrite completes we see it as null,
+            // fall through to no-swap, and the wait loop targets the stale
+            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
+            // Yield until the pending invocation context clears (or a bounded
+            // timeout) so the marker write is guaranteed to have completed.
+            if (RewindInvokeContext.Pending)
+            {
+                int markerWaitFrame = 0;
+                const int MaxMarkerWaitFrames = 300;
+                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
+                {
+                    markerWaitFrame++;
+                    yield return null;
+                }
+                if (RewindInvokeContext.Pending)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
+                        $"to clear after {MaxMarkerWaitFrames} frame(s); proceeding without marker swap " +
+                        $"(bug #585 follow-up: marker write race)");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
+                        $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
+                }
+            }
+
+            // Bug #585: in-place continuation Re-Fly carve-out. The rewind
+            // quicksave's ActiveRecordingId still points at the pre-rewind
+            // active vessel (just killed by PostLoadStripper). The live
+            // ReFlySessionMarker pins the recording the player wants to keep
+            // recording into; for an in-place continuation
+            // (OriginChildRecordingId == ActiveReFlyRecordingId) we must swap
+            // the wait target to the marker's recording. Without the swap the
+            // wait loop targets a dead pid, times out at 3s, and the tree
+            // stays in Limbo for the rest of the session.
+            string preMarkerActiveRecId = activeRecId;
+            string preMarkerActiveName = activeRecId != null
+                && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec)
+                ? preMarkerActiveRec?.VesselName : null;
+            uint preMarkerActivePid = activeRecId != null
+                && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
+                ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            var markerSwap = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
+                marker,
+                tree.Id,
+                activeRecId,
+                recId =>
+                {
+                    if (string.IsNullOrEmpty(recId)) return null;
+                    if (!tree.Recordings.TryGetValue(recId, out var rec) || rec == null)
+                        return null;
+                    return (rec.VesselName, rec.VesselPersistentId);
+                });
+            if (markerSwap.ShouldSwap)
+            {
+                tree.ActiveRecordingId = markerSwap.TargetRecordingId;
+                activeRecId = markerSwap.TargetRecordingId;
+                // Bug #585 follow-up (PR #558 P2 review): the tree was loaded
+                // with BackgroundMap rebuilt against the OLD ActiveRecordingId,
+                // so the NEW active recording may still appear as a background
+                // entry in tree.BackgroundMap. EnsureBackgroundRecorderAttached
+                // later seeds the BackgroundRecorder from this map -- without
+                // a rebuild, the recording would be tracked as both active
+                // (live recorder) and background (BackgroundRecorder).
+                // RebuildBackgroundMap re-runs IsBackgroundMapEligible against
+                // the swapped ActiveRecordingId and excludes it from the map.
+                int bgEntriesBefore = tree.BackgroundMap.Count;
+                tree.RebuildBackgroundMap();
+                int bgEntriesAfter = tree.BackgroundMap.Count;
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: in-place continuation marker swapped target " +
+                    $"rec='{preMarkerActiveRecId ?? "<null>"}'->\'{markerSwap.TargetRecordingId}\' " +
+                    $"vessel='{preMarkerActiveName ?? "<null>"}'->\'{markerSwap.TargetVesselName ?? "<null>"}\' " +
+                    $"pid={preMarkerActivePid}->{markerSwap.TargetVesselPersistentId} " +
+                    $"sess={marker?.SessionId ?? "<no-id>"} " +
+                    $"bgMapEntries={bgEntriesBefore}->{bgEntriesAfter}");
+            }
+            else if (marker != null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RestoreActiveTreeFromPending: marker present but no swap " +
+                    $"(reason={markerSwap.Reason ?? "<none>"} sess={marker.SessionId ?? "<no-id>"})");
+            }
+
             if (string.IsNullOrEmpty(activeRecId)
                 || !tree.Recordings.TryGetValue(activeRecId, out var activeRec))
             {
@@ -12661,8 +13016,23 @@ namespace Parsek
         {
             if (state?.ghost == null || traj?.Points == null) return;
             int playbackIdx = state.playbackIndex;
-            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
             InterpolationResult interpResult;
+
+            if (TryInterpolateAndPositionCheckpointSection(
+                index,
+                traj,
+                state.ghost,
+                ref playbackIdx,
+                ut,
+                ShouldAutoActivateGhost(state),
+                out interpResult))
+            {
+                state.SetInterpolated(interpResult);
+                state.playbackIndex = playbackIdx;
+                return;
+            }
+
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
@@ -13188,9 +13558,9 @@ namespace Parsek
         }
 
         // Cache to avoid reconstructing Orbit objects every frame
-        private Dictionary<int, Orbit> orbitCache = new Dictionary<int, Orbit>();
+        private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
-        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, int cacheKey)
+        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
@@ -13273,7 +13643,7 @@ namespace Parsek
 
         internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(
             OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
-            Vector3d bodyPosition, Quaternion currentRotation, int cacheKey, bool hasOfr, bool spinning)
+            Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning)
         {
             Quaternion ghostRot = currentRotation; // preserve current if no update
             Quaternion boundaryWorldRot = Quaternion.identity;
@@ -13321,7 +13691,7 @@ namespace Parsek
         /// null for current-time context.
         /// </summary>
         private static Quaternion SafeOrbitalLookRotation(
-            Vector3 velocity, Vector3 radialOut, int cacheKey, string suffix)
+            Vector3 velocity, Vector3 radialOut, long cacheKey, string suffix)
         {
             if (Mathf.Abs(Vector3.Dot(velocity.normalized, radialOut.normalized)) > 0.99f)
             {
@@ -13497,6 +13867,319 @@ namespace Parsek
             return double.NaN;
         }
 
+        bool TryInterpolateAndPositionCheckpointSection(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            GameObject ghost,
+            ref int playbackIdx,
+            double playbackUT,
+            bool allowActivation,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!TryGetCheckpointTrackSection(traj, playbackUT, out int sectionIdx, out TrackSection section))
+                return false;
+
+            if (!TryInterpolateAndPositionCheckpointSectionWithOrbitRotation(
+                    recordingIndex,
+                    sectionIdx,
+                    section,
+                    ghost,
+                    ref playbackIdx,
+                    playbackUT,
+                    allowActivation,
+                    out interpResult))
+            {
+                InterpolateAndPosition(
+                    ghost,
+                    section.frames,
+                    ref playbackIdx,
+                    playbackUT,
+                    allowActivation,
+                    out interpResult);
+            }
+
+            int logIndex = playbackIdx;
+            if (TryResolvePointWorldPosition(section.frames, ref logIndex, playbackUT, out Vector3d worldPos))
+                LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
+
+            return true;
+        }
+
+        bool TryInterpolateAndPositionCheckpointSectionWithOrbitRotation(
+            int recordingIndex,
+            int sectionIdx,
+            TrackSection section,
+            GameObject ghost,
+            ref int playbackIdx,
+            double playbackUT,
+            bool allowActivation,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!TryFindCheckpointOrbitSegment(section, playbackUT, out OrbitSegment segment, out int checkpointIdx))
+                return false;
+
+            long cacheKey = BuildCheckpointOrbitCacheKey(recordingIndex, sectionIdx, checkpointIdx);
+            if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody orbitBody))
+                return false;
+
+            bool hasPointInterpolation = TryResolveCheckpointPointInterpolation(
+                section.frames,
+                ref playbackIdx,
+                playbackUT,
+                out TrajectoryPoint before,
+                out TrajectoryPoint after,
+                out float t);
+            if (!hasPointInterpolation)
+            {
+                if (section.frames == null || section.frames.Count == 0)
+                {
+                    ghost.SetActive(false);
+                    return true;
+                }
+
+                before = section.frames[0];
+                after = before;
+                t = 0f;
+            }
+
+            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            if (bodyBefore == null || bodyAfter == null)
+                return false;
+
+            if (allowActivation && !ghost.activeSelf)
+                ghost.SetActive(true);
+
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
+                before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
+                after.latitude, after.longitude, after.altitude);
+            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
+            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
+                interpolatedPos = posBefore;
+
+            Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
+            bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
+            bool spinning = TrajectoryMath.IsSpinning(segment);
+            var (ghostRot, _) = ComputeOrbitalRotation(
+                segment,
+                orbit,
+                playbackUT,
+                velocity,
+                interpolatedPos,
+                orbitBody.position,
+                ghost.transform.rotation,
+                cacheKey,
+                hasOfr,
+                spinning);
+
+            ghost.transform.position = interpolatedPos;
+            ghost.transform.rotation = ghostRot;
+
+            Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
+            pointRot = TrajectoryMath.SanitizeQuaternion(pointRot);
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.CheckpointPoint,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude,
+                lonBefore = before.longitude,
+                altBefore = before.altitude,
+                latAfter = after.latitude,
+                lonAfter = after.longitude,
+                altAfter = after.altitude,
+                t = t,
+                pointUT = playbackUT,
+                interpolatedRot = pointRot,
+                orbitCacheKey = cacheKey,
+                orbitUT = playbackUT,
+                orbitFrameRot = segment.orbitalFrameRotation,
+                hasOrbitFrameRot = hasOfr,
+                orbitBody = orbitBody,
+                orbitAngularVelocity = segment.angularVelocity,
+                isSpinning = spinning,
+                orbitSegmentStartUT = segment.startUT
+            });
+
+            interpResult = new InterpolationResult(
+                (Vector3)velocity,
+                segment.bodyName,
+                TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            return true;
+        }
+
+        private bool TryGetOrbitForSegment(
+            OrbitSegment segment,
+            long cacheKey,
+            out Orbit orbit,
+            out CelestialBody body)
+        {
+            orbit = null;
+            body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            if (body == null)
+                return false;
+
+            if (!orbitCache.TryGetValue(cacheKey, out orbit))
+            {
+                orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                orbitCache[cacheKey] = orbit;
+            }
+
+            return true;
+        }
+
+        private static bool TryFindCheckpointOrbitSegment(
+            TrackSection section,
+            double playbackUT,
+            out OrbitSegment segment,
+            out int checkpointIdx)
+        {
+            segment = default(OrbitSegment);
+            checkpointIdx = -1;
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            for (int i = 0; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment candidate = section.checkpoints[i];
+                if (playbackUT >= candidate.startUT && playbackUT <= candidate.endUT)
+                {
+                    segment = candidate;
+                    checkpointIdx = i;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveCheckpointPointInterpolation(
+            List<TrajectoryPoint> frames,
+            ref int playbackIdx,
+            double playbackUT,
+            out TrajectoryPoint before,
+            out TrajectoryPoint after,
+            out float t)
+        {
+            return TrajectoryMath.InterpolatePoints(
+                frames,
+                ref playbackIdx,
+                playbackUT,
+                out before,
+                out after,
+                out t);
+        }
+
+        private const long CheckpointOrbitCacheBase = long.MinValue;
+        private const long CheckpointOrbitCacheRecordingStride = 1000000000000L;
+        private const long CheckpointOrbitCacheSectionStride = 1000000L;
+        private const long CheckpointOrbitCacheMaxRecordingIndex =
+            (long.MaxValue - CheckpointOrbitCacheRecordingStride + 1) / CheckpointOrbitCacheRecordingStride;
+
+        private static long BuildCheckpointOrbitCacheKey(
+            int recordingIndex,
+            int sectionIdx,
+            int checkpointIdx)
+        {
+            // Regular orbit playback cache keys are non-negative int-derived values.
+            // Checkpoint keys live in a negative long namespace with explicit strides
+            // so section/checkpoint growth cannot alias the ordinary segment cache.
+            long rec = Math.Min(CheckpointOrbitCacheMaxRecordingIndex, Math.Max(0, (long)recordingIndex));
+            long section = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)sectionIdx));
+            long checkpoint = Math.Min(CheckpointOrbitCacheSectionStride - 1, Math.Max(0, (long)checkpointIdx));
+            return unchecked(
+                CheckpointOrbitCacheBase
+                + rec * CheckpointOrbitCacheRecordingStride
+                + section * CheckpointOrbitCacheSectionStride
+                + checkpoint);
+        }
+
+        bool TryGetCheckpointTrackSection(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out int sectionIdx,
+            out TrackSection section)
+        {
+            sectionIdx = -1;
+            section = default(TrackSection);
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0)
+                return false;
+
+            section = traj.TrackSections[sectionIdx];
+            return section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && section.frames != null
+                && section.frames.Count > 0;
+        }
+
+        void LogCheckpointPointPlayback(
+            IPlaybackTrajectory traj,
+            int sectionIdx,
+            TrackSection section,
+            double playbackUT,
+            Vector3d worldPos)
+        {
+            int pointIdx = 0;
+            TrajectoryPoint? point = TrajectoryMath.BracketPointAtUT(
+                section.frames,
+                playbackUT,
+                ref pointIdx);
+            if (!point.HasValue && section.frames != null && section.frames.Count > 0)
+                point = section.frames[0];
+
+            string recId = string.IsNullOrEmpty(traj?.RecordingId) ? "(null)" : traj.RecordingId;
+            string pointDetail = point.HasValue
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "pointUT={0:F1} body={1} alt={2:F0} speed={3:F1}",
+                    point.Value.ut,
+                    point.Value.bodyName ?? "(null)",
+                    point.Value.altitude,
+                    point.Value.velocity.magnitude)
+                : "pointUT=(none) body=(none) alt=0 speed=0";
+
+            // Bug #595: the previous 1.0s rate-limit window was tight enough that
+            // a long-playing OrbitalCheckpoint section still emitted ~14
+            // lines/min per (rec, section) pair (413 lines in a single 30-min
+            // session). Use the default 5s window to keep one line per section
+            // per (typical) rate-limit window without losing the section-change
+            // signal — the key is per-(recId, sectionIdx) so a new section
+            // still logs immediately on first frame.
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "orbital-checkpoint-point-{0}-{1}",
+                    recId,
+                    sectionIdx),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "OrbitalCheckpoint point playback: rec={0} currentUT={1:F1} section[{2}] sectionUT={3:F1}-{4:F1} {5} world={6} frames={7}",
+                    recId,
+                    playbackUT,
+                    sectionIdx,
+                    section.startUT,
+                    section.endUT,
+                    pointDetail,
+                    FormatVector3d(worldPos),
+                    section.frames?.Count ?? 0));
+        }
+
         bool TryResolvePlaybackWorldPosition(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
             double playbackUT, out Vector3d worldPos)
@@ -13505,6 +14188,7 @@ namespace Parsek
             if (traj == null)
                 return false;
 
+            int cachedIndex = state != null ? state.playbackIndex : 0;
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
@@ -13526,11 +14210,22 @@ namespace Parsek
                             return true;
                         }
                     }
+                    else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                        && section.frames != null
+                        && section.frames.Count > 0
+                        && TryResolvePointWorldPosition(
+                            section.frames,
+                            ref cachedIndex,
+                            playbackUT,
+                            out worldPos))
+                    {
+                        LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
+                        return true;
+                    }
                 }
             }
 
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
-            int cachedIndex = state != null ? state.playbackIndex : 0;
             if (TryResolveInterpolatedWorldPosition(
                     traj.Points, traj.OrbitSegments, ref cachedIndex,
                     playbackUT, index * 10000, surfaceSkip, out worldPos))
@@ -13780,6 +14475,18 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
+            if (TryInterpolateAndPositionCheckpointSection(
+                recIdx,
+                rec,
+                ghost,
+                ref playbackIdx,
+                loopUT,
+                allowActivation,
+                out interpResult))
+            {
+                return;
+            }
+
             if (useAnchor)
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);

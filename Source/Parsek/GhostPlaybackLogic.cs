@@ -4042,14 +4042,14 @@ namespace Parsek
                     rec.TerminalSpawnSupersededByRecordingId);
             }
 
-            // Plain Rewind-to-Launch ghost-only past (#573 / PR #541 follow-up):
-            // After HandleRewindOnLoad marks the rewound tree's recordings, chain replay
-            // must not materialize a duplicate real vessel even when a chain leaf has
-            // a VesselSnapshot. The flag persists with tree mutable state so the
-            // suppression survives quickload, scene change, and warp-deferred spawn.
-            if (rec.SpawnSuppressedByRewind)
+            // Plain Rewind-to-Launch source protection (#573) remains an absolute
+            // block for the active/source recording that was stripped during rewind.
+            // Legacy broad tree markers from the old implementation are consumed and
+            // ignored here so future same-tree recordings can materialize normally
+            // when playback reaches their terminal EndUT (#589).
+            if (ShouldBlockSpawnForRewindSuppression(rec, out string rewindSuppressionReason))
             {
-                return (false, "spawn suppressed post-rewind (ghost-only past, #573)");
+                return (false, rewindSuppressionReason);
             }
 
             // Preserve the existing "already spawned" precedence, but make destroyed
@@ -4173,6 +4173,36 @@ namespace Parsek
             }
 
             return (true, "");
+        }
+
+        private static bool ShouldBlockSpawnForRewindSuppression(
+            Recording rec,
+            out string reason)
+        {
+            reason = "";
+            if (rec == null || !rec.SpawnSuppressedByRewind)
+                return false;
+
+            string markerReason = rec.SpawnSuppressedByRewindReason;
+            if (string.Equals(markerReason,
+                    ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                    StringComparison.Ordinal))
+            {
+                reason = "spawn suppressed post-rewind (same-recording active/source protection, #573)";
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(markerReason))
+                markerReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
+
+            ParsekScenario.ClearRewindSpawnSuppression(
+                rec,
+                $"reason={markerReason} endpointUT={ParsekScenario.FormatRewindUT(rec.EndUT)}",
+                "spawn allowed despite same-tree rewind because marker is not same-recording");
+            ParsekLog.Info("Rewind",
+                $"Spawn allowed despite same-tree rewind: \"{rec.VesselName}\" id={rec.RecordingId} " +
+                $"endpointUT={ParsekScenario.FormatRewindUT(rec.EndUT)} markerReason={markerReason}");
+            return false;
         }
 
         /// <summary>

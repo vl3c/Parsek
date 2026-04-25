@@ -147,8 +147,25 @@ namespace Parsek
             action.EffectiveRep = result.actualDelta;
             runningRep = result.newRep;
 
-            ParsekLog.Verbose(Tag,
-                $"Milestone rep at UT={action.UT.ToString("F1", IC)}: milestoneId={action.MilestoneId ?? "null"}, " +
+            // Bug #593: every effective milestone re-emits this line on every
+            // recalc walk, even though milestoneId/recordingId/nominal/UT
+            // don't change between walks for the SAME action. Rate-limit per
+            // stable GameAction.ActionId so distinct grants (same
+            // milestoneId+recordingId but different UT or reward) still each
+            // log once on their first walk.
+            string actionIdKey = !string.IsNullOrEmpty(action.ActionId)
+                ? action.ActionId
+                : string.Format(IC, "{0}|{1}|{2}|{3}",
+                    action.MilestoneId ?? "null",
+                    action.RecordingId ?? "(none)",
+                    action.UT.ToString("R", IC),
+                    nominal.ToString("R", IC));
+            string key = "milestone-rep-action-" + actionIdKey;
+            ParsekLog.VerboseRateLimited(Tag, key,
+                $"Milestone rep at UT={action.UT.ToString("F1", IC)}: " +
+                $"actionId={action.ActionId ?? "(none)"}, " +
+                $"milestoneId={action.MilestoneId ?? "null"}, " +
+                $"recordingId={action.RecordingId ?? "(none)"}, " +
                 $"nominal={nominal.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
                 $"runningRep={runningRep.ToString("F2", IC)}");
         }

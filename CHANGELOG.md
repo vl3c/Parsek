@@ -45,8 +45,17 @@ All notable changes to Parsek are documented here.
 - `#543` `LoopTimeUnit.Auto` now uses one global launch queue instead of per-recording independent cadence. Flight playback, KSC playback, and watch-mode loop reconstruction all schedule Auto recordings from the shared queue order, so the global Auto interval is the gap between successive launches across the queue and each recording's relaunch cadence scales by queue length instead of clumping at each recording's own start UT.
 - `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
+- `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
 
 ### Bug Fixes
+
+- `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
+
+- `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
+
+- `#576` PatchedConicSnapshot `solver unavailable` and the paired Extrapolator `patched-conic snapshot failed for ... with NullSolver; falling back to live orbit state` WARNs are now rate-limited per (vessel-name) and per (recording-id, failure-reason) respectively. The 2026-04-25 marker-validator-fix playtest emitted 146 of each — almost all from debris, EVA-kerbals, and probe-debris that have no patched-conic solver by design in stock KSP. Downstream NullSolver semantics (live-orbit fallback for the destroyed-vessel case) are unchanged; only the log-noise floor is trimmed.
+
+- `#581` New "Playback hybrid breakdown" one-shot diagnostic WARN closes the gap between the existing #450 (heaviest spawn ≥ 15 ms) and #460 (mainLoop ≥ 10 ms with spawn < 1 ms) sub-breakdown latches. The 2026-04-25 playtest's only budget-exceeded frame was a hybrid 11.6 ms spike (mainLoop 7.51 ms + spawn 3.44 ms) that fit neither prior latch and produced no Phase-B attribution; the new latch reports per-bucket itemisation plus mainLoop/spawn percent-of-frame fractions on the next such gap-shaped breach.
 
 - `#582` Format-v6 RELATIVE TrackSection position contract is now documented in `AGENTS.md` and `.claude/CLAUDE.md`, and pinned by regression tests so flat `Recording.Points` readers cannot silently misinterpret anchor-local metres as body-fixed lat/lon/alt.
 
@@ -56,7 +65,13 @@ All notable changes to Parsek are documented here.
 
 - `#584` Flight-scene state-vector update path no longer thresholds a Relative-frame point's anchor-local dz as if it were geographic altitude, so a ghost in a docking/rendezvous Relative section is no longer wrongly removed and re-deferred (review follow-up). Source-resolve decision lines now carry the real recording index (`-1` sentinel when unknown) instead of misleadingly logging every entry as `idx=0`.
 
+- `#583` Map-view state-vector ghost creation now also fires when the first map-visible UT lands inside a Relative-frame docking/rendezvous section, so a recording that starts already-relative gets a map vessel attached to its anchor instead of staying invisible until the trajectory leaves the section.
+
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.
+
+- `#585` In-place continuation Re-Fly now resumes recording into the booster's recording instead of timing out the tree to Limbo, so the post-Re-Fly merge dialog renders the recording with real duration instead of `0s` `hasSnapshot=False`. The async-FLIGHT-load path now waits for `RewindInvokeContext` to clear before reading the marker, so the deferred marker write never races the restore coroutine; the marker swap also rebuilds the tree's `BackgroundMap` so the newly active recording is no longer tracked as both active and background.
+
+- `#587` Re-Fly strip pass now also kills pre-existing debris vessels carried in the rewind quicksave whose name matches a Destroyed-terminal recording in the actively re-flown tree, so leftover prior-career debris no longer trips KSP-stock patched conics into a phantom Kerbin Encounter prediction and a 50x warp cap. The kill loop now snapshots its targets before iterating, so consecutive matching debris cannot be skipped when `Vessel.Die()` removes entries from `FlightGlobals.Vessels` mid-loop.
 
 - Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
 
@@ -78,7 +93,7 @@ All notable changes to Parsek are documented here.
 
 - Patched-conic snapshots now keep the valid prefix of a chain when KSP's stock solver leaves a later patch with a null reference body, instead of discarding everything. Recordings now retain their predicted-tail orbit data through transient ascent solver hiccups, and the previous WARN tier downgrades to a single VERBOSE truncation note.
 
-- Plain Rewind-to-Launch (R-button) no longer materialises a real upper-stage copy when chain replay later reaches a chain-leaf in the rewound tree. The rewind path now marks every recording in the rewound tree as `SpawnSuppressedByRewind`, so the chain-tip activation that fires after warp (well after the rewind flag has cleared) finds the recording flagged as ghost-only past and refuses to spawn.
+- Plain Rewind-to-Launch (R-button) now scopes `SpawnSuppressedByRewind` to the active/source recording stripped during rewind instead of marking the whole tree (#589). The #573 duplicate-source protection still blocks that same recording from respawning, while future same-tree terminal recordings (EVA kerbals, flags, landers, etc.) remain spawn-eligible when playback crosses their `endUT`; stale legacy whole-tree markers are cleared/ignored at the spawn gate with diagnostics.
 
 - Merging an in-place re-fly now reaps the Rewind Point and seals the recording as Immutable, so it's promoted out of Unfinished Flights even if the re-flight crashed.
 
@@ -107,6 +122,16 @@ All notable changes to Parsek are documented here.
 - Deferred spawn queue waits outside the physics bubble now log a rate-limited queue summary instead of repeating the same kept/warp-ended pair every frame while the spawn remains queued.
 
 - Unfinished-flight predicate and missed-vessel-switch fallback now rate-limit their per-frame diagnostic lines, so KSP.log is no longer dominated by hundreds of thousands of identical `[UnfinishedFlights]` decisions or repeated `recovering missed vessel switch` warnings during a normal session.
+
+- `#592` Time-warp rate-change checkpoint logs now rate-limit per warp rate, so KSP's chatty `onTimeWarpRateChanged` GameEvent no longer re-emits ~3300 redundant `Time warp rate changed to 1.0x` / `CheckpointAllVessels` / `Active vessel orbit segments handled` lines during a single session of scene transitions and warp-to-here.
+
+- `#593` Repeatable record milestones (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`) and their funds/rep modules now rate-limit the `Milestone funds`, `Repeatable record milestone stays effective`, and `Milestone rep at UT` lines per stable action identity, so a steady recalc loop walking the same committed grant collapses to one line while two distinct grants of the same milestone in the same recording at different UT or reward still each log on their first walk.
+
+- `#594` `KspStatePatcher.PatchMilestones` bare-Id fallback diagnostic now rate-limits per `(nodeId, qualifiedId)` pair so an old-format recording with bare body-specific milestone IDs only logs once per pair per window instead of on every recalc walk.
+
+- `#595` `OrbitalCheckpoint point playback` and `Recorder Sample skipped` rate-limit windows widened from 1.0s and 2.0s to the default 5s, dropping per-section playback churn and stationary-recording skip lines from the hundreds per session into the tens.
+
+- `#596` `KspStatePatcher.PatchFacilities` now gates the INFO summary on real game-state work (`patched + notFound > 0`); skipped-only steady states and the all-zero empty case both route through rate-limited Verbose, so a non-empty `FacilitiesModule` whose facilities are already at their target levels no longer floods INFO every recalc.
 
 - Boring-end trim now clamps the displayed and playable end time to the trimmed trajectory instead of keeping the scene-exit time. Trim diagnostics also report `trimUT` and `lastInterestingUT`.
 - Boring-end trim now tolerates normal landed physics jitter in idle tails while still rejecting meaningful movement. Skipped trims log the first divergent field to make future tolerance problems easier to diagnose.
@@ -206,6 +231,9 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
+- `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
+
 - `#574` Already-Destroyed recordings no longer re-run the sub-surface ballistic finalizer on cache refresh. The first Destroyed classification now logs once with body, altitude, and threshold; later refreshes emit a rate-limited skip diagnostic plus refresh summary instead of a repeated WARN storm.
 - `#577` Re-Fly session markers loaded from an earlier game session now survive fresh-load scenes where KSP reports UT 0 during validation. The validator still rejects corrupt `InvokedUT` values and now logs current-UT/RP-UT comparisons for both accepts and rejects.
 
@@ -229,6 +257,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.
 - `#553` Added direct-ledger forwarding predicate coverage for tagged teardown suppression, untagged KSC events, and untagged pre-recording FLIGHT events across tech, part-purchase, crew-hire, milestone, strategy activate/deactivate, and facility upgrade handlers, plus an evt.recordingId-vs-resolver drift test.

@@ -541,6 +541,72 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Bug #596 (P2 follow-up) — INFO gate: only patched + notFound trigger INFO.
+        // skipped-only and empty-totals route through rate-limited Verbose so a
+        // steady-state non-empty FacilitiesModule does not flood INFO every recalc.
+        // ================================================================
+
+        [Fact]
+        public void PatchFacilities_NotFound_LogsInfoSummary()
+        {
+            // protoUpgradeables is empty in tests, so a tracked facility will
+            // hit the notFound branch. notFound > 0 must surface at INFO so
+            // missing-facility diagnostics stay visible.
+            var module = new FacilitiesModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                ToLevel = 2
+            });
+
+            logLines.Clear();
+            KspStatePatcher.PatchFacilities(module);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: levels patched=") &&
+                l.Contains("notFound=1"));
+        }
+
+        [Fact]
+        public void PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose()
+        {
+            // No tracked facilities -> patched=0, skipped=0, notFound=0.
+            // Must NOT log at INFO; must hit the rate-limited Verbose
+            // "nothing to patch" path.
+            var module = new FacilitiesModule();
+
+            logLines.Clear();
+            for (int i = 0; i < 50; i++)
+                KspStatePatcher.PatchFacilities(module);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: levels patched"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: nothing to patch"));
+            int emptyLines = logLines.FindAll(l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: nothing to patch")).Count;
+            // Rate-limited to one line per 5s window; 50 immediate calls
+            // collapse to one.
+            Assert.Equal(1, emptyLines);
+        }
+
+        // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0
+        // && skippedCount>0) requires real KSP UpgradeableFacility refs in
+        // ScenarioUpgradeableFacilities.protoUpgradeables, which are not
+        // wireable in the headless xUnit environment. That path is exercised
+        // in-game by a steady-state non-empty FacilitiesModule recalc loop
+        // — bug #596's playtest log captured the original symptom and the
+        // post-fix verification (no INFO summary) belongs in the next
+        // playtest validation rather than an xUnit canary.
+
+        // ================================================================
         // PatchAll — suppression flags
         // ================================================================
 
