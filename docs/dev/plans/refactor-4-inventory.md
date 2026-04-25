@@ -52,7 +52,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
-| `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass0-OpportunityMap; Tracking Station map candidates mapped |
+| `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass1-Done; proto-vessel node helpers extracted |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass1-Done; watch entry helpers extracted |
 | `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
 | `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass1-Done; `Build` tab view-model helpers extracted |
@@ -609,14 +609,23 @@ vessel create/update/removal, Tracking Station handoffs, source resolution,
 orbit updates, state-vector/terminal-orbit seed data, save stripping, and
 spawn-at-Tracking-Station-end behavior.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `ResolveMapPresenceGhostSource` by decision phases while keeping guard
-  order and selected-source precedence unchanged.
-- Split `CreateGhostVesselsFromCommittedRecordings` into candidate collection,
-  per-recording creation/update, and summary logging helpers.
-- Split `BuildAndLoadGhostProtoVesselCore` around node construction and
-  load/update phases only.
+- Split `BuildAndLoadGhostProtoVesselCore` around proto-vessel node
+  construction and ghost proto-vessel cleanup. Ghost PID pre-registration,
+  `ProtoVessel.Load`, `vesselRef` null handling, orbit renderer setup, vessel
+  type restore, and diagnostics remain in the original order.
+- Left `ResolveMapPresenceGhostSource` and
+  `CreateGhostVesselsFromCommittedRecordings` inline for Pass 1. Their guard
+  precedence, source counters, skip buckets, cached state-vector indices, and
+  rate-limited batch logging are tightly coupled enough that a wider extraction
+  should wait for the Pass 2 Tracking Station owner proposal.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~GhostMapPresenceTests|FullyQualifiedName~TrackingStationSpawnTests|FullyQualifiedName~ShowGhostsInTrackingStationTests|FullyQualifiedName~TrackingStationControlSurfaceUITests|FullyQualifiedName~SessionSuppressionWiringTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: Tracking Station source resolver, map lifecycle owner,
 and proto-vessel builder.
