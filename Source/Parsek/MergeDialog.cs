@@ -102,11 +102,16 @@ namespace Parsek
             }
             else
             {
+                // Regular tree-merge: just the headline. The spawnable=0
+                // advisory ("no flight branches produced a vessel that can
+                // continue flying") that used to ride here was over-
+                // explanation — when the tree's recordings are all crashed
+                // or recovered, ghost-only playback is the obvious outcome
+                // and the player already saw it happen. If any recording
+                // had survived as a flyable vessel, it would not be sitting
+                // in a pending tree at all.
                 double duration = ComputeTreeDurationRange(tree);
                 message = $"{tree.TreeName} - {FormatDuration(duration)}";
-                if (spawnCount == 0 && decisions.Count > 0)
-                    message += "\n\nNo flight branches produced a vessel that can continue flying. " +
-                               "The recordings will play back as ghosts, but no vessel will be placed.";
             }
 
             var capturedDecisions = decisions;

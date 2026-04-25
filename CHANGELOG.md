@@ -42,6 +42,8 @@ All notable changes to Parsek are documented here.
 
 - The Merge to Timeline dialog now shows the re-flight's vessel name + recording duration on a centered headline, followed by a single line "Commit this re-flight attempt permanently to the timeline. This cannot be undone!" — replacing the long supersede / ghost-of-retired-attempt advisory that was misleading on the in-place continuation path.
 
+- Regular (non-re-fly) tree-merge dialog drops the "no flight branches produced a vessel that can continue flying" advisory. Crashed / recovered recordings replaying as ghosts is the obvious outcome; the warning was over-explanation in jargon ("branches", "placed").
+
 - Spawn-death detection now skips while a re-fly session marker is active, so the `PostLoadStripper` killing sibling vessels (upper stage, debris) at re-fly invocation no longer arms a duplicate materialization that spawned a real upper-stage vessel next to the player's re-fly booster.
 
 - Merging an in-place re-fly continuation now reaps the originating Rewind Point and forces the recording to `Immutable` even if the re-flight crashed, so the recording is promoted out of the Unfinished Flights virtual group instead of staying duplicated in both Unfinished Flights and the regular tree row. "Merge to Timeline" is treated as the player's commitment that the re-flight is final regardless of outcome.
