@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly session marker now survives the SPACECENTER round-trip that precedes the merge dialog when the active recording is a previously-promoted Unfinished Flight; previously the load-time validator wiped it and the merge fell through to the regular tree-merge path (no force-Immutable, no RP reap, no UF clear-out).
+
 - Re-Fly confirmation dialog renamed to `Parsek - Finish Flight` with a plain-language prompt ("Do you want to fly this again?") and a `Re-Fly` accept button instead of `Rewind`.
 
 - Unfinished Flight rows no longer appear twice (once as a top-level tree row, once inside the nested Unfinished Flights subgroup); they render only inside the Unfinished Flights group.

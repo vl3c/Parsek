@@ -378,6 +378,107 @@ namespace Parsek.Tests
                 l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
         }
 
+        [Fact]
+        public void MarkerValid_InPlaceContinuation_CommittedProvisional_Preserved()
+        {
+            // Regression: 2026-04-25_1246 playtest. RewindInvoker.AtomicMarkerWrite's
+            // in-place continuation path (item 11 in todo-and-known-bugs.md)
+            // sets ActiveReFlyRecordingId == OriginChildRecordingId so the
+            // marker points at the existing recording instead of a fresh
+            // placeholder. When that recording was a previously-promoted
+            // Unfinished Flight its MergeState is CommittedProvisional, NOT
+            // NotCommitted. The validator MUST accept that state for the
+            // in-place continuation case or the marker is silently wiped on
+            // every save+load cycle (e.g. the FLIGHT->SPACECENTER scene
+            // change for the merge dialog), and TryCommitReFlySupersede
+            // falls through to the regular tree-merge path with
+            // 'no active re-fly session marker'.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    // Active == origin (in-place continuation). MergeState is
+                    // CommittedProvisional from the prior tree merge that
+                    // promoted this recording out of NotCommitted into the
+                    // crash-terminal RP-child slot.
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("sess_1", scenario.ActiveReFlySessionMarker.SessionId);
+        }
+
+        [Fact]
+        public void MarkerInvalid_PlaceholderPattern_CommittedProvisional_Cleared()
+        {
+            // Regression: the in-place CommittedProvisional carve-out only
+            // applies when origin == active. A placeholder pattern (origin
+            // != active) MUST still be NotCommitted — a placeholder
+            // recording carries no committed history yet. Reject
+            // CommittedProvisional in this shape so a corrupt save or
+            // legacy migration leftover does not silently keep a stale
+            // marker pointing at a finalized branch.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_active", MergeState.CommittedProvisional),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_active", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
+        }
+
+        [Fact]
+        public void MarkerInvalid_InPlaceContinuation_Immutable_Cleared()
+        {
+            // Regression: even for in-place continuation, an Immutable
+            // recording cannot be a re-fly target. A finalized recording
+            // is the canonical historical record; mutating it is a write
+            // through the tombstone supersede chain, never a marker
+            // pointing at the row directly. Reject the marker so the
+            // load-time sweep wipes any stale shape that landed via legacy
+            // migration or a previous force-flip.
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1",
+                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
+        }
+
         // ---------- Spare + discard sets ----------------------------------
 
         [Fact]

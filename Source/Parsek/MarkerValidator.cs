@@ -101,14 +101,33 @@ namespace Parsek
             var active = FindRecordingById(marker.ActiveReFlyRecordingId);
             if (active == null)
                 return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
-            if (active.MergeState != MergeState.NotCommitted)
-                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
 
             if (string.IsNullOrEmpty(marker.OriginChildRecordingId))
                 return MarkerValidationResult.Invalid("OriginChildRecordingId");
             var origin = FindRecordingById(marker.OriginChildRecordingId);
             if (origin == null)
                 return MarkerValidationResult.Invalid("OriginChildRecordingId");
+
+            // MergeState gate. The placeholder pattern (origin != active)
+            // creates a fresh `NotCommitted` recording at re-fly start, so
+            // the active row is always `NotCommitted` for that path. The
+            // in-place continuation pattern (`origin == active`, see
+            // RewindInvoker.AtomicMarkerWrite) reuses the existing
+            // recording — when that recording was a previously-promoted
+            // Unfinished Flight its `MergeState` is `CommittedProvisional`,
+            // and the validator MUST accept that state or every save+load
+            // cycle will silently wipe the active session marker. Reject
+            // `Immutable` in both patterns: a finalized historical
+            // recording cannot be a re-fly target.
+            bool inPlaceContinuation = string.Equals(
+                marker.ActiveReFlyRecordingId,
+                marker.OriginChildRecordingId,
+                StringComparison.Ordinal);
+            bool acceptableState =
+                active.MergeState == MergeState.NotCommitted
+                || (inPlaceContinuation && active.MergeState == MergeState.CommittedProvisional);
+            if (!acceptableState)
+                return MarkerValidationResult.Invalid("ActiveReFlyRecordingId");
 
             if (string.IsNullOrEmpty(marker.RewindPointId))
                 return MarkerValidationResult.Invalid("RewindPointId");
