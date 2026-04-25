@@ -75,44 +75,116 @@ BP's `ParentRecordingIds` to name the new second half. The original
 recording's `ChildBranchPointId` then pointed at a BP whose parent list
 no longer named it.
 
-**Decision (Option A — refresh same-ID recordings on divergence):**
-when a committed recording's ID matches a loaded recording's ID, detect
-divergence on split-relevant structural fields (Points count, last-point
-UT, OrbitSegments count, TrackSections count, `ChildBranchPointId`,
-`TerminalStateValue`, `TerminalOrbitBody`) and, on divergence, refresh
-the loaded copy from the committed copy. The refresh path mirrors
-`RestoreCommittedSidecarPayloadIntoActiveTreeRecording` (the sister fix
-for hydration-failed records): it overwrites trajectory + terminal-state
-+ child-link fields via `ApplyPersistenceArtifactsFrom` + an explicit
-field-set, while preserving identity (RecordingId, TreeId, TreeOrder,
-MergeState, CreatingSessionId, supersede/provisional refs). The
-refreshed record is marked `FilesDirty` so the next `OnSave` rewrites
-the `.sfs` + `.prec` with the post-split shape.
+### Rejected during P1 follow-up review — initial "skip the active id" decision
 
-The active recording (passed via the new `activeRecordingId` parameter,
-forwarded from `tree.ActiveRecordingId` at the call site in
-`TryRestoreActiveTreeNode`) is excluded from the refresh path — its
-in-memory state is being live-updated by the recorder during Re-Fly,
-and clobbering it with the committed snapshot would lose the new flight
-data.
+The first follow-up shipped a same-ID refresh path that **excluded the
+active recording**: the helper accepted an optional `activeRecordingId`,
+and when a same-ID committed recording matched that id the refresh was
+skipped. The justification at the time was "the recorder is live-updating
+the active recording's in-memory state during Re-Fly; clobbering it
+would lose new flight data."
 
-Why Option A over the other candidates the prompt offered:
+The P1 follow-up review rejected that decision. The reviewer's argument
+was correct and decisive:
 
-- **Option B (always refresh, no divergence check)** would mark every
-  same-ID record dirty even when the trees match exactly, forcing
-  unnecessary `.sfs`/`.prec` rewrites on every benign Re-Fly.
-- **Option C (refresh without divergence detection but still always
-  overwrite the trajectory)** has the same churn cost as B; the
-  divergence check is cheap (5 integer compares + 3 string compares +
-  1 nullable-enum compare) and meaningfully reduces dirty churn.
-- Option A matches what the BP-update branch already does (compare
-  `ParentRecordingIds` / `ChildRecordingIds` for divergence, only
-  rewrite on mismatch), so the splice now applies one consistent
-  "compare-then-overwrite" pattern across both recordings and BPs.
+1. The active recording is precisely the one most likely to be the
+   stale post-split first half. `SplitAtSection` keeps the original id
+   on the truncated first half — so the active first half IS the
+   post-split atmo half whose id matches the pre-split recording.
+2. The new positive test `Splice_TreeWithStaleFirstHalfAfterSplit_RefreshesFirstHalfFromCommitted`
+   modelled the realistic playtest case (rec_capsule_atmo as committed/
+   truncated) but called the helper without the active id, so it
+   exercised the non-active path that production never used. In
+   production `TryRestoreActiveTreeNode` always forwards
+   `tree.ActiveRecordingId`, so the active path was never refreshed.
+3. The companion test `Splice_RefreshDoesNotClobberActiveRecording`
+   asserted the active recording was *untouched* — correct under the
+   skip semantics, wrong as a contract.
 
-The structured `[Scenario][INFO]` log line gains a `refreshedRecordings`
-field, and the verbose ID list now distinguishes `splicedIds=[…]` from
-`refreshedIds=[…]`.
+### Adopted during P1 follow-up review — refresh active too, preserve recorder-owned state
+
+Load-order analysis at splice time:
+
+1. KSP loads RP's `.sfs` (frozen pre-split snapshot).
+2. `TryRestoreActiveTreeNode` runs in `OnLoad`. Each recording goes
+   through `RecordingTree.LoadRecordingFrom` which sets up the
+   structural fields from disk.
+3. `SpliceMissingCommittedRecordingsIntoLoadedTree` runs HERE. **At
+   this point, the recorder has NOT bound to the active recording yet** —
+   there is no in-flight point being appended.
+4. Tree is stashed as pending-Limbo via `RecordingStore.StashPendingTree`.
+5. KSP `onFlightReady` eventually fires → `RestoreActiveTreeFromPending`
+   (the PR #585 fix) runs the recorder rebind.
+6. Recorder starts appending new live points.
+
+So the splice runs strictly before recorder rebind, and the active
+recording's `Points` / `OrbitSegments` / `TrackSections` are exactly
+what the `.sfs` put there — there is **no recorder-owned in-flight
+payload state to lose** by overwriting them.
+
+The helper now refreshes the active recording's structural fields from
+the committed copy too. The `activeRecordingId` parameter still exists,
+but now means *"this id gets the recorder-state-preserving refresh"*
+instead of *"this id is skipped"*. The recorder-state-preserving refresh
+performs the same `ApplyPersistenceArtifactsFrom` + explicit field-set
+overwrite as the full refresh, but snapshots and restores the small
+set of `[NonSerialized]` flags that load-time mitigation paths may have
+already set on the loaded copy. The set, audited from `Recording.cs`:
+
+| Field | Type | Set by |
+|-------|------|--------|
+| `FilesDirty` | `bool` | the recorder on every mutation; load-time hydration repair paths after structural healing |
+| `SidecarLoadFailed` | `bool` | `LoadRecordingFiles` when stale-epoch / hydration failure detected |
+| `SidecarLoadFailureReason` | `string` | same site as `SidecarLoadFailed` |
+| `ContinuationBoundaryIndex` | `int` | continuation-rollback bookkeeping (#95) |
+| `PreContinuationVesselSnapshot` | `ConfigNode` | continuation-rollback bookkeeping (#95) |
+| `PreContinuationGhostSnapshot` | `ConfigNode` | continuation-rollback bookkeeping (#95) |
+
+`FilesDirty` is OR-ed with the freshly-marked-dirty value (the structural
+overwrite always marks the record dirty so the next OnSave rewrites
+the `.prec`). Every other flag is restored verbatim. Non-active
+recordings receive the regular full refresh — they don't need the
+preserve-mode because no load-time mitigation path targets them
+specifically and the committed copy's `[NonSerialized]` fields are
+defaulted by `DeepClone` anyway.
+
+Why this works without the original "lose live state" risk:
+
+- The committed tree is the authoritative post-merge truth for the
+  structural payload.
+- The recorder hasn't bound yet, so there is no live payload state on
+  the loaded copy that doesn't already match the committed copy.
+- The only state that load-time code paths CAN have mutated between
+  `.sfs` deserialization and the splice is the `[NonSerialized]` flag
+  set above, which preserve-mode keeps.
+
+### Decision summary table
+
+- **Option A (rejected initially, adopted now): refresh active too,
+  preserve recorder-owned state.** Matches the load-order facts, gives
+  the playtest case the structural correctness it needs, and closes
+  the only path where production stayed stale.
+- **Option B (refresh all, never preserve any flags) — rejected:** would
+  wipe load-time mitigation flags on the active recording; downstream
+  `.prec` repair paths look at `SidecarLoadFailed` to decide whether
+  to repair from a donor.
+- **Option C (skip active entirely, what the first follow-up shipped) —
+  rejected by P1 review:** active recording is exactly the one most
+  likely to need refresh.
+- **Option D (refresh active without divergence check, always): rejected**
+  for the same reason the original P1 fix rejected always-refresh-non-
+  active: it forces unnecessary `.sfs`/`.prec` rewrites on every benign
+  Re-Fly.
+
+The structured `[Scenario][INFO]` log line now reports the refresh count
+split into the two modes:
+
+```
+refreshedRecordings=N (full=N1 recorderStatePreserved=N2)
+```
+
+so post-playtest log scans can distinguish the two paths. The verbose
+ID list (`refreshedIds=[…]`) lists every refreshed id regardless of mode.
 
 ## Tests
 
@@ -120,9 +192,11 @@ field, and the verbose ID list now distinguishes `splicedIds=[…]` from
 - `Splice_TreeAlreadyMatches_NoSplice_LogsAlreadyInSync` — sanity case, RP snapshot already matches committed; zero splices, zero refreshes, log says `already in sync`.
 - `Splice_NoCommittedTreeForId_GracefulNoOp` — loaded tree has no in-memory committed counterpart; helper returns 0 without throwing.
 - `Splice_BranchPointOnlyInCommitted_ClonedIntoLoaded` — committed tree has an extra BranchPoint linking the post-split half; after splice that BranchPoint exists in the active tree.
-- `Splice_StructuredLogShape_MatchesContract` — the `INFO` line includes `splicedRecordings=`, `refreshedRecordings=`, `splicedBranchPoints=`, `updatedBranchPoints=`, and `source=committed-tree-in-memory` fields.
-- `Splice_TreeWithStaleFirstHalfAfterSplit_RefreshesFirstHalfFromCommitted` (P1 review): loaded has the pre-split full recording (full UT range, ChildBranchPointId pointing at the OLD BP) and committed has the post-split truncated recording (same id, atmo-only UT range, new ChildBranchPointId). Asserts the loaded recording's UT range, point count, and `ChildBranchPointId` match the committed's after splice.
-- `Splice_RefreshDoesNotClobberActiveRecording` (P1 review): an `activeRecordingId` is passed to the splice; the active recording's in-memory state must be untouched even when the committed copy diverges.
+- `Splice_StructuredLogShape_MatchesContract` — the `INFO` line includes `splicedRecordings=`, `refreshedRecordings=`, the `(full=N1 recorderStatePreserved=N2)` sub-bucket, `splicedBranchPoints=`, `updatedBranchPoints=`, and `source=committed-tree-in-memory` fields.
+- `Splice_ActiveStaleFirstHalfAfterSplit_RefreshesAndPreservesRecorderOwnedState` (P1 follow-up #2): rec_R is the active recording AND the same-ID stale first half. Asserts structural fields match committed truncated first half, and pre-set `FilesDirty` / `SidecarLoadFailed` / `SidecarLoadFailureReason` survive the refresh; structured log shows `refreshedRecordings=1 (full=0 recorderStatePreserved=1)`.
+- `Splice_NonActiveStaleFirstHalfAfterSplit_RefreshesInFullMode` (P1 follow-up #2): rec_R is NOT the active recording; same divergence; structured log shows `(full=1 recorderStatePreserved=0)`.
+- `Splice_RecorderOwnedFlagsPreservedOnActiveRefresh` (P1 follow-up #2): pins the full audited preserve set (`FilesDirty`, `SidecarLoadFailed`, `SidecarLoadFailureReason`, `ContinuationBoundaryIndex`, `PreContinuationVesselSnapshot`, `PreContinuationGhostSnapshot`) — every flag survives the active refresh.
+- `Splice_ActiveRecordingAlreadyMatchesCommitted_NoRefreshNoFlagChurn` (P1 follow-up #2): when the active recording already matches the committed copy, the divergence check short-circuits and nothing is rewritten — `FilesDirty` stays clean, the `already in sync` verbose line is emitted.
 
 In-game / playtest replay coverage is in `RuntimeTests.cs` (deferred — gated on
 real `GamePersistence` round-trip; see `feedback_unity_test_coverage.md`).

@@ -2491,9 +2491,18 @@ namespace Parsek
                 // the loaded tree BEFORE RemoveCommittedTreeById destroys the in-memory copy.
                 // The spliced recordings are deep-cloned and marked dirty so the next OnSave
                 // rewrites the .sfs + .prec with fresh sidecar epochs and the live shape.
-                // The active recording id is forwarded so the same-ID refresh path skips the
-                // active recording (its in-memory state is being live-updated by the recorder
-                // and must not be clobbered with the committed snapshot).
+                // The active recording id is forwarded so the same-ID refresh path can run
+                // in recorder-state-preserving mode for the active recording — at this point
+                // the recorder has not yet rebound (rebind fires on the deferred onFlightReady
+                // pass after this scene-load OnLoad), so there is no in-flight payload state
+                // to lose, but a small set of [NonSerialized] mitigation flags
+                // (FilesDirty / SidecarLoadFailed / SidecarLoadFailureReason /
+                // ContinuationBoundaryIndex / Pre-Continuation snapshots) may already be set
+                // by earlier load-time code paths and the refresh must not wipe them. The
+                // structural fields (trajectory, orbit segments, track sections, terminal
+                // state, ChildBranchPointId) ARE refreshed for the active recording — that is
+                // the whole point of the P1 fix, since the active id IS most likely the stale
+                // post-split first half from the RP's frozen .sfs.
                 int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(
                     tree, tree.ActiveRecordingId);
 
@@ -3072,12 +3081,30 @@ namespace Parsek
         /// to the second half. Without that refresh, the loaded copy would keep
         /// the pre-split full trajectory + the old child link while the committed
         /// BP's parent list named the new second half — a referential mismatch
-        /// (P1 review of PR #575). The active recording id, when supplied, is
-        /// excluded from the refresh path so the recorder's live in-memory state
-        /// is never clobbered. BranchPoints follow the same rule: any committed-
-        /// tree-only BP is cloned in, and any loaded BP whose Id matches a
-        /// committed BP gets its <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c>
-        /// overwritten from the committed copy (the post-merge truth).
+        /// (P1 review of PR #575). The <paramref name="activeRecordingId"/>, when
+        /// supplied, identifies the recording the recorder will rebind to once
+        /// <c>onFlightReady</c> fires; that recording still gets the structural
+        /// refresh (it is precisely the one most likely to be the stale post-split
+        /// first half — the splice runs BEFORE recorder rebind, so there is no
+        /// in-flight recorder state to lose), but the refresh runs in
+        /// recorder-state-preserving mode so transient flags
+        /// <see cref="Recording.FilesDirty"/>,
+        /// <see cref="Recording.SidecarLoadFailed"/>,
+        /// <see cref="Recording.SidecarLoadFailureReason"/>,
+        /// <see cref="Recording.ContinuationBoundaryIndex"/>,
+        /// <see cref="Recording.PreContinuationVesselSnapshot"/>, and
+        /// <see cref="Recording.PreContinuationGhostSnapshot"/> are NOT clobbered.
+        /// The committed tree never carries those transient flags (DeepClone +
+        /// the [NonSerialized] attribute strip them on copy), so non-active
+        /// recordings cannot lose live state by being refreshed; the
+        /// preserve-mode is only needed when subsequent code paths between this
+        /// splice and the recorder's first sample have set those flags on the
+        /// active recording (e.g. the load-time hydration mitigation may set
+        /// <see cref="Recording.SidecarLoadFailed"/>). BranchPoints follow the
+        /// same rule: any committed-tree-only BP is cloned in, and any loaded
+        /// BP whose Id matches a committed BP gets its
+        /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> overwritten
+        /// from the committed copy (the post-merge truth).
         /// </para>
         ///
         /// <para>
@@ -3109,6 +3136,8 @@ namespace Parsek
 
             int splicedRecordings = 0;
             int refreshedRecordings = 0;
+            int refreshedRecordingsFull = 0;
+            int refreshedRecordingsRecorderStatePreserved = 0;
             int splicedBranchPoints = 0;
             int updatedBranchPoints = 0;
             var splicedRecordingIds = new List<string>();
@@ -3144,29 +3173,48 @@ namespace Parsek
                         continue;
                     }
 
-                    // Same-ID refresh path (P1 review of PR #575). The committed
-                    // copy is the post-merge truth (post-SplitAtSection: truncated
-                    // trajectory, moved terminal payload, reassigned
-                    // ChildBranchPointId). The loaded copy is the pre-merge .sfs
-                    // snapshot (full trajectory, original child link). Without
-                    // refreshing, the loaded copy would internally disagree with
-                    // the committed BP parent lists that the BP loop below
-                    // overwrites onto the loaded BPs (e.g. parent BP's
-                    // ParentRecordingIds names the new exo half but the original
-                    // recording's ChildBranchPointId still points at the parent
-                    // BP). Skip the active recording — its in-memory state is
-                    // being live-updated by the recorder and clobbering it with
-                    // the committed snapshot would lose the new flight data.
-                    if (!string.IsNullOrEmpty(activeRecordingId)
-                        && string.Equals(recId, activeRecordingId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
+                    // Same-ID refresh path (P1 review of PR #575 + follow-up).
+                    // The committed copy is the post-merge truth (post-
+                    // SplitAtSection: truncated trajectory, moved terminal
+                    // payload, reassigned ChildBranchPointId). The loaded copy
+                    // is the pre-merge .sfs snapshot (full trajectory, original
+                    // child link). Without refreshing, the loaded copy would
+                    // internally disagree with the committed BP parent lists
+                    // that the BP loop below overwrites onto the loaded BPs
+                    // (e.g. parent BP's ParentRecordingIds names the new exo
+                    // half but the original recording's ChildBranchPointId
+                    // still points at the parent BP).
+                    //
+                    // The active recording is NOT skipped any more (the initial
+                    // PR #575 follow-up did skip it — the reviewer rejected
+                    // that because the active recording is precisely the one
+                    // most likely to be a stale post-split first half kept by
+                    // the RP's frozen .sfs). At splice time the recorder has
+                    // not yet bound to the active recording — TryRestoreActiveTreeNode
+                    // runs in OnLoad, the splice runs immediately after sidecar
+                    // hydration, then the tree is stashed as pending-Limbo and
+                    // the recorder rebind only fires on the deferred onFlightReady
+                    // pass. There is therefore no in-flight recorder-owned
+                    // payload state in the active recording to lose. The
+                    // structural refresh always runs; the active id is forwarded
+                    // into the helper so it can switch to recorder-state-
+                    // preserving mode for the small set of [NonSerialized]
+                    // flags that load-time mitigation paths may have already
+                    // set on the active recording (FilesDirty / SidecarLoadFailed /
+                    // SidecarLoadFailureReason / ContinuationBoundaryIndex /
+                    // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot).
+                    bool isActive = !string.IsNullOrEmpty(activeRecordingId)
+                        && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
 
-                    if (RefreshLoadedRecordingFromCommittedSplit(loadedRec, committedRec))
+                    if (RefreshLoadedRecordingFromCommittedSplit(
+                            loadedRec, committedRec, preserveRecorderOwnedState: isActive))
                     {
                         refreshedRecordings++;
                         refreshedRecordingIds.Add(recId);
+                        if (isActive)
+                            refreshedRecordingsRecorderStatePreserved++;
+                        else
+                            refreshedRecordingsFull++;
                     }
                 }
             }
@@ -3235,7 +3283,10 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     $"SpliceMissingCommittedRecordings: tree '{loadedTree.TreeName}' (id={loadedTree.Id}) " +
                     $"loadedBefore={loadedBefore} committed={committedCount} after={loadedAfter} " +
-                    $"splicedRecordings={splicedRecordings} refreshedRecordings={refreshedRecordings} " +
+                    $"splicedRecordings={splicedRecordings} " +
+                    $"refreshedRecordings={refreshedRecordings} " +
+                    $"(full={refreshedRecordingsFull} " +
+                    $"recorderStatePreserved={refreshedRecordingsRecorderStatePreserved}) " +
                     $"splicedBranchPoints={splicedBranchPoints} " +
                     $"updatedBranchPoints={updatedBranchPoints} " +
                     $"source=committed-tree-in-memory");
@@ -3265,11 +3316,29 @@ namespace Parsek
         /// <see cref="RestoreCommittedSidecarPayloadIntoActiveTreeRecording"/>
         /// — overwrites trajectory + terminal-state + child-link fields while
         /// preserving the loaded copy's identity (RecordingId, TreeId,
-        /// TreeOrder, MergeState, CreatingSessionId, supersede/provisional refs)
-        /// and not touching transient flight state owned by the recorder. The
-        /// loaded recording is marked <c>FilesDirty</c> so the next
+        /// TreeOrder, MergeState, CreatingSessionId, supersede/provisional refs).
+        /// The loaded recording is marked <c>FilesDirty</c> so the next
         /// <c>OnSave</c> rewrites the <c>.sfs</c> + <c>.prec</c> with the
         /// post-split shape and a fresh sidecar epoch.
+        ///
+        /// <para>
+        /// When <paramref name="preserveRecorderOwnedState"/> is <c>true</c>
+        /// (passed for the active recording — see the helper's caller for the
+        /// full load-order rationale) the refresh additionally preserves the
+        /// set of <c>[NonSerialized]</c> flags any load-time mitigation may
+        /// have already set on the loaded copy: <c>FilesDirty</c>,
+        /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>,
+        /// <c>ContinuationBoundaryIndex</c>, <c>PreContinuationVesselSnapshot</c>,
+        /// <c>PreContinuationGhostSnapshot</c>. The committed copy never
+        /// carries those flags (they are <c>[NonSerialized]</c> and
+        /// <c>DeepClone</c> does not propagate them), so a non-active refresh
+        /// can clobber-then-restore safely. The preserve-mode exists because
+        /// the structural overwrite happens to land on the same recording the
+        /// recorder will later rebind to, and downstream save paths look at
+        /// <c>FilesDirty</c> / <c>SidecarLoadFailed</c> to decide whether to
+        /// rewrite the <c>.prec</c> or repair from a donor — losing those
+        /// flags would silently disable those paths for the active recording.
+        /// </para>
         /// </summary>
         /// <returns>
         /// <c>true</c> if the committed copy diverged from the loaded copy in a
@@ -3277,7 +3346,9 @@ namespace Parsek
         /// <c>false</c> if the loaded copy already matched (no-op).
         /// </returns>
         private static bool RefreshLoadedRecordingFromCommittedSplit(
-            Recording loadedRec, Recording committedRec)
+            Recording loadedRec,
+            Recording committedRec,
+            bool preserveRecorderOwnedState)
         {
             if (loadedRec == null || committedRec == null)
                 return false;
@@ -3320,6 +3391,24 @@ namespace Parsek
             string supersedeTargetId = loadedRec.SupersedeTargetId;
             string provisionalForRpId = loadedRec.ProvisionalForRpId;
 
+            // Recorder-owned [NonSerialized] flags. Snapshotted before the
+            // overwrite so the active-refresh path can put them back. The
+            // committed copy never carries them (DeepClone resets the flags
+            // to their defaults), so a full refresh ends with them all
+            // cleared / defaulted; preserve-mode reapplies the snapshot.
+            // Audit anchor: the [NonSerialized] flag set in Recording.cs is
+            // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
+            // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
+            // PreContinuationGhostSnapshot}. Add to this preserve-list when
+            // any new [NonSerialized] flag tracking per-session live state
+            // is added to Recording.
+            bool savedFilesDirty = loadedRec.FilesDirty;
+            bool savedSidecarLoadFailed = loadedRec.SidecarLoadFailed;
+            string savedSidecarLoadFailureReason = loadedRec.SidecarLoadFailureReason;
+            int savedContinuationBoundaryIndex = loadedRec.ContinuationBoundaryIndex;
+            ConfigNode savedPreContinuationVesselSnapshot = loadedRec.PreContinuationVesselSnapshot;
+            ConfigNode savedPreContinuationGhostSnapshot = loadedRec.PreContinuationGhostSnapshot;
+
             Recording sourceClone = Recording.DeepClone(committedRec);
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
             loadedRec.CopyStartLocationFrom(sourceClone);
@@ -3351,6 +3440,21 @@ namespace Parsek
             loadedRec.CreatingSessionId = creatingSessionId;
             loadedRec.SupersedeTargetId = supersedeTargetId;
             loadedRec.ProvisionalForRpId = provisionalForRpId;
+
+            if (preserveRecorderOwnedState)
+            {
+                // Restore the recorder-owned flag snapshot. FilesDirty is OR-ed
+                // with the freshly-marked-dirty value because either being
+                // true means the next OnSave must rewrite the sidecar — we
+                // don't want a previously-dirty state to be downgraded just
+                // because the structural overwrite is canonical-by-itself.
+                loadedRec.FilesDirty = savedFilesDirty || loadedRec.FilesDirty;
+                loadedRec.SidecarLoadFailed = savedSidecarLoadFailed;
+                loadedRec.SidecarLoadFailureReason = savedSidecarLoadFailureReason;
+                loadedRec.ContinuationBoundaryIndex = savedContinuationBoundaryIndex;
+                loadedRec.PreContinuationVesselSnapshot = savedPreContinuationVesselSnapshot;
+                loadedRec.PreContinuationGhostSnapshot = savedPreContinuationGhostSnapshot;
+            }
 
             return true;
         }
