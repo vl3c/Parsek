@@ -62,6 +62,10 @@ All notable changes to Parsek are documented here.
 
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.
 
+- `#585` In-place continuation Re-Fly now resumes recording into the booster's recording instead of timing out the tree to Limbo, so the post-Re-Fly merge dialog renders the recording with real duration instead of `0s` `hasSnapshot=False`. The async-FLIGHT-load path now waits for `RewindInvokeContext` to clear before reading the marker, so the deferred marker write never races the restore coroutine; the marker swap also rebuilds the tree's `BackgroundMap` so the newly active recording is no longer tracked as both active and background.
+
+- `#587` Re-Fly strip pass now also kills pre-existing debris vessels carried in the rewind quicksave whose name matches a Destroyed-terminal recording in the actively re-flown tree, so leftover prior-career debris no longer trips KSP-stock patched conics into a phantom Kerbin Encounter prediction and a 50x warp cap. The kill loop now snapshots its targets before iterating, so consecutive matching debris cannot be skipped when `Vessel.Die()` removes entries from `FlightGlobals.Vessels` mid-loop.
+
 - Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
 
 - EVA splits now author a Rewind Point, so a destroyed EVA kerbal becomes an Unfinished Flight with a Re-Fly button. Previously `IsTrackableVessel` only recognised parts with `ModuleCommand`, so the kerbal didn't count as a controllable output, the split classified as single-controllable, and no RP was authored.
