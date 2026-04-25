@@ -39,6 +39,7 @@ All notable changes to Parsek are documented here.
 - `#543` `LoopTimeUnit.Auto` now uses one global launch queue instead of per-recording independent cadence. Flight playback, KSC playback, and watch-mode loop reconstruction all schedule Auto recordings from the shared queue order, so the global Auto interval is the gap between successive launches across the queue and each recording's relaunch cadence scales by queue length instead of clumping at each recording's own start UT.
 - `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
+- `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
 
 ### Bug Fixes
 
