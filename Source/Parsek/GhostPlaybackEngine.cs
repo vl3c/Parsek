@@ -65,6 +65,14 @@ namespace Parsek
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
+        private int frameSkipBeforeActivation;
+        private int frameSkipAnchorMissing;
+        private int frameSkipLoopSyncFailed;
+        private int frameSkipParentLoopPaused;
+        private int frameSkipWarpHidden;
+        private int frameSkipVisualLoadFailed;
+        private int frameSkipNoRenderableData;
+        private int frameSkipSessionSuppressed;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -231,6 +239,92 @@ namespace Parsek
             return state == null || state.loopCycleIndex != cycleIndex;
         }
 
+        private void CountFrameSkip(GhostPlaybackSkipReason reason)
+        {
+            switch (reason)
+            {
+                case GhostPlaybackSkipReason.NoRenderableData:
+                    frameSkipNoRenderableData++;
+                    break;
+                case GhostPlaybackSkipReason.BeforeActivation:
+                    frameSkipBeforeActivation++;
+                    break;
+                case GhostPlaybackSkipReason.AnchorMissing:
+                    frameSkipAnchorMissing++;
+                    break;
+                case GhostPlaybackSkipReason.LoopSyncFailed:
+                    frameSkipLoopSyncFailed++;
+                    break;
+                case GhostPlaybackSkipReason.ParentLoopPaused:
+                    frameSkipParentLoopPaused++;
+                    break;
+                case GhostPlaybackSkipReason.WarpHidden:
+                    frameSkipWarpHidden++;
+                    break;
+                case GhostPlaybackSkipReason.VisualLoadFailed:
+                    frameSkipVisualLoadFailed++;
+                    break;
+                case GhostPlaybackSkipReason.SessionSuppressed:
+                    frameSkipSessionSuppressed++;
+                    break;
+            }
+        }
+
+        internal static bool ShouldEmitFrameSummary(GhostPlaybackFrameCounters counters)
+        {
+            return counters.spawned > 0
+                || counters.destroyed > 0
+                || counters.deferred > 0
+                || counters.beforeActivation > 0
+                || counters.anchorMissing > 0
+                || counters.loopSyncFailed > 0
+                || counters.parentLoopPaused > 0
+                || counters.warpHidden > 0
+                || counters.visualLoadFailed > 0
+                || counters.noRenderableData > 0
+                || counters.sessionSuppressed > 0;
+        }
+
+        internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Frame: spawned={0} destroyed={1} deferred={2} " +
+                "skips[beforeActivation={3} anchorMissing={4} loopSyncFailed={5} " +
+                "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
+                "noRenderableData={9} sessionSuppressed={10}] active={11}",
+                counters.spawned,
+                counters.destroyed,
+                counters.deferred,
+                counters.beforeActivation,
+                counters.anchorMissing,
+                counters.loopSyncFailed,
+                counters.parentLoopPaused,
+                counters.warpHidden,
+                counters.visualLoadFailed,
+                counters.noRenderableData,
+                counters.sessionSuppressed,
+                counters.active);
+        }
+
+        private GhostPlaybackFrameCounters BuildCurrentFrameCounters()
+        {
+            return new GhostPlaybackFrameCounters
+            {
+                spawned = frameSpawnCount,
+                destroyed = frameDestroyCount,
+                deferred = frameSpawnDeferred,
+                beforeActivation = frameSkipBeforeActivation,
+                anchorMissing = frameSkipAnchorMissing,
+                loopSyncFailed = frameSkipLoopSyncFailed,
+                parentLoopPaused = frameSkipParentLoopPaused,
+                warpHidden = frameSkipWarpHidden,
+                visualLoadFailed = frameSkipVisualLoadFailed,
+                noRenderableData = frameSkipNoRenderableData,
+                sessionSuppressed = frameSkipSessionSuppressed,
+                active = ghostStates.Count
+            };
+        }
+
         /// <summary>
         /// Emits exactly one INFO log per (recording index, userPeriod,
         /// effectiveCadence, duration) tuple. Re-emits only when one of the
@@ -363,11 +457,6 @@ namespace Parsek
             RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 
             ResetPerFramePlaybackCounters(suppressGhosts);
-            // Phase 7 of Rewind-to-Staging (design §3.3): per-frame count of
-            // trajectories skipped because their recording is in the active
-            // session's SuppressedSubtree. Included in the frame-summary log
-            // below so session-scoped suppression is visible in KSP.log.
-            int frameSessionSuppressed = 0;
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
@@ -387,10 +476,11 @@ namespace Parsek
                 // spawn path) and keep their silent-skip behaviour.
                 if (f.skipGhost)
                 {
+                    CountFrameSkip(f.skipReason);
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f, reason: "disabled/suppressed");
+                        DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
                     }
 
                     if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
@@ -411,7 +501,11 @@ namespace Parsek
                 bool hasInterpolatedPoints = traj.Points != null && traj.Points.Count >= 2;
                 bool hasOrbitData = traj.HasOrbitSegments;
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
-                if (!HasRenderableGhostData(traj)) continue;
+                if (!HasRenderableGhostData(traj))
+                {
+                    CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                    continue;
+                }
 
                 // Phase 7 of Rewind-to-Staging (design §3.3): during an active
                 // re-fly session, skip ghosts whose source recording is in the
@@ -426,7 +520,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
                     }
-                    frameSessionSuppressed++;
+                    CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
                     continue;
                 }
 
@@ -446,6 +540,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "before activation start UT");
                     }
+                    CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                     continue;
                 }
 
@@ -464,6 +559,7 @@ namespace Parsek
                             DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
                             DestroyAllOverlapGhosts(i);
                         }
+                        CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
                         continue;
                     }
 
@@ -500,6 +596,7 @@ namespace Parsek
                         {
                             if (ghostActive)
                                 DestroyGhost(i, traj, f, reason: "parent loop sync failed");
+                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                             continue;
                         }
 
@@ -510,6 +607,9 @@ namespace Parsek
                         {
                             if (state != null)
                                 DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
+                            CountFrameSkip(parentPaused
+                                ? GhostPlaybackSkipReason.ParentLoopPaused
+                                : GhostPlaybackSkipReason.WarpHidden);
                             continue;
                         }
 
@@ -556,6 +656,7 @@ namespace Parsek
                         ResetGhostAppearanceTracking(state);
                     }
                     DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
                     continue;
                 }
 
@@ -587,11 +688,10 @@ namespace Parsek
             }
 
             // Post-loop: batch summary
-            if (frameSpawnCount > 0 || frameDestroyCount > 0 || frameSpawnDeferred > 0 || frameSessionSuppressed > 0)
+            GhostPlaybackFrameCounters frameCounters = BuildCurrentFrameCounters();
+            if (ShouldEmitFrameSummary(frameCounters))
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
-                    $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} " +
-                    $"deferred={frameSpawnDeferred} sessionSuppressed={frameSessionSuppressed} " +
-                    $"active={ghostStates.Count}");
+                    BuildFrameSummaryMessage(frameCounters));
 
             // Bug #414: capture elapsed time at loop end so the "main loop" phase (pure
             // dispatch cost, excluding spawn/destroy which already accumulate into their
@@ -709,6 +809,14 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
+            frameSkipBeforeActivation = 0;
+            frameSkipAnchorMissing = 0;
+            frameSkipLoopSyncFailed = 0;
+            frameSkipParentLoopPaused = 0;
+            frameSkipWarpHidden = 0;
+            frameSkipVisualLoadFailed = 0;
+            frameSkipNoRenderableData = 0;
+            frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -788,6 +896,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(i);
                     ghostActive = false;
                     return false;
@@ -835,6 +944,7 @@ namespace Parsek
                         : "entered visible distance tier");
                 if (loadStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostActive = false;
                     return false;
                 }
@@ -1040,6 +1150,7 @@ namespace Parsek
             {
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop schedule resolution failed");
+                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                 return;
             }
 
@@ -1072,6 +1183,7 @@ namespace Parsek
                         });
                     }
                     DestroyAllOverlapGhosts(index);
+                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
                     return;
                 }
                 else if (suppressGhosts)
@@ -1097,6 +1209,7 @@ namespace Parsek
             {
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
+                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                 return;
             }
 
@@ -1118,6 +1231,7 @@ namespace Parsek
                     });
                 }
                 DestroyAllOverlapGhosts(index);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
                 return;
             }
 
@@ -1225,6 +1339,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (loopSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(index);
                     return;
                 }
@@ -1268,7 +1383,10 @@ namespace Parsek
                         ? "continuing loop first spawn"
                         : "loop re-entered visible distance tier");
                 if (loopLoadStatus == GhostVisualLoadStatus.Failed)
+                {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     return;
+                }
                 if (loopLoadStatus == GhostVisualLoadStatus.Pending)
                     return;
             }
@@ -1313,6 +1431,7 @@ namespace Parsek
             {
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
+                CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
             }
 
@@ -1402,6 +1521,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (overlapPrimarySpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(index);
                     ParsekLog.Warn("Engine",
                         $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
@@ -1461,6 +1581,8 @@ namespace Parsek
                                 if (overlapPrimaryLoadStatus != GhostVisualLoadStatus.CompletedThisCall
                                     && overlapPrimaryLoadStatus != GhostVisualLoadStatus.Ready)
                                 {
+                                    if (overlapPrimaryLoadStatus == GhostVisualLoadStatus.Failed)
+                                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                                     primaryReady = false;
                                 }
                             }
@@ -3048,6 +3170,14 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
+            frameSkipBeforeActivation = 0;
+            frameSkipAnchorMissing = 0;
+            frameSkipLoopSyncFailed = 0;
+            frameSkipParentLoopPaused = 0;
+            frameSkipWarpHidden = 0;
+            frameSkipVisualLoadFailed = 0;
+            frameSkipNoRenderableData = 0;
+            frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -3326,7 +3456,10 @@ namespace Parsek
                         index, traj, state, playbackUT,
                         $"hidden-tier prewarm ({hiddenReason})");
                     if (prewarmStatus == GhostVisualLoadStatus.Failed)
+                    {
+                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                         return false;
+                    }
                     if (prewarmStatus == GhostVisualLoadStatus.Pending)
                         return true;
                 }

@@ -121,6 +121,18 @@ namespace Parsek
         internal static int lifecycleDestroyedThisTick;
         internal static int lifecycleUpdatedThisTick;
 
+        internal struct GhostMapVisibilityCounters
+        {
+            public int uniqueTracked;
+            public int recordingTracked;
+            public int chainTracked;
+            public int mapObjectMissing;
+            public int orbitRendererMissing;
+            public int orbitRendererDisabled;
+            public int drawIconsNotAll;
+            public int iconSuppressed;
+        }
+
         /// <summary>
         /// Decision-line field bag for the structured GhostMap log lines.
         /// All numeric fields default to NaN; the builder omits NaN-valued slots.
@@ -194,13 +206,13 @@ namespace Parsek
         /// </summary>
         internal static void EmitLifecycleSummary(string scope, double currentUT)
         {
+            GhostMapVisibilityCounters visibility = CollectMapVisibilityCounters();
             ParsekLog.VerboseRateLimited(
                 Tag,
                 "gm-lifecycle-summary",
-                string.Format(ic,
-                    "lifecycle-summary: scope={0} vesselsTracked={1} created={2} destroyed={3} updated={4} currentUT={5:F1} scene={6}",
-                    scope ?? "(unspecified)",
-                    vesselsByRecordingIndex.Count,
+                BuildLifecycleSummaryMessage(
+                    scope,
+                    visibility,
                     lifecycleCreatedThisTick,
                     lifecycleDestroyedThisTick,
                     lifecycleUpdatedThisTick,
@@ -210,6 +222,119 @@ namespace Parsek
             lifecycleCreatedThisTick = 0;
             lifecycleDestroyedThisTick = 0;
             lifecycleUpdatedThisTick = 0;
+        }
+
+        internal static string BuildLifecycleSummaryMessage(
+            string scope,
+            GhostMapVisibilityCounters visibility,
+            int created,
+            int destroyed,
+            int updated,
+            double currentUT,
+            string scene)
+        {
+            return string.Format(ic,
+                "lifecycle-summary: scope={0} vesselsTracked={1} recordingTracked={2} chainTracked={3} " +
+                "created={4} destroyed={5} updated={6} currentUT={7:F1} scene={8} " +
+                "mapVisibility[mapObjMissing={9} orbitRendererMissing={10} orbitRendererDisabled={11} " +
+                "drawIconsNotAll={12} iconSuppressed={13}]",
+                scope ?? "(unspecified)",
+                visibility.uniqueTracked,
+                visibility.recordingTracked,
+                visibility.chainTracked,
+                created,
+                destroyed,
+                updated,
+                currentUT,
+                scene ?? "n/a",
+                visibility.mapObjectMissing,
+                visibility.orbitRendererMissing,
+                visibility.orbitRendererDisabled,
+                visibility.drawIconsNotAll,
+                visibility.iconSuppressed);
+        }
+
+        internal static string BuildGhostProtoVesselVisibilityState(
+            bool hasMapObject,
+            bool hasOrbitRenderer,
+            bool orbitRendererEnabled,
+            string drawIcons,
+            bool nativeIconSuppressed,
+            bool rendererForceEnabled)
+        {
+            string visibilityReason;
+            if (!hasMapObject)
+                visibilityReason = "map-object-missing";
+            else if (!hasOrbitRenderer)
+                visibilityReason = "orbit-renderer-missing";
+            else if (!orbitRendererEnabled)
+                visibilityReason = "orbit-renderer-disabled";
+            else if (rendererForceEnabled)
+                visibilityReason = "renderer-force-enabled";
+            else if (!string.Equals(drawIcons, OrbitRendererBase.DrawIcons.ALL.ToString(), StringComparison.Ordinal))
+                visibilityReason = "draw-icons-not-all";
+            else if (nativeIconSuppressed)
+                visibilityReason = "native-icon-suppressed";
+            else
+                visibilityReason = "visible";
+
+            return string.Format(ic,
+                "mapObj={0} orbitRenderer={1} rendererEnabled={2} drawIcons={3} nativeIconSuppressed={4} " +
+                "rendererForceEnabled={5} visibilityReason={6}",
+                hasMapObject,
+                hasOrbitRenderer,
+                orbitRendererEnabled,
+                string.IsNullOrEmpty(drawIcons) ? "(none)" : drawIcons,
+                nativeIconSuppressed,
+                rendererForceEnabled,
+                visibilityReason);
+        }
+
+        private static GhostMapVisibilityCounters CollectMapVisibilityCounters()
+        {
+            var counters = new GhostMapVisibilityCounters
+            {
+                recordingTracked = vesselsByRecordingIndex.Count,
+                chainTracked = vesselsByChainPid.Count
+            };
+            var seenPids = new HashSet<uint>();
+
+            foreach (Vessel vessel in vesselsByRecordingIndex.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+            foreach (Vessel vessel in vesselsByChainPid.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+
+            return counters;
+        }
+
+        private static void CountMapVisibility(
+            Vessel vessel,
+            ref GhostMapVisibilityCounters counters,
+            HashSet<uint> seenPids)
+        {
+            if (vessel == null)
+                return;
+
+            uint pid = vessel.persistentId;
+            if (pid != 0 && !seenPids.Add(pid))
+                return;
+
+            counters.uniqueTracked++;
+            if (vessel.mapObject == null)
+                counters.mapObjectMissing++;
+            if (vessel.orbitRenderer == null)
+            {
+                counters.orbitRendererMissing++;
+            }
+            else
+            {
+                if (!vessel.orbitRenderer.enabled)
+                    counters.orbitRendererDisabled++;
+                if (vessel.orbitRenderer.drawIcons != OrbitRendererBase.DrawIcons.ALL)
+                    counters.drawIconsNotAll++;
+            }
+            if (pid != 0 && ghostsWithSuppressedIcon.Contains(pid))
+                counters.iconSuppressed++;
         }
 
         private static string GetCurrentSceneName()
@@ -5946,12 +6071,14 @@ namespace Parsek
 
                 // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
                 // may create the renderer in a disabled state.
+                bool rendererForceEnabled = false;
                 if (v.orbitRenderer != null)
                 {
                     v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
                     v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                     if (!v.orbitRenderer.enabled)
                     {
+                        rendererForceEnabled = true;
                         v.orbitRenderer.enabled = true;
                         ParsekLog.Verbose(Tag, string.Format(ic,
                             "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
@@ -5967,16 +6094,24 @@ namespace Parsek
                     v.vesselType = vtype;
                 }
 
+                string mapVisibilityState = BuildGhostProtoVesselVisibilityState(
+                    v.mapObject != null,
+                    v.orbitRenderer != null,
+                    v.orbitRenderer != null && v.orbitRenderer.enabled,
+                    v.orbitRenderer != null ? v.orbitRenderer.drawIcons.ToString() : "(none)",
+                    ghostsWithSuppressedIcon.Contains(v.persistentId),
+                    rendererForceEnabled);
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} " +
-                        "orbitSource={6}{7} | {8} mapObj={9} orbitRenderer={10} scene={11}",
+                        "orbitSource={6}{7} | {8} {9} scene={10}",
                         vesselName, v.persistentId,
                         vtype, body.name, orbit.semiMajorAxis, logContext,
                         string.IsNullOrEmpty(orbitSource) ? "(unspecified)" : orbitSource,
                         string.IsNullOrEmpty(orbitSourceDetail) ? string.Empty : " " + orbitSourceDetail,
                         driverState,
-                        v.mapObject != null, v.orbitRenderer != null,
+                        mapVisibilityState,
                         HighLogic.LoadedScene));
 
                 return v;

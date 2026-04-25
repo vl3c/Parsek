@@ -268,6 +268,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Flight playback explainability now carries explicit ghost skip reasons through `TrajectoryPlaybackFlags`, logs reason flips with `VerboseOnChange`, and folds under-summarized skips (before-activation, missing anchors, loop-sync failures, parent-loop pauses, warp-hidden ghosts, visual-load failures, no-renderable-data, and session suppression) into the rate-limited engine frame summary. Fast-forward-to-watch handoff failures now report whether the committed recording disappeared, playback was disabled, no active ghost existed, or another skip reason blocked watch entry.
+- Ghost map/proto-vessel visibility diagnostics now include map-object, orbit-renderer, draw-icon, native-icon suppression, and renderer-force-enable state in creation/lifecycle logs. Map focus restore during watch mode now emits on-change reasons for missing ghost pids, missing ghost vessels, missing map objects, or missing PlanetariumCamera, and watch-camera infrastructure failures are rate-limited with the watched recording, vessel, cycle, scene, and target-state context.
 - `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
@@ -294,6 +296,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added focused log-builder/classifier coverage for Phase 2 playback visibility: stable ghost skip reason tokens, skip-reason priority, on-change skip logging suppression, aggregate frame-summary counters, fast-forward watch handoff classification, GhostMap visibility summaries, map-focus restore blockers, and watch-camera infrastructure blockers.
 - `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.

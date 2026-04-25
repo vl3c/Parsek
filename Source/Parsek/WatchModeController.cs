@@ -2474,9 +2474,32 @@ namespace Parsek
             // Find the ghost we're actually following -- may be an overlap ghost, not the primary
             GhostPlaybackState state = FindWatchedGhostState();
 
-            if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
-                || FlightCamera.fetch.transform.parent == null)
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            Transform cameraTransform = flightCamera != null ? flightCamera.transform : null;
+            Transform cameraParent = cameraTransform != null ? cameraTransform.parent : null;
+            string cameraInfraReason = ClassifyWatchCameraInfrastructure(
+                flightCamera != null,
+                cameraTransform != null,
+                cameraParent != null);
+            if (cameraInfraReason != "ready")
+            {
+                ParsekLog.WarnRateLimited(
+                    "CameraFollow",
+                    "watch-camera-infra:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture) +
+                    ":" + cameraInfraReason,
+                    BuildWatchCameraInfrastructureMessage(
+                        watchedRecordingIndex,
+                        watchedRecordingId,
+                        cameraInfraReason,
+                        state?.vesselName,
+                        watchedOverlapCycleIndex,
+                        GetLoadedSceneNameSafe(),
+                        state != null,
+                        state?.ghost != null,
+                        state?.cameraPivot != null),
+                    minIntervalSeconds: 5.0);
                 return;
+            }
 
             if (state == null || state.cameraPivot == null)
             {
@@ -2495,15 +2518,38 @@ namespace Parsek
             watchNoTargetFrames = 0;
 
             // Keep sharpness zeroed -- KSP resets it on various events
-            FlightCamera.fetch.pivotTranslateSharpness = 0f;
+            flightCamera.pivotTranslateSharpness = 0f;
 
             // Drive camera orbit center to the cameraPivot's world position
-            FlightCamera.fetch.transform.parent.position = state.cameraPivot.position;
+            cameraParent.position = state.cameraPivot.position;
 
             // Update horizon proxy rotation and auto-detect camera mode
             UpdateHorizonProxy(state);
             LogWatchTargetMismatch(state);
             LogWatchFocusStateChanged(state);
+        }
+
+        private void LogMapFocusRestoreDecision(
+            uint ghostPid,
+            Vessel ghostVessel,
+            bool hasPlanetariumCamera,
+            string reason)
+        {
+            bool hasGhostVessel = ghostVessel != null;
+            bool hasMapObject = hasGhostVessel && ghostVessel.mapObject != null;
+            bool hasOrbitRenderer = hasGhostVessel && ghostVessel.orbitRenderer != null;
+            ParsekLog.VerboseOnChange(
+                "GhostMap",
+                "map-focus-restore|" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                reason ?? "(none)",
+                BuildMapFocusRestoreDecisionMessage(
+                    watchedRecordingIndex,
+                    ghostPid,
+                    hasGhostVessel,
+                    hasMapObject,
+                    hasOrbitRenderer,
+                    hasPlanetariumCamera,
+                    reason));
         }
 
         private void UpdateMapFocusRestore()
@@ -2522,11 +2568,29 @@ namespace Parsek
 
             uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(watchedRecordingIndex);
             if (ghostPid == 0)
+            {
+                bool hasPlanetariumCamera = PlanetariumCamera.fetch != null;
+                string reason = ClassifyMapFocusRestore(
+                    ghostPid,
+                    hasGhostVessel: false,
+                    hasMapObject: false,
+                    hasPlanetariumCamera: hasPlanetariumCamera);
+                LogMapFocusRestoreDecision(ghostPid, null, hasPlanetariumCamera, reason);
                 return;
+            }
 
             Vessel ghostVessel = FlightRecorder.FindVesselByPid(ghostPid);
             if (ghostVessel == null)
+            {
+                bool hasPlanetariumCamera = PlanetariumCamera.fetch != null;
+                string reason = ClassifyMapFocusRestore(
+                    ghostPid,
+                    hasGhostVessel: false,
+                    hasMapObject: false,
+                    hasPlanetariumCamera: hasPlanetariumCamera);
+                LogMapFocusRestoreDecision(ghostPid, null, hasPlanetariumCamera, reason);
                 return;
+            }
 
             if ((ghostVessel.mapObject == null || ghostVessel.orbitRenderer == null)
                 && MapView.fetch != null
@@ -2536,14 +2600,20 @@ namespace Parsek
                 ensureGhostOrbitRenderersAttempted = true;
             }
 
-            if (!CanRestoreMapFocus(
-                    ghostPid,
-                    ghostVessel != null,
-                    ghostVessel.mapObject != null,
-                    PlanetariumCamera.fetch != null))
+            PlanetariumCamera planetariumCamera = PlanetariumCamera.fetch;
+            string restoreReason = ClassifyMapFocusRestore(
+                ghostPid,
+                hasGhostVessel: true,
+                hasMapObject: ghostVessel.mapObject != null,
+                hasPlanetariumCamera: planetariumCamera != null);
+            if (restoreReason != "ready")
+            {
+                LogMapFocusRestoreDecision(ghostPid, ghostVessel, planetariumCamera != null, restoreReason);
                 return;
+            }
 
-            PlanetariumCamera.fetch.SetTarget(ghostVessel.mapObject);
+            LogMapFocusRestoreDecision(ghostPid, ghostVessel, planetariumCamera != null, restoreReason);
+            planetariumCamera.SetTarget(ghostVessel.mapObject);
             pendingMapFocusRestore = false;
             ParsekLog.Info("GhostMap",
                 $"Restored map focus to watched ghost '{ghostVessel.vesselName}' (recIndex={watchedRecordingIndex})");
@@ -2576,10 +2646,100 @@ namespace Parsek
             bool hasMapObject,
             bool hasPlanetariumCamera)
         {
-            return ghostPid != 0
-                && hasGhostVessel
-                && hasMapObject
-                && hasPlanetariumCamera;
+            return ClassifyMapFocusRestore(
+                ghostPid,
+                hasGhostVessel,
+                hasMapObject,
+                hasPlanetariumCamera) == "ready";
+        }
+
+        internal static string ClassifyMapFocusRestore(
+            uint ghostPid,
+            bool hasGhostVessel,
+            bool hasMapObject,
+            bool hasPlanetariumCamera)
+        {
+            if (ghostPid == 0)
+                return "no-ghost-pid";
+            if (!hasGhostVessel)
+                return "ghost-vessel-missing";
+            if (!hasMapObject)
+                return "map-object-missing";
+            if (!hasPlanetariumCamera)
+                return "planetarium-camera-missing";
+            return "ready";
+        }
+
+        internal static string BuildMapFocusRestoreDecisionMessage(
+            int recordingIndex,
+            uint ghostPid,
+            bool hasGhostVessel,
+            bool hasMapObject,
+            bool hasOrbitRenderer,
+            bool hasPlanetariumCamera,
+            string reason)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Map focus restore decision: rec=#{0} ghostPid={1} hasGhostVessel={2} " +
+                "mapObj={3} orbitRenderer={4} planetariumCamera={5} reason={6}",
+                recordingIndex,
+                ghostPid,
+                hasGhostVessel,
+                hasMapObject,
+                hasOrbitRenderer,
+                hasPlanetariumCamera,
+                string.IsNullOrEmpty(reason) ? "(none)" : reason);
+        }
+
+        internal static string ClassifyWatchCameraInfrastructure(
+            bool hasFlightCamera,
+            bool hasTransform,
+            bool hasParent)
+        {
+            if (!hasFlightCamera)
+                return "flight-camera-missing";
+            if (!hasTransform)
+                return "camera-transform-missing";
+            if (!hasParent)
+                return "camera-parent-missing";
+            return "ready";
+        }
+
+        internal static string BuildWatchCameraInfrastructureMessage(
+            int recordingIndex,
+            string recordingId,
+            string reason,
+            string vesselName = null,
+            long cycleIndex = -1,
+            string scene = null,
+            bool hasState = false,
+            bool hasGhost = false,
+            bool hasCameraPivot = false)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Watch camera infrastructure unavailable: rec=#{0} id={1} vessel=\"{2}\" " +
+                "cycle={3} scene={4} targetState[state={5} ghost={6} pivot={7}] reason={8}",
+                recordingIndex,
+                string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
+                vesselName ?? "?",
+                cycleIndex,
+                string.IsNullOrEmpty(scene) ? "n/a" : scene,
+                hasState,
+                hasGhost,
+                hasCameraPivot,
+                string.IsNullOrEmpty(reason) ? "(none)" : reason);
+        }
+
+        private static string GetLoadedSceneNameSafe()
+        {
+            try
+            {
+                return HighLogic.LoadedScene.ToString();
+            }
+            catch
+            {
+                return "n/a";
+            }
         }
 
         /// <summary>

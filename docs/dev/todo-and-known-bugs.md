@@ -20,14 +20,22 @@ Open implementation follow-up: make Parsek's runtime decisions reconstructable
 from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
 
 - P1 save/load exception context and KSC playback spam fixes.
-- P2 flight ghost skip reasons, playback frame skip summaries, rewind
+- P2 ~~flight ghost skip reasons, playback frame skip summaries~~, rewind
   `CanInvoke` reason logging, sidecar/path severity and context, duplicate
   `OnLoad` timing cleanup, post-switch auto-record no-trigger summaries,
-  background recorder drift warnings, game-action skip summaries, and UI/map
-  marker skip summaries.
+  background recorder drift warnings, game-action skip summaries, and ~~UI/map
+  marker skip summaries for ghost/proto-vessel map presence and watch focus~~.
 - P3 shared rate-limit key cleanup, repeated-warning rate limits, noisy resource
   event aggregation, production warning-prefix cleanup, and low-risk
   cleanup/reflection summaries.
+
+Status update (`observability/playback-visibility`): closed the Phase 2 flight
+playback visibility slice for ghost skip reasons, on-change skip logging, engine
+aggregate skip counters, fast-forward watch handoff reasons, and watch-camera
+infrastructure failures. The branch also added map-view/proto-vessel visibility
+reasoning for missing map objects, orbit renderers, draw-icon state, native-icon
+suppression, renderer force-enable, and watched-ghost map-focus restore blockers.
+Remaining observability audit items stay open.
 
 ---
 
