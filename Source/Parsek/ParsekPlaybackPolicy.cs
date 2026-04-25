@@ -78,9 +78,33 @@ namespace Parsek
         /// Runs BEFORE engine.UpdatePlayback() so flags reflect current state.
         /// If a spawned vessel's PID is no longer in FlightGlobals.Vessels, the
         /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
+        ///
+        /// <para>
+        /// Skipped during an active re-fly session. <see cref="PostLoadStripper.Strip"/>
+        /// kills sibling vessels (selected vessel's siblings from the original
+        /// timeline) on purpose, and the §6.4 contract is that those kills are
+        /// silent — they must not feed back into the policy as "spawned vessel
+        /// died, please re-spawn". Without this guard the policy resets
+        /// <c>VesselSpawned=false</c> on every recording whose previously-
+        /// materialized vessel was just stripped, arming a duplicate spawn
+        /// that materializes a real upper-stage / debris next to the player's
+        /// re-fly vessel (observed in the 10:47 playtest). Spawn-death
+        /// detection resumes after the marker is cleared (merge or discard).
+        /// </para>
         /// </summary>
         internal void RunSpawnDeathChecks()
         {
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-refly",
+                    $"RunSpawnDeathChecks: skipped during active re-fly session " +
+                    $"sess={scenario.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} — " +
+                    "Strip kills are intentional and must not trigger respawn");
+                return;
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
 
