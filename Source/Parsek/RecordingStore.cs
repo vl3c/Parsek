@@ -4112,7 +4112,7 @@ namespace Parsek
             int dedupedBoundaryCopies = 0;
             for (int t = 0; t < tracks.Count; t++)
             {
-                if (tracks[t].referenceFrame == ReferenceFrame.OrbitalCheckpoint || tracks[t].frames == null)
+                if (tracks[t].frames == null)
                     continue;
 
                 for (int i = 0; i < tracks[t].frames.Count; i++)
@@ -5038,7 +5038,8 @@ namespace Parsek
         /// <summary>
         /// Serializes TrackSection list into TRACK_SECTION ConfigNodes under the given parent.
         /// Each section carries its own environment classification, reference frame, and nested
-        /// trajectory data (POINT nodes for Absolute/Relative, ORBIT_SEGMENT nodes for OrbitalCheckpoint).
+        /// trajectory data (POINT nodes for Absolute/Relative and densified OrbitalCheckpoint
+        /// frames, ORBIT_SEGMENT nodes for OrbitalCheckpoint source elements).
         /// </summary>
         internal static void SerializeTrackSections(
             ConfigNode parent,
@@ -5097,6 +5098,13 @@ namespace Parsek
                 }
                 else if (track.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
+                    var frames = track.frames;
+                    if (frames != null)
+                    {
+                        for (int i = 0; i < frames.Count; i++)
+                            SerializePoint(tsNode, frames[i], ic);
+                    }
+
                     var checkpoints = track.checkpoints;
                     if (checkpoints != null)
                     {
@@ -5220,6 +5228,11 @@ namespace Parsek
                 }
                 else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
+                    section.frames = new List<TrajectoryPoint>();
+                    ConfigNode[] ptNodes = tsNode.GetNodes("POINT");
+                    for (int i = 0; i < ptNodes.Length; i++)
+                        section.frames.Add(DeserializePoint(ptNodes[i], ns, ic));
+
                     section.checkpoints = new List<OrbitSegment>();
                     ConfigNode[] segNodes = tsNode.GetNodes("ORBIT_SEGMENT");
                     for (int s = 0; s < segNodes.Length; s++)

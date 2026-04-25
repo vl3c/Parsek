@@ -1565,6 +1565,9 @@ namespace Parsek
             switch (sec.referenceFrame)
             {
                 case ReferenceFrame.OrbitalCheckpoint:
+                    if (sec.frames != null && sec.frames.Count > 0)
+                        TrimCheckpointFramesAtUT(sec.frames, trimUT);
+
                     if (sec.checkpoints == null || sec.checkpoints.Count == 0)
                     {
                         sec.endUT = trimUT;
@@ -1614,6 +1617,66 @@ namespace Parsek
                     sec.endUT = sec.frames[sec.frames.Count - 1].ut;
                     return true;
             }
+        }
+
+        private static void TrimCheckpointFramesAtUT(List<TrajectoryPoint> frames, double trimUT)
+        {
+            if (frames == null || frames.Count == 0)
+                return;
+
+            int firstAfter = -1;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (frames[i].ut > trimUT)
+                {
+                    firstAfter = i;
+                    break;
+                }
+            }
+
+            if (firstAfter < 0)
+                return;
+
+            TrajectoryPoint? trimPoint = null;
+            if (firstAfter > 0)
+            {
+                TrajectoryPoint before = frames[firstAfter - 1];
+                TrajectoryPoint after = frames[firstAfter];
+                if (before.ut < trimUT && after.ut > trimUT)
+                    trimPoint = InterpolateCheckpointFrame(before, after, trimUT);
+            }
+
+            frames.RemoveRange(firstAfter, frames.Count - firstAfter);
+            if (trimPoint.HasValue)
+                frames.Add(trimPoint.Value);
+        }
+
+        private static TrajectoryPoint InterpolateCheckpointFrame(
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            double targetUT)
+        {
+            double duration = after.ut - before.ut;
+            double t = duration > 0.0001
+                ? (targetUT - before.ut) / duration
+                : 0.0;
+            if (t < 0.0) t = 0.0;
+            if (t > 1.0) t = 1.0;
+            float tf = (float)t;
+
+            return new TrajectoryPoint
+            {
+                ut = targetUT,
+                latitude = before.latitude + (after.latitude - before.latitude) * t,
+                longitude = before.longitude + (after.longitude - before.longitude) * t,
+                altitude = before.altitude + (after.altitude - before.altitude) * t,
+                rotation = Quaternion.Slerp(before.rotation, after.rotation, tf),
+                velocity = Vector3.Lerp(before.velocity, after.velocity, tf),
+                bodyName = !string.IsNullOrEmpty(after.bodyName) ? after.bodyName : before.bodyName,
+                funds = before.funds + (after.funds - before.funds) * t,
+                science = before.science + (after.science - before.science) * tf,
+                reputation = before.reputation + (after.reputation - before.reputation) * tf
+            };
         }
 
         #endregion

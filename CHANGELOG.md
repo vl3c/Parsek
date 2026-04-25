@@ -41,6 +41,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
+
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
 
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.

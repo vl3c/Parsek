@@ -41,7 +41,7 @@ The three latent carryover items below are tracked in the design doc under Known
 
 # Known Bugs
 
-## 571. Map View ghost icons show weird trajectories that do not match the recorded path
+## ~~571. Map View ghost icons show weird trajectories that do not match the recorded path~~
 
 **Source:** in-game observation by user during the
 `logs/2026-04-25_1314_marker-validator-fix` playtest. "the ghost icons in map
@@ -95,11 +95,9 @@ trajectory.
 - Predicted-tail path (Part B): `Source/Parsek/PatchedConicSnapshot.cs:151-162`
   (`ResetFailedResult` discard floor) and
   `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:287-296`.
-- Latent (not the user-visible symptom but flagged during the diagnosis):
-  `Source/Parsek/GhostMapPresence.cs:1758-1760` dereferences a possibly-null
-  `OrbitSegment?` without `HasValue` check; would throw
-  `InvalidOperationException` if `FindOrbitSegmentForMapDisplay` ever returned
-  null mid-frame. Worth a follow-up `if (seg.HasValue)` guard.
+- Latent guard fixed with Part A: the tracking-station refresh path now checks
+  `FindOrbitSegmentForMapDisplay` for `HasValue` before reading `seg.Value`, so
+  a mid-frame missing segment retires the ghost instead of throwing.
 
 **Reproducer hooks:** in
 `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned`:
@@ -118,9 +116,17 @@ trajectory.
 - `MissingPatchBody` storm: 153× pairs where every entry has `patchIndex=1`,
   never `patchIndex=0`.
 
-**Status:** Open. Part B will be addressed by the #575 fix; Part A
-(checkpoint densification) is a separate recorder-side change still to be
-scheduled.
+**Resolution (2026-04-25):** Closed by the predicted-tail partial-prefix fix
+from PR #542 plus Part A recorder-side checkpoint densification. Long
+`OrbitalCheckpoint` sections now keep the `OrbitSegment` as the Keplerian source
+of truth, but add section-local trajectory points at 5 degrees of true anomaly
+(minimum window 600s, max 360 points, endpoints included); the representative
+`UT=171496.6-193774.6` Kerbin checkpoint adds 42 points and short 300s windows
+add none. Format-v6 `.prec` sidecars preserve those checkpoint frames, the
+optimizer trims them with the section instead of dropping them as noise, playback
+logs the checkpoint point and resolved world position, and map-source decisions
+now log `Segment` / `TerminalOrbit` / `StateVector` / `None` source detail in one
+structured line.
 
 ---
 
