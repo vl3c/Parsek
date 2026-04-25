@@ -216,6 +216,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 with a behavior-neutral `WatchModeController.EnterWatchMode` extraction: watch entry validation/range gating, unattended-flight warning, and hold-state reset now live in private same-file helpers while preserving camera switching and focus behavior.
 - Continued refactor-4 with a behavior-neutral `GhostMapPresence.BuildAndLoadGhostProtoVesselCore` extraction: Tracking Station ghost proto-vessel node construction and failure cleanup now live in private same-file helpers while preserving ghost registration and load diagnostics.
 - Continued refactor-4 with a behavior-neutral `VesselSpawner.SpawnOrRecoverIfTooClose` extraction: resolved spawn-state snapshot overrides now live in a private same-file helper while preserving EVA, breakup-continuous, and surface-terminal spawn handling.
+- Continued refactor-4 with a behavior-neutral `GhostPlaybackEngine.UpdatePlayback` extraction: per-frame playback counters, deferred event buffers, diagnostics stopwatches, and heaviest-spawn latches now reset through a private same-file helper while preserving reset order.
 
 ### Tests
 

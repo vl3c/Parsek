@@ -49,7 +49,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
-| `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
+| `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass1-Done; per-frame playback reset helper extracted |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass1-Done; proto-vessel node helpers extracted |
@@ -557,6 +557,26 @@ Pass 1 same-file candidates:
   schedule/update phases if validation stays focused.
 - Split `TryPopulateGhostVisuals` only around metrics and visual-population
   phases that already execute contiguously.
+
+Pass 1 completed:
+
+- Extracted the `UpdatePlayback` per-frame reset block into
+  `ResetPerFramePlaybackCounters`. Deferred event buffers, spawn/destroy
+  counters, overlap/lazy-reentry counters, heaviest-spawn fields, and
+  diagnostics stopwatches reset in the original order. The
+  `frameSessionSuppressed` local remains inline because it is consumed by the
+  dispatch loop and frame-summary log.
+- Left `UpdateLoopingPlayback`, `UpdateOverlapPlayback`, and
+  `TryPopulateGhostVisuals` inline for Pass 1. Their schedule, metrics,
+  pending-build, FX restoration, and lifecycle-event paths are tightly
+  interleaved enough that a wider split should wait for the Pass 2 playback
+  owner proposal.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~LoopPhaseTests|FullyQualifiedName~DeferredSpawnTests|FullyQualifiedName~Bug406GhostReuseLoopCycleTests|FullyQualifiedName~PartEventTests|FullyQualifiedName~ExplosionFxTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: spawn loader, loop scheduler, reentry driver, and
 observability collector owners.
