@@ -239,8 +239,16 @@ namespace Parsek.Tests
             // shipped in PR #602 is:
             // "SpliceMissingCommittedRecordings: tree '<name>' (id=<id>) "
             // "loadedBefore=<n> committed=<n> after=<n> "
-            // "splicedRecordings=<n> splicedBranchPoints=<n> "
-            // "updatedBranchPoints=<n> source=committed-tree-in-memory"
+            // "splicedRecordings=<n> refreshedRecordings=<n> "
+            // "splicedBranchPoints=<n> updatedBranchPoints=<n> "
+            // "source=committed-tree-in-memory"
+            // PR #575 P1 review follow-up: `refreshedRecordings` is the
+            // count of same-ID recordings whose structural fields were
+            // refreshed from the committed tree (the post-merge truth)
+            // because SplitAtSection mutated them in place after the RP
+            // .sfs was authored. In this scenario rec_a's loaded copy
+            // (UT 0-200, 100 pts) diverges from the committed truncated
+            // first half (UT 0-100, 50 pts), so it gets refreshed.
             var committed = MakeBaseTree("tree_log_shape");
             AddRecording(committed, "rec_a", "A", utStart: 0, utEnd: 100, points: 50);
             AddRecording(committed, "rec_b", "A", utStart: 100, utEnd: 200, points: 50);
@@ -249,7 +257,10 @@ namespace Parsek.Tests
 
             var loaded = MakeBaseTree("tree_log_shape");
             AddRecording(loaded, "rec_a", "A", utStart: 0, utEnd: 200, points: 100);
-            loaded.ActiveRecordingId = "rec_a";
+            // Active recording is intentionally a DIFFERENT id from the
+            // diverged same-ID, so the active-recording skip path doesn't
+            // suppress the refresh in this log-shape pin.
+            loaded.ActiveRecordingId = null;
 
             ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(loaded);
 
@@ -262,7 +273,127 @@ namespace Parsek.Tests
             Assert.Contains("committed=2", entry);
             Assert.Contains("after=2", entry);
             Assert.Contains("splicedRecordings=1", entry);
+            Assert.Contains("refreshedRecordings=1", entry);
             Assert.Contains("source=committed-tree-in-memory", entry);
+        }
+
+        // ============================================================
+        // PR #575 P1 review follow-up — same-ID recording refresh.
+        //
+        // The reviewer pointed out that SplitAtSection mutates the
+        // *original* recording in place (truncates trajectory, moves
+        // terminal payload to the new second half, reassigns
+        // ChildBranchPointId to the second half) before adding the
+        // second half to the tree. The previous splice loop skipped
+        // any committed-tree recording whose id matched a loaded-tree
+        // recording — so a restored pre-split tree kept the stale
+        // pre-split first half AND its old child-link, while the BP
+        // loop already overwrote the parent BP's ParentRecordingIds
+        // to name the new second half. That left the tree internally
+        // inconsistent (the old first half claimed to parent the BP
+        // via ChildBranchPointId, but the BP's ParentRecordingIds
+        // listed the new second half).
+        // ============================================================
+
+        [Fact]
+        public void Splice_TreeWithStaleFirstHalfAfterSplit_RefreshesFirstHalfFromCommitted()
+        {
+            // Committed (post-merge): rec_R is the truncated first half
+            // (UT 0-100, 50 pts) with ChildBranchPointId pointing at the
+            // post-split chain BP, and a NEW recording rec_R_exo carries
+            // the moved terminal payload (UT 100-200).
+            var committed = MakeBaseTree("tree_split_refresh");
+            AddRecording(committed, "rec_R", "Vessel R", utStart: 0, utEnd: 100, points: 50);
+            AddRecording(committed, "rec_R_exo", "Vessel R", utStart: 100, utEnd: 200, points: 50);
+            committed.Recordings["rec_R"].ChildBranchPointId = "bp_split_new";
+            committed.Recordings["rec_R"].TerminalStateValue = null;
+            committed.Recordings["rec_R"].TerminalOrbitBody = null;
+            committed.Recordings["rec_R_exo"].TerminalStateValue = TerminalState.SubOrbital;
+            committed.Recordings["rec_R_exo"].TerminalOrbitBody = "Kerbin";
+            committed.ActiveRecordingId = "rec_R_exo";
+            committed.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_split_new",
+                UT = 100.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_R_exo" },
+                ChildRecordingIds = new List<string> { },
+            });
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            // Loaded (pre-split RP snapshot): rec_R holds the FULL pre-
+            // split trajectory (UT 0-200, 100 pts), the original child
+            // link to the old BP, and the terminal payload that the
+            // committed copy has moved to rec_R_exo.
+            var loaded = MakeBaseTree("tree_split_refresh");
+            AddRecording(loaded, "rec_R", "Vessel R", utStart: 0, utEnd: 200, points: 100);
+            loaded.Recordings["rec_R"].ChildBranchPointId = "bp_pre_split_old";
+            loaded.Recordings["rec_R"].TerminalStateValue = TerminalState.SubOrbital;
+            loaded.Recordings["rec_R"].TerminalOrbitBody = "Kerbin";
+            loaded.ActiveRecordingId = null;
+
+            int spliced = ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(loaded);
+
+            // rec_R_exo is the new id → spliced count is 1.
+            Assert.Equal(1, spliced);
+            Assert.Equal(2, loaded.Recordings.Count);
+
+            // The same-ID rec_R must now match the committed truncated
+            // first half on every split-relevant structural field.
+            Recording loadedR = loaded.Recordings["rec_R"];
+            Assert.Equal(50, loadedR.Points.Count);
+            Assert.Equal(100.0, loadedR.Points[loadedR.Points.Count - 1].ut);
+            Assert.Equal("bp_split_new", loadedR.ChildBranchPointId);
+            Assert.Null(loadedR.TerminalStateValue);
+            Assert.Null(loadedR.TerminalOrbitBody);
+            // FilesDirty must be true so the next OnSave rewrites the
+            // .sfs + .prec with the refreshed shape and a fresh epoch.
+            Assert.True(loadedR.FilesDirty);
+
+            // Identity fields must NOT have been clobbered by the refresh.
+            Assert.Equal("rec_R", loadedR.RecordingId);
+            Assert.Equal("tree_split_refresh", loadedR.TreeId);
+
+            // Structured log line reports refreshedRecordings=1 and the
+            // refreshed id list contains rec_R.
+            string entry = logLines.Find(l =>
+                l.Contains("[Scenario]")
+                && l.Contains("[INFO]")
+                && l.Contains("SpliceMissingCommittedRecordings"));
+            Assert.NotNull(entry);
+            Assert.Contains("refreshedRecordings=1", entry);
+            string verbose = logLines.Find(l =>
+                l.Contains("[Scenario]")
+                && l.Contains("refreshedIds=[rec_R]"));
+            Assert.NotNull(verbose);
+        }
+
+        [Fact]
+        public void Splice_RefreshDoesNotClobberActiveRecording()
+        {
+            // Same divergence as the previous test, but rec_R is the
+            // ACTIVE recording — the recorder is live-updating its
+            // in-memory state during Re-Fly. The refresh path must
+            // skip rec_R entirely so the recorder's mutations survive.
+            var committed = MakeBaseTree("tree_active_skip");
+            AddRecording(committed, "rec_R", "Vessel R", utStart: 0, utEnd: 100, points: 50);
+            committed.Recordings["rec_R"].ChildBranchPointId = "bp_split_new";
+            committed.ActiveRecordingId = "rec_R";
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            var loaded = MakeBaseTree("tree_active_skip");
+            AddRecording(loaded, "rec_R", "Vessel R", utStart: 0, utEnd: 200, points: 100);
+            loaded.Recordings["rec_R"].ChildBranchPointId = "bp_pre_split_old";
+            loaded.ActiveRecordingId = "rec_R";
+
+            ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(
+                loaded, activeRecordingId: "rec_R");
+
+            // rec_R's in-memory state must be UNTOUCHED.
+            Recording loadedR = loaded.Recordings["rec_R"];
+            Assert.Equal(100, loadedR.Points.Count);
+            Assert.Equal("bp_pre_split_old", loadedR.ChildBranchPointId);
+            Assert.False(loadedR.FilesDirty);
         }
 
         // ============================================================

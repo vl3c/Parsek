@@ -43,7 +43,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#601` Re-Fly load now preserves recording-tree mutations (like atmo/exo splits) that the merge ran AFTER the Rewind Point's quicksave was authored. The frozen `.sfs` only knows the pre-merge tree shape; `TryRestoreActiveTreeNode` now splices any post-RP recordings (and updated BranchPoint parent IDs) from the in-memory committed tree into the loaded tree before the committed copy is detached, so the post-Re-Fly tree keeps every committed split half. A structured `[Scenario][INFO] SpliceMissingCommittedRecordings` line reports the splice counts.
+- `#601` Re-Fly load now preserves recording-tree mutations (like atmo/exo splits) that the merge ran AFTER the Rewind Point's quicksave was authored. The frozen `.sfs` only knows the pre-merge tree shape; `TryRestoreActiveTreeNode` now splices any post-RP recordings (and updated BranchPoint parent IDs) from the in-memory committed tree into the loaded tree before the committed copy is detached, AND refreshes any same-id recording that the merge mutated in place (truncated trajectory + moved terminal payload + reassigned child branch-point link), so the post-Re-Fly tree keeps every committed split half and stays internally consistent.
 
 - `#600` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
 
