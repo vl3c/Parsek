@@ -9934,7 +9934,7 @@ namespace Parsek
             rec.MarkFilesDirty();
             ParsekLog.Info("Flight",
                 $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
-                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit})");
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289]");
             return true;
         }
 
