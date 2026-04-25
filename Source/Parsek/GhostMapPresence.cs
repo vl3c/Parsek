@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using HarmonyLib;
 using KSP.UI.Screens;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -1748,7 +1749,7 @@ namespace Parsek
                         continue;
                     }
 
-                    UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+                    UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);
                     continue;
                 }
 
@@ -1946,9 +1947,174 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Outcome of resolving a state-vector trajectory point to a world-space
+        /// position. The reference frame of the originating <see cref="TrackSection"/>
+        /// determines whether <c>point.latitude/longitude/altitude</c> are body-fixed
+        /// surface coordinates or anchor-local XYZ offsets — the wrong interpretation
+        /// silently places the ghost roughly at the body surface but at a horizontally
+        /// meaningless lat/lon (#582 / #571 contributor). This struct centralises the
+        /// branch so both call sites in <see cref="CreateGhostVesselFromStateVectors"/>
+        /// and <see cref="UpdateGhostOrbitFromStateVectors"/> stay in sync.
+        /// </summary>
+        internal struct StateVectorWorldFrame
+        {
+            public bool Resolved;
+            public Vector3d WorldPos;
+            public string Branch;          // "absolute", "relative", "orbital-checkpoint", "no-section"
+            public string FailureReason;   // null on success
+            public uint AnchorPid;         // 0 unless Branch == "relative"
+        }
+
+        /// <summary>
+        /// Pure-static resolution: given a trajectory point, the originating section
+        /// (or null), the body, and pre-resolved anchor data, return the world-space
+        /// position the state-vector orbit should be seeded at. No KSP API calls —
+        /// callers do the body / anchor lookups and pass results in. Pure for testability.
+        /// </summary>
+        internal static StateVectorWorldFrame ResolveStateVectorWorldPositionPure(
+            TrajectoryPoint point,
+            TrackSection? section,
+            int recordingFormatVersion,
+            Func<double, double, double, Vector3d> absoluteSurfaceLookup,
+            bool anchorFound,
+            Vector3d anchorWorldPos,
+            Quaternion anchorWorldRot,
+            uint anchorVesselId)
+        {
+            // No track sections at all — fall back to the original Absolute interpretation.
+            // This preserves behaviour for legacy / synthetic recordings that have not yet
+            // been split into sections, where the lat/lon/alt fields are still surface coords.
+            if (!section.HasValue)
+            {
+                Vector3d pos = absoluteSurfaceLookup(point.latitude, point.longitude, point.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "no-section",
+                    FailureReason = null,
+                    AnchorPid = 0
+                };
+            }
+
+            ReferenceFrame frame = section.Value.referenceFrame;
+            if (frame == ReferenceFrame.Absolute)
+            {
+                Vector3d pos = absoluteSurfaceLookup(point.latitude, point.longitude, point.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "absolute",
+                    FailureReason = null,
+                    AnchorPid = 0
+                };
+            }
+
+            if (frame == ReferenceFrame.Relative)
+            {
+                if (!anchorFound)
+                {
+                    return new StateVectorWorldFrame
+                    {
+                        Resolved = false,
+                        WorldPos = default(Vector3d),
+                        Branch = "relative",
+                        FailureReason = "anchor-not-found",
+                        AnchorPid = section.Value.anchorVesselId
+                    };
+                }
+
+                // The lat/lon/alt fields are reused as anchor-local XYZ offsets in
+                // RELATIVE sections (TrajectoryPoint.cs:13-15 docstring). Resolve via
+                // the same canonical helper InterpolateAndPositionRelative uses on the
+                // flight-scene playback path (ParsekFlight.cs:13821).
+                Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchorWorldPos,
+                    anchorWorldRot,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    recordingFormatVersion);
+
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = worldPos,
+                    Branch = "relative",
+                    FailureReason = null,
+                    AnchorPid = section.Value.anchorVesselId
+                };
+            }
+
+            // OrbitalCheckpoint: state-vector entry points should never come from a
+            // checkpoint section (those carry Keplerian elements, not point samples).
+            // If we get here, the upstream caller fed mismatched data — refuse.
+            return new StateVectorWorldFrame
+            {
+                Resolved = false,
+                WorldPos = default(Vector3d),
+                Branch = "orbital-checkpoint",
+                FailureReason = "state-vector-from-orbital-checkpoint",
+                AnchorPid = 0
+            };
+        }
+
+        /// <summary>
+        /// KSP-dependent wrapper over <see cref="ResolveStateVectorWorldPositionPure"/>.
+        /// Looks up the section, body, and anchor vessel, then delegates to the pure helper.
+        /// </summary>
+        private static StateVectorWorldFrame ResolveStateVectorWorldPosition(
+            IPlaybackTrajectory traj,
+            TrajectoryPoint point,
+            CelestialBody body)
+        {
+            TrackSection? section = null;
+            if (traj?.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, point.ut);
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                    section = traj.TrackSections[sectionIdx];
+            }
+
+            bool anchorFound = false;
+            Vector3d anchorPos = default(Vector3d);
+            Quaternion anchorRot = Quaternion.identity;
+            uint anchorPid = section?.anchorVesselId ?? 0u;
+            if (section.HasValue
+                && section.Value.referenceFrame == ReferenceFrame.Relative
+                && anchorPid != 0u)
+            {
+                Vessel anchor = FlightRecorder.FindVesselByPid(anchorPid);
+                if (anchor != null)
+                {
+                    anchorFound = true;
+                    anchorPos = anchor.GetWorldPos3D();
+                    anchorRot = anchor.transform != null
+                        ? anchor.transform.rotation
+                        : Quaternion.identity;
+                }
+            }
+
+            int formatVersion = traj?.RecordingFormatVersion ?? 0;
+            return ResolveStateVectorWorldPositionPure(
+                point,
+                section,
+                formatVersion,
+                (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
+                anchorFound,
+                anchorPos,
+                anchorRot,
+                anchorPid);
+        }
+
+        /// <summary>
         /// Create a ghost map ProtoVessel from interpolated trajectory state vectors.
         /// Used for physics-only suborbital recordings that have no orbit segments.
         /// Constructs a Keplerian orbit from position + velocity at the given UT.
+        /// Honours the originating TrackSection's <see cref="ReferenceFrame"/>: Absolute
+        /// uses surface lat/lon/alt; Relative resolves through the anchor vessel's
+        /// world transform (matches the flight-scene contract in ParsekFlight.cs:13821).
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
@@ -1976,15 +2142,42 @@ namespace Parsek
                 return null;
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            StateVectorWorldFrame resolution =
+                ResolveStateVectorWorldPosition(traj, point, body);
+            if (!resolution.Resolved)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "CreateGhostVesselFromStateVectors: skip recording #{0} branch={1} reason={2} anchorPid={3} ut={4:F1}",
+                        recordingIndex,
+                        resolution.Branch,
+                        resolution.FailureReason ?? "(null)",
+                        resolution.AnchorPid,
+                        ut));
+                return null;
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "CreateGhostVesselFromStateVectors: recording #{0} branch={1} anchorPid={2} formatV={3} body={4} pos=({5:F1},{6:F1},{7:F1})",
+                    recordingIndex,
+                    resolution.Branch,
+                    resolution.AnchorPid,
+                    traj.RecordingFormatVersion,
+                    point.bodyName ?? "(null)",
+                    resolution.WorldPos.x,
+                    resolution.WorldPos.y,
+                    resolution.WorldPos.z));
+
+            Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             Orbit orbit = new Orbit();
             orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
 
             string logContext = string.Format(ic,
-                "recording #{0} (state vectors alt={1:F0} spd={2:F1})",
-                recordingIndex, point.altitude, point.velocity.magnitude);
+                "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
+                recordingIndex, point.altitude, point.velocity.magnitude, resolution.Branch);
             Vessel vessel = BuildAndLoadGhostProtoVesselCore(
                 traj,
                 orbit,
@@ -1992,11 +2185,13 @@ namespace Parsek
                 logContext,
                 "state-vector-fallback",
                 string.Format(ic,
-                    "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1}",
+                    "stateBody={0} stateUT={1:F1} stateAlt={2:F0} stateSpeed={3:F1} frame={4} anchorPid={5}",
                     point.bodyName ?? "(null)",
                     ut,
                     point.altitude,
-                    point.velocity.magnitude));
+                    point.velocity.magnitude,
+                    resolution.Branch,
+                    resolution.AnchorPid));
             if (vessel != null)
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
 
@@ -2007,9 +2202,12 @@ namespace Parsek
         /// Update a ghost map ProtoVessel's orbit from interpolated trajectory state vectors.
         /// Used for per-frame orbit updates of physics-only suborbital ghosts.
         /// Handles SOI transitions (body change + orbit renderer rebuild).
+        /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
+        /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
         /// </summary>
         internal static void UpdateGhostOrbitFromStateVectors(
-            int recordingIndex, TrajectoryPoint point, double ut)
+            int recordingIndex, IPlaybackTrajectory traj,
+            TrajectoryPoint point, double ut)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
@@ -2033,6 +2231,21 @@ namespace Parsek
                 return;
             }
 
+            StateVectorWorldFrame resolution =
+                ResolveStateVectorWorldPosition(traj, point, body);
+            if (!resolution.Resolved)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "UpdateGhostOrbitFromStateVectors: skip recording #{0} branch={1} reason={2} anchorPid={3} ut={4:F1}",
+                        recordingIndex,
+                        resolution.Branch,
+                        resolution.FailureReason ?? "(null)",
+                        resolution.AnchorPid,
+                        ut));
+                return;
+            }
+
             // SOI transition handling (same pattern as ApplyOrbitToVessel)
             bool soiChanged = vessel.orbitDriver.celestialBody != body;
             if (soiChanged)
@@ -2044,7 +2257,17 @@ namespace Parsek
                         recordingIndex, body.name));
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            ParsekLog.VerboseRateLimited(Tag,
+                "state-vector-orbit-update",
+                string.Format(ic,
+                    "UpdateGhostOrbitFromStateVectors: recording #{0} branch={1} anchorPid={2} formatV={3}",
+                    recordingIndex,
+                    resolution.Branch,
+                    resolution.AnchorPid,
+                    traj?.RecordingFormatVersion ?? 0),
+                2.0);
+
+            Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);

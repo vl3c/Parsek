@@ -1016,7 +1016,7 @@ namespace Parsek
                         continue;
                     }
 
-                    GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+                    GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT);
                 }
 
                 if (toReDefer != null)

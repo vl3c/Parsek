@@ -479,6 +479,62 @@ breakdown.
 
 ---
 
+## ~~582. State-vector ghost map paths fed RELATIVE-frame anchor offsets into `body.GetWorldSurfacePosition`~~
+
+**Source:** code-review observation while triaging #571. Latent in
+`logs/2026-04-25_1314_marker-validator-fix` — every state-vector creation
+attempt that session was rejected (`reason=state-vector-threshold`,
+`no-state-vector-point`), so the bug did NOT fire in the captured playtest.
+Visible symptom when it would fire: a ghost map vessel transitions through a
+RELATIVE `TrackSection` (Phase 3b docking / rendezvous) while above the
+state-vector threshold; the ghost icon snaps to the body surface at a
+horizontally-meaningless lat/lon ("ghost icon goes inside the planet" —
+contributes to #571's symptom family).
+
+**Cause:** `GhostMapPresence.CreateGhostVesselFromStateVectors`
+(`Source/Parsek/GhostMapPresence.cs:1979`) and
+`GhostMapPresence.UpdateGhostOrbitFromStateVectors`
+(`Source/Parsek/GhostMapPresence.cs:2047`) called
+`body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude)`
+unconditionally. The `TrajectoryPoint.latitude/longitude/altitude` fields
+(`Source/Parsek/TrajectoryPoint.cs:13-15`) are reused as anchor-local XYZ
+offsets when the originating section uses `ReferenceFrame.Relative`
+(`Source/Parsek/TrackSection.cs:34-38`). Feeding offsets into
+`GetWorldSurfacePosition` silently produces a meaningless body-surface
+position. The flight-scene playback path
+(`ParsekFlight.InterpolateAndPositionRelative`, line 13751) and the
+diagnostic summary at `GhostPlaybackEngine.cs:3771` already honour the
+contract; only these two map-presence paths skipped it.
+
+The tracking-station orbit-update path pre-gates on `IsInRelativeFrame`
+(`GhostMapPresence.cs:1733`) and therefore did not fire the bug. The
+flight-scene update path in `ParsekPlaybackPolicy.cs:1019` had no such gate,
+so the latent defect was actually reachable there.
+
+**Fix:** added a pure-static helper
+`GhostMapPresence.ResolveStateVectorWorldPositionPure` that branches on the
+section's `referenceFrame`. Absolute keeps the surface lookup; Relative
+resolves through `TrajectoryMath.ResolveRelativePlaybackPosition` (the same
+contract `InterpolateAndPositionRelative` uses for flight-scene playback)
+using the anchor vessel's `GetWorldPos3D()` + `transform.rotation`;
+OrbitalCheckpoint and missing-anchor return an unresolved result that the
+wrappers convert into a WARN log and a skip. Both call sites now log a branch
+tag (`absolute` / `relative` / `orbital-checkpoint` / `no-section`) so post-hoc
+audits can confirm the path that fired. `UpdateGhostOrbitFromStateVectors`
+gained an `IPlaybackTrajectory traj` parameter; both call sites in
+`GhostMapPresence.UpdateTrackingStationGhostLifecycle` and
+`ParsekPlaybackPolicy.CheckPendingMapVessels` were updated.
+
+**Tests:** `Source/Parsek.Tests/StateVectorWorldFrameTests.cs` covers all
+four branches of the pure helper (absolute, relative v6, relative legacy v5,
+orbital-checkpoint, no-section) plus an explicit discriminator test that
+identical point data in Absolute vs Relative sections produces divergent
+world positions.
+
+**Status:** Fixed in PR (state-vector RELATIVE-frame contract).
+
+---
+
 ## ~~570. Warp-deferred survivor spawn stayed queued outside the active vessel's physics bubble~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log`. Recording #15
