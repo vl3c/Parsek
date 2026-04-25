@@ -44,6 +44,10 @@ All notable changes to Parsek are documented here.
 
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
 
+- Re-Fly post-load activation now holds timeline playback while `RewindInvokeContext` is still pending, so the selected re-fly vessel cannot briefly render as both the activated real vessel and its pre-marker timeline ghost.
+
+- Re-Fly session state now survives the stale-sidecar restore path seen in the `2026-04-25_2210_refly-bugs` playtest: marker validation accepts a matching pending tree, the RP reaper preserves the Rewind Point referenced by a live marker, and active-tree restore repairs stale-epoch/empty records from the committed tree before saving so good launch/upper-stage sidecars are not overwritten with zero-payload files.
+
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
 
 - `#576` PatchedConicSnapshot `solver unavailable` and the paired Extrapolator `patched-conic snapshot failed for ... with NullSolver; falling back to live orbit state` WARNs are now rate-limited per (vessel-name) and per (recording-id, failure-reason) respectively. The 2026-04-25 marker-validator-fix playtest emitted 146 of each — almost all from debris, EVA-kerbals, and probe-debris that have no patched-conic solver by design in stock KSP. Downstream NullSolver semantics (live-orbit fallback for the destroyed-vessel case) are unchanged; only the log-noise floor is trimmed.
@@ -162,6 +166,8 @@ All notable changes to Parsek are documented here.
 - Background premature-end finalization now consumes recording-finalization caches for debris TTL, out-of-bubble/missing-vessel endings, and confirmed background destruction, capping destroyed predictions at the actual deletion UT before persisting the sidecar.
 
 ### Tests
+
+- Added regressions for pending-tree marker validation, active-marker RP preservation during reap, Re-Fly pending-invocation timeline playback gating, and committed-tree repair of hydration-failed active-tree sidecars.
 
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
