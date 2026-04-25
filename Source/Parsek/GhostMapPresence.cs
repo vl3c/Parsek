@@ -313,6 +313,11 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
+        internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
+        internal const string OrbitalCheckpointStateVectorRejectSaferSegment = "orbital-checkpoint-state-vector-safer-segment-source";
+        internal const string OrbitalCheckpointStateVectorRejectNotSoiGap = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
+        internal const string OrbitalCheckpointStateVectorRejectBodyMismatch = "orbital-checkpoint-state-vector-body-mismatch";
+        internal const string OrbitalCheckpointStateVectorRejectOutsideWindow = "orbital-checkpoint-state-vector-outside-window";
         internal const double StateVectorCreateAltitude = 1500;   // meters (airless bodies only)
         internal const double StateVectorCreateSpeed = 60;        // m/s
         internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
@@ -1572,6 +1577,11 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Finds the immediate orbit-segment gap bracketing <paramref name="ut"/>.
+        /// <paramref name="segments"/> must be sorted by increasing UT, matching the
+        /// playback trajectory invariant.
+        /// </summary>
         internal static bool TryFindOrbitSegmentGap(
             IReadOnlyList<OrbitSegment> segments,
             double ut,
@@ -1604,6 +1614,11 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Evaluates the narrow OrbitalCheckpoint state-vector carve-out for SOI gaps.
+        /// <paramref name="expectedSoiGapBody"/> is a caller hint; when the segment
+        /// list contains the bracketing gap, the actual post-gap segment body wins.
+        /// </summary>
         internal static OrbitalCheckpointStateVectorFallbackDecision EvaluateOrbitalCheckpointStateVectorFallback(
             IPlaybackTrajectory traj,
             double currentUT,
@@ -1646,17 +1661,17 @@ namespace Parsek
             string reason;
             bool accepted = false;
             if (segmentSourceAvailable)
-                reason = "orbital-checkpoint-state-vector-safer-segment-source";
+                reason = OrbitalCheckpointStateVectorRejectSaferSegment;
             else if (!isSoiGapRecovery)
-                reason = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
+                reason = OrbitalCheckpointStateVectorRejectNotSoiGap;
             else if (!bodyMatches)
-                reason = "orbital-checkpoint-state-vector-body-mismatch";
+                reason = OrbitalCheckpointStateVectorRejectBodyMismatch;
             else if (!withinPlaybackWindow)
-                reason = "orbital-checkpoint-state-vector-outside-window";
+                reason = OrbitalCheckpointStateVectorRejectOutsideWindow;
             else
             {
                 accepted = true;
-                reason = "soi-gap-state-vector-fallback";
+                reason = SoiGapStateVectorFallbackReason;
             }
 
             return new OrbitalCheckpointStateVectorFallbackDecision
@@ -2532,7 +2547,7 @@ namespace Parsek
                     dispatch.StateVecAlt = stateVectorPoint.altitude;
                     dispatch.StateVecSpeed = stateVectorPoint.velocity.magnitude;
                     if (source == TrackingStationGhostSource.StateVectorSoiGap)
-                        dispatch.Reason = "soi-gap-state-vector-fallback";
+                        dispatch.Reason = SoiGapStateVectorFallbackReason;
                     break;
                 case TrackingStationGhostSource.TerminalOrbit:
                     dispatch.Body = traj?.TerminalOrbitBody;
@@ -2563,7 +2578,7 @@ namespace Parsek
                         currentUT,
                         allowOrbitalCheckpointStateVector: source == TrackingStationGhostSource.StateVectorSoiGap,
                         stateVectorCreateReason: source == TrackingStationGhostSource.StateVectorSoiGap
-                            ? "soi-gap-state-vector-fallback"
+                            ? SoiGapStateVectorFallbackReason
                             : null);
 
                 default:

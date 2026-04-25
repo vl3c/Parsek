@@ -158,7 +158,7 @@ namespace Parsek.Tests
                 && line.Contains("571a-map-source-test")
                 && line.Contains("rec=571a-long-warp")
                 && line.Contains("stateVectorSource=OrbitalCheckpoint")
-                && line.Contains("fallbackReason=orbital-checkpoint-state-vector-safer-segment-source"));
+                && line.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectSaferSegment));
         }
 
         [Fact]

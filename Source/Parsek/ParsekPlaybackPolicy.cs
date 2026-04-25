@@ -788,6 +788,8 @@ namespace Parsek
             }
             else
             {
+                // Initial/pre-orbital deferrals are not SOI-gap recoveries; only the
+                // gap-between-orbit-segments requeue path opts into this fallback.
                 pendingMapVessels[evt.Index] = new PendingMapVessel(
                     evt.Trajectory,
                     allowSoiGapStateVectorFallback: false,

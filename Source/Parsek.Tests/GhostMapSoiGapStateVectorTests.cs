@@ -45,18 +45,18 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap, source);
             Assert.Equal("Mun", point.bodyName);
-            Assert.Equal("soi-gap-state-vector-fallback", skipReason);
+            Assert.Equal(GhostMapPresence.SoiGapStateVectorFallbackReason, skipReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("source-resolve:")
                 && l.Contains("source=StateVectorSoiGap")
                 && l.Contains("body=Mun")
-                && l.Contains("reason=soi-gap-state-vector-fallback"));
+                && l.Contains("reason=" + GhostMapPresence.SoiGapStateVectorFallbackReason));
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
                 && l.Contains("orbitalCheckpointFallback=accept")
-                && l.Contains("fallbackReason=soi-gap-state-vector-fallback"));
+                && l.Contains("fallbackReason=" + GhostMapPresence.SoiGapStateVectorFallbackReason));
         }
 
         [Fact]
@@ -77,16 +77,16 @@ namespace Parsek.Tests
                 out string skipReason);
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal("orbital-checkpoint-state-vector-not-soi-gap-recovery", skipReason);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap, skipReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("source-resolve:")
                 && l.Contains("source=None")
-                && l.Contains("reason=orbital-checkpoint-state-vector-not-soi-gap-recovery"));
+                && l.Contains("reason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap));
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
-                && l.Contains("fallbackReason=orbital-checkpoint-state-vector-not-soi-gap-recovery")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap)
                 && l.Contains("isSoiGapRecovery=False"));
         }
 
@@ -108,18 +108,53 @@ namespace Parsek.Tests
                 out string skipReason);
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal("orbital-checkpoint-state-vector-body-mismatch", skipReason);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectBodyMismatch, skipReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("source-resolve:")
-                && l.Contains("reason=orbital-checkpoint-state-vector-body-mismatch"));
+                && l.Contains("reason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectBodyMismatch));
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
-                && l.Contains("fallbackReason=orbital-checkpoint-state-vector-body-mismatch")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectBodyMismatch)
                 && l.Contains("stateVectorBody=Kerbin")
                 && l.Contains("expectedBody=Mun")
                 && l.Contains("bodyMatches=False"));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackRejectsOutsidePlaybackWindow()
+        {
+            Recording rec = MakeSoiGapRecording(
+                "checkpoint-outside-window",
+                checkpointBody: "Mun",
+                futureSegmentBody: "Mun");
+            TrajectoryPoint outsideWindowPoint = rec.TrackSections[0].frames[0];
+            outsideWindowPoint.ut = 50.0;
+            rec.TrackSections[0].frames[0] = outsideWindowPoint;
+
+            GhostMapPresence.TrackingStationGhostSource source = Resolve(
+                rec,
+                currentUT: 160.0,
+                allowSoiGapStateVectorFallback: true,
+                expectedSoiGapBody: "Mun",
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectOutsideWindow, skipReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("source-resolve:")
+                && l.Contains("source=None")
+                && l.Contains("reason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectOutsideWindow));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("test-soi-gap-state-vector:")
+                && l.Contains("pointUT=50.0")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectOutsideWindow)
+                && l.Contains("withinPlaybackWindow=False"));
         }
 
         [Fact]
@@ -140,11 +175,11 @@ namespace Parsek.Tests
                 out string skipReason);
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal("orbital-checkpoint-state-vector-not-soi-gap-recovery", skipReason);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap, skipReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
-                && l.Contains("fallbackReason=orbital-checkpoint-state-vector-not-soi-gap-recovery")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap)
                 && l.Contains("gapBodyTransition=False")
                 && l.Contains("gapPreviousBody=Kerbin")
                 && l.Contains("gapNextBody=Kerbin"));
@@ -168,11 +203,11 @@ namespace Parsek.Tests
                 out string skipReason);
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal("orbital-checkpoint-state-vector-body-mismatch", skipReason);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectBodyMismatch, skipReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
-                && l.Contains("fallbackReason=orbital-checkpoint-state-vector-body-mismatch")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectBodyMismatch)
                 && l.Contains("stateVectorBody=Duna")
                 && l.Contains("expectedBody=Mun")
                 && l.Contains("gapNextBody=Mun"));
@@ -206,7 +241,7 @@ namespace Parsek.Tests
                 l.Contains("[GhostMap]")
                 && l.Contains("test-soi-gap-state-vector:")
                 && l.Contains("segmentBody=Mun")
-                && l.Contains("fallbackReason=orbital-checkpoint-state-vector-safer-segment-source")
+                && l.Contains("fallbackReason=" + GhostMapPresence.OrbitalCheckpointStateVectorRejectSaferSegment)
                 && l.Contains("segmentSourceAvailable=True"));
         }
 
