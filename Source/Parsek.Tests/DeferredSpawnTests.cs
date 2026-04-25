@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -13,6 +14,8 @@ namespace Parsek.Tests
 
         public DeferredSpawnTests()
         {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
@@ -21,8 +24,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            ParsekLog.TestSinkForTesting = null;
-            ParsekLog.VerboseOverrideForTesting = false;
+            ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
         }
@@ -262,6 +264,60 @@ namespace Parsek.Tests
             policy.FlushDeferredSpawns();
             Assert.DoesNotContain(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
             Assert.Equal(4, spawnAttempts);
+        }
+
+        [Fact]
+        public void FlushDeferredSpawns_OutOfBubbleWait_IsRateLimited()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-outside-bubble",
+                VesselName = "Distant Kerbal",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            double clock = 100.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentUTOverrideForTesting = () => 120.0,
+                HasActiveVesselOverrideForTesting = () => true,
+                ActiveVesselWorldPosOverrideForTesting = () => Vector3d.zero,
+                ShouldDeferSpawnOutsideBubbleOverrideForTesting = (recording, activePos) => true,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) =>
+                    throw new InvalidOperationException("Out-of-bubble spawns must remain queued.")
+            };
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+
+            policy.FlushDeferredSpawns();
+            policy.FlushDeferredSpawns();
+            policy.FlushDeferredSpawns();
+
+            Assert.Contains(rec.RecordingId, policy.pendingSpawnRecordingIds);
+            Assert.Single(logLines.FindAll(line =>
+                line.Contains("Deferred spawn queue waiting") &&
+                line.Contains("Distant Kerbal")));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("Deferred spawn kept in queue (outside physics bubble)"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("Warp ended") &&
+                line.Contains("kept") &&
+                line.Contains("outside"));
+
+            clock += 6.0;
+            policy.FlushDeferredSpawns();
+
+            Assert.Equal(2, logLines.FindAll(line =>
+                line.Contains("Deferred spawn queue waiting") &&
+                line.Contains("Distant Kerbal")).Count);
+            Assert.Contains(logLines, line =>
+                line.Contains("Deferred spawn queue waiting") &&
+                line.Contains("suppressed=2"));
         }
 
         [Fact]

@@ -274,6 +274,10 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 - KSCSpawn "Spawn not needed" at INFO level (54 lines)
 - BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
 
+2026-04-25 update: deferred spawn queue outside-physics-bubble waits are no longer
+a spam source; the per-recording kept line and repeated warp-ended summary were
+replaced with a rate-limited queue wait summary.
+
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 **Status:** Open
