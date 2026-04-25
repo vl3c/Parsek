@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -210,6 +211,102 @@ namespace Parsek.Tests
             Assert.True(module.IsMilestoneCredited("RecordsDistance"));
             Assert.Equal(1, module.GetCreditedCount());
             Assert.Equal(2, module.GetEffectiveMilestoneCount("RecordsDistance"));
+        }
+
+        [Fact]
+        public void RepeatableRecordMilestone_SameActionRecalculated_RateLimitedToOneLine()
+        {
+            // Bug #593 (P2 follow-up): the rate-limit key is the stable
+            // GameAction.ActionId, not (milestoneId, recordingId). The
+            // intended invariant is "recalculating the SAME action collapses
+            // its log line"; distinct grants with the same milestoneId/
+            // recordingId but different UT/reward must still log on first
+            // walk because they are real, separate effective hits.
+
+            // Seed credit for RecordsDistance with a separate recording so
+            // subsequent same-recording hits go through the repeatable branch
+            // (which only triggers after the milestone is already credited).
+            module.ProcessAction(MakeMilestone("RecordsDistance", 0,
+                recordingId: "rec-seed", fundsAwarded: 100f));
+            logLines.Clear();
+
+            // Build ONE action and re-walk it 100 times. This is the case
+            // the rate-limit must collapse — a steady recalc loop replaying
+            // the same committed grant.
+            var action = MakeMilestone("RecordsDistance", 100.0,
+                recordingId: "rec-spam", fundsAwarded: 100f);
+            for (int i = 0; i < 100; i++)
+            {
+                module.ProcessAction(action);
+                Assert.True(action.Effective);
+            }
+
+            int staysEffectiveLines = logLines.Count(l =>
+                l.Contains("[Milestones]") &&
+                l.Contains("Repeatable record milestone") &&
+                l.Contains("RecordsDistance") &&
+                l.Contains("rec-spam"));
+            Assert.Equal(1, staysEffectiveLines);
+        }
+
+        [Fact]
+        public void RepeatableRecordMilestone_DistinctActionsSamePair_LogSeparately()
+        {
+            // Bug #593 (P2 follow-up): two distinct repeatable record-
+            // milestone grants for the same (milestoneId, recordingId) but
+            // different UT/reward represent real separate effective hits.
+            // The earlier (milestoneId, recordingId)-keyed gate collapsed
+            // them into one line, silently hiding a second application.
+            // The ActionId-keyed gate must let both grants log on their
+            // first walk.
+
+            // Seed credit so the next two hits take the repeatable branch.
+            module.ProcessAction(MakeMilestone("RecordsDistance", 0,
+                recordingId: "rec-seed", fundsAwarded: 100f));
+            logLines.Clear();
+
+            var grantA = MakeMilestone("RecordsDistance", 100.0,
+                recordingId: "rec-X", fundsAwarded: 100f);
+            var grantB = MakeMilestone("RecordsDistance", 200.0,
+                recordingId: "rec-X", fundsAwarded: 150f);
+            Assert.NotEqual(grantA.ActionId, grantB.ActionId);
+
+            module.ProcessAction(grantA);
+            module.ProcessAction(grantB);
+
+            int staysEffectiveLines = logLines.Count(l =>
+                l.Contains("[Milestones]") &&
+                l.Contains("Repeatable record milestone") &&
+                l.Contains("RecordsDistance") &&
+                l.Contains("rec-X"));
+            Assert.Equal(2, staysEffectiveLines);
+        }
+
+        [Fact]
+        public void RepeatableRecordMilestone_NullRecordingId_StillKeysOnActionId()
+        {
+            // Standalone/KSC-path repeatable record milestones can have a
+            // null RecordingId. The earlier key collapsed two distinct
+            // null-recording grants into one line; the ActionId-keyed gate
+            // must keep them separate.
+            module.ProcessAction(MakeMilestone("RecordsSpeed", 0,
+                recordingId: "rec-seed", fundsAwarded: 100f));
+            logLines.Clear();
+
+            var grant1 = MakeMilestone("RecordsSpeed", 100.0,
+                recordingId: null, fundsAwarded: 100f);
+            var grant2 = MakeMilestone("RecordsSpeed", 200.0,
+                recordingId: null, fundsAwarded: 150f);
+            Assert.NotEqual(grant1.ActionId, grant2.ActionId);
+
+            module.ProcessAction(grant1);
+            module.ProcessAction(grant2);
+
+            int lines = logLines.Count(l =>
+                l.Contains("[Milestones]") &&
+                l.Contains("Repeatable record milestone") &&
+                l.Contains("RecordsSpeed"));
+            Assert.Equal(2, lines);
         }
 
         // ================================================================

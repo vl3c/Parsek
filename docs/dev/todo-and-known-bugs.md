@@ -41,7 +41,7 @@ The three latent carryover items below are tracked in the design doc under Known
 
 # Known Bugs
 
-## 571. Map View ghost icons show weird trajectories that do not match the recorded path
+## ~~571. Map View ghost icons show weird trajectories that do not match the recorded path~~
 
 **Source:** in-game observation by user during the
 `logs/2026-04-25_1314_marker-validator-fix` playtest. "the ghost icons in map
@@ -95,11 +95,9 @@ trajectory.
 - Predicted-tail path (Part B): `Source/Parsek/PatchedConicSnapshot.cs:151-162`
   (`ResetFailedResult` discard floor) and
   `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:287-296`.
-- Latent (not the user-visible symptom but flagged during the diagnosis):
-  `Source/Parsek/GhostMapPresence.cs:1758-1760` dereferences a possibly-null
-  `OrbitSegment?` without `HasValue` check; would throw
-  `InvalidOperationException` if `FindOrbitSegmentForMapDisplay` ever returned
-  null mid-frame. Worth a follow-up `if (seg.HasValue)` guard.
+- Latent guard fixed with Part A: the tracking-station refresh path now checks
+  `FindOrbitSegmentForMapDisplay` for `HasValue` before reading `seg.Value`, so
+  a mid-frame missing segment retires the ghost instead of throwing.
 
 **Reproducer hooks:** in
 `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned`:
@@ -118,9 +116,17 @@ trajectory.
 - `MissingPatchBody` storm: 153× pairs where every entry has `patchIndex=1`,
   never `patchIndex=0`.
 
-**Status:** Open. Part B will be addressed by the #575 fix; Part A
-(checkpoint densification) is a separate recorder-side change still to be
-scheduled.
+**Resolution (2026-04-25):** Closed by the predicted-tail partial-prefix fix
+from PR #542 plus Part A recorder-side checkpoint densification. Long
+`OrbitalCheckpoint` sections now keep the `OrbitSegment` as the Keplerian source
+of truth, but add section-local trajectory points at 5 degrees of true anomaly
+(minimum window 600s, max 360 points, endpoints included); the representative
+`UT=171496.6-193774.6` Kerbin checkpoint adds 42 points and short 300s windows
+add none. Format-v6 `.prec` sidecars preserve those checkpoint frames, the
+optimizer trims them with the section instead of dropping them as noise, playback
+logs the checkpoint point and resolved world position, and map-source decisions
+now log `Segment` / `TerminalOrbit` / `StateVector` / `None` source detail in one
+structured line.
 
 ---
 
@@ -206,7 +212,7 @@ The actual production duplicate-spawn fires through a different code path. Concr
 5. `[LOG 13:13:19.600] PlaybackCompleted index=15 vessel=Kerbal X ... needsSpawn=True ... Deferred spawn during warp: #15 "Kerbal X"` — recording `2c276b3c6a9c438eb288dc4cbd55a3ee` (chain leaf, terminal Splashed at UT 194195.7, `vesselPersistentId = 2708531065` because chain segments share the source pid) reports `needsSpawn=True` because it has a `VesselSnapshot`, terminal Splashed, and is the effective leaf for that pid.
 6. After the player exits warp the deferred-spawn flush calls `ParsekFlight.SpawnVesselOrChainTipFromPolicy → SpawnAtChainTip → SpawnChainTipWithResolvedState → RespawnVessel(preserveIdentity:true)`. `TryAdoptExistingSourceVesselForSpawn` cannot adopt (no real vessel with pid 2708531065 exists — it was stripped). `RespawnVessel` then materialises a fresh vessel with pid 2708531065 — the user's "real vessel copy of the upper stage". `RunSpawnDeathChecks` never runs on this path because spawn-death only fires AFTER a vessel was successfully tracked, then disappeared; here the vessel is being created from scratch.
 
-**Fix:** introduce `Recording.SpawnSuppressedByRewind` (transient field, persisted in tree mutable state). `ParsekScenario.HandleRewindOnLoad` calls a new helper `MarkRewoundTreeRecordingsAsGhostOnly` after `ResetAllPlaybackState` that walks the committed list and sets the flag on every recording either (a) in the rewound tree (matched by TreeId of the rewind owner from `RewindReplayTargetRecordingId`) or (b) whose `VesselPersistentId` matches the armed `RewindReplayTargetSourcePid` (covers standalone-recording rewind). `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` consults the flag immediately after `TerminalSpawnSupersededByRecordingId` and returns `(false, "spawn suppressed post-rewind (ghost-only past, #573)")`. This blocks every spawn entry-point downstream (`SpawnAtChainTip`, `SpawnOrRecoverIfTooClose`, KSC spawn, tracking-station handoff — all gate on `ShouldSpawnAtRecordingEnd` or its `ShouldSpawnAtKscEnd` / `ShouldSpawnAtTrackingStationEnd` callers). `RecordingStore.ResetRecordingPlaybackFields` clears the flag so a subsequent rewind starts clean. Regression coverage in `RewindTimelineTests`: `ShouldSpawn_PostRewindChainLeafSameSourcePid_ReturnsFalse`, `HandleRewindOnLoad_MarksAllRewoundTreeChainLeavesGhostOnly_AllSpawnRefused` (drives the production sequence end-to-end through the helper and asserts every spawn entry-point refuses), `MarkRewoundTreeRecordingsAsGhostOnly_StandaloneRecording_MarksByPidMatch`, `MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_NoOp`, `ResetAllPlaybackState_ClearsSpawnSuppressedByRewind`.
+**Fix:** introduce scoped `Recording.SpawnSuppressedByRewind` metadata, persisted in tree mutable state as `spawnSuppressedByRewind`, `spawnSuppressedByRewindReason`, and `spawnSuppressedByRewindUT`. `ParsekScenario.HandleRewindOnLoad` calls `MarkRewoundTreeRecordingsAsGhostOnly` after `ResetAllPlaybackState`, but the helper now applies the marker only to the active/source recording (`reason=same-recording`) or a same-source recording whose UT range overlaps the rewind target. Same-tree future recordings are logged as `reason=same-tree-future-recording` and intentionally left spawn-eligible, so #573 no longer turns an entire tree into ghost-only history (#589). `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` still treats `same-recording` as an absolute #573 duplicate-source block, but consumes/clears legacy unscoped markers before continuing through normal spawn-at-end gates. `RecordingStore.ResetRecordingPlaybackFields` clears the marker and metadata so repeated rewinds start clean. Regression coverage in `RewindTimelineTests` and `RewindSpawnSuppressionTests`: same-recording #573 suppression, future same-tree spawn eligibility at `endUT`, legacy marker consumption, repeated-rewind stale-marker clearing, reset lifecycle logging, and log assertions for applied/skipped/cleared decisions.
 
 The `RewindContext.IsRewinding` short-circuit in `RunSpawnDeathChecks` from `c9d257f8` is retained as defense-in-depth (with corrected wording in code + tests calling out that it does NOT cover the production sequence), so a future regression that splits the rewind sequence across update ticks can't trip the spawn-death detector.
 
@@ -321,7 +327,7 @@ patch-0-null discard-and-warn case.
 
 ---
 
-## 576. PatchedSnapshot: 146 "solver unavailable" warnings clustered on a few vessels
+## ~~576. PatchedSnapshot: 146 "solver unavailable" warnings clustered on a few vessels~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 `[Parsek][WARN][PatchedSnapshot] SnapshotPatchedConicChain: vessel=<name> solver unavailable`:
@@ -340,15 +346,40 @@ This is the same WARN level as the MissingPatchBody case in #575 but with a
 different cause — the solver itself isn't reachable. Same concern: WARN floor
 for an expected-on-startup or transient-during-soi-transition condition.
 
-**Files to investigate:**
+**Diagnosis (2026-04-25):** `IPatchedConicSnapshotSource.IsAvailable` is
+`vessel != null && vessel.patchedConicSolver != null && vessel.orbit != null`
+(`Source/Parsek/PatchedConicSnapshot.cs:295-297`). In stock KSP,
+`Vessel.patchedConicSolver` is null **by design** for any vessel whose flight
+controller does not own a piloted/probe solver: `VesselType.Debris` (no command
+module — 77/77 of the `Kerbal X Debris` hits), EVA kerbals (jetpack motion
+system, no solver — 45+12 hits across `Ermore Kerman` / `Magdo Kerman`), and
+probe-debris that has lost its active-vessel solver state (11/11 of the
+`Kerbal X Probe` hits). Only the lone `Kerbal X` hit at 13:07:48 was the
+"genuine transient" case the original WARN tier was designed for. The downstream
+`IncompleteBallisticSceneExitFinalizer` (`...:280-286`) explicitly documents
+that NullSolver is the destroyed-vessel / no-solver-by-design fingerprint that
+drives the live-orbit fallback — the WARN tier was correct as a fallback
+signal but wrong for log noise of this shape.
 
-- `Source/Parsek/PatchedConicSnapshot.cs` — the `solver unavailable` branch
-  (this is the `__solver == null` / `solver.maneuverNodes == null` shape
-  check, distinct from #575's `MissingPatchBody`).
-- Whether the solver should be considered unavailable as a hard error (no
-  fallback) or as a soft transient (rate-limit / VERBOSE).
+**Fix:** swap both paired warns from `Warn` to `WarnRateLimited` with
+distinguishing keys — `solver-unavailable-{vesselName}` for the
+`PatchedConicSnapshot` site, and `finalize-snapshot-failed-{recordingId}-{failureReason}`
+for the paired `IncompleteBallisticSceneExitFinalizer` site. The `FailureReason
+= NullSolver` flow downstream is unchanged: only the level routing through the
+30-second-window rate limiter changes. The first hit per key still emits at
+WARN level so a fresh regression on a piloted craft mid-flight surfaces
+immediately; subsequent hits within 30 s on the same key are absorbed into a
+single line per window with a `suppressed=N` suffix.
 
-**Status:** Open.
+Regression `PatchedConicSnapshotTests.Snapshot_NullSolver_RateLimitsRepeatsForSameVessel`
+pins the per-vessel keying, the cross-vessel independence, and the
+30-second-window expiry suffix. Regression
+`SceneExitFinalizationIntegrationTests.TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WarnRateLimitedPerRecordingAndReason`
+pins the paired Extrapolator rate-limit. The pre-existing
+`Snapshot_NullSolver_ReturnsEmptyList` test still pins the WARN level
+(`[Parsek][WARN][PatchedSnapshot]`) of the FIRST hit per key.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
 
 ---
 
@@ -505,7 +536,7 @@ correction at handoff is missing a term.
 
 ---
 
-## 581. Diagnostics: 2 frame-budget breaches during normal flight playback
+## ~~581. Diagnostics: 2 frame-budget breaches during normal flight playback~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned`:
 
@@ -518,15 +549,47 @@ first exceeded frame to capture per-bucket cost. Two breaches in an hour-long
 session is low frequency, but worth checking which bucket dominates the
 breakdown.
 
-**Files to investigate:**
+**Diagnosis (2026-04-25):** the captured log has exactly one breakdown line
+(`grep "budget breakdown" KSP.log.cleaned` → 1 hit, line 517040): `total=11.6ms
+mainLoop=7.51ms spawn=3.44ms (built=1 throttled=0 max=3.44ms) destroy=0.00ms
+explosionCleanup=0.00ms deferredCreated=0.28ms (1 evts) deferredCompleted=0.00ms
+(0 evts) observabilityCapture=0.39ms trajectories=18 ghosts=0 warp=1x`. This is
+a hybrid spike: partly mainLoop (7.51 ms / 65 % of frame) + partly a single
+non-trivial spawn (3.44 ms / 30 %). It falls in a diagnostic gap between the
+existing #450 (gate: `spawnMaxMicroseconds >= 15 ms`) and #460 (gate:
+`mainLoop >= 10 ms` AND `spawn < 1 ms`) sub-breakdown latches: heaviest spawn
+under #450's threshold AND mainLoop under #460's floor. `grep "mainLoop
+breakdown\|spawn build breakdown" KSP.log.cleaned` confirms 0 hits — the session
+captured the generic #414 breakdown but no Phase-B attribution.
 
-- `Source/Parsek/Diagnostics/FrameBudget.cs` (or wherever the budget check
-  lives) and the `Playback budget breakdown` emission point.
-- Cross-reference the breakdown's `spawn=`, `deferredCreated=`,
-  `observabilityCapture=` buckets against whichever was largest in the
-  one-shot line.
+The frequency itself (2 playback breaches in an hour-long session, plus 1
+recording breach) is well inside expected Unity-frame jitter and does not
+constitute a regression. The functional fix is therefore **none**: the budget
+itself stays at 8 ms, the existing latches are unchanged.
 
-**Status:** Open. Low priority unless reproducible at higher frequency.
+**Fix:** add a fourth one-shot latch — "Playback hybrid breakdown" — that
+fires when total > budget AND `spawnMaxMicroseconds <
+BuildBreakdownMinHeaviestSpawnMicroseconds` AND `mainLoopMicroseconds <
+MainLoopBreakdownMinMainLoopMicroseconds`. Reuses the existing
+`PlaybackBudgetPhases` field set; adds mainLoop / spawn percent-of-frame
+fractions so a future hybrid breach reports a Phase-B-actionable per-bucket
+itemisation rather than just the generic #414 breakdown that the gap-shaped
+spike in the captured log received.
+
+The new latch is independent of #414 / #450 / #460 (matches the precedent set
+by #460 itself): a session that already burned the prior three latches on
+bigger spikes can still capture the next gap-shaped breach. Test seam
+`SetBug460BreakdownLatchFiredForTesting` lets the independence pair-test
+between #460 and #581 land without reaching for `ResetForTesting`.
+
+Regression `Bug581HybridBreakdownTests` (8 cases: captured-log-shape format,
+one-shot latch, two negative-gate cases asserting the latch declines on
+#450-shape and #460-shape spikes, two latch-independence cases for #450 and
+#460, total-below-budget defensive case, zero-total degenerate-case
+non-throwing).
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0 — observability-only, no
+functional change to the budget itself.
 
 ---
 
@@ -636,7 +699,7 @@ being addressed by the sibling
 
 ---
 
-## 583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section
+## ~~583. Map-view state-vector ghost creation still skips when activation first lands inside a Relative-frame section~~
 
 **Source:** PR #547 review follow-up — out-of-scope note attached to the
 P1 fix that landed in commit `57aec636` on
@@ -707,9 +770,45 @@ overclaims relative to the resolver gap left here. When the
 implementing PR for #583 lands, add a sibling `#583` line under v0.9.0
 Bug Fixes naming the creation-side fix.
 
-**Status:** Open. Not a regression of any shipped fix; a known remaining
-edge case that was deliberately left out of PR #547's scope (PR #547
-merged 2026-04-25 as commit `8eaebfbb`).
+**Status:** ~~Open~~ Fixed.
+
+**Fix:** `GhostMapPresence.ResolveMapPresenceGhostSource` now considers
+state-vector resolution when the current UT lies inside a Relative-frame
+section even if the trajectory has `OrbitSegments` elsewhere (the gate
+widens from `!HasOrbitSegments` to `!HasOrbitSegments || IsInRelativeFrame`).
+`TryResolveStateVectorMapPoint` was rewritten as a pure helper
+(`TryResolveStateVectorMapPointPure`) that takes a `Func<uint,bool>`
+anchor-resolvability lookup, so xUnit can exercise both branches without
+KSP's `FlightGlobals`. In the Relative branch the helper bypasses the
+`ShouldCreateStateVectorOrbit` altitude/speed threshold (mirroring the
+PR #547 P1 update-path gate, since `point.altitude` is the anchor-local
+dz offset, not geographic altitude) and gates creation on
+`FlightRecorder.FindVesselByPid(anchorVesselId) != null`. When the
+anchor isn't yet loaded, the resolver returns `None` with a new
+dedicated skip reason `relative-anchor-unresolved`; the existing
+`pendingMapVessels` retry loop in `ParsekPlaybackPolicy.CheckPendingMapVessels`
+re-resolves on the next tick. Sections without an anchor id keep the
+legacy `relative-frame` skip wording so that subset is observably
+distinct from "anchor present but not yet resolvable". Five regression
+tests (`ResolveMapPresenceGhostSource_RelativeFrame_AnchorResolvable_*`,
+`_AnchorUnresolvable_*`, `_NoAnchorId_*`, `_DzBelowAltitudeThreshold_*`,
+`_WithOrbitSegmentsElsewhere_*`) pin the new contract.
+
+PR #556 review follow-up (P2): `RefreshTrackingStationGhosts` used to
+expire any state-vector ghost whose currentUT was inside a Relative
+section (`if (!pt.HasValue || IsInRelativeFrame(rec, currentUT))` →
+`tracking-station-state-vector-expired`). After widening the resolver,
+that path tore the ghost down every refresh tick while the create path
+re-added it next tick — flicker. The refresh path now mirrors the
+flight-scene gate in `ParsekPlaybackPolicy.CheckPendingMapVessels`:
+remove on `!pt.HasValue` only, then skip the
+`ShouldRemoveStateVectorOrbit` threshold for Relative-frame points and
+hand off to `UpdateGhostOrbitFromStateVectors` (which already dispatches
+on `referenceFrame`). Two more tripwires
+(`TrackingStationRefresh_RelativeFrameStateVector_WouldTripRemovalWithoutGate`
+and `_AbsoluteFrameStateVector_StillEvaluatesThreshold`) document the
+joint precondition the gate suppresses, mirroring the existing
+flight-scene `RuntimePolicyTests.RelativeFrameGuard_*` pair.
 
 ---
 
@@ -816,6 +915,778 @@ open by this fix's `UPDATE`-side scope.
 
 **Status:** Fixed in PR #547 (state-vector RELATIVE-frame contract +
 structured GhostMap observability).
+
+---
+
+## ~~585. In-place continuation Re-Fly leaves the active tree in Limbo, the booster recording un-merged, and the merge dialog shows the recording as 0s~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — playtest where the
+user re-flew the `Kerbal X Probe` booster (recording
+`01384be4319544aebbc7b4a3e0fdd45c`) via the rewind dialog, flew it for ~7
+minutes, then went back to the Space Center. User-visible symptoms:
+
+- During the re-fly the recording did not appear in map view.
+- The merge confirmation dialog at scene exit "said the recording was 0s".
+- After clicking Merge, the booster recording never appeared in map view —
+  user flagged this as game-breaking ("the recording of the flight to orbit
+  of the Re-Fly booster did not appear in map view, I guess it was not
+  merged").
+
+**Diagnosis (2026-04-25):** the in-place continuation path in
+`RewindInvoker` and `MarkerValidator` (#577 / #514 follow-ups) handles the
+`ReFlySessionMarker` correctly — `AtomicMarkerWrite: in-place continuation
+detected — marker → origin 01384be4319544aebbc7b4a3e0fdd45c (no
+placeholder created)` at 19:12:24.265 is the expected log line. But the
+post-load tree restore never completes and leaves the entire active tree
+in Limbo for the rest of the session:
+
+1. Rewind quicksave loads at 19:12:23.118.
+   `RecordingStore.RestoreActiveTreeNode` walks all 13 tree recordings,
+   the sidecar load fails twice with `Sidecar epoch mismatch for
+   5294a8d9c77a4c289bcb5b0a944437e6: .sfs expects epoch 2, .prec has epoch
+   6 — sidecar is stale (bug #270), skipping sidecar load (trajectory +
+   snapshots)` and the same shape for `01384be4` (.sfs epoch=1, .prec
+   epoch=4). The mitigation for #270 protects against corruption but
+   leaves the active recording (`5294a8d9` "Kerbal X" capsule) and the
+   in-place continuation target (`01384be4` "Kerbal X Probe" booster)
+   in memory with empty trajectories and no snapshots.
+2. `Stashed pending tree 'Kerbal X' (8 recordings, state=Limbo)` —
+   the tree drops from 13 recordings to 8 in the stash and goes to
+   `MergeState.Limbo` because of the `2 sidecar hydration failure(s)`
+   noted on the same line.
+3. `RestoreActiveTreeFromPending: waiting for vessel 'Kerbal X'
+   (pid=2708531065) to load (activeRecId=5294a8d9c77a4c289bcb5b0a944437e6)`
+   at 19:12:24.534. The expected vessel is the pre-rewind active vessel
+   (the capsule that was on the Mun, pid=2708531065). After the strip,
+   that vessel is gone — the live active vessel is the booster
+   (pid=3474243253, name="Kerbal X Probe"), which is what the player
+   wants to fly.
+4. `RestoreActiveTreeFromPending: vessel 'Kerbal X' (and no EVA parent
+   fallback) not active within 3s — leaving tree in Limbo` at
+   19:12:27.525. The 3s coroutine times out without binding the live
+   recorder to the in-place continuation recording.
+5. The recorder, looking for a vessel to track, fires
+   `Post-switch auto-record armed: vessel='Kerbal X Probe' pid=3474243253
+   tracked=False reason=vessel switch to outsider while idle` at
+   19:12:24.264 — it treats the booster as an "outsider", not as the
+   active recording continued in place.
+
+The downstream effect is that `01384be4` is never re-attached to the
+recorder. Throughout the 7-minute booster flight no new trajectory
+points or snapshot land in `01384be4`, and on scene exit the second
+merge dialog at 19:19:39.944 reads:
+
+```
+BuildDefaultVesselDecisions: leaf='01384be4319544aebbc7b4a3e0fdd45c'
+  vessel='Kerbal X Probe' terminal=null hasSnapshot=False canPersist=False
+BuildDefaultVesselDecisions: active-nonleaf='5294a8d9c77a4c289bcb5b0a944437e6'
+  vessel='Kerbal X' terminal=null hasSnapshot=False canPersist=False
+Tree merge dialog: tree='Kerbal X', recordings=8, spawnable=0
+```
+
+`terminal=null hasSnapshot=False` is what the dialog renders as a 0s
+duration; `spawnable=0` is why the merged recording produces no real
+vessel and no trajectory lines in map view post-merge. The supersede
+finalize log even confirms it took the in-place branch:
+`TryCommitReFlySupersede: in-place continuation detected (provisional ==
+origin == 01384be4319544aebbc7b4a3e0fdd45c); skipping supersede merge ...
+and finalizing continuation`.
+
+This is the same family as #21 ("Re-Fly session marker silently wiped
+... when the active recording was a previously-promoted Unfinished
+Flight") but on a different axis: #21 patched the
+`MarkerValidator.MergeState` gate; this one is downstream — the marker
+survives, but the tree-restore coroutine still keys on the old active
+vessel name and drops the tree to Limbo when the rewind made that
+vessel unreachable.
+
+**Files to investigate:**
+
+- `Source/Parsek/ParsekFlight.cs` — `RestoreActiveTreeFromPending`
+  vessel-name match logic. For an in-place continuation Re-Fly the
+  expected active vessel must be the marker's `ActiveReFlyRecordingId`
+  vessel (the booster), not the tree's pre-rewind `activeRecId` vessel
+  (the capsule). Probably needs an in-place-continuation carve-out that
+  consults the live `ReFlySessionMarker`.
+- `Source/Parsek/ParsekScenario.cs` — the tree-stash path that emits
+  `stashed active tree 'Kerbal X' (8 recording(s), activeRecId=...) into
+  pending-Limbo slot ... with 2 sidecar hydration failure(s)`. Decide
+  whether sidecar hydration failure on the ACTIVE recording during a
+  rewind quicksave load should still bind the recorder, or whether the
+  Limbo stash itself should be expressed as "needs merge dialog before
+  next flight".
+- `Source/Parsek/RecordingStore.cs` — sidecar epoch mismatch
+  short-circuit for `5294a8d9` and `01384be4`. The `.prec` was written
+  with `epoch=6` after the original mission, the rewind quicksave's
+  `.sfs` has `epoch=2`, mitigation drops the trajectory load. Needed:
+  reconcile what the rewind quicksave should restore vs. what the
+  on-disk `.prec` already encodes for an in-place continuation
+  origin (drop trajectory back to the pre-rewind `epoch=2`? rebuild
+  from `.prec` post-rewind UT? something else?).
+- `Source/Parsek/FlightRecorder.cs` — `Post-switch auto-record armed:
+  ... reason=vessel switch to outsider while idle` is the recorder's
+  fallback when the tree is Limbo. For the in-place continuation case,
+  the recorder should resume into `01384be4` instead of treating the
+  booster as a fresh outsider.
+- `Source/Parsek/MergeDialog.cs` —
+  `BuildDefaultVesselDecisions` emitting `hasSnapshot=False
+  canPersist=False` for the in-place continuation recording. Once the
+  underlying restore is fixed the dialog should render real duration +
+  spawnable count.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-inplace-continuation-limbo`
+by teaching `RestoreActiveTreeFromPending` to consult the live
+`ReFlySessionMarker`. When the marker is in-place continuation
+(`OriginChildRecordingId == ActiveReFlyRecordingId`) and its recording
+id is present in the freshly-popped tree, the coroutine swaps the
+wait target to the marker's recording id, vessel name, and pid before
+the 3s wait loop. The pure-static decision lives in
+`ReFlySessionMarker.ResolveInPlaceContinuationTarget`. A companion
+gate in `ParsekFlight.OnVesselSwitchComplete`
+(`IsInPlaceContinuationArrivalForMarker`) suppresses the misleading
+"vessel switch to outsider while idle" arming for the same in-place
+case, so the post-switch watcher cannot race the restore coroutine.
+The sidecar epoch mismatch error surface is unchanged: bug #270's
+mitigation still drops the trajectory for stale sidecars, the empty
+trajectory list is the resumed recording's expected pre-rewind shape,
+and the recorder repopulates it on the first frame after binding;
+the existing `StashActiveTreeAsPendingLimbo` null-snapshot recapture
+path covers `hasSnapshot=False` at scene exit. Design note in
+`docs/dev/plans/refly-inplace-continuation-tree-restore.md` (closes
+#590) lays out the three contract questions and the
+deferred-snapshot-only-rescue follow-up. Tests:
+`Bug585InPlaceContinuationRestoreTests` (15 cases covering marker
+absence, placeholder pattern, tree-id mismatch, missing-from-tree,
+already-pointing-at-marker, pid-match-vs-pid-mismatch, post-fix
+merge dialog rendering with `canPersist=True`).
+
+**Review follow-ups (PR #558):** P1 review caught that the async-FLIGHT-load
+path schedules the restore coroutine before `RewindInvoker.RunStripActivateMarker`
+gets a chance to run `AtomicMarkerWrite` -- both are deferred to
+`onFlightReady` and can race. Fixed by gating the marker read on
+`RewindInvokeContext.Pending`: the restore coroutine yields until the
+context clears (or 300 frames timeout) before reading
+`ActiveReFlySessionMarker`, so the marker is guaranteed to be written
+before the swap decision. P2 review caught that the post-swap
+`tree.BackgroundMap` still contained the newly active recording, so
+`EnsureBackgroundRecorderAttached` would seed the background recorder
+from a map that listed the live recording as both active and background.
+The swap branch now calls `tree.RebuildBackgroundMap()` after mutating
+`ActiveRecordingId`, which re-runs `IsBackgroundMapEligible` against
+the swapped value and excludes it from the map. Two new tests in
+`Bug585InPlaceContinuationRestoreTests`
+(`RebuildBackgroundMap_AfterSwapping_ActiveRecordingId_ExcludesSwappedTarget`,
+`RebuildBackgroundMap_DestroyedRecording_NotInBackgroundMap`) pin the
+post-swap rebuild contract.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## 586. Ghost map vessel "Set Target" via icon click logs success but does nothing in KSP ~~done~~
+
+**Source:** same playtest as #585. User: "when controlling the booster, I
+tried to click on Set Target on the ghost proto-vessel (the upper stage
+heading to the Mun), but the button did not work."
+
+**Suspected supporting evidence in KSP.log:**
+
+- 19:13:25.634 `[Parsek][INFO][GhostMap] Ghost 'Ghost: Kerbal X' set as
+  target via icon click`
+- 19:13:27.772 same line again — user clicked twice expecting a visible
+  effect
+- 19:13:30.213 `[Parsek][INFO][GhostMap] Ghost 'Ghost: Kerbal X' focused
+  via menu (recIndex=1)` — user fell back to the focus menu
+
+Parsek logs the click as if it succeeded, but the user-observable
+behaviour (target marker, distance / velocity readouts on the navball,
+encounter-prediction line to the ghost) never materialises.
+
+**Root cause confirmed:**
+
+- KSP did accept Parsek's `FlightGlobals.fetch.SetVesselTarget(...)`
+  call, but Parsek had populated the ghost vessel `OrbitDriver` as if
+  it were a body driver: `orbitDriver.celestialBody = Kerbin`. Stock
+  `OrbitTargeter.DropInvalidTargets()` treats any target driver with a
+  `celestialBody` equal to the active vessel's reference body as "the
+  current main body" and clears the target. Normal vessel targets keep
+  identity in `OrbitDriver.vessel` and leave `OrbitDriver.celestialBody`
+  null.
+- Fixed by normalizing ghost orbit-driver target identity after
+  ProtoVessel load and every ghost orbit update: `OrbitDriver.vessel`
+  points at the ghost vessel, `OrbitDriver.celestialBody` stays null,
+  and the reference body remains on the `Orbit`.
+- The Set Target menu paths now capture target state before and
+  immediately after `SetVesselTarget`, then log success only after a
+  delayed KSP-validation check confirms `FlightGlobals.fetch.VesselTarget`
+  still resolves to the ghost vessel. Rejections log a warning with
+  the final reason (`null`, current-main-body, parent-body, wrong
+  vessel, wrong object) plus target type/name/body, active vessel
+  `targetObject`, ghost `MapObject`, orbit-driver identity, and
+  `FlightGlobals.Vessels` registration state.
+
+**Files to investigate:**
+
+- `Source/Parsek/GhostMapPresence.cs` — search for "set as target via
+  icon click" to find the click handler. Verify the `SetVesselTarget`
+  invocation actually runs and what KSP returns.
+- The ghost vessel construction path in `BuildAndLoadGhostProtoVessel`
+  / `CreateGhostVesselFromSegment` — confirm the resulting `Vessel`
+  is a valid KSP target (correct `vesselType`, has a `MapObject`,
+  has an `OrbitDriver`, is registered with `FlightGlobals`).
+
+**Status:** Closed. Tests: `GhostMapTargetingTests` pins the verified
+success/failure logging contract, and
+`GhostMapVesselTargeting_SyntheticSameBodyGhost_Sticks` is an in-game
+runtime canary for production `SetGhostMapNavigationTarget` acceptance
+on a synthetic same-body ghost after stock validation frames.
+
+---
+
+## ~~587. KSP shows a phantom "Kerbin Encounter T+" prediction and limits warp to 50× during booster Re-Fly~~
+
+**Source:** same playtest as #585. User: "the kerbalx probe booster
+(when I flew the real booster after Re-Fly, in map view) had sections
+when it glitched out — orbit disappeared, message in map icon saying
+'Kerbin Encounter T+' (wrong), time warp limited to 50x."
+
+50× warp limit + a flagged encounter is the KSP-stock behaviour the
+patched-conic solver triggers when it predicts an SOI transition for
+the active vessel within the warp horizon. For the booster on a normal
+sub-orbital / orbital flight there should be no Kerbin encounter at all.
+
+**Suspected supporting evidence in KSP.log:**
+
+- 19:12:24.275 `[Parsek][WARN][Rewind] Strip left 1 pre-existing
+  vessel(s) whose name matches a tree recording: [Kerbal X Debris] —
+  not related to the re-fly, will appear as second Kerbal X-shaped
+  object in scene` — the strip explicitly leaves a leftover
+  `Kerbal X Debris` vessel in the scene whose orbit is independent of
+  the re-fly. Stock patched conics walks every nearby vessel's orbit
+  to find encounters, and a low-altitude leftover debris on a
+  near-identical orbit can trip the encounter solver.
+- 19:14:37.328 `[Parsek][WARN][Diagnostics] Playback frame budget
+  exceeded: 9.3ms (1 ghosts, warp: 50x) | suppressed=2` — confirms
+  warp was being held at 50×.
+
+**Files to investigate:**
+
+- `Source/Parsek/RewindInvoker.cs` /
+  `Source/Parsek/Patches/...` — the strip pass that decides what to
+  remove pre-rewind. The post-strip warning lists the leftover by
+  name match; for in-place continuation, debris from the prior
+  flight that pre-dates the rewind UT (UT=160 here) should be
+  stripped, not "left alone" because it shares a tree-recording name.
+- The encounter prediction itself is KSP-stock and not directly
+  controllable — the fix is to remove the cause (the leftover debris).
+  Once #585 is fixed, the strip pass needs to handle this corner.
+- Cross-check with #573's strip-kill protection logic — that fix made
+  the strip not kill the upper-stage ghost during re-fly, but did not
+  rule on residual debris.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-inplace-continuation-limbo`
+by adding a strip-pass supplement
+(`RewindInvoker.StripPreExistingDebrisForInPlaceContinuation`) that
+runs after `AtomicMarkerWrite`. For an in-place continuation
+re-fly, leftover debris vessels carried in the rewind quicksave's
+protoVessels (e.g., the playtest's three pre-existing
+`Kerbal X Debris` instances at pids 3749279177 / 2427828411 /
+526847698) get killed via `Vessel.Die()` inside a
+`SuppressionGuard.Crew()` when (a) the vessel name matches a
+Destroyed-terminal recording in the marker's tree and (b) the pid
+is NOT in the protected set (selected slot vessel + marker's
+ActiveReFlyRecordingId vessel pid). #573's strip-kill protection
+is preserved by the protected-pid exclusion, and the post-strip
+spawn-death short-circuit in `ParsekPlaybackPolicy.RunSpawnDeathChecks`
+already skips during an active re-fly session so the new kills do
+not leak into the policy as "spawned vessel died, please re-spawn".
+Pure decision in
+`RewindInvoker.ResolveInPlaceContinuationDebrisToKill`. Tests:
+`Bug587StripPreExistingDebrisTests` (8 cases covering null-marker,
+placeholder pattern, tree-id mismatch, no-Destroyed-recordings,
+matching-debris-killed, name-matches-Orbiting-recording (kept
+alive), protected-pid-not-killed, empty-leftAlone). The
+warn-and-continue diagnostic via
+`WarnOnLeftAloneNameCollisions` still fires for the
+non-in-place-continuation path so the original heads-up message
+about prior-career relics is preserved.
+
+**Review follow-up (PR #558):** P2 review caught that the kill loop walked
+`FlightGlobals.Vessels` while calling `Vessel.Die()`, which removes the
+vessel from the live list and shifts subsequent indices -- consecutive
+matching debris would be skipped, exactly the multi-debris case the PR
+is supposed to fix. Fixed by snapshotting the targets before any `Die()`
+runs via a new pure-static helper
+`RewindInvoker.SnapshotKillTargets<T>(IList<T>, HashSet<uint>, Func<T,uint>)`
+that returns a stable list of items to kill. The Die() loop then iterates
+this snapshot. Six new tests in `Bug587StripPreExistingDebrisTests`
+(null-source / null-killset / empty-killset / null-pidGetter / filter-and-skip-zero
+/ source-mutated-during-consumption / no-matches) pin the contract;
+the source-mutated case explicitly simulates Die-removes-from-live-list
+and asserts both targets are still killed.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## 588. Ghost upper stage destroyed at SOI change to Mun and never re-created — `state-vector-from-orbital-checkpoint` skip blocks the fallback
+
+**Source:** same playtest as #585. User: "after rewind, watching the
+upper stage get to the Mun — the ghost position in Mun orbit was not
+right, it jumped around when warping, did not generate a proto-vessel
+in a proper Mun orbit."
+
+**Suspected supporting evidence in KSP.log:**
+
+- 19:29:26.116 `[Parsek][INFO][GhostMap] SOI change for recording #1 —
+  new body=Mun` — ghost crossed SOI into Mun.
+- 19:29:31.158 `[Parsek][INFO][GhostMap] destroy: rec=37ad80001b3c4baf98056e7c64ad0910
+  ... body=Mun ... ut=16510.9 ... reason=gap-between-orbit-segments`
+  — the ghost was destroyed because the recording has a gap between
+  the Kerbin-frame orbit segments and the next Mun-frame segment.
+- 19:29:31.169 `[Parsek][WARN][GhostMap] create-state-vector-skip:
+  rec=37ad80001b3c4baf98056e7c64ad0910 ... source=StateVector
+  branch=OrbitalCheckpoint body=Mun stateVecAlt=47481 stateVecSpeed=515.4
+  ut=21687.8 scene=FLIGHT reason=state-vector-from-orbital-checkpoint`
+  — the state-vector fallback would have placed the ghost at altitude
+  47.5km / speed 515 m/s above Mun (i.e. a real Mun orbit) but the
+  resolver is hard-coded to refuse `StateVector` sources whose
+  underlying branch is an `OrbitalCheckpoint` track section.
+
+**Likely root cause:** the gating logic in
+`Source/Parsek/GhostMapPresence.cs:2908`
+(`FailureReason = "state-vector-from-orbital-checkpoint"`) was added to
+prevent the recorder-side densification regression in #571 from
+re-introducing wrong ghost positions. But it is over-broad: an
+OrbitalCheckpoint section's per-frame state vectors are a perfectly
+valid map-presence source when the only alternative is a hole between
+two segments around an SOI change. The user-visible result is exactly
+what the user reported — the ghost jumps between the last available
+segment endpoint and nothing, never settling into a Mun orbit.
+
+**Files to investigate:**
+
+- `Source/Parsek/GhostMapPresence.cs:2861` —
+  `CreateGhostVesselFromStateVectors`. The
+  `state-vector-from-orbital-checkpoint` reject covers all
+  `branch=OrbitalCheckpoint` state-vector paths. For an SOI-change
+  hole where the only available data is a checkpoint frame on the
+  Mun side, the reject prevents recovery.
+- `Source/Parsek/GhostMapPresence.cs` — `ResolveMapPresenceGhostSource`
+  segment-gap fallback. After the destroy at 19:29:31.158 the
+  resolver should pick a Mun-frame segment if one exists; if it
+  doesn't (recording sparse around SOI change), state-vector fallback
+  is the only option.
+- Cross-reference with #571 part A (recorder-side checkpoint
+  densification) — the densified checkpoints around SOI change should
+  produce enough Mun-frame segments to avoid hitting this path. If
+  this still fires post-#571, the densifier may not be running on
+  the SOI-transition window.
+
+**Related:** #570 (real-vessel spawn at end of Mun-mission) and
+#589 (real-vessel spawns at end of recordings after rewind) are
+sibling symptoms in the same playtest.
+
+**Fix:** `ResolveMapPresenceGhostSource` now treats checkpoint-derived
+state vectors as a distinct `StateVectorSoiGap` source only when the
+flight map lifecycle explicitly re-queued the recording after
+`gap-between-orbit-segments`, no current segment source is available,
+the checkpoint body matches the post-gap SOI/body, and both the current
+UT and candidate state-vector UT are inside the recording playback
+window. Normal `OrbitalCheckpoint` state-vector creates still reject,
+and current segments still win. The structured `[GhostMap]` lines now
+emit `reason=soi-gap-state-vector-fallback` for accepted recoveries and
+specific reject reasons for safer segment, not-SOI-gap, body mismatch,
+or outside-window cases. Covered by
+`GhostMapSoiGapStateVectorTests` plus the explicit opt-in branch in
+`StateVectorWorldFrameTests`.
+
+**Status:** ~~done~~.
+
+---
+
+## ~~589. Real-vessel spawns at end of mission recordings never materialize after a tree-wide rewind — `SpawnSuppressedByRewind` keeps the entire tree ghost-only forever~~
+
+**Source:** same playtest as #585. After the booster Re-Fly merge, the
+user issued a second rewind from the recordings table back to
+`Kerbal X` at UT 6.8 (i.e., the very beginning of the mission) at
+19:21:47. User: "did not spawn the real vessels after Mun landing
+(EVA kerbal, flag and lander)."
+
+**Suspected supporting evidence in KSP.log:**
+
+- 19:21:50.229 `[Parsek][INFO][Rewind] OnLoad: SpawnSuppressedByRewind=true
+  on 13 recording(s) — chain-leaf spawns blocked for the rewound tree
+  (#573)` — the flag is set on every recording in the rewound tree.
+- 19:21:50.229 thirteen lines of
+  `SpawnSuppressedByRewind: #N "..." id=... tree=a9391bdd... reason=tree-match`
+  — covers every recording in the tree, including future-UT recordings
+  whose endpoints lie far beyond the rewind UT (#12 Bob Kerman at
+  Mun UT 24034, #11 Kerbal X landed, #2 Kerbal X upper stage).
+- 19:22:04.007+ recurring
+  `Spawn suppressed for #12 "Bob Kerman": spawn suppressed post-rewind
+  (ghost-only past, #573) | suppressed=554...591` — the flag is still
+  blocking the spawn 30+ minutes later when the player would have
+  reached UT 24034 in real time, and would presumably continue
+  blocking forever.
+
+**Likely root cause:** the `SpawnSuppressedByRewind` flag was added by
+#573 to prevent the Re-Fly's strip from triggering spawn-death respawn
+of a chain-leaf vessel that the player is actively re-flying.
+`reason=tree-match` is too broad: every recording sharing the rewound
+tree gets the flag, including recordings whose endpoints lie ahead of
+the rewind UT and whose terminal vessels (EVA kerbal Bob, Mun lander
+Kerbal X, planted flag) are exactly what the spawn-at-end Phase 4
+design says should materialize when ghost playback crosses the
+recording's `endUT`.
+
+The flag needs to be cleared once playback advances past the
+recording's `endUT`, or scoped only to recordings whose UT ranges
+overlap the rewind UT (i.e., recordings the player is actually
+re-flying over), not every recording in the tree.
+
+**Files to investigate:**
+
+- `Source/Parsek/RewindContext.cs` /
+  `Source/Parsek/Recording.cs` —
+  `SpawnSuppressedByRewind` flag lifecycle. Find the set sites
+  (OnLoad, "tree-match" reason) and verify there is any clear path.
+- `Source/Parsek/ParsekPlaybackPolicy.cs` — `ShouldSpawnAtRecordingEnd`
+  / spawn-at-end gate. Check whether the flag is consulted as an
+  absolute block, or as a "block until past rewind UT" gate.
+- Cross-reference with #573 — that fix's INTENT was strip-kill
+  protection for the actively re-flown vessel, not "make the entire
+  tree ghost-only forever". The reason-string `tree-match` should
+  probably be split into `same-recording` (the actual #573 case) and
+  `same-tree-future-recording` (the case that needs an `endUT >
+  rewindUT` carve-out).
+
+**Fix:** split the rewind suppression semantics. `reason=same-recording`
+is the #573 strip-kill/source duplicate protection case and remains an
+absolute spawn-at-end block. `reason=same-tree-future-recording` is now
+logged as an intentional skip: recordings whose `StartUT` and `EndUT`
+are ahead of the rewind UT are not marked ghost-only and materialize
+normally when playback reaches their endpoint. New persisted metadata
+(`spawnSuppressedByRewindReason`, `spawnSuppressedByRewindUT`) scopes
+future saves, and the spawn gate consumes/clears legacy unscoped markers
+so broken saves from the whole-tree implementation stop blocking future
+terminal spawns. Diagnostics now distinguish applied #573 protection,
+future same-tree skip, stale marker clear/reset, and spawn allowed despite
+same-tree rewind.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~590. Tree restore Limbo + sidecar hydration failure pattern needs a unified diagnosis~~
+
+**Source:** umbrella for the diagnoses that fed #585. Listed separately
+because the underlying invariants — "tree restore from rewind quicksave
+must keep the in-place continuation recording bound to the live
+recorder" and "sidecar epoch mismatch must NOT silently move the tree
+into Limbo" — touch
+`ParsekScenario`, `RecordingStore`, `RewindInvoker`, `MergeJournal`,
+and `MarkerValidator` together.
+
+**Suggested next move:** before patching #585's symptom, read these
+files together and write a short design note answering:
+
+- What is the contract between `ReFlySessionMarker.OriginChildRecordingId`
+  and `RestoreActiveTreeFromPending`'s expected-active-vessel decision?
+- What is the contract between `Recording.Epoch` on the rewind
+  quicksave's `.sfs` and the on-disk `.prec` for an in-place
+  continuation origin, and which side is authoritative when they
+  disagree?
+- When sidecar hydration drops trajectory + snapshots for the active
+  recording during a rewind, is the right recovery to load `.prec` and
+  trim points after rewind UT, or to drop the trajectory entirely and
+  re-record from rewind UT, or to refuse the rewind and surface a
+  user-facing error?
+
+**Resolution (2026-04-26):** Closed alongside #585. Design note
+[`docs/dev/plans/refly-inplace-continuation-tree-restore.md`](plans/refly-inplace-continuation-tree-restore.md)
+answers all three questions:
+
+1. The marker's `ActiveReFlyRecordingId` is authoritative for the
+   in-place continuation Re-Fly's expected active vessel; the rewind
+   quicksave's `ActiveRecordingId` is stale. Carve-out lives in
+   `ReFlySessionMarker.ResolveInPlaceContinuationTarget` and is
+   consumed by `ParsekFlight.RestoreActiveTreeFromPending` before the
+   3s wait loop.
+2. For an in-place continuation, neither side is fully authoritative:
+   the rewind quicksave's `.sfs` epoch is correct for trajectory POINTS
+   (which we re-record from rewind UT anyway) and the on-disk `.prec`
+   is correct for the SNAPSHOT (which the player landed/staged with
+   at end of original mission). Bug #270's drop-on-mismatch stays the
+   default; the fix lives in the marker-aware coroutine, not in the
+   sidecar load path. The deferred snapshot-only-rescue (when
+   on-disk `.prec` epoch > `.sfs` expected epoch) is filed as a
+   future invariant-tightening pass — `StashActiveTreeAsPendingLimbo`
+   already re-captures null-snapshot leaves at scene exit, which
+   covers the playtest's `hasSnapshot=False` symptom in practice.
+3. The Limbo error surface is correct as the default; the empty
+   trajectory list IS the resumed recording's expected shape.
+   Bug #270's safety net stays intact for non-in-place-continuation
+   cases (corrupt save, half-written file, etc).
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~591. Log spam: `OnVesselSwitchComplete:entry/post` RecState lines fire ~10000 times in a single session during missed-vessel-switch recovery~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 9969
+occurrences of `RecState [#NNNN][OnVesselSwitchComplete:entry|post]`,
+clustered in two windows:
+
+- 19:11:28.888 → 19:12:23 (~55s, ~9300 lines): the `Bob Kerman` EVA
+  vessel was destroyed (sub-surface state on Mun) and the recorder
+  cleared `recorderPid=0`. `ParsekFlight.Update` (line ~6705) detects
+  `activeVessel != recorderVessel` every frame and runs the recovery
+  path: a single `WarnRateLimited("missed-vessel-switch-{pid}")`
+  warning is suppressed (suppressed=589 etc.) so the WARN line itself
+  is fine — but the recovery branch unconditionally calls
+  `OnVesselSwitchComplete(activeVessel)` after the warn, and the two
+  RecState dispatches inside it (`OnVesselSwitchComplete:entry` at
+  `ParsekFlight.cs:1881` and `:post` at `ParsekFlight.cs:2030`) are
+  not rate-limited.
+- 19:11:28 → 19:11:53: at the same time, sibling
+  `[WARN][Flight] Update: recovering missed vessel switch ... | suppressed=589`
+  rate-limit summaries fire at 5s intervals — the WARN side
+  rate-limit works, only the inner RecState logs spam.
+
+**Why it matters:** the two RecState lines together are ~280 KB of
+log spam in 55 seconds (avg ~5 KB/s), well above the project's
+"log volume must stay readable" target. Every line is identical
+shape, no useful per-frame state changes, on a hot path
+(`Update()`).
+
+**Files to investigate:**
+
+- `Source/Parsek/ParsekFlight.cs:1881` and `:2030` — the
+  `RecState("OnVesselSwitchComplete:entry"/":post")` calls. They
+  exist for tracing legitimate vessel-switch boundaries; for the
+  recovery loop they fire every frame for the same activePid.
+- `Source/Parsek/ParsekFlight.cs:6700-6710` — the missed-vessel-switch
+  recovery branch. The WARN is correctly rate-limited via
+  `WarnRateLimited("missed-vessel-switch-{activeVesselPid}")`, but
+  the subsequent `OnVesselSwitchComplete(activeVessel)` call is
+  unconditional. Either gate the call on the same rate-limit key, or
+  rate-limit the RecState lines on the same key, or detect
+  "recoverer is firing for the same activePid as last frame" and
+  short-circuit before logging.
+
+**Status:** ~~Open.~~ Done. Fix: the recovery branch still calls
+`OnVesselSwitchComplete(activeVessel)`, preserving the recovery behavior,
+but passes a recovery diagnostic context so only the nested
+`RecState("OnVesselSwitchComplete:entry"/":post")` lines are
+rate-limited. The key includes activePid plus recorder/tracking
+fingerprint (recorder pid, live/background flags, tracked/armed state,
+chain-to-vessel pending flag, active recording id, and BackgroundMap
+count), so repeated identical Update frames coalesce into 5s
+`suppressed=N` summaries while changed state or normal non-recovery
+vessel-switch boundaries emit fresh diagnostics.
+
+---
+
+## ~~592. Log spam: time-warp rate-change checkpoint logs fire ~3300 times per session from KSP's chatty `onTimeWarpRateChanged` GameEvent~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1122 ×
+`[BgRecorder] CheckpointAllVessels at UT=...`, 1121 ×
+`[Checkpoint] Time warp rate changed to N x at UT=... — checkpointing
+all background vessels`, and 1121 × `[Checkpoint] Active vessel orbit
+segments handled by on-rails events`. ~3364 lines total — the single
+biggest log-spam source not already in #591 / #160.
+
+**Diagnosis (2026-04-25):** of the 1121 rate-change events, 1090 were
+`1.0x` and only 248 unique UT values were seen — KSP's
+`GameEvents.onTimeWarpRateChanged` re-fires aggressively at the same
+rate during scene transitions, warp-to-here, and similar transients.
+Three `Verbose` log lines were emitted per event with no rate-limit,
+plus the underlying `CheckpointAllVessels` walk did real work each
+time even though closing+reopening an orbit segment at the same UT is
+idempotent.
+
+**Fix:** all three log calls in `ParsekFlight.OnTimeWarpRateChanged`
+(`ParsekFlight.cs:5889` / `:5899`) and the summary in
+`BackgroundRecorder.CheckpointAllVessels`
+(`BackgroundRecorder.cs:2084`) now route through
+`ParsekLog.VerboseRateLimited`. The two `Checkpoint` lines are keyed
+per warp-rate string (so transitions between distinct rates still log
+on the first event), and the BgRecorder summary is keyed by the
+`(checkpointed, skippedNotOrbital, skippedNoVessel)` shape so a
+genuine count change still surfaces immediately. Regression
+`BackgroundRecorderTests.CheckpointAllVessels_RepeatedCallsSameShape_RateLimitedToOneLine`
+calls 50x with the same shape and asserts a single emitted summary
+line.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Log-only fix; the
+underlying "KSP fires rate-change at 1x ~4x more often than there are
+real rate changes" concern is tracked separately as #597.
+
+---
+
+## ~~593. Log spam: repeatable record milestones (`RecordsSpeed`/`RecordsAltitude`/`RecordsDistance`) re-emit the same `Milestone funds` / `stays effective` / `Milestone rep at UT` line on every recalc walk~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — ~1190 lines:
+- 510 × `[Milestones] Repeatable record milestone '<id>' stays
+  effective at UT=...` (170 each for Speed / Altitude / Distance).
+- 510 × `[Funds] Milestone funds: +N, milestoneId=Records...,
+  runningBalance=...` (170 each).
+- 393 × `[Reputation] Milestone rep at UT=...: milestoneId=Records...,
+  ...`.
+
+**Diagnosis (2026-04-25):** `MilestonesModule.ProcessMilestoneAchievement`
+walks every committed action in the ledger on every recalc; for the
+three repeatable record-milestone IDs the credit is established on
+the first hit and every subsequent walk re-takes the
+`isRepeatableRecordMilestone` branch with identical milestoneId,
+recordingId, fundsAwarded and repAwarded, producing structurally
+identical log lines. With ~57 recalcs in a 30-min session times three
+record-milestones, that produces ~170 lines per branch.
+
+**Fix:** `MilestonesModule.ProcessMilestoneAchievement` (the repeatable
+"stays effective" branch), `FundsModule.ProcessMilestoneEarning`, and
+`ReputationModule.ProcessMilestoneRep` now all route through
+`ParsekLog.VerboseRateLimited` keyed by the stable
+`GameAction.ActionId` (with a `(milestoneId, recordingId, ut, reward)`
+tuple as fallback if `ActionId` is empty). The intended invariant is
+"recalculating the SAME action collapses its log line"; two distinct
+record-milestone hits sharing the same milestoneId+recordingId but
+with different UT or reward have different `ActionId`s and still log
+on their first walk. Each emitted line now includes `actionId=...` so
+the identity is debuggable. Regressions
+`FundsModuleTests.MilestoneEarning_SameActionRecalculated_RateLimitedToOneLine`,
+`MilestonesModuleTests.RepeatableRecordMilestone_SameActionRecalculated_RateLimitedToOneLine`,
+and `ReputationModuleTests.MilestoneRep_SameActionRecalculated_RateLimitedToOneLine`
+re-walk a single action 100 times and assert exactly one emitted line.
+Companion regressions
+`*_DistinctActionsSamePair_LogSeparately` and
+`*_NullRecordingId_StillKeysOnActionId` confirm distinct actions
+(including null-recording standalone/KSC paths) survive the gate.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~594. Log spam: `KspStatePatcher.PatchMilestones` bare-Id fallback fires per recalc for the same `(nodeId, qualifiedId)` pair~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 221 ×
+`[KspStatePatcher] PatchMilestones: bare-Id fallback match for 'Orbit'
+(qualified='...' not found — old recording?)`.
+
+**Diagnosis (2026-04-25):** the bare-Id fallback diagnostic exists to
+flag old-format recordings whose milestones stored the bare body-
+specific node ID (`Landing`) instead of the qualified path
+(`Mun/Landing`). Once such a fallback exists, every recalc walk
+re-emits the same line because the recording's milestone-credit
+state is steady. Useful as a one-shot "old recording detected" hint;
+useless and noisy as a per-recalc line.
+
+**Fix:** the `Verbose` call at `KspStatePatcher.cs:988` now routes
+through `VerboseRateLimited` keyed by `(nodeId, qualifiedId)` so each
+distinct fallback pair logs at most once per rate-limit window; new
+fallback pairs surface immediately on first match.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~595. Log spam: `OrbitalCheckpoint point playback` and `Recorder Sample skipped` rate-limit windows were too tight~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 413 ×
+`[Playback] OrbitalCheckpoint point playback: rec=<HEX> currentUT=...`
+and 197 × `[Recorder] Sample skipped at ut=...; waiting for motion/
+attitude trigger`. Both lines were already routed through
+`VerboseRateLimited`, but with custom 1.0s and 2.0s windows
+respectively — tight enough that long-playing OrbitalCheckpoint
+sections still emitted ~14 lines/min per `(recId, sectionIdx)` and
+stationary recordings ~7 lines/min.
+
+**Diagnosis (2026-04-25):** both lines convey steady-state telemetry
+(per-section ghost playback / "still stationary, no sample taken"),
+not state transitions, so the rate-limit window can safely widen to
+the project default 5s without losing diagnostic value — the per-key
+identity (`recId+sectionIdx` for OrbitalCheckpoint, single shared key
+for Sample skipped) means new sections / new recorders still log on
+their first frame.
+
+**Fix:** both call sites (`ParsekFlight.cs:13870` and
+`FlightRecorder.cs:5458`) now use the default 5s rate-limit window
+inherited from `ParsekLog.DefaultRateLimitSeconds`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~596. Log spam: `KspStatePatcher.PatchFacilities` emits an INFO summary on every recalc even when there is nothing to patch~~
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 42 ×
+`[KspStatePatcher] PatchFacilities: levels patched=0, skipped=0,
+notFound=0, total=0`. Earlier playtests (the same KSP.log around lines
+26791-27996) showed several thousand of these once the recalculation
+engine churned the same empty `FacilitiesModule` repeatedly — the
+no-op summary fires unconditionally at INFO on every PatchFacilities
+call.
+
+**Diagnosis (2026-04-25):** the summary's purpose is to make
+"facility patching changed game state or hit a missing facility"
+visible at INFO. `skippedCount` increments on the no-op pass (a
+facility already at its target level), so a steady-state non-empty
+`FacilitiesModule` would still re-emit the INFO summary on every
+recalc if `skipped` counted toward the gate.
+
+**Fix:** `KspStatePatcher.PatchFacilities` now gates the INFO summary
+on `patchedCount + notFoundCount > 0`. The skipped-only steady-state
+case (`patched=0, notFound=0, skipped>0`) routes through
+`VerboseRateLimited` with key `patch-facilities-skipped-only`. The
+empty-totals case (no tracked facilities at all) keeps its existing
+`patch-facilities-empty` rate-limited Verbose path. Regressions
+`KspStatePatcherTests.PatchFacilities_NotFound_LogsInfoSummary` and
+`PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose` pin
+the INFO branch (notFound>0) and the empty-Verbose branch. The
+skipped-only branch needs real `UpgradeableFacility` refs in
+`ScenarioUpgradeableFacilities.protoUpgradeables` and is verified
+in-game during the next playtest pass instead of an xUnit canary.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
+
+**Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
+events were `1.0x`, but only 248 unique UT values appeared, and many
+of those 248 had multiple sub-second-apart 1.0x events (e.g.
+`19:08:26.557` and `19:08:26.567` both at UT≈21526.10). KSP fires the
+event spuriously across scene transitions, warp-to-here, save/load
+boundaries, and similar transients.
+
+**Why it matters:** Bug #592 only addresses the LOG noise. The
+underlying `BackgroundRecorder.CheckpointAllVessels` call still runs
+every event, closing and re-opening the same orbit segment at the
+same UT for every background vessel. The work is idempotent (same
+UT → identical segment shape → no observable behaviour change), so
+it has not produced a known correctness defect, but it is wasted
+work scaling with `backgroundVesselCount × eventCount` and could
+mask a real correctness regression in the future ("why is this orbit
+segment getting reopened mid-flight?").
+
+**Files to investigate:**
+
+- `Source/Parsek/ParsekFlight.cs:5842` — `OnTimeWarpRateChanged`. Add
+  a `lastSeenWarpRate` field and short-circuit when both the rate and
+  the UT have not advanced past the last invocation. Care needed
+  because the warp-start / warp-end branch above this call also
+  depends on the event firing.
+- `Source/Parsek/BackgroundRecorder.cs:2030` — `CheckpointAllVessels`.
+  An alternate fix is to make this method itself idempotent at the
+  same UT (skip the close+reopen if the segment is already closed
+  at this exact UT).
+
+**Status:** Open. Performance / hygiene; no observed correctness
+defect. Defer until a measurable hot-path latency or a specific
+ghost-orbit anomaly points at it.
 
 ---
 
@@ -1124,6 +1995,21 @@ so each vessel logs at most once per window. Regression
 `EffectiveStateTests.IsUnfinishedFlight_RepeatedCallsSameRec_RateLimitedToOneLine`
 calls the predicate 100x with the same recording and asserts a single emitted
 line.
+
+2026-04-25 update (post-#591 second-tier cleanup): the `2026-04-25_1933_refly-bugs`
+KSP.log surfaced six more spam sources, addressed as numbered bugs #592-#596
+(closed in this commit) plus #597 (open underlying-logic concern). #592 covers
+the ~3300 `Time warp rate changed` / `CheckpointAllVessels` / `Active vessel
+orbit segments handled` lines from KSP's chatty `onTimeWarpRateChanged`
+GameEvent. #593 covers ~1190 lines from repeatable record milestones
+(`Records*` IDs) re-emitting the same `Milestone funds` / `stays effective` /
+`Milestone rep at UT` line on every recalc walk. #594 covers 221 KspStatePatcher
+bare-Id fallback lines. #595 widens the OrbitalCheckpoint playback and Recorder
+sample-skipped rate-limit windows from 1-2s to the default 5s. #596 gates the
+PatchFacilities INFO summary on having actual work. #597 tracks the underlying
+"KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
+a separate open todo (performance / hygiene only — no observed correctness
+defect).
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 

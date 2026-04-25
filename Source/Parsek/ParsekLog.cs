@@ -306,6 +306,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rate-limited variant for hot-path recovery diagnostics that still need
+        /// full <c>[RecState]</c> snapshots on the first occurrence and on summary
+        /// cadence. Normal lifecycle boundaries should call <see cref="RecState"/>.
+        /// </summary>
+        /// <remarks>
+        /// Like the other rate-limited loggers, summaries are emitted only when the
+        /// same key fires again after the interval; trailing suppressed counts for
+        /// abandoned fingerprints are intentionally dropped. Keys live in the shared
+        /// per-session rate-limit dictionary until reset, so callers should use
+        /// coarse, stable fingerprints rather than per-frame values.
+        /// </remarks>
+        internal static void RecStateRateLimited(
+            string phase,
+            RecorderStateSnapshot snap,
+            string key,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                RecState(phase, snap);
+                return;
+            }
+
+            string compositeKey = $"R|RecState|{phase}|{key}";
+            double now = GetLogClockSeconds();
+            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
+            {
+                rateLimitStateByKey[compositeKey] = new RateLimitState
+                {
+                    lastEmitSeconds = now,
+                    suppressedCount = 0
+                };
+                RecState(phase, snap);
+                return;
+            }
+
+            if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
+            {
+                long seq = Interlocked.Increment(ref s_recStateSeq);
+                string line = FormatRecState(seq, phase, snap, ref t_lastSeenActiveRecId);
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Write("INFO", "RecState", $"{line}{suffix}");
+                state.lastEmitSeconds = now;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            rateLimitStateByKey[compositeKey] = state;
+        }
+
+        /// <summary>
         /// Pure formatting helper exposed for unit tests. The <paramref name="lastSeenRecId"/>
         /// ref parameter is updated to the current snapshot's activeRecId after rendering,
         /// implementing the "only show <c>rec.prev</c> on transitions" semantics.

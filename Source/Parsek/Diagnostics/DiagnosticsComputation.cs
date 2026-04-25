@@ -746,6 +746,21 @@ namespace Parsek
         internal const long MainLoopBreakdownMaxDestroyMicroseconds = 1_000;
 
         /// <summary>
+        /// Bug #581: minimum per-phase contribution required for the hybrid latch
+        /// to recognise a frame as a genuine mainLoop+spawn hybrid spike. Without
+        /// this floor, the gate (which is just "below #450 spawn threshold AND
+        /// below #460 mainLoop threshold") matches default-phase frames, deferred-
+        /// event-dominated spikes, and zero-spawn / zero-mainLoop spikes — any of
+        /// which would burn the one-shot latch on a non-hybrid frame and rob the
+        /// session of the diagnostic snapshot the latch is supposed to capture.
+        /// 1 ms (1 000 µs) is roughly an order of magnitude below either of the
+        /// individual thresholds, so it admits the captured 2026-04-25 spike
+        /// (mainLoop 7.51 ms + spawn 3.44 ms) and any plausible hybrid below the
+        /// #450/#460 lines, while rejecting per-frame measurement noise.
+        /// </summary>
+        internal const long HybridBreakdownMinPhaseMicroseconds = 1_000;
+
+        /// <summary>
         /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
         /// time a playback-budget-exceeded warning fires in the session; once latched, the
         /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
@@ -774,6 +789,26 @@ namespace Parsek
         /// behaviour changes.
         /// </summary>
         private static bool s_mainLoopBreakdownOneShotFired;
+
+        /// <summary>
+        /// Bug #581: independent latch for the hybrid-spike breakdown WARN. The
+        /// 2026-04-25 marker-validator-fix playtest emitted a single
+        /// budget-exceeded frame at 11.6 ms whose phase shape was
+        /// <c>mainLoop=7.51ms spawn=3.44ms (built=1 max=3.44ms)</c> — partly
+        /// mainLoop work + partly a single non-trivial spawn, but neither
+        /// component large enough on its own to fit the existing #450 (gate:
+        /// <c>spawnMaxMicroseconds &gt;= 15 ms</c>) or #460 (gate:
+        /// <c>mainLoop &gt;= 10 ms</c> AND <c>spawn &lt; 1 ms</c>) sub-breakdowns.
+        /// The session therefore captured the generic #414 breakdown but no
+        /// sub-phase attribution that would let Phase B target a fix. This
+        /// latch fires on the next budget-exceeded frame that falls in the
+        /// gap between #450 and #460 — heaviest spawn under the 15 ms #450
+        /// threshold AND mainLoop under the 10 ms #460 floor — so the next
+        /// hybrid breach lands a sub-breakdown line that itemises the same
+        /// fields as #460's breakdown plus the spawn ratios. Independent of
+        /// the prior three latches so it can fire even after they are consumed.
+        /// </summary>
+        private static bool s_hybridBreakdownOneShotFired;
 
         /// <summary>
         /// Checks the playback budget and emits a rate-limited WARN if exceeded.
@@ -946,13 +981,88 @@ namespace Parsek
                         ghostsProcessed,
                         warpRate.ToString("F0", Inv)));
             }
+
+            // Bug #581: hybrid-spike breakdown. The 2026-04-25 playtest's only
+            // budget-exceeded frame was total=11.6ms mainLoop=7.51ms
+            // spawn=3.44ms (built=1 max=3.44ms). That falls in a diagnostic
+            // gap between #450 (gate: spawnMax >= 15ms) and #460 (gate:
+            // mainLoop >= 10ms AND spawn < 1ms): neither sub-bucket is large
+            // enough to clear its own threshold, so without this latch the
+            // session captures the generic #414 breakdown but no Phase-B
+            // attribution. Fires when the spike is in that gap AND the
+            // mainLoop+spawn pair has positive evidence of genuine hybrid
+            // dominance — both phases must individually be ≥ 1 ms (rejecting
+            // default / pre-init frames, observability-only spikes, and
+            // zero-spawn or zero-mainLoop frames where one bucket is silent),
+            // and their sum must exceed every other non-spawn/destroy bucket
+            // (rejecting deferred-event, observability-capture, and explosion-
+            // cleanup-dominated spikes that happen to leave both mainLoop and
+            // spawn under threshold). Without these positive gates, the bare
+            // "<#450 AND <#460" floor matches every above-budget frame whose
+            // spike comes from any other bucket, and the one-shot latch can
+            // be consumed before a real hybrid frame appears (review note on
+            // PR #553). Independent of the prior three latches so a session
+            // that already burned them on bigger spikes can still capture the
+            // next hybrid breach.
+            long deferredEventsTotalMicrosecondsForHybrid =
+                phases.deferredCreatedEventsMicroseconds + phases.deferredCompletedEventsMicroseconds;
+            long hybridPairMicroseconds =
+                phases.mainLoopMicroseconds + phases.spawnMicroseconds;
+            if (!s_hybridBreakdownOneShotFired
+                && phases.spawnMaxMicroseconds < BuildBreakdownMinHeaviestSpawnMicroseconds
+                && phases.mainLoopMicroseconds < MainLoopBreakdownMinMainLoopMicroseconds
+                && phases.mainLoopMicroseconds >= HybridBreakdownMinPhaseMicroseconds
+                && phases.spawnMicroseconds >= HybridBreakdownMinPhaseMicroseconds
+                && hybridPairMicroseconds > deferredEventsTotalMicrosecondsForHybrid
+                && hybridPairMicroseconds > phases.observabilityCaptureMicroseconds
+                && hybridPairMicroseconds > phases.explosionCleanupMicroseconds)
+            {
+                s_hybridBreakdownOneShotFired = true;
+
+                double mainLoopMs = phases.mainLoopMicroseconds / 1000.0;
+                double spawnMs = phases.spawnMicroseconds / 1000.0;
+                string mainLoopFractionStr = totalMs > 0
+                    ? (100.0 * mainLoopMs / totalMs).ToString("F0", Inv) + "%"
+                    : "n/a";
+                string spawnFractionStr = totalMs > 0
+                    ? (100.0 * spawnMs / totalMs).ToString("F0", Inv) + "%"
+                    : "n/a";
+
+                ParsekLog.Warn("Diagnostics",
+                    string.Format(Inv,
+                        "Playback hybrid breakdown (one-shot, first sub-#450/#460 hybrid spike):"
+                        + " total={0}ms mainLoop={1}ms ({2}) spawn={3}ms ({4} built={5} max={6}ms)"
+                        + " destroy={7}ms explosionCleanup={8}ms"
+                        + " deferredCreated={9}ms ({10} evts) deferredCompleted={11}ms ({12} evts)"
+                        + " observabilityCapture={13}ms trajectories={14} overlapIterations={15}"
+                        + " ghosts={16} warp={17}x",
+                        totalMs.ToString("F1", Inv),
+                        mainLoopMs.ToString("F2", Inv),
+                        mainLoopFractionStr,
+                        spawnMs.ToString("F2", Inv),
+                        spawnFractionStr,
+                        phases.spawnsAttempted,
+                        (phases.spawnMaxMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.createdEventsFired,
+                        (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.completedEventsFired,
+                        (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.trajectoriesIterated,
+                        phases.overlapGhostIterationCount,
+                        ghostsProcessed,
+                        warpRate.ToString("F0", Inv)));
+            }
         }
 
 
         /// <summary>
-        /// Test-only: reset the bug #414, #450, and #460 one-shot breakdown latches so each
+        /// Test-only: reset the bug #414, #450, #460, and #581 one-shot breakdown latches so each
         /// test starts clean. Use <see cref="SetBug414BreakdownLatchFiredForTesting"/> /
-        /// <see cref="SetBug450BreakdownLatchFiredForTesting"/> when a test needs to
+        /// <see cref="SetBug450BreakdownLatchFiredForTesting"/> /
+        /// <see cref="SetBug460BreakdownLatchFiredForTesting"/> when a test needs to
         /// pre-consume a specific prior latch without touching the others.
         /// </summary>
         internal static void ResetPlaybackBreakdownOneShotForTesting()
@@ -960,6 +1070,7 @@ namespace Parsek
             s_playbackBreakdownOneShotFired = false;
             s_buildBreakdownOneShotFired = false;
             s_mainLoopBreakdownOneShotFired = false;
+            s_hybridBreakdownOneShotFired = false;
         }
 
         /// <summary>
@@ -983,6 +1094,17 @@ namespace Parsek
         internal static void SetBug450BreakdownLatchFiredForTesting()
         {
             s_buildBreakdownOneShotFired = true;
+        }
+
+        /// <summary>
+        /// Added by #581: test seam that pre-fires the #460 mainLoop-dominated
+        /// breakdown latch without touching the #414, #450, or #581 latches, so the
+        /// hybrid-spike independence test can verify the #581 branch fires even when
+        /// #460 is already consumed. Companion to <see cref="SetBug450BreakdownLatchFiredForTesting"/>.
+        /// </summary>
+        internal static void SetBug460BreakdownLatchFiredForTesting()
+        {
+            s_mainLoopBreakdownOneShotFired = true;
         }
 
         /// <summary>
@@ -1049,6 +1171,7 @@ namespace Parsek
             s_playbackBreakdownOneShotFired = false;
             s_buildBreakdownOneShotFired = false;
             s_mainLoopBreakdownOneShotFired = false;
+            s_hybridBreakdownOneShotFired = false;
         }
     }
 }

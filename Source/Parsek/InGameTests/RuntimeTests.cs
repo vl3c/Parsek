@@ -2473,6 +2473,124 @@ namespace Parsek.InGameTests
 
         #region MapView icons (#387)
 
+        [InGameTest(Category = "MapView",
+            Description = "GhostMap checkpoint source log resolves a real CelestialBody world position (#571)")]
+        public void GhostMapCheckpointSourceLogResolvesWorldPosition()
+        {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT
+                && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+            {
+                InGameAssert.Skip("test requires flight or tracking station scene");
+                return;
+            }
+
+            CelestialBody body = FlightGlobals.GetBodyByName("Kerbin")
+                ?? FlightGlobals.Bodies?.Find(b => b != null && b.name == "Kerbin");
+            InGameAssert.IsNotNull(body, "Kerbin should exist for checkpoint source world-position test");
+
+            Recording rec = BuildRuntimeCheckpointMapSourceRecording(body);
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            try
+            {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                int cachedIndex = -1;
+                GhostMapPresence.TrackingStationGhostSource source =
+                    GhostMapPresence.ResolveMapPresenceGhostSource(
+                        rec,
+                        isSuppressed: false,
+                        alreadyMaterialized: false,
+                        currentUT: rec.StartUT + 30.0,
+                        allowTerminalOrbitFallback: true,
+                        logOperationName: "runtime-571-checkpoint-world",
+                        ref cachedIndex,
+                        out _,
+                        out TrajectoryPoint stateVectorPoint,
+                        out string skipReason);
+
+                InGameAssert.IsTrue(
+                    source == GhostMapPresence.TrackingStationGhostSource.StateVector,
+                    $"Expected StateVector checkpoint source, got {source}");
+                InGameAssert.IsTrue(string.IsNullOrEmpty(skipReason),
+                    $"Expected no skip reason, got {skipReason ?? "(null)"}");
+                InGameAssert.AreEqual(body.name, stateVectorPoint.bodyName);
+
+                string line = captured.LastOrDefault(l =>
+                    l.Contains("[GhostMap]")
+                    && l.Contains("runtime-571-checkpoint-world")
+                    && l.Contains("sourceKind=StateVector"));
+                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
+                InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
+                    "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+        }
+
+        private static Recording BuildRuntimeCheckpointMapSourceRecording(CelestialBody body)
+        {
+            double startUT = 1000.0;
+            double endUT = 1060.0;
+            string bodyName = body != null ? body.name : "Kerbin";
+            var segment = new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 0.0,
+                eccentricity = 0.0,
+                semiMajorAxis = (body?.Radius ?? 600000.0) + 100000.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                bodyName = bodyName
+            };
+
+            var first = new TrajectoryPoint
+            {
+                ut = startUT,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100000.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, 2300f, 0f),
+                bodyName = bodyName
+            };
+            var second = first;
+            second.ut = endUT;
+            second.longitude = 5.0;
+
+            var rec = new Recording
+            {
+                RecordingId = "runtime-571-checkpoint-world-rec",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Runtime checkpoint world source",
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            rec.OrbitSegments.Add(segment);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = startUT,
+                endUT = endUT,
+                frames = new List<TrajectoryPoint> { first, second },
+                checkpoints = new List<OrbitSegment> { segment },
+                minAltitude = 100000f,
+                maxAltitude = 100000f
+            });
+            return rec;
+        }
+
         // Verify that MapMarkerRenderer's per-type icon entries match the live
         // MapNode.iconSprites array for every vessel type in
         // StockIconIndexByVesselType. Regressions here would mean ghost icons
@@ -5358,6 +5476,101 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "MapPresence", Scene = GameScenes.FLIGHT,
+            Description = "#586: same-body ghost map vessels keep vessel target identity and survive stock SetVesselTarget validation")]
+        public IEnumerator GhostMapVesselTargeting_SyntheticSameBodyGhost_Sticks()
+        {
+            if (FlightGlobals.fetch == null || FlightGlobals.ActiveVessel == null)
+            {
+                InGameAssert.Skip("FlightGlobals or active vessel is unavailable");
+                yield break;
+            }
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active.mainBody == null)
+            {
+                InGameAssert.Skip("Active vessel main body is unavailable");
+                yield break;
+            }
+
+            int recordingIndex = 586000 + Time.frameCount;
+            Recording rec = BuildSyntheticFlightTargetRecording(active, Planetarium.GetUniversalTime());
+            Vessel ghost = null;
+            System.Action<string> priorObserver = null;
+            bool observerInstalled = false;
+            try
+            {
+                ghost = GhostMapPresence.CreateGhostVesselForRecording(recordingIndex, rec);
+                InGameAssert.IsNotNull(ghost,
+                    "Synthetic flight ghost should be created for targeting canary");
+
+                yield return null;
+                yield return null;
+
+                InGameAssert.IsTrue(ghost.orbitDriver != null && ghost.orbitDriver.orbit != null,
+                    "Synthetic flight ghost should have an OrbitDriver with an orbit");
+                InGameAssert.IsTrue(ghost.orbitDriver.vessel == ghost,
+                    "Synthetic flight ghost OrbitDriver.vessel should point at the ghost vessel");
+                InGameAssert.IsTrue(ghost.orbitDriver.celestialBody == null,
+                    "Synthetic flight ghost OrbitDriver.celestialBody must stay null so stock targeting treats it as a vessel");
+                InGameAssert.IsTrue(GhostMapPresence.IsVesselRegistered(ghost),
+                    "Synthetic flight ghost should be registered in FlightGlobals.Vessels");
+                InGameAssert.AreEqual(active.mainBody.name, ghost.orbitDriver.referenceBody.name,
+                    "Synthetic flight ghost should orbit the active vessel's current main body");
+
+                var captured = new List<string>();
+                priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                observerInstalled = true;
+                GhostMapPresence.SetGhostMapNavigationTarget(
+                    ghost,
+                    recordingIndex,
+                    "ingame targeting canary");
+                yield return null;
+                yield return null;
+                yield return null;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                observerInstalled = false;
+
+                Vessel targetVessel = FlightGlobals.fetch.VesselTarget != null
+                    ? FlightGlobals.fetch.VesselTarget.GetVessel()
+                    : null;
+                InGameAssert.IsNotNull(targetVessel,
+                    "Stock SetVesselTarget should still have a vessel target after validation frames");
+                InGameAssert.AreEqual(ghost.persistentId, targetVessel.persistentId,
+                    "Production SetGhostMapNavigationTarget should retain the synthetic ghost vessel target");
+                InGameAssert.IsTrue(captured.Any(line =>
+                        line.Contains("[GhostMap]")
+                        && line.Contains("set as target via ingame targeting canary")
+                        && line.Contains("verified")),
+                    "Production SetGhostMapNavigationTarget should emit verified success only after validation");
+                InGameAssert.IsFalse(captured.Any(line =>
+                        line.Contains("[GhostMap]")
+                        && line.Contains("target rejected via ingame targeting canary")),
+                    "Production SetGhostMapNavigationTarget should not reject the synthetic same-body ghost");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "GhostMapVesselTargeting_SyntheticSameBodyGhost_Sticks: activePid={0} ghostPid={1} body={2}",
+                        active.persistentId,
+                        ghost.persistentId,
+                        active.mainBody.name));
+            }
+            finally
+            {
+                if (observerInstalled)
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                if (FlightGlobals.fetch != null
+                    && FlightGlobals.fetch.VesselTarget != null
+                    && ghost != null
+                    && FlightGlobals.fetch.VesselTarget.GetVessel() == ghost)
+                {
+                    FlightGlobals.fetch.SetVesselTarget(null, overrideInputLock: true);
+                }
+                GhostMapPresence.RemoveGhostVesselForRecording(recordingIndex, "ingame-targeting-canary-cleanup");
+            }
+        }
+
         [InGameTest(Category = "MapPresence",
             Description = "Recordings with antenna specs produce positive relay power")]
         public void AntennaSpecsProduceRelayPower()
@@ -5383,6 +5596,77 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("TestRunner",
                 $"Antenna specs: {withAntennas} recordings with antennas, {withRelayPower} with positive combined power");
+        }
+
+        private static Recording BuildSyntheticFlightTargetRecording(Vessel active, double currentUT)
+        {
+            CelestialBody body = active.mainBody;
+            double startUT = currentUT - 10.0;
+            double endUT = currentUT + 600.0;
+            double semiMajorAxis = System.Math.Max(
+                body.Radius + 100000.0,
+                active.orbit != null && active.orbit.semiMajorAxis > 0.0
+                    ? active.orbit.semiMajorAxis + 5000.0
+                    : body.Radius + 100000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "flight-target-runtime-" + System.Guid.NewGuid().ToString("N"),
+                VesselName = "Parsek Flight Target Canary",
+                TerminalStateValue = TerminalState.Orbiting,
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = body.name,
+                TerminalOrbitBody = body.name,
+                TerminalOrbitSemiMajorAxis = semiMajorAxis,
+                TerminalOrbitEccentricity = 0.001,
+                TerminalOrbitInclination = active.orbit != null ? active.orbit.inclination : 0.0,
+                TerminalOrbitLAN = active.orbit != null ? active.orbit.LAN : 0.0,
+                TerminalOrbitArgumentOfPeriapsis = active.orbit != null ? active.orbit.argumentOfPeriapsis : 0.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.0,
+                TerminalOrbitEpoch = startUT,
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                PlaybackEnabled = true,
+            };
+
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT,
+                latitude = active.latitude,
+                longitude = active.longitude,
+                altitude = 100000.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, 2300f, 0f),
+                bodyName = body.name,
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = endUT,
+                latitude = active.latitude,
+                longitude = active.longitude + 1.0,
+                altitude = 100000.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, 2300f, 0f),
+                bodyName = body.name,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = rec.TerminalOrbitInclination,
+                eccentricity = rec.TerminalOrbitEccentricity,
+                semiMajorAxis = rec.TerminalOrbitSemiMajorAxis,
+                longitudeOfAscendingNode = rec.TerminalOrbitLAN,
+                argumentOfPeriapsis = rec.TerminalOrbitArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = rec.TerminalOrbitMeanAnomalyAtEpoch,
+                epoch = rec.TerminalOrbitEpoch,
+                bodyName = body.name,
+                isPredicted = false,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            });
+            rec.MarkFilesDirty();
+            return rec;
         }
     }
 
