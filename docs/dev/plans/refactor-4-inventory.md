@@ -44,7 +44,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Partial; post-switch auto-record trigger helpers extracted, finalization remains |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass0-OpportunityMap; old large visual builder included in sweep |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
-| `Source/Parsek/RecordingStore.cs` | 6,902 | Pass0-OpportunityMap; storage/rewind/optimizer candidates mapped |
+| `Source/Parsek/RecordingStore.cs` | 6,902 | Pass1-Done; optimization and rewind helpers extracted |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
@@ -430,15 +430,25 @@ Pass 2 discussion only: `RcsFxBuilder`, `VariantVisualRules`,
 This file combines recording/tree commit, grouping, optimization, deletion,
 rewind, trajectory serialization, manifests, file I/O, and sidecar mirrors.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `RunOptimizationPass` into merge pass, split pass, post-optimization
-  maintenance, background-map rebuild, and dirty-file flush helpers.
-- Split `InitiateRewind` into owner/tree resolution, reservation budget setup,
-  temporary save copy, recording strip preprocessing, load-game invocation, and
-  failure cleanup helpers.
-- Revisit sidecar mirror reconciliation only if a contiguous helper can be
-  extracted without changing file ordering or exception handling.
+- Split `RunOptimizationPass` into same-file helpers for merge, split, and
+  boring-tail trim phases while keeping loop-sync, background-map rebuild, and
+  dirty-file flush order unchanged.
+- Split `InitiateRewind` into same-file helpers for rewind context setup,
+  rewind strip-name collection, and temporary save cleanup. Owner resolution,
+  temp save copy/preprocess, load-game invocation, adjusted-UT capture, scene
+  load, and failure cleanup behavior remain unchanged.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingOptimizerTests|FullyQualifiedName~RecordingStoreTests|FullyQualifiedName~LegacyTreeMigrationTests|FullyQualifiedName~RewindLoggingTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
+
+Remaining sidecar mirror reconciliation work is deferred unless a later read
+finds a contiguous extraction that preserves file ordering and exception
+handling exactly.
 
 Pass 2 discussion only: storage codec/sidecar deduplication, recording tree
 I/O ownership, and rewind service ownership.

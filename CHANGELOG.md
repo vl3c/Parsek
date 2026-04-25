@@ -210,6 +210,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.ReconcileEarningsWindow` extraction: store-side deltas, emitted ledger deltas, summary logging, and mismatch warnings now live in private same-file helpers while preserving reconciliation math and warning keys.
 - Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.CreateVesselCostActions` extraction: vessel build/rollout costs and recovery funds now live in private same-file helpers while preserving rollout adoption and recovery fallback behavior.
 - Continued refactor-4 with a behavior-neutral `LedgerOrchestrator.RecalculateAndPatchCore` extraction: effective-ledger input logging and KSP patch application now live in private same-file helpers while preserving cutoff filtering, patch deferral, and rewind tech patch behavior.
+- Continued refactor-4 with behavior-neutral `RecordingStore` extractions: optimization merge/split/trim phases and rewind setup/strip/temp-save cleanup now live in private same-file helpers while preserving optimizer order and rewind load behavior.
 
 ### Tests
 
