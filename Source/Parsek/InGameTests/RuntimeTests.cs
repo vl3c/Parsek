@@ -2524,11 +2524,20 @@ namespace Parsek.InGameTests
                     $"Expected no skip reason, got {skipReason ?? "(null)"}");
                 InGameAssert.AreEqual(body.name, resolvedSegment.bodyName);
 
+                // P3 review pin: also require stateVectorSource=OrbitalCheckpoint
+                // and orbitalCheckpointFallback=reject so the captured-line
+                // predicate proves the resolver actually traversed the
+                // OrbitalCheckpoint section before settling on Segment. Without
+                // these substrings a future regression that silently stops
+                // walking checkpoints would still match `sourceKind=Segment`
+                // and leave this coexistence test green.
                 string line = captured.LastOrDefault(l =>
                     l.Contains("[GhostMap]")
                     && l.Contains("runtime-571-checkpoint-world")
-                    && l.Contains("sourceKind=Segment"));
-                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
+                    && l.Contains("sourceKind=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
+                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured with stateVectorSource=OrbitalCheckpoint and orbitalCheckpointFallback=reject");
                 InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
                     "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");
             }

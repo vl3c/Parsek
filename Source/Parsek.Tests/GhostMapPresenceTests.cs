@@ -2609,10 +2609,21 @@ namespace Parsek.Tests
             Assert.Null(skipReason);
             Assert.Equal("Kerbin", resolvedSegment.bodyName);
             Assert.Equal(segment.semiMajorAxis, resolvedSegment.semiMajorAxis);
+            // P3 review pin: assert the OrbitalCheckpoint branch was actually
+            // exercised. Without these substrings the test would still pass if
+            // TryResolveCheckpointStateVectorMapPoint stopped finding the
+            // OrbitalCheckpoint section entirely — the segment branch would
+            // return Segment first and the coexistence regression would go
+            // silently green. `stateVectorSource=OrbitalCheckpoint` is emitted
+            // only after the checkpoint section is resolved, and
+            // `orbitalCheckpointFallback=reject` proves the fallback
+            // evaluator ran and chose the segment as the safer source.
             Assert.Contains(logLines,
                 l => l.Contains("[GhostMap]")
                     && l.Contains("test-checkpoint-coexisting-segment")
-                    && l.Contains("source=Segment"));
+                    && l.Contains("source=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
         }
 
         [Fact]
