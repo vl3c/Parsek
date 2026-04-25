@@ -427,7 +427,7 @@ entries.
 
 ---
 
-## 580. MergeTree: 3 boundary discontinuity warnings (`unrecorded-gap`) between Background and Active sources
+## ~~580. MergeTree: 3 boundary discontinuity warnings (`unrecorded-gap`) between Background and Active sources~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 3 occurrences of:
@@ -448,7 +448,9 @@ correction at handoff is missing a term.
 - Whether `unrecorded-gap` should heal the boundary by interpolating or just
   surface as a WARN.
 
-**Status:** Open.
+**Status:** ~~Open~~ Fixed.
+
+**Fix:** `SessionMerger.MergeTree` now heals same-reference-frame Background→Active `unrecorded-gap` seams before rebuilding the merged flat trajectory from section-authoritative payload. The merger inserts one interpolated boundary point shared by the Background tail and Active head, preserves validated flat tail data, recomputes `boundaryDiscontinuityMeters`, and logs `MergeTree: healed unrecorded-gap ... #580` instead of leaving the old WARN shape for the three cited Kerbal X boundaries: section[2] UT 193973.61, section[4] UT 193977.99, and section[1] UT 193985.09.
 
 ---
 

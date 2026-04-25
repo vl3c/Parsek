@@ -3989,6 +3989,88 @@ namespace Parsek
             return pointsExtend || orbitSegmentsExtend;
         }
 
+        internal static bool TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+            Recording target,
+            Recording source,
+            List<TrackSection> tailReferenceTracks,
+            bool allowRelativeSections = false)
+        {
+            if (target == null
+                || source == null
+                || tailReferenceTracks == null
+                || !HasCompleteTrackSectionPayloadForFlatSync(target.TrackSections, allowRelativeSections)
+                || !HasCompleteTrackSectionPayloadForFlatSync(tailReferenceTracks, allowRelativeSections))
+            {
+                return false;
+            }
+
+            var referencePoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(tailReferenceTracks, referencePoints);
+            var sourcePoints = source.Points ?? new List<TrajectoryPoint>();
+            if (sourcePoints.Count < referencePoints.Count)
+                return false;
+            for (int i = 0; i < referencePoints.Count; i++)
+            {
+                if (!TrajectoryPointEquals(referencePoints[i], sourcePoints[i]))
+                    return false;
+            }
+
+            int pointSuffixStart = -1;
+            if (sourcePoints.Count > referencePoints.Count)
+            {
+                pointSuffixStart = FindSafeTrajectoryPointSuffixStart(sourcePoints, referencePoints);
+                if (pointSuffixStart < 0)
+                    return false;
+            }
+
+            var referenceOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(tailReferenceTracks, referenceOrbitSegments);
+            var sourceOrbitSegments = source.OrbitSegments ?? new List<OrbitSegment>();
+            if (sourceOrbitSegments.Count < referenceOrbitSegments.Count)
+                return false;
+            for (int i = 0; i < referenceOrbitSegments.Count; i++)
+            {
+                if (!OrbitSegmentEquals(referenceOrbitSegments[i], sourceOrbitSegments[i]))
+                    return false;
+            }
+
+            int orbitSuffixStart = -1;
+            if (sourceOrbitSegments.Count > referenceOrbitSegments.Count)
+            {
+                orbitSuffixStart = FindSafeOrbitSegmentSuffixStart(
+                    sourceOrbitSegments, referenceOrbitSegments);
+                if (orbitSuffixStart < 0)
+                    return false;
+            }
+
+            if (pointSuffixStart < 0 && orbitSuffixStart < 0)
+                return false;
+
+            var healedPoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(target.TrackSections, healedPoints);
+            if (pointSuffixStart >= 0)
+            {
+                AppendTrajectoryPointSuffix(healedPoints, sourcePoints, pointSuffixStart);
+                if (!TrajectoryPointListIsMonotonicNonDecreasing(healedPoints))
+                    return false;
+            }
+
+            var healedOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(target.TrackSections, healedOrbitSegments);
+            if (orbitSuffixStart >= 0)
+            {
+                AppendOrbitSegmentSuffix(healedOrbitSegments, sourceOrbitSegments, orbitSuffixStart);
+                if (!OrbitSegmentListIsMonotonicNonDecreasing(healedOrbitSegments))
+                    return false;
+            }
+
+            target.Points = healedPoints;
+            target.OrbitSegments = healedOrbitSegments;
+            target.CachedStats = null;
+            target.CachedStatsPointCount = 0;
+            return true;
+        }
+
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
         {
             return rec != null
