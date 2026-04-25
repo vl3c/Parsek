@@ -9414,6 +9414,34 @@ namespace Parsek
 
             if (isSceneExit)
             {
+                // PR #572 follow-up: same gate as the leaf path — when the
+                // active recording was just repaired from the committed tree
+                // this frame, do not overwrite its (intentionally unset)
+                // terminal state with a Landed/Splashed inference based on
+                // the last trajectory point. The gate's only clause is
+                // RestoredFromCommittedTreeThisFrame; an additional
+                // orbital-evidence clause was considered (Option D in the
+                // design plan) and rejected because the legitimate
+                // orbit-then-land case shares the same shape (high
+                // MaxDistanceFromLaunch + stable orbit segment + low-altitude
+                // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
+                // doc comment.
+                if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                        activeRec, out string skipReason))
+                {
+                    activeRec.RestoredFromCommittedTreeThisFrame = false;
+                    PopulateTerminalOrbitFromLastSegment(activeRec);
+                    ParsekLog.Info("Flight",
+                        $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
+                        $"for active recording '{activeRec.RecordingId}' " +
+                        $"(vessel pid={activeRec.VesselPersistentId}) — {skipReason} " +
+                        $"(lastPtAlt={(activeRec.Points.Count > 0 ? activeRec.Points[activeRec.Points.Count - 1].altitude : double.NaN):F1}m " +
+                        $"maxDist={activeRec.MaxDistanceFromLaunch:F0}m " +
+                        $"orbitSegs={activeRec.OrbitSegments?.Count ?? 0})");
+                    RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeafSkipInfer");
+                    return false;
+                }
+
                 var inferredState = InferTerminalStateFromTrajectory(activeRec);
                 activeRec.TerminalStateValue = inferredState;
                 ParsekLog.Info("Flight",
@@ -9601,22 +9629,54 @@ namespace Parsek
                     // DeferredDestructionCheck / ApplyDestroyedFallback before finalization.
                     // Reaching here without a terminal state means the vessel was alive
                     // when unloaded. Infer terminal state from the last trajectory point.
-                    var inferredState = InferTerminalStateFromTrajectory(rec);
-                    rec.TerminalStateValue = inferredState;
-                    ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
-                        $"not found on scene exit for recording '{rec.RecordingId}' — " +
-                        $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
-                    PopulateTerminalOrbitFromLastSegment(rec);
-
-                    // Bug #290d: capture terrain height from last trajectory point for
-                    // landed/splashed recordings whose vessel was unloaded at scene exit.
-                    // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
-                    // uses PQS terrain height, which is below KSP static structures (runway,
-                    // launchpad), causing the spawned vessel to clip through and explode.
-                    if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                    //
+                    // PR #572 follow-up: skip the surface inference when the recording was
+                    // just repaired from the committed tree this frame (the trajectory
+                    // came from a copy that already lacked a terminal state, so the
+                    // "vessel was alive when unloaded" heuristic does not apply — typically
+                    // means the live pid was a deliberate Re-Fly strip casualty). The gate's
+                    // only clause is RestoredFromCommittedTreeThisFrame; an additional
+                    // orbital-evidence clause was considered (Option D in the design plan)
+                    // and rejected because the legitimate orbit-then-land case shares the
+                    // same shape (high MaxDistanceFromLaunch + stable orbit segment + low-
+                    // altitude last point) and adding such a clause would regress
+                    // EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory
+                    // and SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog.
+                    if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                            rec, out string skipReason))
                     {
-                        PopulateTerminalPositionFromLastPoint(rec, inferredState);
-                        TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
+                        rec.RestoredFromCommittedTreeThisFrame = false;
+                        // Recover terminal orbit metadata from the last orbit segment if
+                        // available — preserves the orbital fingerprint for ghost-map
+                        // playback even though the terminal state remains unset.
+                        PopulateTerminalOrbitFromLastSegment(rec);
+                        ParsekLog.Info("Flight",
+                            $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
+                            $"for '{rec.RecordingId}' (vessel pid={rec.VesselPersistentId}) — " +
+                            $"{skipReason} " +
+                            $"(lastPtAlt={(rec.Points.Count > 0 ? rec.Points[rec.Points.Count - 1].altitude : double.NaN):F1}m " +
+                            $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
+                            $"orbitSegs={rec.OrbitSegments?.Count ?? 0})");
+                    }
+                    else
+                    {
+                        var inferredState = InferTerminalStateFromTrajectory(rec);
+                        rec.TerminalStateValue = inferredState;
+                        ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
+                            $"not found on scene exit for recording '{rec.RecordingId}' — " +
+                            $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
+                        PopulateTerminalOrbitFromLastSegment(rec);
+
+                        // Bug #290d: capture terrain height from last trajectory point for
+                        // landed/splashed recordings whose vessel was unloaded at scene exit.
+                        // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
+                        // uses PQS terrain height, which is below KSP static structures (runway,
+                        // launchpad), causing the spawned vessel to clip through and explode.
+                        if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                        {
+                            PopulateTerminalPositionFromLastPoint(rec, inferredState);
+                            TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
+                        }
                     }
                 }
                 else
@@ -9804,6 +9864,64 @@ namespace Parsek
 
             // Default: vessel was in flight (atmospheric descent, suborbital, etc.)
             return TerminalState.SubOrbital;
+        }
+
+        /// <summary>
+        /// PR #572 second-order data-loss companion. Decides whether
+        /// <see cref="FinalizeIndividualRecording"/> /
+        /// <see cref="EnsureActiveRecordingTerminalState"/> should skip the
+        /// scene-exit "vessel was alive when unloaded → infer Landed/Splashed
+        /// from last trajectory point" branch.
+        ///
+        /// <para>
+        /// The gate fires when the recording was just repaired from the
+        /// committed tree this frame
+        /// (<see cref="Recording.RestoredFromCommittedTreeThisFrame"/>).
+        /// The trajectory is a copy of a recording that was committed
+        /// mid-flight without a terminal state — typically because the
+        /// missing live pid is a deliberate Re-Fly strip casualty, not a
+        /// natural unload — so the surface inference's "vessel was alive
+        /// when unloaded" assumption does not apply.
+        /// </para>
+        ///
+        /// <para>
+        /// An additional "orbital evidence" clause (high
+        /// <see cref="Recording.MaxDistanceFromLaunch"/> and/or a stable
+        /// orbit segment) was considered as Option D in the design plan
+        /// (<c>docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md</c>)
+        /// and rejected: the legitimate "orbit-then-land" case shares the
+        /// same shape (high MaxDistanceFromLaunch + stable orbit segment
+        /// alongside a low-altitude last point), so any threshold that
+        /// captures the user's strip-casualty case also breaks the existing
+        /// pinned tests
+        /// <c>EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory</c>
+        /// and <c>SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog</c>.
+        /// The user's 2026-04-25 case is solved by the restore flag alone
+        /// because the committed copy carried no terminal state. Future
+        /// readers: do not add an orbital-evidence clause here without
+        /// first revisiting those two tests.
+        /// </para>
+        ///
+        /// Returns true with a human-readable <paramref name="reason"/>
+        /// when the inference must be skipped; false (with reason=null)
+        /// when the normal inference path should proceed.
+        /// </summary>
+        internal static bool ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+            Recording rec,
+            out string reason)
+        {
+            reason = null;
+            if (rec == null)
+                return false;
+
+            if (rec.RestoredFromCommittedTreeThisFrame)
+            {
+                reason = "recording was repaired from committed tree this frame " +
+                    "(PR #572 follow-up: trajectory came from a non-authoritative committed copy)";
+                return true;
+            }
+
+            return false;
         }
 
         static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
