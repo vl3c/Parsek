@@ -5693,6 +5693,8 @@ namespace Parsek
 
         #region Recording File I/O
 
+        // Compatibility wrappers during the sidecar owner split. Delete after
+        // call sites can move to RecordingSidecarStore directly.
         internal static void ClearSidecarLoadFailure(Recording rec)
         {
             RecordingSidecarStore.ClearSidecarLoadFailure(rec);
@@ -5909,6 +5911,8 @@ namespace Parsek
                 rec, precPath, vesselPath, ghostPath);
         }
 
+        // Kept on RecordingStore while wrappers remain the public test surface.
+        // Move with the load owner after codec/call-site ownership settles.
         internal enum SnapshotSidecarLoadState
         {
             Missing = 0,

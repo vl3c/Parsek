@@ -359,12 +359,11 @@ Validation completed:
 ```powershell
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
 ```
 
-Latest run: focused storage slice passed 236 tests and the non-injection gate
-passed 8,708 tests. `InjectAllRecordings` is currently blocked because
-`KSP.log` and `GameData/Parsek/Plugins/Parsek.dll` are locked by a running KSP
-process.
+Latest post-review run: focused storage plus Bug278 slice passed 240 tests, the
+non-injection gate passed 8,708 tests, and `InjectAllRecordings` passed 3 tests.
 
 The runtime sidecar probe canary and a manual save/load or quickload canary are
 still required before merging this load-path slice.
