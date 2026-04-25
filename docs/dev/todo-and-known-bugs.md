@@ -33,11 +33,13 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 24. **Re-fly merge supersede only covered the chain head, leaving a chain-tip orphan after env-split crashes.** ~~done~~ — Review follow-up: `EnqueueChainSiblings` originally matched siblings by `ChainId` + `ChainBranch` across every committed recording, mirroring `IsChainMemberOfUnfinishedFlight`. The terminal-chain resolver `ResolveChainTerminalRecording` already scopes by owning tree, and the closure builder feeds both supersede commits and the tombstone scan — a future clone path / import / legacy save that drops the same `ChainId`+`ChainBranch` into a foreign tree could silently pull unrelated recordings into the closure (hidden in ERS, kerbal-death actions retired). Hardened with a `TreeId` gate: candidates must share the dequeued member's `TreeId`; recordings without a `TreeId` skip chain expansion entirely. SplitAtSection always emits same-tree segments by construction (`RecordingStore.cs:1992` sets `second.TreeId = original.TreeId`), so the gate is defense-in-depth for legacy / future shapes. Test `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs` installs two trees with colliding `ChainId`+`ChainBranch` and asserts the closure stops at the tree boundary. `EffectiveState.ComputeSessionSuppressedSubtreeInternal` (`Source/Parsek/EffectiveState.cs:523`) walked the suppressed-subtree closure forward via `ChildBranchPointId` only. Merge-time `RecordingOptimizer.SplitAtSection` splits a single live recording at env boundaries (atmo↔exo) into a `ChainId`-linked HEAD + TIP where the HEAD keeps the parent-branch-point link to the RewindPoint but ends with `ChildBranchPointId = null` (moved to the TIP at `RecordingStore.cs:2018-2019`), while the TIP carries the `Destroyed` terminal. After re-fly merge, only the HEAD got a supersede row pointing at the new provisional; the TIP stayed visible with the original "kerbal destroyed in atmo" outcome alongside the new "kerbal lived" re-fly. Fixed by adding an `EnqueueChainSiblings` helper invoked at the top of the dequeue body, BEFORE the `ChildBranchPointId` early-return: for each recording added to the closure, every committed recording sharing both `TreeId`, `ChainId`, and `ChainBranch` is also added (and re-enqueued so its own `ChildBranchPointId` walk runs). The contract matches `EffectiveState.IsChainMemberOfUnfinishedFlight` and `ResolveChainTerminalRecording`. Tests `ChainExpansion_HeadOrigin_IncludesTip`, `ChainExpansion_TipOrigin_IncludesHead`, `ChainExpansion_DifferentChainBranch_Excluded`, `ChainExpansion_ThreeSegments_AllIncluded`, `ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded`, and `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs`; `AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment` in `SupersedeCommitTests.cs`; `CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin` in `SupersedeCommitTombstoneTests.cs`. No retroactive migration: pre-existing affected saves keep the orphan TIP and require a manual `Discard`. Plan in `docs/dev/plans/fix-chain-sibling-supersede.md`.
 
-25. **In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` failed in FLIGHT scene with "Expected FinalizeIndividualRecording stable-terminal re-snapshot log line during finalize".** ~~done~~ — `RuntimeTests.cs:6898-6911` requires the captured log line to contain `[Flight]`, `FinalizeIndividualRecording`, `stable terminal state`, AND `[#289`. The production `ParsekLog.Info` call inside `TryRefreshStableTerminalSnapshot` (`ParsekFlight.cs:9935-9937`) was missing the `[#289]` tag — the sibling `CommitTreeSceneExit` log line at `ParsekFlight.cs:1577` already used the convention. Fixed by appending `[#289]` to the message. Reproduced from `logs/2026-04-25_2147` (parsek-test-results.txt + Player.log line 102836). Regression pin remains the in-game test (the function takes a live `Vessel`, so xUnit cannot reach it).
+26. **In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` failed in FLIGHT scene with "Expected FinalizeIndividualRecording stable-terminal re-snapshot log line during finalize".** ~~done~~ — `RuntimeTests.cs:6898-6911` requires the captured log line to contain `[Flight]`, `FinalizeIndividualRecording`, `stable terminal state`, AND `[#289`. The production `ParsekLog.Info` call inside `TryRefreshStableTerminalSnapshot` (`ParsekFlight.cs:9935-9937`) was missing the `[#289]` tag — the sibling `CommitTreeSceneExit` log line at `ParsekFlight.cs:1577` already used the convention. Fixed by appending `[#289]` to the message. Reproduced from `logs/2026-04-25_2147` (parsek-test-results.txt + Player.log line 102836). Regression pin remains the in-game test (the function takes a live `Vessel`, so xUnit cannot reach it).
 
-26. **In-game test `CrewReservationTests.ReplacementsAreValid` NRE'd in MAINMENU scene with "Object reference not set to an instance of an object".** ~~done~~ — `RuntimeTests.cs:4591` dereferenced `HighLogic.CurrentGame.CrewRoster` without a null guard. In MAINMENU, `HighLogic.CurrentGame` is null when no save is loaded. The early `replacements.Count == 0` return at line 4585 made the other scenes pass — they hit zero replacements first — but MAINMENU after the test-order swap ran with one replacement loaded from the save's static state, then NRE'd on the deref. The sibling `ReservedCrewNotAssigned` (line 4660) already null-guards the same access. Fixed by mirroring that guard right after the count-zero early return: skip via `InGameAssert.Skip("No crew roster available")` when `HighLogic.CurrentGame?.CrewRoster` is null. Reproduced from `logs/2026-04-25_2147` (Player.log line 663325).
+27. **In-game test `CrewReservationTests.ReplacementsAreValid` NRE'd in MAINMENU scene with "Object reference not set to an instance of an object".** ~~done~~ — `RuntimeTests.cs:4591` dereferenced `HighLogic.CurrentGame.CrewRoster` without a null guard. In MAINMENU, `HighLogic.CurrentGame` is null when no save is loaded. The early `replacements.Count == 0` return at line 4585 made the other scenes pass — they hit zero replacements first — but MAINMENU after the test-order swap ran with one replacement loaded from the save's static state, then NRE'd on the deref. The sibling `ReservedCrewNotAssigned` (line 4660) already null-guards the same access. Fixed by mirroring that guard right after the count-zero early return: skip via `InGameAssert.Skip("No crew roster available")` when `HighLogic.CurrentGame?.CrewRoster` is null. Reproduced from `logs/2026-04-25_2147` (Player.log line 663325).
 
-27. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
+28. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
+
+29. **Re-Fly 22:10 cascade: duplicate upper-stage view, marker/RP loss, and zero-payload sidecar overwrite broke playback after rewind.** ~~done~~ — Reproduced from `logs/2026-04-25_2210_refly-bugs`. The duplicate upper-stage view was a post-load ordering race: `UpdateTimelinePlaybackViaEngine` spawned/positioned timeline ghosts before `RewindInvoker.ConsumePostLoad` completed strip/activate/atomic marker write, so the selected in-place continuation vessel could coexist for a few frames with its own pre-marker ghost. The later playback failure had two persistence causes: `MarkerValidator` rejected a valid live marker when the tree existed only as `RecordingStore.PendingTree`, `RewindPointReaper` could reap the RP still referenced by the live marker, and the pending-Limbo active tree carried stale-sidecar epoch failures for the root/upper-stage recordings; a later active-tree save wrote those failed records back out as empty `.prec` files, replacing the good committed launch trajectory and leaving no watchable ghost. Fixed by gating timeline playback while `RewindInvokeContext.Pending` is true, accepting pending-tree marker ownership during validation, preserving marker-referenced RPs during reap, repairing hydration-failed active-tree records from the committed tree during restore/save, and skipping an active-tree sidecar write if a failed-hydration record is still truly empty. Regression coverage: `LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`, `LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`, `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`, and `RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
 
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
@@ -1089,6 +1091,16 @@ post-swap rebuild contract.
 
 **Status:** CLOSED 2026-04-26.
 
+**2026-04-25_2210 follow-up:** the later `refly-bugs` bundle tightened this
+conclusion. The sidecar loader still correctly rejects stale `.prec` epochs,
+but an in-place Re-Fly active tree must not keep the resulting empty records
+when a matching committed tree with good sidecars exists. The empty active-tree
+shape is safe only transiently; if it reaches `SaveActiveTreeIfAny`, it can
+overwrite the committed launch/upper-stage sidecars with zero payload and break
+watch/rewind playback. Item 25 adds the committed-tree repair plus an empty
+failed-hydration save skip, superseding the earlier "empty trajectory list is
+expected" wording for the active in-place Re-Fly resume path.
+
 ---
 
 ## 586. Ghost map vessel "Set Target" via icon click logs success but does nothing in KSP ~~done~~
@@ -1871,6 +1883,189 @@ fence the parameter API surface; the original
 test now passes against a real ghost in flight.
 
 **Status:** CLOSED 2026-04-25. Fixed on `fix/explosion-camera-hold-event`.
+
+---
+
+## ~~585-followup. Stale-sidecar Re-Fly load destroys sibling tree recordings on the next OnSave (data loss)~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log`. The user did
+a Re-Fly of the booster (`50f91cc6`) on a tree whose tree-recording
+sidecar epochs had advanced past the `RewindPoint`'s `.sfs` epoch by
+the time the player triggered the rewind. Two recordings hit bug
+`#270`'s stale-sidecar mitigation on load:
+
+```
+[WARN][RecordingStore] Sidecar epoch mismatch for 22c28f04…: .sfs expects epoch 2, .prec has epoch 6 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+[WARN][RecordingStore] Sidecar epoch mismatch for 50f91cc6…: .sfs expects epoch 1, .prec has epoch 3 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+```
+
+PR `#558` (bug `#585`) handled the active recording (`50f91cc6`):
+the in-place-continuation marker swap rebinds the recorder, so
+the empty in-memory state gets repopulated by the live re-fly.
+But the OTHER recording (`22c28f04` — the launch / pre-decouple
+"Kerbal X") had no recorder bound to it. Its in-memory state stayed
+empty all session, and on scene exit at `21:59:55.747`:
+
+```
+[VERBOSE][RecordingStore] WriteBinaryTrajectoryFile: recording=22c28f04… points=0 orbitSegments=0 trackSections=0 sparsePointLists=0
+[VERBOSE][RecordingStore] SaveRecordingFiles: id=22c28f04… wroteVessel=False wroteGhost=False
+```
+
+The previous good write of this recording at `21:57:40` carried
+`points=400 orbitSegs=6 trackSections=32`. The save clobbered it
+with empty data; the `.prec` on disk now reads `points=0`, the
+launch row vanishes from the post-rewind timeline (`Recording
+collector: 2 entries from 7 recordings`), the launch ghost button
+is `disabled (no ghost)`, and the user's original launch trajectory
+is permanently destroyed.
+
+This is the same family as `#585` (bug `#270` mitigation +
+in-place continuation Re-Fly) but on a different axis: `#585`
+patched the active recording's restore; this one is the SAVE side
+of the same shape — the empty in-memory state of any non-active
+hydration-failed recording gets written through to disk.
+
+**Files investigated:**
+
+- `Source/Parsek/RecordingStore.cs` — `SaveRecordingFilesToPathsInternal`
+  unconditionally writes the trajectory sidecar from in-memory state.
+  The `Recording.SidecarLoadFailed` flag is set during load
+  (`MarkSidecarLoadFailure` at the stale-sidecar-epoch path) but
+  never consulted at save time.
+- `Source/Parsek/Recording.cs` — `[NonSerialized] internal bool
+  SidecarLoadFailed` exists already; its companion
+  `SidecarLoadFailureReason` carries `"stale-sidecar-epoch"` for
+  this case.
+- `Source/Parsek/ParsekScenario.cs` — the existing
+  `RestoreHydrationFailedRecordingsFromPendingTree` salvage path
+  does clear the flag for recordings it can recover from a
+  matching `pendingTree`, but it requires the pending tree to
+  exist + match by id, which doesn't always hold under Re-Fly load.
+
+**Resolution (2026-04-26 / 2026-04-27 integration):** Fixed in
+`fix/585-587-followup` (PR #572) which integrates parallel work from
+`fix/refly-bugs-2210` to provide two complementary layers of
+protection:
+
+1. **Repair-from-committed-tree (caller-side, in-session recovery)** —
+   `ParsekScenario.SaveActiveTreeIfAny` now invokes
+   `RestoreHydrationFailedRecordingsFromCommittedTree` before
+   iterating dirty recordings. For each active-tree record whose
+   `SidecarLoadFailed=true` (excluding snapshot-only failures and
+   the marker's active recording itself), the helper finds the
+   matching committed tree by id and copies trajectory data
+   (`Points`, `OrbitSegments`, `TrackSections`, `PartEvents`,
+   `FlagEvents`, `SegmentEvents`, `Controllers`, `SidecarEpoch`,
+   start-location, vessel name, persistence artifacts) over the
+   empty active-tree record while preserving Re-Fly identity fields
+   (`RecordingId`, `TreeId`, `MergeState`, `CreatingSessionId`,
+   `SupersedeTargetId`, `ProvisionalForRpId`). The flag is cleared
+   and the record becomes playable in-session.
+2. **Skip-empty-overwrite (caller-side, defense-in-depth)** —
+   `SaveActiveTreeIfAny` then skips any remaining
+   `SidecarLoadFailed`+empty record via
+   `ShouldSkipActiveTreeEmptySidecarOverwrite`, logging the
+   structured `SaveActiveTreeIfAny: skipped empty sidecar
+   overwrite` line and bumping the `skippedDegraded` counter on
+   the iteration summary.
+3. **Skip-empty-overwrite (callee-side, all save paths)** —
+   `RecordingStore.SaveRecordingFilesToPathsInternal` is gated on a
+   new pure-static helper
+   `RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec)` that
+   returns true iff `rec.SidecarLoadFailed` is true AND the
+   in-memory state is effectively empty (no `Points`,
+   `OrbitSegments`, `TrackSections`, `PartEvents`, `FlagEvents`,
+   `SegmentEvents`, `VesselSnapshot`, or `GhostVisualSnapshot`).
+   The gate covers BgRecorder out-of-band writes and scene-exit
+   force-writes that bypass `SaveActiveTreeIfAny`. When the gate
+   triggers, the saver returns success without touching any
+   sidecar file, without incrementing the epoch, and emits a
+   `SaveRecordingFiles: skipping write … preserving on-disk .prec`
+   WARN. The active-recording case from PR #558 is unaffected:
+   as soon as the recorder rebinds and adds any trajectory data,
+   both gates evaluate to false and the save proceeds normally.
+
+Tests: `Bug585FollowupSaveSkipTests` (10 cases — 8 predicate cases
+covering null rec, flag false, each individual data field present,
+and all-empty + flag set; 2 end-to-end cases pinning that the
+on-disk `.prec` is byte-for-byte unchanged after a stale-flag save
+attempt and that the active-recovered recording still writes new
+data); plus integrated `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`
+and `RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording`
+from the parallel branch pinning the repair contract.
+
+**Companion fixes integrated from `fix/refly-bugs-2210` for the same
+playtest's downstream cascades:** `MarkerValidator` accepts a marker
+whose `TreeId` resolves through `RecordingStore.PendingTree` (not just
+`CommittedTrees`), preventing the playtest's `21:59:57` "Marker invalid
+field=TreeId" event when the active tree is in pending-Limbo;
+`RewindPointReaper.ReapOrphanedRPs` preserves any RP referenced by the
+live `ActiveReFlySessionMarker.RewindPointId`, preventing the playtest's
+`22:07:14` "Marker invalid field=RewindPointId" event after a reap pass
+deletes the marker's own RP; `ParsekFlight.UpdateTimelinePlaybackViaEngine`
+gates timeline-ghost spawn/positioning while
+`RewindInvokeContext.Pending` is true, closing a frame race between the
+post-load coroutine and the strip/activate/atomic-marker-write critical
+section. Test pins:
+`LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`,
+`LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`,
+`RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
+## ~~587-followup. Re-Fly post-supplement strip leaves non-Destroyed phantom vessels in scene~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log:13590`. After
+the in-place-continuation Re-Fly's
+`StripPreExistingDebrisForInPlaceContinuation` ran, the diagnostic
+`WarnOnLeftAloneNameCollisions` still tripped:
+
+```
+[WARN][Rewind] Strip left 1 pre-existing vessel(s) whose name matches a tree recording: [Kerbal X Debris] — not related to the re-fly, will appear as second Kerbal X-shaped object in scene
+```
+
+The user reported this as a long-standing visible bug: "I can STILL
+see the upper stage doubled — both the ghost and a real vessel copy
+(clickable) of it in front." Even after `#587`'s post-supplement
+killed three of four matching debris in the playtest, a fourth
+remained — its matching tree recording's `TerminalState` was not
+`Destroyed`, so the `#587` predicate let it through.
+
+**Cause:** `RewindInvoker.ResolveInPlaceContinuationDebrisToKill`
+filtered the kill set on `rec.TerminalStateValue == TerminalState.Destroyed`
+only. For an in-place-continuation Re-Fly, the SCOPE of "this
+vessel is being superseded" is the session-suppressed subtree
+(`EffectiveState.ComputeSessionSuppressedSubtree(marker)`),
+which already includes non-Destroyed children of the origin
+recording. Pre-existing real vessels matching one of those
+recordings' names are phantoms from the old timeline that the
+re-fly is overwriting — they should be killed too.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-587-followup` by
+adding an optional `IReadOnlyCollection<string>
+sessionSuppressedRecordingIds` parameter to
+`ResolveInPlaceContinuationDebrisToKill`. The kill-eligible-name set
+is now the UNION of (a) recordings with `TerminalState.Destroyed`
+and (b) recordings whose `RecordingId` is in the suppressed-subtree
+closure, while still excluding the active Re-Fly target's own vessel
+name (so a duplicate-name vessel cannot bypass the protected-pid
+gate). The production caller
+(`StripPreExistingDebrisForInPlaceContinuation`) calls
+`EffectiveState.ComputeSessionSuppressedSubtree(marker)` and passes
+its result; the predicate is otherwise unchanged. A structured
+VERBOSE log line breaks down `destroyedTerminal` / `suppressedSubtree`
+counts so playtest logs can confirm which path matched. Tests:
+five new cases in `Bug587StripPreExistingDebrisTests`
+(`InPlaceMarker_KillsNameMatchingSuppressedSubtreeRec`,
+`NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly` (backward
+compat), `SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching`
+(union), `SuppressedSubtreeKill_RespectsProtectedPids` (`#573`
+contract), and `LogsKillEligibleCounters_WhenMatchesFound`
+(structured log assertion)).
+
+**Status:** CLOSED 2026-04-27.
 
 ---
 

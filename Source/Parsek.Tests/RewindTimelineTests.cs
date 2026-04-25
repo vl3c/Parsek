@@ -27,6 +27,13 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
+        [Fact]
+        public void ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldSkipTimelinePlaybackForPendingReFlyInvoke(true));
+            Assert.False(GhostPlaybackLogic.ShouldSkipTimelinePlaybackForPendingReFlyInvoke(false));
+        }
+
         #region ShouldSpawnAtRecordingEnd — Base Conditions
 
         [Fact]

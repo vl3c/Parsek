@@ -1042,11 +1042,24 @@ namespace Parsek
         /// <param name="trees">Committed trees from <c>RecordingStore.CommittedTrees</c>.</param>
         /// <param name="leftAlonePids">Pids of left-alone vessels with their names.</param>
         /// <param name="protectedPids">Pids that must NOT be killed (selected vessel + marker active).</param>
+        /// <param name="sessionSuppressedRecordingIds">Recording ids in the
+        /// session-suppressed subtree (typically
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>'s
+        /// result for the live marker). Bug #587 follow-up: the original
+        /// fix only killed leftovers matching <c>Destroyed</c>-terminal
+        /// recordings, but the 2026-04-25 playtest captured a non-Destroyed
+        /// pre-existing vessel in the supersede subtree (a phantom that
+        /// would be replaced by the re-fly's new tail) being kept alive in
+        /// scene. Names of recordings in the suppressed subtree are now
+        /// also kill-eligible. Pass <c>null</c> in tests when only the
+        /// Destroyed-terminal predicate is exercised — backwards-compatible
+        /// with the original signature.</param>
         internal static List<uint> ResolveInPlaceContinuationDebrisToKill(
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<(uint pid, string vesselName)> leftAlonePids,
-            HashSet<uint> protectedPids)
+            HashSet<uint> protectedPids,
+            IReadOnlyCollection<string> sessionSuppressedRecordingIds = null)
         {
             var kill = new List<uint>();
             if (marker == null) return kill;
@@ -1075,16 +1088,58 @@ namespace Parsek
             }
             if (markerTree == null) return kill;
 
-            // Build the Destroyed-terminal name set.
-            var destroyedNames = new HashSet<string>(StringComparer.Ordinal);
+            // Hoist the suppressed-subtree input into a local HashSet for O(1)
+            // membership checks. EffectiveState.ComputeSessionSuppressedSubtree
+            // returns a defensive HashSet copy; tests pass a HashSet or array.
+            // The local rebuild also handles the IReadOnlyCollection-without-
+            // Contains-method case at no measurable cost (subtree size is
+            // typically <10 ids).
+            HashSet<string> suppressedSet = null;
+            if (sessionSuppressedRecordingIds != null && sessionSuppressedRecordingIds.Count > 0)
+            {
+                suppressedSet = new HashSet<string>(sessionSuppressedRecordingIds, StringComparer.Ordinal);
+            }
+
+            // Build the kill-eligible name set: Destroyed-terminal recordings
+            // (the original #587 predicate) PLUS any recording in the
+            // session-suppressed subtree (#587 follow-up). Suppressed-subtree
+            // recordings are being superseded by the in-place continuation —
+            // any pre-existing vessel matching one of their names is a phantom
+            // from the old timeline that the re-fly is overwriting, and would
+            // produce the "second Kerbal X-shaped object" the user sees.
+            //
+            // CRITICAL: never add the active Re-Fly target's vessel name to
+            // the kill set. The active recording is itself the head of the
+            // suppressed subtree, so it would otherwise be picked up by the
+            // suppressed-subtree predicate. The protected-pids check below
+            // already shields the LIVE vessel, but a duplicate-name vessel
+            // (rare but possible) would still slip through if the name made
+            // it into the eligible set. Drop the active rec early.
+            var killEligibleNames = new HashSet<string>(StringComparer.Ordinal);
+            int destroyedTerminalNames = 0;
+            int suppressedSubtreeNames = 0;
             foreach (var rec in markerTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                if (rec.TerminalStateValue != TerminalState.Destroyed) continue;
                 if (string.IsNullOrEmpty(rec.VesselName)) continue;
-                destroyedNames.Add(rec.VesselName);
+                if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                        StringComparison.Ordinal))
+                    continue; // never kill by the active Re-Fly target's name
+
+                bool destroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
+                bool inSuppressedSubtree = suppressedSet != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && suppressedSet.Contains(rec.RecordingId);
+
+                if (!destroyedTerminal && !inSuppressedSubtree) continue;
+
+                if (killEligibleNames.Add(rec.VesselName))
+                {
+                    if (destroyedTerminal) destroyedTerminalNames++;
+                    if (inSuppressedSubtree) suppressedSubtreeNames++;
+                }
             }
-            if (destroyedNames.Count == 0) return kill;
+            if (killEligibleNames.Count == 0) return kill;
 
             for (int i = 0; i < leftAlonePids.Count; i++)
             {
@@ -1092,9 +1147,19 @@ namespace Parsek
                 if (pid == 0u) continue;
                 if (string.IsNullOrEmpty(name)) continue;
                 if (protectedPids != null && protectedPids.Contains(pid)) continue;
-                if (!destroyedNames.Contains(name)) continue;
+                if (!killEligibleNames.Contains(name)) continue;
                 kill.Add(pid);
             }
+
+            if (kill.Count > 0 && !ParsekLog.SuppressLogging)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"ResolveInPlaceContinuationDebrisToKill: matched {kill.Count} pid(s) " +
+                    $"against {killEligibleNames.Count} kill-eligible name(s) " +
+                    $"(destroyedTerminal={destroyedTerminalNames} suppressedSubtree={suppressedSubtreeNames}) " +
+                    $"in tree '{markerTree.Id}'");
+            }
+
             return kill;
         }
 
@@ -1208,11 +1273,31 @@ namespace Parsek
                 }
             }
 
+            // Bug #587 follow-up: also broaden the kill set to recording names in
+            // the session-suppressed subtree (recordings being superseded by this
+            // in-place continuation). The original predicate only killed
+            // Destroyed-terminal name matches; the 2026-04-25 playtest caught a
+            // non-Destroyed pre-existing vessel surviving the strip and showing up
+            // as a clickable "doubled" copy of the booster's upper stage. The
+            // suppressed-subtree closure is the authoritative scope of "this
+            // re-fly is overwriting these recordings", so any matching real
+            // vessel from the old timeline is phantom and should be cleaned up.
+            IReadOnlyCollection<string> suppressedSubtree;
+            try { suppressedSubtree = EffectiveState.ComputeSessionSuppressedSubtree(marker); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"StripPreExistingDebrisForInPlaceContinuation: ComputeSessionSuppressedSubtree threw " +
+                    $"({ex.GetType().Name}: {ex.Message}) — falling back to Destroyed-terminal-only kill set");
+                suppressedSubtree = null;
+            }
+
             var kill = ResolveInPlaceContinuationDebrisToKill(
                 marker,
                 RecordingStore.CommittedTrees,
                 leftAlonePidNames,
-                protectedPids);
+                protectedPids,
+                suppressedSubtree);
             if (kill.Count == 0) return;
 
             // Bug #587 follow-up (PR #558 P2 review): snapshot the targets

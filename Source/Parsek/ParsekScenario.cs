@@ -652,6 +652,16 @@ namespace Parsek
             }
 
             // Persist bulk data for active-tree recordings (same pattern as committed trees).
+            int restoredFromCommittedTree = RestoreHydrationFailedRecordingsFromCommittedTree(
+                activeTree,
+                activeTree.ActiveRecordingId);
+            if (restoredFromCommittedTree > 0)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"SaveActiveTreeIfAny: repaired {restoredFromCommittedTree} hydration-failed active-tree " +
+                    "recording(s) from the committed tree before saving sidecars");
+            }
+
             //
             // Observability (2026-04-09 debris-flow investigation, bug #280): track how many
             // of the iterated recordings were dirty vs saved, so future playtest logs can
@@ -662,12 +672,22 @@ namespace Parsek
             int activeDirtyCount = 0;
             int activeSavedCount = 0;
             int activeSaveFailedCount = 0;
+            int activeSkippedDegradedCount = 0;
             foreach (var rec in activeTree.Recordings.Values)
             {
                 bool wasDirty = rec.FilesDirty;
                 if (wasDirty)
                 {
                     activeDirtyCount++;
+                    if (ShouldSkipActiveTreeEmptySidecarOverwrite(rec))
+                    {
+                        activeSkippedDegradedCount++;
+                        ParsekLog.Warn("Scenario",
+                            $"SaveActiveTreeIfAny: skipped empty sidecar overwrite for hydration-failed " +
+                            $"recording '{rec.RecordingId ?? "<no-id>"}' vessel='{rec.VesselName ?? "<no-name>"}' " +
+                            $"reason={rec.SidecarLoadFailureReason ?? "<unknown>"}");
+                        continue;
+                    }
                     if (RecordingStore.SaveRecordingFiles(rec))
                     {
                         activeSavedCount++;
@@ -683,7 +703,8 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
-                $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed");
+                $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
+                $"{activeSkippedDegradedCount} skippedDegraded");
 
             // Quickload resume restores the recorder's rewind save hint from
             // resumeRewindSave, but the committed tree's Rewind button resolves through the
@@ -2945,6 +2966,200 @@ namespace Parsek
             }
 
             return restored;
+        }
+
+        internal static int RestoreHydrationFailedRecordingsFromCommittedTree(
+            RecordingTree loadedTree,
+            string activeRecordingId = null)
+        {
+            if (loadedTree == null || string.IsNullOrEmpty(loadedTree.Id))
+                return 0;
+
+            RecordingTree committedTree = FindCommittedTreeById(loadedTree.Id, exclude: loadedTree);
+            if (committedTree == null)
+                return 0;
+
+            int restored = 0;
+            var restoreIds = new List<string>();
+            foreach (var kvp in loadedTree.Recordings)
+            {
+                Recording loadedRec = kvp.Value;
+                if (loadedRec == null)
+                    continue;
+
+                Recording sourceRec;
+                if (!committedTree.Recordings.TryGetValue(kvp.Key, out sourceRec) || sourceRec == null)
+                    continue;
+
+                if (!ShouldRestoreHydrationFailureFromCommittedRecording(
+                        loadedRec, sourceRec, activeRecordingId))
+                    continue;
+
+                restoreIds.Add(kvp.Key);
+            }
+
+            for (int i = 0; i < restoreIds.Count; i++)
+            {
+                string recordingId = restoreIds[i];
+                Recording sourceRec;
+                if (!committedTree.Recordings.TryGetValue(recordingId, out sourceRec) || sourceRec == null)
+                    continue;
+
+                Recording loadedRec;
+                if (!loadedTree.Recordings.TryGetValue(recordingId, out loadedRec) || loadedRec == null)
+                    continue;
+
+                RestoreCommittedSidecarPayloadIntoActiveTreeRecording(loadedRec, sourceRec);
+                restored++;
+            }
+
+            if (restored > 0)
+            {
+                loadedTree.RebuildBackgroundMap();
+                ParsekLog.Warn("Scenario",
+                    $"RestoreHydrationFailedRecordingsFromCommittedTree: restored {restored} active-tree " +
+                    $"recording(s) from committed tree '{committedTree.TreeName}' (id={committedTree.Id})");
+            }
+
+            return restored;
+        }
+
+        private static RecordingTree FindCommittedTreeById(string treeId, RecordingTree exclude = null)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return null;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null)
+                return null;
+
+            for (int i = 0; i < trees.Count; i++)
+            {
+                RecordingTree tree = trees[i];
+                if (tree == null || ReferenceEquals(tree, exclude))
+                    continue;
+                if (string.Equals(tree.Id, treeId, StringComparison.Ordinal))
+                    return tree;
+            }
+
+            return null;
+        }
+
+        private static bool ShouldRestoreHydrationFailureFromCommittedRecording(
+            Recording loadedRec,
+            Recording sourceRec,
+            string activeRecordingId)
+        {
+            if (loadedRec == null || sourceRec == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(activeRecordingId)
+                && string.Equals(
+                    loadedRec.RecordingId,
+                    activeRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!HasTrajectoryPayload(sourceRec))
+                return false;
+
+            // Repair must be scoped to records that explicitly failed to
+            // hydrate from sidecar (PR #572 P2 review). Without this gate, any
+            // dirty active-tree record with empty trajectory lists would match
+            // — including legitimate metadata-only / snapshot-only edits where
+            // the trajectory hasn't been seeded yet — and the committed copy
+            // would silently overwrite the in-memory mutation. Snapshot-only
+            // hydration failures route through the pending-tree salvage path
+            // (`TryRestoreSnapshotStateFromPendingRecording`) and are excluded
+            // here so that snapshot/trajectory recoveries cannot cross-pollute.
+            return loadedRec.SidecarLoadFailed
+                && !IsSnapshotHydrationFailure(loadedRec.SidecarLoadFailureReason)
+                && IsTrajectoryPayloadEmpty(loadedRec);
+        }
+
+        private static void RestoreCommittedSidecarPayloadIntoActiveTreeRecording(
+            Recording target,
+            Recording source)
+        {
+            if (target == null || source == null)
+                return;
+
+            string recordingId = target.RecordingId;
+            string treeId = target.TreeId;
+            int treeOrder = target.TreeOrder;
+            MergeState mergeState = target.MergeState;
+            string creatingSessionId = target.CreatingSessionId;
+            string supersedeTargetId = target.SupersedeTargetId;
+            string provisionalForRpId = target.ProvisionalForRpId;
+
+            Recording sourceClone = Recording.DeepClone(source);
+            target.ApplyPersistenceArtifactsFrom(sourceClone);
+            target.CopyStartLocationFrom(sourceClone);
+            target.VesselName = sourceClone.VesselName;
+            target.Points = sourceClone.Points ?? new List<TrajectoryPoint>();
+            target.OrbitSegments = sourceClone.OrbitSegments ?? new List<OrbitSegment>();
+            target.PartEvents = sourceClone.PartEvents ?? new List<PartEvent>();
+            target.FlagEvents = sourceClone.FlagEvents ?? new List<FlagEvent>();
+            target.SegmentEvents = sourceClone.SegmentEvents ?? new List<SegmentEvent>();
+            target.TrackSections = sourceClone.TrackSections ?? new List<TrackSection>();
+            target.Controllers = sourceClone.Controllers;
+            // PR #572 P2 review follow-up: ApplyPersistenceArtifactsFrom copies
+            // `CrewEndStatesResolved` but NOT the `CrewEndStates` dictionary
+            // itself; without this explicit copy, a source with populated crew
+            // end-states would repair the target into `resolved=true` with a
+            // null/stale dict, and the safety-net population path skips
+            // already-resolved records on the next save (loss persisted).
+            // Mirror DeepClone's CrewEndStates copy.
+            target.CrewEndStates = sourceClone.CrewEndStates != null
+                ? new Dictionary<string, KerbalEndState>(sourceClone.CrewEndStates)
+                : null;
+            // PR #572 P2 review follow-up: SpawnSuppressedByRewind / Reason / UT
+            // are persisted (#573 / #589 active/source recording protection)
+            // but ApplyPersistenceArtifactsFrom doesn't copy them. Mirror
+            // DeepClone so the repair preserves rewind-strip-protection scope
+            // alongside the trajectory data.
+            target.SpawnSuppressedByRewind = sourceClone.SpawnSuppressedByRewind;
+            target.SpawnSuppressedByRewindReason = sourceClone.SpawnSuppressedByRewindReason;
+            target.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
+            target.FilesDirty = false;
+            target.SidecarEpoch = sourceClone.SidecarEpoch;
+            RecordingStore.ClearSidecarLoadFailure(target);
+
+            target.RecordingId = recordingId;
+            target.TreeId = treeId;
+            target.TreeOrder = treeOrder;
+            target.MergeState = mergeState;
+            target.CreatingSessionId = creatingSessionId;
+            target.SupersedeTargetId = supersedeTargetId;
+            target.ProvisionalForRpId = provisionalForRpId;
+        }
+
+        private static bool ShouldSkipActiveTreeEmptySidecarOverwrite(Recording rec)
+        {
+            return rec != null
+                && rec.SidecarLoadFailed
+                && !IsSnapshotHydrationFailure(rec.SidecarLoadFailureReason)
+                && IsTrajectoryPayloadEmpty(rec);
+        }
+
+        private static bool HasTrajectoryPayload(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            return (rec.Points != null && rec.Points.Count > 0)
+                || (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                || (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                || (rec.PartEvents != null && rec.PartEvents.Count > 0)
+                || (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
+                || (rec.SegmentEvents != null && rec.SegmentEvents.Count > 0);
+        }
+
+        private static bool IsTrajectoryPayloadEmpty(Recording rec)
+        {
+            return !HasTrajectoryPayload(rec);
         }
 
         private static bool TryRestoreSnapshotStateFromPendingRecording(Recording loadedRec, Recording pendingRec)

@@ -6472,9 +6472,73 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Bug #585 follow-up: a recording whose sidecar load failed (most often
+        /// bug #270's stale-sidecar-epoch mitigation on a Re-Fly quicksave) sits
+        /// in memory with empty trajectory + null snapshots, while the on-disk
+        /// .prec still holds the original mission's data. If the recorder never
+        /// rebinds (any non-active recording in the loaded tree), writing the
+        /// empty in-memory state back to disk would clobber the original .prec
+        /// — permanently destroying user data. PR #558 fixed this for the
+        /// active recording (recorder rebind repopulates it) but did nothing
+        /// for siblings; the playtest at <c>logs/2026-04-25_2210_refly-bugs/</c>
+        /// caught a sibling launch recording (22c28f04…) being overwritten with
+        /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
+        /// scene exit. This guard returns true when both flags are set and the
+        /// in-memory state has no recorded data: the saver must skip the write
+        /// to preserve the on-disk .prec.
+        /// </summary>
+        internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
+        {
+            if (rec == null) return false;
+            if (!rec.SidecarLoadFailed) return false;
+
+            int pointCount = rec.Points?.Count ?? 0;
+            int orbitSegCount = rec.OrbitSegments?.Count ?? 0;
+            int trackSectionCount = rec.TrackSections?.Count ?? 0;
+            int partEventCount = rec.PartEvents?.Count ?? 0;
+            int flagEventCount = rec.FlagEvents?.Count ?? 0;
+            int segmentEventCount = rec.SegmentEvents?.Count ?? 0;
+            bool hasVessel = rec.VesselSnapshot != null;
+            bool hasGhost = rec.GhostVisualSnapshot != null;
+
+            return pointCount == 0
+                && orbitSegCount == 0
+                && trackSectionCount == 0
+                && partEventCount == 0
+                && flagEventCount == 0
+                && segmentEventCount == 0
+                && !hasVessel
+                && !hasGhost;
+        }
+
         private static bool SaveRecordingFilesToPathsInternal(
             Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch)
         {
+            // Bug #585 follow-up: do NOT clobber a stale-sidecar .prec with empty
+            // in-memory state. See ShouldSkipSaveToPreserveStaleSidecar for the
+            // full rationale. The recording stays FilesDirty so future saves
+            // continue to no-op (avoiding a silent stale-state-write race if the
+            // hydration ever recovers later in the session). The on-disk .prec
+            // and snapshots are preserved untouched, including the existing
+            // SidecarEpoch — they remain authoritative until either the recorder
+            // rebinds (TryRestoreActiveTreeNode salvage path clears the flag) or
+            // the user invokes a destructive recording-deletion path.
+            if (ShouldSkipSaveToPreserveStaleSidecar(rec))
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles: skipping write for {rec.RecordingId} " +
+                        $"(SidecarLoadFailed=True reason='{rec.SidecarLoadFailureReason ?? "<none>"}' " +
+                        $"in-memory state empty) — preserving on-disk .prec to avoid data loss " +
+                        $"(bug #585 follow-up: empty-state save would clobber stale-sidecar .prec)");
+                }
+                // Leave FilesDirty unchanged so subsequent OnSave passes will
+                // re-evaluate and skip again until the flag is cleared.
+                return true;
+            }
+
             int originalSidecarEpoch = rec.SidecarEpoch;
             GhostSnapshotMode originalGhostSnapshotMode = rec.GhostSnapshotMode;
             GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);

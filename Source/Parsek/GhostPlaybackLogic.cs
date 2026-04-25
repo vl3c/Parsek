@@ -959,6 +959,11 @@ namespace Parsek
             vesselCacheValid = false;
         }
 
+        internal static bool ShouldSkipTimelinePlaybackForPendingReFlyInvoke(bool pendingReFlyInvoke)
+        {
+            return pendingReFlyInvoke;
+        }
+
         /// <summary>
         /// Reset vessel cache state for testing. Clears cache and invalidation flag.
         /// Call alongside ResetVesselExistsOverride in test teardown.

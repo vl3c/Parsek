@@ -12119,6 +12119,12 @@ namespace Parsek
         void UpdateTimelinePlaybackViaEngine()
         {
             GhostPlaybackLogic.InvalidateVesselCache();
+            if (GhostPlaybackLogic.ShouldSkipTimelinePlaybackForPendingReFlyInvoke(RewindInvokeContext.Pending))
+            {
+                ParsekLog.VerboseRateLimited("Flight", "timeline-playback-skip-refly-invoke",
+                    "UpdateTimelinePlaybackViaEngine: skipped while re-fly post-load invocation is pending");
+                return;
+            }
 
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();

@@ -122,6 +122,205 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveDebris_InPlaceMarker_KillsNameMatchingSuppressedSubtreeRec()
+        {
+            // Bug #587 follow-up (2026-04-25 playtest): a non-Destroyed
+            // recording that's IN the session-suppressed subtree (i.e., being
+            // superseded by this in-place continuation) must also be a kill
+            // target. The original predicate only considered Destroyed-terminal
+            // recordings, leaving non-Destroyed phantoms in scene as the
+            // "second Kerbal X-shaped object" the user saw.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_587_followup_test",
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    // 'Kerbal X Capsule' is in the suppressed subtree but its
+                    // terminal is Landed (not Destroyed) -- under the original
+                    // predicate, the matching live vessel would be left in scene.
+                    ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Capsule"),    // matches suppressed-subtree rec, must kill
+                (102u, "Ast. ABC-123"),        // unrelated, keep
+            };
+            var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "rec-booster",
+                "rec-supersededchild",
+            };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null, suppressedSubtree);
+
+            Assert.Single(kill);
+            Assert.Contains(101u, kill);
+            Assert.DoesNotContain(102u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly()
+        {
+            // Backwards compatibility: when the new sessionSuppressedRecordingIds
+            // parameter is null/omitted, the predicate must behave exactly like
+            // the original Destroyed-terminal-only predicate.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Capsule"),    // non-Destroyed, suppression unknown -> keep
+                (102u, "Kerbal X Debris"),     // Destroyed-terminal -> kill
+            };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null, sessionSuppressedRecordingIds: null);
+
+            Assert.Single(kill);
+            Assert.Contains(102u, kill);
+            Assert.DoesNotContain(101u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching()
+        {
+            // Composition: the kill set is the UNION of Destroyed-terminal and
+            // suppressed-subtree-matching recordings.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Capsule"),    // suppressed-subtree match -> kill
+                (102u, "Kerbal X Debris"),     // Destroyed -> kill
+                (103u, "Ast. ABC-123"),        // unrelated -> keep
+            };
+            var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "rec-booster",
+                "rec-supersededchild",
+            };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null, suppressedSubtree);
+
+            Assert.Equal(2, kill.Count);
+            Assert.Contains(101u, kill);
+            Assert.Contains(102u, kill);
+            Assert.DoesNotContain(103u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_SuppressedSubtreeKill_RespectsProtectedPids()
+        {
+            // The #573 contract still applies: a protected pid (e.g. the
+            // selected slot vessel) must NOT be killed even when its name
+            // matches a suppressed-subtree recording.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (200u, "Kerbal X Capsule"),    // pid is the protected active vessel
+                (101u, "Kerbal X Capsule"),    // legitimate kill target
+            };
+            var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "rec-booster",
+                "rec-supersededchild",
+            };
+            var protectedSet = new HashSet<uint> { 200u };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, protectedSet, suppressedSubtree);
+
+            Assert.Single(kill);
+            Assert.Contains(101u, kill);
+            Assert.DoesNotContain(200u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_LogsKillEligibleCounters_WhenMatchesFound()
+        {
+            // Pin the kill-summary diagnostic so playtest logs surface
+            // destroyedTerminal vs suppressedSubtree counts independently --
+            // useful for triaging which predicate path caught a kill.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X Capsule"),
+                (102u, "Kerbal X Debris"),
+            };
+            var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "rec-booster",
+                "rec-supersededchild",
+            };
+
+            ParsekLog.VerboseOverrideForTesting = true;
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null, suppressedSubtree);
+
+            Assert.Equal(2, kill.Count);
+            string allLogs = string.Join("\n  ", logLines);
+            Assert.True(
+                logLines.Exists(l =>
+                    l.Contains("ResolveInPlaceContinuationDebrisToKill") &&
+                    l.Contains("matched 2 pid(s)") &&
+                    l.Contains("destroyedTerminal=1") &&
+                    l.Contains("suppressedSubtree=1")),
+                "Expected kill-summary log line; got:\n  " + allLogs);
+        }
+
+        [Fact]
         public void ResolveDebris_NameMatchesNonDestroyedRec_KeepsAlive()
         {
             // A live "Kerbal X" in a parallel save, terminal=Orbiting, must not be killed.
