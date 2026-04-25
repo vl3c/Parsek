@@ -61,7 +61,7 @@ namespace Parsek
         }
 
         /// <summary>Human-readable description of the action.</summary>
-        internal static string GetDescription(GameAction action)
+        internal static string GetDescription(GameAction action, Game.Modes? currentMode)
         {
             if (action == null)
                 return "";
@@ -135,8 +135,7 @@ namespace Parsek
                         action.KerbalName ?? "unknown", action.KerbalRole ?? "unknown");
 
                 case GameActionType.KerbalHire:
-                    return string.Format(IC, "Hire: {0} -{1:0} funds",
-                        action.KerbalName ?? "unknown", action.HireCost);
+                    return GetKerbalHireDescription(action, currentMode);
 
                 case GameActionType.KerbalRescue:
                     return "Rescue: " + (action.KerbalName ?? "unknown");
@@ -166,6 +165,36 @@ namespace Parsek
 
                 default:
                     return action.Type.ToString();
+            }
+        }
+
+        internal static string GetKerbalHireDescription(GameAction action, Game.Modes? currentMode)
+        {
+            string kerbalName = action?.KerbalName ?? "unknown";
+            if (!ShouldShowFundsForKerbalHire(action, currentMode))
+                return "Hire: " + kerbalName;
+
+            return string.Format(IC, "Hire: {0} -{1:0} funds", kerbalName, action.HireCost);
+        }
+
+        internal static bool ShouldShowFundsForKerbalHire(GameAction action, Game.Modes? currentMode)
+        {
+            if (action == null || action.HireCost <= 0f)
+                return false;
+
+            if (!currentMode.HasValue)
+                return true;
+
+            switch (currentMode.Value)
+            {
+                case Game.Modes.SANDBOX:
+                case Game.Modes.SCIENCE_SANDBOX:
+                case Game.Modes.MISSION_BUILDER:
+                case Game.Modes.MISSION:
+                    return false;
+
+                default:
+                    return true;
             }
         }
 

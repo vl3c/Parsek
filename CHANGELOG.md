@@ -40,7 +40,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Timeline kerbal-hire rows now live in the Details tier instead of the Overview tier. Sandbox, Mission, and Science saves render hire rows as `Hire: <kerbal>` without a funds suffix because those modes have no funds ledger.
+- `#533` Timeline kerbal-hire rows now live in the Details tier instead of the Overview tier. Sandbox, Mission, and Science saves render hire rows as `Hire: <kerbal>` without a funds suffix because those modes have no funds ledger.
 
 - Nearby-vessel switches now treat deliberate attitude-only alignment as a meaningful post-switch change, so docking-port alignment done with SAS, reaction wheels, or light RCS is no longer lost just because translation/orbit barely moved. New relative-frame recordings now store true anchor-local docking geometry, while older recordings keep replaying through the legacy path for compatibility.
 
