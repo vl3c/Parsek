@@ -158,9 +158,11 @@ recording-start, separation, vessel-spawn, and crew-death row emission from
 limited to contiguous block extraction with no cross-file movement.
 
 Current next candidates after the canary and large-file map are selected by
-risk, not file size alone. Lower-risk candidates include same-file phase
-helpers in `UI/CareerStateWindowUI.Build`, `GhostPlaybackLogic.PopulateGhostInfoDictionaries`,
-or `FlightRecorder.LogVisualRecordingCoverage`. Central files such as
+risk, not file size alone. The first follow-up is
+`UI/CareerStateWindowUI.Build`, extracting only private same-file tab
+view-model helpers. After that, lower-risk candidates include same-file phase
+helpers in `GhostPlaybackLogic.PopulateGhostInfoDictionaries` or
+`FlightRecorder.LogVisualRecordingCoverage`. Central files such as
 `ParsekFlight.EvaluatePostSwitchAutoRecordTrigger` remain candidates, but each
 needs its own focused validation and review before editing.
 

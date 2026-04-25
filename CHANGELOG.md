@@ -202,6 +202,7 @@ All notable changes to Parsek are documented here.
 ### Code Quality
 
 - Started refactor-4 with a behavior-neutral `TimelineBuilder` canary: the recording collector now delegates recording-start, separation, vessel-spawn, and crew-death row emission to private same-file helpers while preserving ordering, counts, and existing timeline logging.
+- Continued refactor-4 with a behavior-neutral `CareerStateWindowUI.Build` extraction: contracts, strategies, facilities, and milestones tab view-model construction now lives in private same-file helpers while preserving the action walk and row ordering.
 
 ### Tests
 

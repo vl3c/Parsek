@@ -55,7 +55,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass0-OpportunityMap; Tracking Station map candidates mapped |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass0-OpportunityMap; watch-mode candidates mapped |
 | `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass0-OpportunityMap; event handler candidates mapped |
-| `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass0-OpportunityMap; UI view-model candidate mapped |
+| `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass1-Done; `Build` tab view-model helpers extracted |
 | `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass0-OpportunityMap; patcher candidates mapped |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass0-OpportunityMap; math-heavy file, cautious only |
 | `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass0-OpportunityMap; optimizer candidates mapped, high semantic risk |
@@ -630,13 +630,21 @@ Pass 2 discussion only: cross-scene playback abstraction shared with
 ### `Source/Parsek/UI/CareerStateWindowUI.cs`
 
 This UI surface mixes view-model construction, draw methods, and formatting
-helpers. Its `Build` method is a strong candidate because the tab data shapes
+helpers. Its `Build` method was a strong candidate because the tab data shapes
 are already explicit.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Extract same-file tab builders from `Build`: contracts, strategies,
-  facilities, milestones, and supporting summary groups.
+- Extracted same-file tab view-model builders from `Build` for contracts,
+  strategies, facilities, and milestones. The action walk, live/current
+  snapshot boundary, row sorting, and divergence calculation remain in the
+  original order.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~CareerStateWindowUITests`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: separate presentation/model builder ownership.
 
@@ -685,9 +693,9 @@ raw scan with a manual map for the high-risk owners:
 ## Immediate Investigation Priorities
 
 1. Select the next Pass 1 same-file extraction from the low-to-medium risk
-   candidates in the large-file opportunity map. Good first choices are
-   `UI/CareerStateWindowUI.Build`, `GhostPlaybackLogic.PopulateGhostInfoDictionaries`,
-   or `FlightRecorder.LogVisualRecordingCoverage`.
+   candidates in the large-file opportunity map. Good next choices are
+   `GhostPlaybackLogic.PopulateGhostInfoDictionaries` or
+   `FlightRecorder.LogVisualRecordingCoverage`.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication.
