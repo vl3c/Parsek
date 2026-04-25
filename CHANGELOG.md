@@ -45,6 +45,10 @@ All notable changes to Parsek are documented here.
 
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
 
+- `#584` Map-view state-vector ghosts now honour the originating track section's reference frame, so a ghost that traverses a Relative-frame docking/rendezvous segment stays attached to its anchor vessel instead of snapping to the body surface at a meaningless lat/lon. Ghost-map create / position / update / destroy paths now emit a single structured `[GhostMap]` decision line (action, source, branch, body, world position, anchor, segment / terminal-orbit / state-vector data, scene) so a future "ghost icon went weird in map mode" report can be reconstructed from the KSP.log alone.
+
+- `#584` Flight-scene state-vector update path no longer thresholds a Relative-frame point's anchor-local dz as if it were geographic altitude, so a ghost in a docking/rendezvous Relative section is no longer wrongly removed and re-deferred (review follow-up). Source-resolve decision lines now carry the real recording index (`-1` sentinel when unknown) instead of misleadingly logging every entry as `idx=0`.
+
 - `#578` Crew orphan-placement misses now distinguish a wrong active vessel from a full matching pod, so stand-ins stay available for a later correct-vessel retry without falling back to an unrelated seat.
 
 - Re-fly merge now supersedes every chain segment of an env-split crashed recording. Previously the closure walker followed `ChildBranchPointId` only, so an exo HEAD + in-atmo TIP chain produced by `RecordingOptimizer.SplitAtSection` left the TIP behind as an orphan "kerbal destroyed in atmo" row alongside the new "kerbal lived" provisional. Saves committed before this fix that already completed a chain-crossing crashed re-fly merge are not retroactively healed; affected players can `Discard` the orphan via the table.
