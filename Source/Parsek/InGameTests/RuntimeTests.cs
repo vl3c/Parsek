@@ -4588,7 +4588,13 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            var roster = HighLogic.CurrentGame.CrewRoster;
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
             int valid = 0;
             var problems = new List<string>();
 
