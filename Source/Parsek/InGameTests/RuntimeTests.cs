@@ -2507,21 +2507,27 @@ namespace Parsek.InGameTests
                         allowTerminalOrbitFallback: true,
                         logOperationName: "runtime-571-checkpoint-world",
                         ref cachedIndex,
+                        out OrbitSegment resolvedSegment,
                         out _,
-                        out TrajectoryPoint stateVectorPoint,
                         out string skipReason);
 
+                // OrbitalCheckpoint sections coexist with their seed OrbitSegment
+                // (#571 closure). When the segment covers currentUT the resolver
+                // intentionally returns Segment — the densified checkpoint frames
+                // are sampling along that same Keplerian arc, not a competing
+                // source. Compare the existing xUnit pin
+                // ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper.
                 InGameAssert.IsTrue(
-                    source == GhostMapPresence.TrackingStationGhostSource.StateVector,
-                    $"Expected StateVector checkpoint source, got {source}");
+                    source == GhostMapPresence.TrackingStationGhostSource.Segment,
+                    $"Expected Segment checkpoint source, got {source}");
                 InGameAssert.IsTrue(string.IsNullOrEmpty(skipReason),
                     $"Expected no skip reason, got {skipReason ?? "(null)"}");
-                InGameAssert.AreEqual(body.name, stateVectorPoint.bodyName);
+                InGameAssert.AreEqual(body.name, resolvedSegment.bodyName);
 
                 string line = captured.LastOrDefault(l =>
                     l.Contains("[GhostMap]")
                     && l.Contains("runtime-571-checkpoint-world")
-                    && l.Contains("sourceKind=StateVector"));
+                    && l.Contains("sourceKind=Segment"));
                 InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
                 InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
                     "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");

@@ -2530,6 +2530,91 @@ namespace Parsek.Tests
             Assert.Equal("no-orbit-data", skipReason);
         }
 
+        // #571 closure pin: an OrbitalCheckpoint TrackSection with inline frames
+        // coexists with the seed OrbitSegment that covers the same window. When
+        // currentUT lands inside that coexisting span the resolver MUST keep the
+        // segment as the source of truth — the densified frames are sampling
+        // along that same Keplerian arc, not a competing source. This mirrors
+        // the in-game RuntimeTests.GhostMapCheckpointSourceLogResolvesWorldPosition
+        // fixture so the contract is enforced from xUnit too.
+        [Fact]
+        public void ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment()
+        {
+            const double startUT = 1000.0;
+            const double endUT = 1060.0;
+            var segment = new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000,
+                eccentricity = 0.0,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT
+            };
+            var first = new TrajectoryPoint
+            {
+                ut = startUT,
+                bodyName = "Kerbin",
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100000.0,
+                velocity = new UnityEngine.Vector3(0f, 2300f, 0f)
+            };
+            var second = first;
+            second.ut = endUT;
+            second.longitude = 5.0;
+            var rec = new Recording
+            {
+                RecordingId = "checkpoint-coexisting-segment",
+                VesselName = "Coexisting checkpoint",
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                TerminalStateValue = TerminalState.Orbiting,
+                OrbitSegments = new List<OrbitSegment> { segment },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.ExoBallistic,
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        source = TrackSectionSource.Checkpoint,
+                        startUT = startUT,
+                        endUT = endUT,
+                        frames = new List<TrajectoryPoint> { first, second },
+                        checkpoints = new List<OrbitSegment> { segment },
+                        minAltitude = 100000f,
+                        maxAltitude = 100000f
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: false,
+                currentUT: startUT + 30.0,
+                allowTerminalOrbitFallback: true,
+                logOperationName: "test-checkpoint-coexisting-segment",
+                ref mapCached,
+                out OrbitSegment resolvedSegment,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Null(skipReason);
+            Assert.Equal("Kerbin", resolvedSegment.bodyName);
+            Assert.Equal(segment.semiMajorAxis, resolvedSegment.semiMajorAxis);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-checkpoint-coexisting-segment")
+                    && l.Contains("source=Segment"));
+        }
+
         [Fact]
         public void ResolveMapPresenceGhostSource_TerminalFallback_FillsSparseOrbitGapBeforeEnd()
         {
