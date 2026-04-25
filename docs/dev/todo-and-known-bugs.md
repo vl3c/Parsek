@@ -1802,6 +1802,29 @@ case that reduces to equality.
 
 ---
 
+## ~~601. Re-Fly load drops post-RP merge tree mutations (atmo/exo split halves vanish after Re-Fly)~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log`. User report: "the map view trajectory of the upper stage capsule was completely wrong, position around Kerbin was wrong, also there was only an in-atmo recording of the launch, but no exo recording of the upper stage — something definitely went wrong".
+
+**Reproduction:**
+
+1. RP `rp_129e07d7553e4695bf22541bec581f8a` was authored at booster decoupling (UT=159.24, `KSP.log:10777-10853`). The frozen `.sfs` snapshots the tree state at this point — 8 recordings.
+2. The user committed the regular tree-merge dialog at 23:28:30. `RecordingOptimizer.SplitAtSection` ran on the capsule recording (`66be32fa...` -> atmo + new `b66cc068b7f84469b0cbb2d7a3960f6e` exo half) and the booster recording (`5ef9ecb7...` -> atmo + new `1c999fccf63b49edacc531473672ccca` exo half). Tree size grew from 8 to 10 recordings; both new halves got their own `.prec` sidecars on disk (`KSP.log:11865-11876`).
+3. User invoked Re-Fly at 23:28:42 (`KSP.log:12544`). Re-Fly load read the RP's frozen `.sfs`, which still listed only the pre-split 8 recordings. The 2 post-split exo halves were absent from the loaded `RECORDING_TREE` ConfigNode.
+4. `[Parsek][INFO][RecordingStore] TryRestoreActiveTreeNode: removed committed tree 'Kerbal X' (id=4dd8eafbdfa4406fb051966c8c59c863, 10 recording(s))` (`KSP.log:12662`) — the in-memory copy with all 10 recordings was destroyed. The replacement Limbo tree had 8 (`KSP.log:12663`). The capsule's exo half was never re-recorded post-Re-Fly (the user only re-flew the booster), so the upper-stage exo trajectory is lost.
+
+**Cause:** the RP's `.sfs` is a static snapshot of the tree at RP authoring time. Any post-RP tree-shape mutation (`SplitAtSection`, supersede, branch-point edit) updates `RecordingStore.CommittedTrees` and writes new `.prec` sidecars but does NOT rewrite the historical RP `.sfs`. When Re-Fly later loads that `.sfs`, the loaded tree is the pre-mutation shape; `TryRestoreActiveTreeNode` then calls `RemoveCommittedTreeById`, dropping the only in-memory record of the post-mutation recordings.
+
+**Fix:** Inserted `ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree` between the pending-tree salvage step and `RemoveCommittedTreeById` in `TryRestoreActiveTreeNode`. The helper looks up the in-memory committed tree by id, deep-clones any recording whose id is missing from the loaded tree (calling `MarkFilesDirty()` so the next `OnSave` rewrites the `.sfs` + advances the `.prec` sidecar epoch in lockstep), copies any committed-only `BranchPoint`, and overwrites `ParentRecordingIds` / `ChildRecordingIds` for any BranchPoint whose id matches but whose parent/child id lists diverge (the case where `SplitAtSection` rewrote the parent-id-list of an existing BP). Structured `[Scenario][INFO]` log line reports `loadedBefore=N committed=N after=N splicedRecordings=N refreshedRecordings=N splicedBranchPoints=N updatedBranchPoints=N source=committed-tree-in-memory`. Regression coverage in `Bug601ReFlyPostMergeSplitPreservationTests.cs` (7 tests). Design note: `docs/dev/plans/refly-rp-predates-merge-split-fix.md`.
+
+**Review follow-up (PR #575):** P1 review caught that the initial splice loop only imported recordings whose ids were absent from the loaded tree, but `SplitAtSection` mutates the *original* recording in place — it truncates trajectory, moves terminal payload to the new second half, and reassigns `ChildBranchPointId` to the second half — before adding the second half to the tree. With the previous skip, a restored pre-split tree kept the stale full-trajectory original AND its old `ChildBranchPointId` link while the BP-update branch (already present) overwrote the parent BP's `ParentRecordingIds` to name the new second half, leaving the tree internally inconsistent. Fixed by adding a same-ID refresh path in the recording loop: when the committed copy diverges from the loaded copy on split-relevant structural fields (Points count, last-point UT, OrbitSegments / TrackSections counts, `ChildBranchPointId`, `TerminalStateValue`, `TerminalOrbitBody`), the helper now overwrites the loaded copy from the committed copy via `ApplyPersistenceArtifactsFrom` while preserving identity (RecordingId, TreeId, MergeState, etc.). The structured log line gains a `refreshedRecordings` field and the verbose ID list now distinguishes `splicedIds` from `refreshedIds`.
+
+**Review follow-up #2 (PR #575 P1):** The first follow-up excluded the active recording from the same-ID refresh ("recorder is live-updating it"), but the reviewer pointed out that production calls the helper with `tree.ActiveRecordingId` and `SplitAtSection` keeps the original id on the truncated first half — so the active first half IS the post-split atmo half and was the recording most likely to be left stale. Load-order analysis: at splice time the recorder has not yet bound to the active recording (rebind fires on the deferred `onFlightReady` callback after the splice), so there is no in-flight payload state on the loaded copy. The active recording now also gets the structural refresh, but in a recorder-state-preserving mode that snapshots and restores the `[NonSerialized]` mitigation flags any earlier load-time code path may have set: `FilesDirty`, `SidecarLoadFailed`, `SidecarLoadFailureReason`, `ContinuationBoundaryIndex`, `PreContinuationVesselSnapshot`, `PreContinuationGhostSnapshot`. The `activeRecordingId` parameter still exists, but its semantic flipped from "skip" to "treat specially". The structured log line now reports the refresh count split as `refreshedRecordings=N (full=N1 recorderStatePreserved=N2)`. Tests rewritten: `Splice_ActiveStaleFirstHalfAfterSplit_RefreshesAndPreservesRecorderOwnedState`, `Splice_NonActiveStaleFirstHalfAfterSplit_RefreshesInFullMode`, `Splice_RecorderOwnedFlagsPreservedOnActiveRefresh`, `Splice_ActiveRecordingAlreadyMatchesCommitted_NoRefreshNoFlagChurn` (the previous follow-up's `Splice_TreeWithStaleFirstHalfAfterSplit_RefreshesFirstHalfFromCommitted` and `Splice_RefreshDoesNotClobberActiveRecording` were retired — the first exercised a non-active path production never used and the second asserted the now-rejected skip semantics).
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
 ## ~~600. Stationary surface ghosts are hidden above 50x warp even though their mesh does not need per-frame motion~~
 
 **Source:** User investigation request on 2026-04-25: high-warp playback hides all ghost vessels in KSC and flight view for performance, but vessels that are actually standing still should remain visible at any warp speed.
@@ -2148,6 +2171,90 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 (structured log assertion)).
 
 **Status:** CLOSED 2026-04-27.
+
+---
+
+## doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13201`.
+After the in-place-continuation Re-Fly of the booster, with the
+`#587` and `#587 follow-up` strip fixes already applied, the user
+still reported seeing a clickable, real vessel of the upper-stage
+("Kerbal X") a few metres from the booster. The user clarified
+that this is a *separate* vessel from the legitimate
+`GhostPlaybackEngine` ghost (Ghost #0, 35 parts, audio, full
+visuals) which they want to keep — the bug is that a real
+KSP `Vessel` is also being created for the same recording.
+
+```
+[INFO][GhostMap] Created ghost vessel 'Ghost: Kerbal X' ghostPid=1130130569
+type=Ship body=Kerbin sma=2 for recording #0 (state vectors alt=0 spd=2185.7
+frame=relative) orbitSource=state-vector-fallback
+stateBody=Kerbin stateUT=159.5 stateAlt=0 stateSpeed=2185.7 frame=relative
+anchorPid=2676381515 ... orbit=True mapObj=True orbitRenderer=True registered=True
+```
+
+The capsule recording (`66be32fafffe49a7a4bc82467c5ee600`) is the
+parent of the active Re-Fly recording in the same tree, with its
+current `TrackSection` in `ReferenceFrame.Relative` anchored to
+the live booster's pid (= the active Re-Fly target). The
+state-vector-fallback path resolves a world position by
+multiplying the anchor's transform by the recording's
+anchor-local offset — placing the synthesised ProtoVessel right
+next to the booster. The orbit synthesised at altitude=0
+atmospheric ascent state is also degenerate (`sma=2 ecc=0.999999`).
+
+**Why this is the third facet of `#587`:** the previous two
+fixes targeted the *strip* side — pre-existing in-scene vessels
+that survived `PostLoadStripper`. This one is on the
+**`GhostMapPresence` create side**: the `Ghost: <name>`
+ProtoVessel is *born* during Re-Fly (after strip ran), so the
+strip-side guards never see it. The capsule recording is the
+parent of the Re-Fly origin, so it is *outside*
+`EffectiveState.ComputeSessionSuppressedSubtree`'s child-ward
+closure and outside `IsSuppressedByActiveSession`'s gate too.
+
+**Resolution (2026-04-25):** added the pure predicate
+`GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
+and gated the create site in
+`GhostMapPresence.CreateGhostVesselFromStateVectors` on it. The
+predicate suppresses when (a) a `ReFlySessionMarker` is active,
+(b) the marker is in the in-place-continuation pattern
+(`origin == active`, mirroring `#587`'s placeholder carve-out),
+(c) the resolution branch is `relative`, (d) the resolution's
+`anchorPid` matches the active Re-Fly target's
+`Recording.VesselPersistentId`, and (e) the recording being
+mapped is in the active Re-Fly recording's parent chain (per
+PR #574 review P2: scope to the parent BranchPoint topology so
+legitimate `#583` / `#584` docking/rendezvous map ghosts whose
+anchor happens to be the active vessel are NOT suppressed). The
+predicate also signals retry-later semantics back through the
+new `out bool retryLater` parameter on
+`CreateGhostVesselFromStateVectors` /
+`CreateGhostVesselFromSource`; the flight-scene caller
+`ParsekPlaybackPolicy.CheckPendingMapVessels` keeps its
+pending-map entry alive when this gate fires, so a recording
+that is mid-Relative-section during Re-Fly is retried next
+tick rather than permanently dropped from the queue. A new
+structured INFO log line
+`create-state-vector-suppressed: ... reason=refly-relative-anchor=active relationship=parent ... retryLater=true`
+gives playtest logs a unique grep target. The
+`GhostPlaybackEngine` in-physics-zone ghost is untouched —
+exactly the one the user wants kept. Tests:
+`Bug587ThirdFacetDoubledGhostMapTests` covers the user's exact
+case (parent capsule recording during in-place Re-Fly of
+booster) plus 17 defensive negatives — no-marker, placeholder
+pattern, absolute branch, anchor-is-different-vessel,
+zero-anchor, missing/zero pid in committed list, null
+committed list, empty marker fields, `no-section` and
+`orbital-checkpoint` branches, structured-log-line shape,
+docking-target sibling (PR #574 P2 not-parent gate),
+multi-hop grandparent walk, victim-is-active idempotency,
+null/missing tree topology, null victim id, and direct
+`IsRecordingInParentChainOfActiveReFly` coverage including
+the BP-cycle bail.
+
+**Status:** Open until merged.
 
 ---
 
