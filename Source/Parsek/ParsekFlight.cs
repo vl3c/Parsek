@@ -6560,7 +6560,13 @@ namespace Parsek
             if (GhostMapPresence.IsGhostMapVessel(activeVesselPid)) return;
 
             uint recorderPid = recorder != null ? recorder.RecordingVesselId : 0;
-            ParsekLog.Warn("Flight",
+            // Update() runs every frame; if the recovery handler does not clear
+            // the predicate immediately (e.g. background recorder still pending),
+            // this branch fires repeatedly for the same vessel. Rate-limit by
+            // activePid so each vessel logs at most once per window — visibility
+            // is preserved (still a WARN), spam is bounded.
+            ParsekLog.WarnRateLimited("Flight",
+                $"missed-vessel-switch-{activeVesselPid}",
                 $"Update: recovering missed vessel switch for active vessel '{activeVessel.vesselName}' " +
                 $"(activePid={activeVesselPid}, recorderPid={recorderPid}, " +
                 $"trackedInBackground={activeVesselTrackedInBackground})");

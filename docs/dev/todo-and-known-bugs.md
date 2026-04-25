@@ -328,6 +328,25 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 a spam source; the per-recording kept line and repeated warp-ended summary were
 replaced with a rate-limited queue wait summary.
 
+2026-04-25 update (UnfinishedFlights + missed-vessel-switch):
+`logs/2026-04-25_1314_marker-validator-fix/KSP.log` was 96 MB / 540k lines, of
+which ~511k (94%) were `[Parsek][VERBOSE][UnfinishedFlights]
+IsUnfinishedFlight=…` decisions and ~1k were `[Parsek][WARN][Flight] Update:
+recovering missed vessel switch` lines. Both fired from per-frame paths:
+`EffectiveState.IsUnfinishedFlight` is invoked once per recording per frame from
+`RecordingsTableUI` row drawing, `UnfinishedFlightsGroup` membership filtering,
+and `TimelineBuilder`; the missed-vessel-switch warn fires in `ParsekFlight`
+`Update()` until the recovery handler clears the predicate, which in this
+playtest took dozens to hundreds of frames per vessel. Each of the 7 return
+paths in `IsUnfinishedFlight` now uses `ParsekLog.VerboseRateLimited` keyed by
+`{reason}-{recordingId}` so each (recording, reason) pair logs once per
+rate-limit window. The missed-vessel-switch warn now uses
+`ParsekLog.WarnRateLimited` keyed by `missed-vessel-switch-{activeVesselPid}`
+so each vessel logs at most once per window. Regression
+`EffectiveStateTests.IsUnfinishedFlight_RepeatedCallsSameRec_RateLimitedToOneLine`
+calls the predicate 100x with the same recording and asserts a single emitted
+line.
+
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 **Status:** Open

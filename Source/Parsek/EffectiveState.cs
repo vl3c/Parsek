@@ -156,7 +156,8 @@ namespace Parsek
             if (rec.MergeState != MergeState.Immutable
                 && rec.MergeState != MergeState.CommittedProvisional)
             {
-                ParsekLog.Verbose("UnfinishedFlights",
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"mergeState-{recId}",
                     $"IsUnfinishedFlight=false rec={recId} reason=mergeState:{rec.MergeState}");
                 return false;
             }
@@ -170,7 +171,8 @@ namespace Parsek
             Recording terminalRec = ResolveChainTerminalRecording(rec);
             if (!IsTerminalCrashed(terminalRec))
             {
-                ParsekLog.Verbose("UnfinishedFlights",
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"notCrashed-{recId}",
                     $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{terminalRec.TerminalStateValue} " +
                     $"(tip={(ReferenceEquals(terminalRec, rec) ? "self" : terminalRec.RecordingId ?? "<no-id>")})");
                 return false;
@@ -185,7 +187,8 @@ namespace Parsek
             string childBpId = rec.ChildBranchPointId;
             if (string.IsNullOrEmpty(parentBpId) && string.IsNullOrEmpty(childBpId))
             {
-                ParsekLog.Verbose("UnfinishedFlights",
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"noParentBp-{recId}",
                     $"IsUnfinishedFlight=false rec={recId} reason=noParentBp");
                 return false;
             }
@@ -197,7 +200,8 @@ namespace Parsek
             // a ParsekScenario without going through Unity's AddComponent).
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
             {
-                ParsekLog.Verbose("UnfinishedFlights",
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"noScenario-{recId}",
                     $"IsUnfinishedFlight=false rec={recId} reason=noScenario");
                 return false;
             }
@@ -218,13 +222,15 @@ namespace Parsek
                     // persisted RewindPoint list.
                     string matchedBp = matchesParent ? parentBpId : childBpId;
                     string side = matchesParent ? "parent" : "active-parent-child";
-                    ParsekLog.Verbose("UnfinishedFlights",
+                    ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                        $"match-{recId}",
                         $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} rp={rp.RewindPointId}");
                     return true;
                 }
             }
 
-            ParsekLog.Verbose("UnfinishedFlights",
+            ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                $"noMatchingRP-{recId}",
                 $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP " +
                 $"parentBp={parentBpId ?? "<none>"} childBp={childBpId ?? "<none>"} " +
                 $"rpCount={scenario.RewindPoints.Count}");
