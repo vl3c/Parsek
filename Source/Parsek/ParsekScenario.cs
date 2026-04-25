@@ -3659,6 +3659,22 @@ namespace Parsek
         /// </summary>
         internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)
         {
+            LoadRecordingIdentityAndLoopMetadata(recNode, rec);
+
+            LoadRecordingBudgetAndRewindMetadata(recNode, rec);
+            LoadRecordingGroupAndSegmentMetadata(recNode, rec);
+
+            LoadRecordingLocationAndTerminalMetadata(recNode, rec);
+            LoadRecordingPlaybackFlags(recNode, rec);
+
+            LoadRecordingManifestMetadata(recNode, rec);
+
+            RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
+
+        }
+
+        private static void LoadRecordingIdentityAndLoopMetadata(ConfigNode recNode, Recording rec)
+        {
             string id = recNode.GetValue("recordingId");
             if (!string.IsNullOrEmpty(id))
                 rec.RecordingId = id;
@@ -3762,7 +3778,10 @@ namespace Parsek
             string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
             if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
                 rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
+        }
 
+        private static void LoadRecordingBudgetAndRewindMetadata(ConfigNode recNode, Recording rec)
+        {
             string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
             if (preLaunchFundsStr != null)
             {
@@ -3808,7 +3827,10 @@ namespace Parsek
                 if (float.TryParse(rewindRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindRep))
                     rec.RewindReservedRep = rewindRep;
             }
+        }
 
+        private static void LoadRecordingGroupAndSegmentMetadata(ConfigNode recNode, Recording rec)
+        {
             // UI grouping tags (multi-group membership, backward compat with single value)
             string[] groups = recNode.GetValues("recordingGroup");
             if (groups != null && groups.Length > 0)
@@ -3821,7 +3843,10 @@ namespace Parsek
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+        }
 
+        private static void LoadRecordingLocationAndTerminalMetadata(ConfigNode recNode, Recording rec)
+        {
             // Location context (Phase 10) — null if missing (legacy recordings)
             rec.StartBodyName = recNode.GetValue("startBodyName");
             rec.StartBiome = recNode.GetValue("startBiome");
@@ -3850,7 +3875,10 @@ namespace Parsek
                 double.TryParse(recNode.GetValue("tOrbMna"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitMeanAnomalyAtEpoch);
                 double.TryParse(recNode.GetValue("tOrbEpoch"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitEpoch);
             }
+        }
 
+        private static void LoadRecordingPlaybackFlags(ConfigNode recNode, Recording rec)
+        {
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)
             {
@@ -3865,7 +3893,10 @@ namespace Parsek
                 if (bool.TryParse(hiddenStr, out hidden))
                     rec.Hidden = hidden;
             }
+        }
 
+        private static void LoadRecordingManifestMetadata(ConfigNode recNode, Recording rec)
+        {
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);
 
@@ -3897,9 +3928,6 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
-
-            RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
-
         }
 
         /// <summary>

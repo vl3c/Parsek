@@ -50,7 +50,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass0-Done; high-coupling UI surface, not a canary |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass0-OpportunityMap; playback engine phases mapped |
-| `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass0-OpportunityMap; persistence/lifecycle candidates mapped |
+| `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass0-OpportunityMap; spawn/snapshot candidates mapped |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass0-OpportunityMap; Tracking Station map candidates mapped |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass0-OpportunityMap; watch-mode candidates mapped |
@@ -567,12 +567,20 @@ This ScenarioModule is the persistence and lifecycle hub for game state,
 rewind-to-staging state, active tree restore, external file loading, recording
 metadata, deferred coroutines, and vessel lifecycle events.
 
-Pass 1 same-file candidates:
+Pass 1 completed:
 
-- Split `LoadRecordingMetadata` into metadata groups for identity/timing,
-  flags/linkage, terminal/spawn fields, resources, loop/range values, and
-  terminal orbit/snapshot fields.
+- Split `LoadRecordingMetadata` into same-file helpers for identity/loop,
+  budget/rewind, grouping/segment, location/terminal, playback flag, and
+  resource/inventory/crew/dock metadata. Existing save-node read order,
+  legacy loop migration timing, endpoint backfill, and manifest
+  deserialization order remain unchanged.
 - Avoid coroutine restructuring beyond tiny helper extraction or logging.
+
+Validation:
+
+- `dotnet build Source/Parsek/Parsek.csproj`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~AutoLoopTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~LoopAnchorTests|FullyQualifiedName~ChainSaveLoadTests|FullyQualifiedName~BackwardCompatTests|FullyQualifiedName~Bug422SidecarHydrationRollupTests"`
+- `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: scenario persistence codec, load coordinator, and
 rewind staging persistence owner.
