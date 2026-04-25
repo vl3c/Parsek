@@ -11,6 +11,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Observability Audit - 2026-04-26
+
+Full report: `docs/dev/observability-audit-2026-04-26.md`.
+
+Open implementation follow-up: make Parsek's runtime decisions reconstructable
+from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
+
+- P1 save/load exception context and KSC playback spam fixes.
+- P2 flight ghost skip reasons, playback frame skip summaries, rewind
+  `CanInvoke` reason logging, sidecar/path severity and context, duplicate
+  `OnLoad` timing cleanup, post-switch auto-record no-trigger summaries,
+  background recorder drift warnings, game-action skip summaries, and UI/map
+  marker skip summaries.
+- P3 shared rate-limit key cleanup, repeated-warning rate limits, noisy resource
+  event aggregation, production warning-prefix cleanup, and low-risk
+  cleanup/reflection summaries.
+
+---
+
 ## Rewind to Staging — v0.9 carryover follow-ups
 
 The feature itself shipped on `feat/rewind-staging` across the v0.9 cycle (design: `docs/parsek-rewind-to-staging-design.md`; pre-implementation spec archived at `docs/dev/done/parsek-rewind-staging-design.md`; roadmap + CHANGELOG under v0.9.0). Items 1-18 of the post-merge follow-up cascade are archived in `done/todo-and-known-bugs-v4.md`.
