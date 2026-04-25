@@ -47,6 +47,14 @@ All notable changes to Parsek are documented here.
 
 - `#587` follow-up: Re-Fly post-supplement strip now also kills pre-existing vessels whose name matches a recording in the session-suppressed subtree, not just `Destroyed`-terminal recordings. The 2026-04-25 playtest left a non-Destroyed phantom in scene that the player saw as a clickable "second Kerbal X-shaped object". The kill-eligible-name set now unions Destroyed-terminal recordings with `EffectiveState.ComputeSessionSuppressedSubtree` membership, while still excluding the active Re-Fly target's own vessel name and respecting the `#573` protected-pid contract; a structured kill-summary VERBOSE log line breaks down the match counts.
 
+- Map-vessel source-resolve and spawn-suppression diagnostics no longer storm `KSP.log` when the same per-frame decision repeats every tick. Stable `(source, reason)` tuples now emit once per recording and stay quiet until the decision flips, with the suppressed count surfaced as `| suppressed=N` on the next state change.
+
+- In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
+
+- `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
+
+- `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
+
 - `#525` Destroyed loop-cycle boundaries now emit exactly one `OnLoopCameraAction` event (the `ExplosionHoldStart`) instead of also emitting a redundant `RetargetToNewGhost` from the ghost-reuse step. The watch handler already ignored the second event while in explosion-hold state, so camera behaviour is unchanged; the contract clean-up unblocks the in-game terrain-clearance regression that pins the explosion anchor to the same terrain-clamped position the camera holds at.
 
 - In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` now passes again: the stable-terminal re-snapshot Info log line emitted by `FinalizeIndividualRecording` carries the `[#289]` tag the test scans for.
@@ -174,6 +182,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#527` In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` now drives `CommitTreeFlight` to land its launch recording in the timeline before staging the rewind, replacing the earlier `StopRecording`-then-wait pattern that timed out because stop alone never commits.
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.

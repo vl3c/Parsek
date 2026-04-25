@@ -2507,22 +2507,37 @@ namespace Parsek.InGameTests
                         allowTerminalOrbitFallback: true,
                         logOperationName: "runtime-571-checkpoint-world",
                         ref cachedIndex,
+                        out OrbitSegment resolvedSegment,
                         out _,
-                        out TrajectoryPoint stateVectorPoint,
                         out string skipReason);
 
+                // OrbitalCheckpoint sections coexist with their seed OrbitSegment
+                // (#571 closure). When the segment covers currentUT the resolver
+                // intentionally returns Segment — the densified checkpoint frames
+                // are sampling along that same Keplerian arc, not a competing
+                // source. Compare the existing xUnit pin
+                // ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper.
                 InGameAssert.IsTrue(
-                    source == GhostMapPresence.TrackingStationGhostSource.StateVector,
-                    $"Expected StateVector checkpoint source, got {source}");
+                    source == GhostMapPresence.TrackingStationGhostSource.Segment,
+                    $"Expected Segment checkpoint source, got {source}");
                 InGameAssert.IsTrue(string.IsNullOrEmpty(skipReason),
                     $"Expected no skip reason, got {skipReason ?? "(null)"}");
-                InGameAssert.AreEqual(body.name, stateVectorPoint.bodyName);
+                InGameAssert.AreEqual(body.name, resolvedSegment.bodyName);
 
+                // P3 review pin: also require stateVectorSource=OrbitalCheckpoint
+                // and orbitalCheckpointFallback=reject so the captured-line
+                // predicate proves the resolver actually traversed the
+                // OrbitalCheckpoint section before settling on Segment. Without
+                // these substrings a future regression that silently stops
+                // walking checkpoints would still match `sourceKind=Segment`
+                // and leave this coexistence test green.
                 string line = captured.LastOrDefault(l =>
                     l.Contains("[GhostMap]")
                     && l.Contains("runtime-571-checkpoint-world")
-                    && l.Contains("sourceKind=StateVector"));
-                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured");
+                    && l.Contains("sourceKind=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
+                InGameAssert.IsNotNull(line, "GhostMap checkpoint source decision log should be captured with stateVectorSource=OrbitalCheckpoint and orbitalCheckpointFallback=reject");
                 InGameAssert.IsTrue(line.Contains("world=(") && !line.Contains("world=(unresolved)"),
                     "GhostMap checkpoint source log should contain a resolved world=(x,y,z) position");
             }
@@ -4534,10 +4549,39 @@ namespace Parsek.InGameTests
                 TrajectorySidecarProbe probe;
                 InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
+                InGameAssert.IsTrue(probe.Supported,
+                    $"Current-format recording '{rec.RecordingId}' has unsupported sidecar version " +
+                    $"{probe.FormatVersion}; this build only understands up to v{RecordingStore.CurrentRecordingFormatVersion}");
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
-                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
-                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+
+                // probe.FormatVersion is the on-disk binary-encoding version stamped at the
+                // last .prec write. rec.RecordingFormatVersion is the in-memory semantic
+                // version, which post-load migrations can promote without rewriting the
+                // sidecar. The contract is intentionally narrow: equality is the ordinary
+                // case, and the only allowed lag is the documented v3 -> v4 metadata-only
+                // migration (LaunchToLaunchLoopIntervalFormatVersion changed the meaning of
+                // loopIntervalSeconds without altering binary layout, so a v3 sidecar paired
+                // with a v4-promoted in-memory recording is correct on disk; see
+                // RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration).
+                // Every other lag must fail: v5 added serialized OrbitSegment.isPredicted and
+                // v6 changed RELATIVE TrackSection point semantics, so a v3-or-older sidecar
+                // paired with a v5/v6 recording would mean the binary on disk predates a
+                // contract change and the data is genuinely stale. The probe must always be
+                // a known schema this build understands.
+                InGameAssert.IsTrue(
+                    RecordingStore.IsAcceptableSidecarVersionLag(probe.FormatVersion, rec.RecordingFormatVersion),
+                    $"Current-format recording '{rec.RecordingId}' fails the probe/recording " +
+                    $"version contract: on-disk binary version {probe.FormatVersion} vs " +
+                    $"in-memory recording format version {rec.RecordingFormatVersion}. " +
+                    $"Allowed combinations are equality, or v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion - 1} " +
+                    $"sidecar with v{RecordingStore.LaunchToLaunchLoopIntervalFormatVersion} recording " +
+                    $"(the documented metadata-only legacy-loop migration). Anything else " +
+                    $"indicates stale or incomplete trajectory data on disk.");
+                InGameAssert.IsTrue(probe.FormatVersion <= RecordingStore.CurrentRecordingFormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' has on-disk binary version " +
+                    $"{probe.FormatVersion}; latest known schema is " +
+                    $"{RecordingStore.CurrentRecordingFormatVersion}");
                 checkedCount++;
             }
 
@@ -7788,7 +7832,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a real launch recording, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a live recording, drives the in-flight CommitTreeFlight path to commit the launch tree, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
             Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
         public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
         {
@@ -7861,13 +7905,20 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 FlightInputHandler.state.mainThrottle = 0f;
-                flight.StopRecording();
+                // ParsekFlight.StopRecording stops the underlying recorder but does not
+                // commit the active tree to the timeline — only the flight-button path
+                // (CommitTreeFlight) and the scene-exit MergeDialog flow do that. The
+                // earlier StopRecording-then-wait pattern timed out because the recording
+                // never reached CommittedRecordings; the rewind canary needs a real
+                // committed launch recording (with RewindSaveFileName copied to the root)
+                // before InitiateRewind can resolve a rewind owner.
+                flight.CommitTreeFlight();
                 yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f);
 
                 Recording committedRecording = RecordingStore.CommittedRecordings.FirstOrDefault(
                     r => r != null && r.RecordingId == activeRecId);
                 InGameAssert.IsNotNull(committedRecording,
-                    "Stopping the live rewind canary recording should commit it into the timeline");
+                    "Committing the live rewind canary tree should land the recording in the timeline");
                 InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
                     "Committed rewind canary recording must have a rewind save file");
 
