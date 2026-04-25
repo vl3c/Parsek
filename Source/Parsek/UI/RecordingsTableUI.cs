@@ -1509,7 +1509,7 @@ namespace Parsek
             }
 
             // Rewind / Fast-forward button
-            if (DrawUnfinishedFlightRewindButton(rec, ri,
+            if (DrawUnfinishedFlightRewindButton(rec, ri, now,
                 reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
             {
                 // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
@@ -2498,9 +2498,18 @@ namespace Parsek
         /// normal recording list or inside the virtual group. Returns
         /// <c>true</c> iff this row consumed the Rewind/FF cell, so the caller
         /// can skip the legacy rewind-to-launch fallback.
+        ///
+        /// <para>
+        /// Uses the same `R` / `FF` glyph + column width as the legacy
+        /// rewind-to-launch button at line 1577 / 2129 so the table column
+        /// renders consistently regardless of which path drew the cell.
+        /// `FF` shows when the recording's <see cref="Recording.StartUT"/> is
+        /// strictly in the future (post-rewind UT can land before a recording
+        /// that survived the rewind window), otherwise `R`.
+        /// </para>
         /// </summary>
         private bool DrawUnfinishedFlightRewindButton(
-            Recording rec, int ri, bool reserveCellWhenUnavailable = false)
+            Recording rec, int ri, double now, bool reserveCellWhenUnavailable = false)
         {
             if (rec == null) return false;
 
@@ -2526,10 +2535,13 @@ namespace Parsek
                 return false;
             }
 
+            bool isFuture = now < rec.StartUT;
+            string rewindLabel = isFuture ? "FF" : "R";
+
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
             {
                 DrawDisabledUnfinishedFlightRewindButton(
-                    rec, ri, routeReason ?? "Rewind point slot not found");
+                    rec, ri, rewindLabel, routeReason ?? "Rewind point slot not found");
                 return true;
             }
 
@@ -2537,7 +2549,7 @@ namespace Parsek
                 || slotListIndex >= rp.ChildSlots.Count)
             {
                 DrawDisabledUnfinishedFlightRewindButton(
-                    rec, ri, "Rewind point slot not found");
+                    rec, ri, rewindLabel, "Rewind point slot not found");
                 return true;
             }
 
@@ -2558,9 +2570,11 @@ namespace Parsek
 
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Rewind to the split that produced this unfinished flight"
+                ? (isFuture
+                    ? "Fast-forward to the split that produced this unfinished flight"
+                    : "Rewind to the split that produced this unfinished flight")
                 : (reason ?? "Rewind unavailable");
-            if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
+            if (DrawBodyCenteredButton(new GUIContent(rewindLabel, tooltip), ColW_Rewind))
             {
                 ParsekLog.Info("RewindUI",
                     $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
@@ -2571,7 +2585,7 @@ namespace Parsek
         }
 
         private void DrawDisabledUnfinishedFlightRewindButton(
-            Recording rec, int ri, string reason)
+            Recording rec, int ri, string label, string reason)
         {
             reason = string.IsNullOrEmpty(reason) ? "Rewind unavailable" : reason;
             string recId = rec?.RecordingId ?? "<no-id>";
@@ -2585,7 +2599,7 @@ namespace Parsek
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Rewind", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent(label ?? "R", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 

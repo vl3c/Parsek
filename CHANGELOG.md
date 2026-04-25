@@ -40,6 +40,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Unfinished Flights rows now use the same `R` / `FF` button glyph as every other recording row (was the longer `Rewind` label), so the Rewind/FF column lines up consistently across the table.
+
 - Re-fly invocation now points the session marker directly at the recording that will receive samples, eliminating the placeholder-and-redirect detour and the cascade of guards it required.
 
 - Re-fly merges now refuse to write supersede rows when the re-fly recording has no trajectory points or no terminal state, catching the placeholder-as-supersede-target class of bug at commit time instead of silently shipping a zero-trajectory replacement.
