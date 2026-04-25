@@ -3,7 +3,8 @@
 **Date:** 2026-04-25.
 **Worktree:** `Parsek-refactor-4-pass2-sidecar-save`, branch
 `refactor-4-pass2-sidecar-save`.
-**Base:** PR #552 branch `refactor-4-pass2`.
+**Base:** `origin/main` after PR #552 (`refactor-4-pass2`) merged; this
+slice was originally cut from PR #552's branch.
 **Status:** Proposal plus implementation checkpoints. The
 `SidecarFileCommitBatch` and save-path `RecordingSidecarStore` slices are
 complete; load-path, codec, and tree-record moves remain proposal-only until a
@@ -301,8 +302,8 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~
 
 ## Implementation Checkpoint - RecordingSidecarStore Save Path
 
-Approved second slice started from PR #552's branch and kept to the save path
-only:
+Approved second slice started from PR #552's branch, merged `origin/main` after
+#552 landed, and kept to the save path only:
 
 - Added `Source/Parsek/RecordingSidecarStore.cs`.
 - Moved only save-side path resolution, sidecar epoch bump/rollback, staged
@@ -326,6 +327,9 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
 ```
+
+Latest post-main-merge run: focused storage slice passed 235 tests, the
+non-injection gate passed 8,707 tests, and `InjectAllRecordings` passed 3 tests.
 
 Runtime canaries are not required for this save-only mechanical move, but the
 load-path extraction will need the runtime sidecar probe canary before merge.

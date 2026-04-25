@@ -44,8 +44,8 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Done; post-switch auto-record trigger helpers extracted, finalization deferred |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
-| `Source/Parsek/RecordingStore.cs` | 6,365 | Pass2-Done for `SidecarFileCommitBatch` and save-path `RecordingSidecarStore`; load-path orchestration deferred |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
+| `Source/Parsek/RecordingStore.cs` | 5,591 | Pass2-Done for `SidecarFileCommitBatch` and save-path `RecordingSidecarStore`; load-path orchestration deferred |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
@@ -71,7 +71,7 @@ These deltas compare files that also existed in
 |------|------------------|---------------|-------|
 | `LedgerOrchestrator.cs` | 900 | 6,976 | +6,076 |
 | `ParsekFlight.cs` | 8,765 | 14,503 | +5,738 |
-| `RecordingStore.cs` | 2,958 | 6,365 | +3,407 |
+| `RecordingStore.cs` | 2,958 | 5,591 | +2,633 |
 | `GhostPlaybackLogic.cs` | 2,589 | 5,343 | +2,754 |
 | `VesselSpawner.cs` | 1,473 | 4,166 | +2,693 |
 | `GhostPlaybackEngine.cs` | 1,770 | 4,312 | +2,542 |
@@ -141,7 +141,7 @@ central enough that parallel edits would make review and rollback worse.
 |------|--------|
 | `ParsekFlight.cs` | 14.5k-line scene controller, +5.7k since refactor-3 |
 | `LedgerOrchestrator.cs` | 7.0k-line GameActions hub, +6.1k since refactor-3 |
-| `RecordingStore.cs` | 6.4k-line storage surface, +3.4k since refactor-3; Pass 2 sidecar commit batch and save path extracted |
+| `RecordingStore.cs` | 5.6k-line storage surface, +2.6k since refactor-3; Pass 2 sidecar commit batch and save path extracted |
 | `FlightRecorder.cs` | 6.7k-line sampling/event surface |
 | `GhostPlaybackLogic.cs` | 5.3k-line playback/visual logic helper |
 | `UI/RecordingsTableUI.cs` | 4.9k-line extracted UI surface with prior coupling risk |
@@ -475,7 +475,7 @@ Validation:
 - `dotnet build Source/Parsek/Parsek.csproj`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingOptimizerTests|FullyQualifiedName~RecordingStoreTests|FullyQualifiedName~LegacyTreeMigrationTests|FullyQualifiedName~RewindLoggingTests"`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
-- Pass 2 save-path slice: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"` passed 235 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passed 8,647 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings` passed 3 tests.
+- Pass 2 save-path slice: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"` passed 235 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passed 8,707 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings` passed 3 tests.
 
 Remaining load-path sidecar orchestration and codec work follows the Pass 2
 owner plan and remains gated on preserving file ordering, exception handling,
