@@ -13,6 +13,7 @@ namespace Parsek.Tests
         public RecordingFinalizationCacheProducerTests()
         {
             RecordingFinalizationCacheProducer.ResetForTesting();
+            IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -22,6 +23,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecordingFinalizationCacheProducer.ResetForTesting();
+            IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -197,6 +199,133 @@ namespace Parsek.Tests
                 line.Contains("Refresh accepted") &&
                 line.Contains("rec=rec-live-extrapolate") &&
                 line.Contains("segments=1"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_AlreadyDestroyed_SkipsAcrossPeriodicTicksWithoutMutatingTerminal()
+        {
+            int defaultFinalizerCalls = 0;
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    defaultFinalizerCalls++;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 999.0
+                    };
+                    return true;
+                };
+
+            var vessel = MakeFlyingView(404u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording
+            {
+                RecordingId = "rec-already-destroyed",
+                VesselPersistentId = 404u,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 180.0,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 650000.0
+            };
+
+            bool firstBuilt = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache firstCache);
+            bool secondBuilt = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                126.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache secondCache);
+
+            Assert.False(firstBuilt);
+            Assert.False(secondBuilt);
+            Assert.Equal(0, defaultFinalizerCalls);
+            Assert.Equal(180.0, recording.ExplicitEndUT);
+            Assert.Equal("Kerbin", recording.TerminalOrbitBody);
+            Assert.Equal(FinalizationCacheStatus.Failed, firstCache.Status);
+            Assert.Equal(FinalizationCacheStatus.Failed, secondCache.Status);
+            Assert.Equal(RecordingFinalizationCacheProducer.AlreadyClassifiedDestroyedDeclineReason, firstCache.DeclineReason);
+            Assert.Equal(RecordingFinalizationCacheProducer.AlreadyClassifiedDestroyedDeclineReason, secondCache.DeclineReason);
+            Assert.Equal(180.0, firstCache.TerminalUT);
+            Assert.Equal(180.0, secondCache.TerminalUT);
+            Assert.True(RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(firstCache));
+            Assert.True(RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(secondCache));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][Extrapolator]") &&
+                line.Contains("already classified Destroyed at terminalUT=180.0") &&
+                line.Contains("rec-already-destroyed") &&
+                line.Contains("skipping re-run"));
+            Assert.Equal(2, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "recordingsExamined=1",
+                "alreadyClassified=1",
+                "newlyClassified=0"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_SubSurfaceDestroyed_LogsTransitionAndSummary()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 180.0,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Kerbin",
+                        subSurfaceDestroyedAltitude = -599979.0,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return true;
+                };
+
+            var vessel = MakeFlyingView(405u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording
+            {
+                RecordingId = "rec-subsurface-transition",
+                VesselPersistentId = 405u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(180.0, cache.TerminalUT);
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "Start rejected: sub-surface state",
+                "rec=rec-subsurface-transition",
+                "alt=-599979.0"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "classified Destroyed by sub-surface path",
+                "rec=rec-subsurface-transition",
+                "terminalUT=180.0",
+                "body=Kerbin"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "recordingsExamined=1",
+                "alreadyClassified=0",
+                "newlyClassified=1"));
         }
 
         [Fact]
@@ -456,6 +585,28 @@ namespace Parsek.Tests
             Assert.Equal(250.0, cache.TerminalUT);
             Assert.True(cache.LastWasInAtmosphere);
             Assert.Equal("Kerbin", cache.TerminalBodyName);
+        }
+
+        private int CountLogLines(params string[] requiredFragments)
+        {
+            int count = 0;
+            for (int i = 0; i < logLines.Count; i++)
+            {
+                bool matches = true;
+                for (int j = 0; j < requiredFragments.Length; j++)
+                {
+                    if (!logLines[i].Contains(requiredFragments[j]))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (matches)
+                    count++;
+            }
+
+            return count;
         }
 
         private static FakeVesselView MakeFlyingView(

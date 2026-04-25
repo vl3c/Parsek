@@ -4067,6 +4067,13 @@ namespace Parsek
             refreshed.RecordingId = recordingId;
             refreshed.VesselPersistentId = vesselPid;
             if (!success
+                && RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(refreshed))
+            {
+                finalizationCaches[vesselPid] = refreshed;
+                return false;
+            }
+
+            if (!success
                 && RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
                     previous,
                     refreshed,
@@ -4111,6 +4118,8 @@ namespace Parsek
                 state.currentOrbitSegment);
             RecordingFinalizationCache previous;
             finalizationCaches.TryGetValue(state.vesselPid, out previous);
+            bool requiresPeriodicRefresh = previous == null
+                || previous.Status == FinalizationCacheStatus.Failed;
             if (!RecordingFinalizationCacheProducer.ShouldRefresh(
                     previous != null ? previous.CachedAtUT : double.MinValue,
                     currentUT,
@@ -4118,14 +4127,40 @@ namespace Parsek
                     force,
                     previous?.LastObservedOrbitDigest,
                     currentDigest,
-                    requiresPeriodicRefresh: false))
+                    requiresPeriodicRefresh))
             {
                 TryTouchSkippedFinalizationCache(
                     previous,
                     currentUT,
                     reason,
                     currentDigest,
-                    requiresPeriodicRefresh: false);
+                    requiresPeriodicRefresh);
+                return false;
+            }
+
+            Recording treeRec = null;
+            if (tree != null && tree.Recordings != null && !string.IsNullOrEmpty(state.recordingId))
+                tree.Recordings.TryGetValue(state.recordingId, out treeRec);
+
+            RecordingFinalizationCache skipped;
+            if (RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip(
+                    treeRec,
+                    state.vesselPid,
+                    FinalizationCacheOwner.BackgroundOnRails,
+                    currentUT,
+                    reason,
+                    out skipped))
+            {
+                skipped.LastObservedOrbitDigest = currentDigest;
+                skipped.LastObservedBodyName = state.currentOrbitSegment.bodyName;
+                skipped.LastSituation = Vessel.Situations.ORBITING;
+                finalizationCaches[state.vesselPid] = skipped;
+                RecordingFinalizationCacheProducer.LogRefreshSummary(
+                    FinalizationCacheOwner.BackgroundOnRails,
+                    reason,
+                    treeRec != null ? 1 : 0,
+                    1,
+                    0);
                 return false;
             }
 

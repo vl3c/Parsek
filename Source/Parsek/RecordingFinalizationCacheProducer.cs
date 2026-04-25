@@ -40,6 +40,7 @@ namespace Parsek
     internal static class RecordingFinalizationCacheProducer
     {
         internal const double DefaultRefreshIntervalUT = 5.0;
+        internal const string AlreadyClassifiedDestroyedDeclineReason = "already-classified-destroyed";
         private const float MeaningfulThrottleThreshold = 0.01f;
 
         internal delegate bool TryBuildDefaultFinalizationResultDelegate(
@@ -108,22 +109,36 @@ namespace Parsek
             string recordingId = recording?.RecordingId;
             uint vesselPid = ResolveVesselPid(recording, vessel);
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            int recordingsExamined = recording != null ? 1 : 0;
 
             if (vessel == null)
-                return Fail(cache, "vessel-null");
+                return CompleteRefresh(cache, Fail(cache, "vessel-null"), recordingsExamined, 0, 0);
 
             PopulateObservedVesselState(cache, vessel, refreshUT, hasMeaningfulThrust);
+            RecordingFinalizationCache alreadyDestroyedSkip;
+            if (TryBuildAlreadyClassifiedDestroyedSkip(
+                    recording,
+                    cache.VesselPersistentId,
+                    owner,
+                    refreshUT,
+                    reason,
+                    out alreadyDestroyedSkip))
+            {
+                cache = alreadyDestroyedSkip;
+                PopulateObservedVesselState(cache, vessel, refreshUT, hasMeaningfulThrust);
+                return CompleteRefresh(cache, false, recordingsExamined, 1, 0);
+            }
 
             if (TryBuildSurfaceTerminalCache(cache, vessel, refreshUT))
-                return true;
+                return CompleteRefresh(cache, true, recordingsExamined, 0, 0);
 
             RecordingFinalizationOrbitView orbit;
             if (!vessel.TryGetOrbit(out orbit))
             {
                 if (cache.LastWasInAtmosphere)
-                    return PopulateAtmosphericDeletionCache(cache, refreshUT);
+                    return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
-                return Fail(cache, "vessel-orbit-null");
+                return CompleteRefresh(cache, Fail(cache, "vessel-orbit-null"), recordingsExamined, 0, 0);
             }
 
             double cutoffAltitude = orbit.ReferenceBodyHasAtmosphere && orbit.ReferenceBodyAtmosphereDepth > 0.0
@@ -136,8 +151,13 @@ namespace Parsek
                     orbit.PeriapsisAltitude,
                     cutoffAltitude))
             {
-                return PopulateStableOrbitCache(cache, BuildOrbitSegmentFromVessel(vessel, orbit, refreshUT), refreshUT,
-                    DetermineObservedTerminalState(vessel));
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, BuildOrbitSegmentFromVessel(vessel, orbit, refreshUT), refreshUT,
+                        DetermineObservedTerminalState(vessel)),
+                    recordingsExamined,
+                    0,
+                    0);
             }
 
             Recording context = recording ?? BuildContextRecording(recordingId, vesselPid, refreshUT);
@@ -149,13 +169,13 @@ namespace Parsek
                     out result))
             {
                 if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
-                    return PopulateAtmosphericDeletionCache(cache, refreshUT);
+                    return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
-                return Fail(cache, "default-finalizer-declined");
+                return CompleteRefresh(cache, Fail(cache, "default-finalizer-declined"), recordingsExamined, 0, 0);
             }
 
             if (!result.terminalState.HasValue || !IsFinite(result.terminalUT))
-                return Fail(cache, "default-finalizer-invalid-result");
+                return CompleteRefresh(cache, Fail(cache, "default-finalizer-invalid-result"), recordingsExamined, 0, 0);
 
             cache.Status = FinalizationCacheStatus.Fresh;
             cache.TerminalState = result.terminalState.Value;
@@ -180,7 +200,18 @@ namespace Parsek
                     RecordingFinalizationTerminalOrbit.FromSegment(cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
             }
 
-            return Accept(cache);
+            int newlyClassified = result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart ? 1 : 0;
+            if (newlyClassified > 0)
+            {
+                IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                    recordingId,
+                    result.terminalUT,
+                    result.subSurfaceDestroyedBodyName,
+                    result.subSurfaceDestroyedAltitude,
+                    result.subSurfaceDestroyedThreshold);
+            }
+
+            return CompleteRefresh(cache, Accept(cache), recordingsExamined, 0, newlyClassified);
         }
 
         internal static bool TryBuildFromStableOrbitSegment(
@@ -194,12 +225,18 @@ namespace Parsek
         {
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
             cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
+            int recordingsExamined = string.IsNullOrEmpty(recordingId) ? 0 : 1;
             if (string.IsNullOrEmpty(segment.bodyName) || !IsFinite(segment.semiMajorAxis))
-                return Fail(cache, "orbit-segment-invalid");
+                return CompleteRefresh(cache, Fail(cache, "orbit-segment-invalid"), recordingsExamined, 0, 0);
 
             cache.LastObservedBodyName = segment.bodyName;
             cache.LastSituation = Vessel.Situations.ORBITING;
-            return PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting);
+            return CompleteRefresh(
+                cache,
+                PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                recordingsExamined,
+                0,
+                0);
         }
 
         internal static bool TryBuildAtmosphericDeletionCache(
@@ -212,11 +249,75 @@ namespace Parsek
             out RecordingFinalizationCache cache)
         {
             cache = CreateBase(recordingId, vesselPid, owner, observedUT, reason);
+            int recordingsExamined = string.IsNullOrEmpty(recordingId) ? 0 : 1;
             cache.LastObservedBodyName = bodyName;
             cache.LastSituation = Vessel.Situations.FLYING;
             cache.LastWasInAtmosphere = true;
             cache.LastObservedOrbitDigest = BuildStateDigest(bodyName, Vessel.Situations.FLYING, inAtmosphere: true, hasMeaningfulThrust: false);
-            return PopulateAtmosphericDeletionCache(cache, observedUT);
+            return CompleteRefresh(
+                cache,
+                PopulateAtmosphericDeletionCache(cache, observedUT),
+                recordingsExamined,
+                0,
+                0);
+        }
+
+        internal static bool TryBuildAlreadyClassifiedDestroyedSkip(
+            Recording recording,
+            uint vesselPid,
+            FinalizationCacheOwner owner,
+            double refreshUT,
+            string reason,
+            out RecordingFinalizationCache cache)
+        {
+            cache = null;
+            if (!IncompleteBallisticSceneExitFinalizer.IsAlreadyClassifiedDestroyed(recording))
+                return false;
+
+            string recordingId = recording?.RecordingId;
+            cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            cache.Status = FinalizationCacheStatus.Failed;
+            cache.DeclineReason = AlreadyClassifiedDestroyedDeclineReason;
+            cache.TerminalState = TerminalState.Destroyed;
+            cache.TerminalUT = ResolveDestroyedTerminalUT(recording);
+            cache.TerminalBodyName = ResolveDestroyedTerminalBodyName(recording);
+            cache.TailStartsAtUT = cache.TerminalUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+
+            IncompleteBallisticSceneExitFinalizer.LogAlreadyClassifiedDestroyedSkip(
+                recording,
+                "FinalizerCache",
+                reason);
+            return true;
+        }
+
+        internal static bool IsAlreadyClassifiedDestroyedSkip(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && cache.Status == FinalizationCacheStatus.Failed
+                && string.Equals(
+                    cache.DeclineReason,
+                    AlreadyClassifiedDestroyedDeclineReason,
+                    StringComparison.Ordinal);
+        }
+
+        internal static void LogRefreshSummary(
+            FinalizationCacheOwner owner,
+            string reason,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified)
+        {
+            ParsekLog.Info("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "FinalizerCache refresh summary: owner={0} reason={1} " +
+                    "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}",
+                    owner,
+                    reason ?? "(none)",
+                    recordingsExamined,
+                    alreadyClassified,
+                    newlyClassified));
         }
 
         internal static bool HasMeaningfulThrust(
@@ -383,6 +484,49 @@ namespace Parsek
                 TerminalUT = double.NaN,
                 PredictedSegments = new List<OrbitSegment>()
             };
+        }
+
+        private static bool CompleteRefresh(
+            RecordingFinalizationCache cache,
+            bool success,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified)
+        {
+            LogRefreshSummary(
+                cache != null ? cache.Owner : FinalizationCacheOwner.Unknown,
+                cache?.RefreshReason,
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified);
+            return success;
+        }
+
+        private static double ResolveDestroyedTerminalUT(Recording recording)
+        {
+            if (recording == null)
+                return double.NaN;
+            if (IsFinite(recording.ExplicitEndUT))
+                return recording.ExplicitEndUT;
+            return recording.EndUT;
+        }
+
+        private static string ResolveDestroyedTerminalBodyName(Recording recording)
+        {
+            if (recording == null)
+                return null;
+            if (!string.IsNullOrEmpty(recording.TerminalOrbitBody))
+                return recording.TerminalOrbitBody;
+            if (recording.TerminalPosition.HasValue
+                && !string.IsNullOrEmpty(recording.TerminalPosition.Value.body))
+                return recording.TerminalPosition.Value.body;
+            if (!string.IsNullOrEmpty(recording.EndpointBodyName))
+                return recording.EndpointBodyName;
+            if (recording.Points != null && recording.Points.Count > 0)
+                return recording.Points[recording.Points.Count - 1].bodyName;
+            if (recording.OrbitSegments != null && recording.OrbitSegments.Count > 0)
+                return recording.OrbitSegments[recording.OrbitSegments.Count - 1].bodyName;
+            return null;
         }
 
         private static void PopulateObservedVesselState(

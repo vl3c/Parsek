@@ -220,7 +220,7 @@ namespace Parsek
                 result.terminalPosition = startState.position;
                 result.terminalVelocity = startState.velocity;
                 result.failureReason = ExtrapolationFailureReason.SubSurfaceStart;
-                ParsekLog.Warn(LogTag, string.Format(
+                ParsekLog.Verbose(LogTag, string.Format(
                     CultureInfo.InvariantCulture,
                     "Start rejected: sub-surface state body={0} ut={1:F3} alt={2:F1} " +
                     "(threshold={3:F1}); classifying recording as Destroyed",

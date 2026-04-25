@@ -217,7 +217,7 @@ The `RewindContext.IsRewinding` short-circuit in `RunSpawnDeathChecks` from `c9d
 
 ---
 
-## 574. Extrapolator: 146 sub-surface state rejections classified as Destroyed for the same recordings
+## ~~574. Extrapolator: 146 sub-surface state rejections classified as Destroyed for the same recordings~~
 
 **Source:** `logs/2026-04-25_1314_marker-validator-fix/KSP.log.cleaned` —
 146 occurrences each of:
@@ -242,9 +242,25 @@ an hour-long session suggests the same recording is being finalized repeatedly
 - Cross-reference with bug #571 (weird map trajectories) — sub-surface
   reclassification feeds the orbit data that drives the map vessel preview.
 
-**Status:** Open. Already on `bug/extrapolator-destroyed-on-subsurface`
-([PR #514](https://github.com/vl3c/Parsek/pull/514) review thread); this entry
-captures the symptom for cross-reference.
+**Diagnosis (2026-04-25):** the normal finalisation-cache producer path was
+recording-state harmless after the first Destroyed terminal because the cache
+appliers reject already-finalized recordings, but it still rebuilt a failed
+finalization cache and re-emitted the NullSolver/sub-surface logs every 5s.
+The lower-level `IncompleteBallisticSceneExitFinalizer.TryApply` path was not
+strictly idempotent if invoked directly: a second call could re-run the
+delegate and overwrite terminal UT/orbit fields. No downstream ERS,
+GhostMapPresence, timeline, or Re-Fly merge path needed the repeated
+classification once `TerminalState=Destroyed` was already known.
+
+**Fix:** already-Destroyed recordings now short-circuit before the live-orbit
+fallback/default ballistic finalizer. The live-orbit origin-adjacent
+`NullSolver` fallback remains a trusted first-time Destroyed signal; the first
+sub-surface transition logs the recording id, terminalUT, body, altitude, and
+threshold once, while later cache refreshes emit a per-recording
+`VerboseRateLimited` skip diagnostic and an INFO refresh summary with
+`recordingsExamined`, `alreadyClassified`, and `newlyClassified`.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.8.3.
 
 ---
 
