@@ -29,8 +29,6 @@ namespace Parsek
         private readonly ParsekFlight host;
         internal Func<bool> IsWarpActiveOverrideForTesting;
         internal Func<double> CurrentUTOverrideForTesting;
-        internal Func<bool> HasActiveVesselOverrideForTesting;
-        internal Func<Vector3d> ActiveVesselWorldPosOverrideForTesting;
         internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
         internal Action<uint> DeferredActivateVesselOverrideForTesting;
         internal const int FlagReplayWarnRetryThreshold = 3;
@@ -143,8 +141,7 @@ namespace Parsek
         /// <summary>
         /// Flush deferred spawns that were queued during warp.
         /// Runs AFTER engine.UpdatePlayback() when warp ends.
-        /// Iterates committed recordings, spawns eligible vessels, skips
-        /// out-of-bubble spawns (kept in queue for next check).
+        /// Iterates committed recordings and materializes eligible vessels.
         /// </summary>
         internal void FlushDeferredSpawns()
         {
@@ -160,18 +157,9 @@ namespace Parsek
             double currentUT = CurrentUTOverrideForTesting != null
                 ? CurrentUTOverrideForTesting()
                 : Planetarium.GetUniversalTime();
-            bool hasActiveVessel = HasActiveVesselOverrideForTesting != null
-                ? HasActiveVesselOverrideForTesting()
-                : FlightGlobals.ActiveVessel != null;
             int spawnedCount = 0;
-            int deferredOutOfBubble = 0;
             var flushedSpawnIds = new List<string>();
             var clearedFlagReplayIds = new List<string>();
-            Vector3d activeVesselPos = hasActiveVessel
-                ? (ActiveVesselWorldPosOverrideForTesting != null
-                    ? ActiveVesselWorldPosOverrideForTesting()
-                    : FlightGlobals.ActiveVessel.GetWorldPos3D())
-                : Vector3d.zero;
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -192,16 +180,6 @@ namespace Parsek
                 }
                 else if (pendingSpawn)
                 {
-                    // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
-                    if (hasActiveVessel &&
-                        ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
-                    {
-                        deferredOutOfBubble++;
-                        ParsekLog.Verbose("Policy",
-                            $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
-                        continue;
-                    }
-
                     ParsekLog.Info("Policy",
                         $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
                     if (SpawnVesselOrChainTipOverrideForTesting != null)
@@ -264,7 +242,7 @@ namespace Parsek
                 }
             }
 
-            // Remove flushed IDs, keep out-of-bubble spawns and failed flag replays in queue.
+            // Remove flushed IDs; failed flag replays stay queued.
             for (int j = 0; j < flushedSpawnIds.Count; j++)
                 pendingSpawnRecordingIds.Remove(flushedSpawnIds[j]);
             for (int j = 0; j < clearedFlagReplayIds.Count; j++)
@@ -273,18 +251,15 @@ namespace Parsek
                 pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
             }
 
-            if (deferredOutOfBubble > 0)
-            {
-                ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount} deferred spawn(s), " +
-                    $"{deferredOutOfBubble} kept (outside bubble), " +
-                    $"{pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count} remaining");
-            }
-            else
-            {
-                ParsekLog.Info("Policy",
-                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
-            }
+            int remainingCount = pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count;
+            string queueState = remainingCount == 0
+                ? "Deferred spawn queue drained"
+                : "Deferred spawn queue waiting";
+            ParsekLog.Info("Policy",
+                $"{queueState} — spawned {spawnedCount} deferred spawn(s), " +
+                $"cleared {flushedSpawnIds.Count} spawn queue item(s), " +
+                $"cleared {clearedFlagReplayIds.Count} flag replay(s), " +
+                $"{remainingCount} pending");
 
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
