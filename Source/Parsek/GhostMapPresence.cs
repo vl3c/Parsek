@@ -4218,35 +4218,11 @@ namespace Parsek
             try
             {
 
-                // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
-                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
-
-                // Discovery: fully visible, infinite lifetime
-                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
-                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
-                    double.PositiveInfinity, double.PositiveInfinity);
-
-                VesselType vtype = ResolveVesselType(traj.VesselSnapshot);
-                string vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
-
-                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
-                    vesselName, vtype, orbit, 0,
-                    new ConfigNode[] { partNode }, discovery);
-
-                // Critical settings: prevent ground positioning and KSC cleanup
-                vesselNode.SetValue("vesselSpawning", "False", true);
-                vesselNode.SetValue("prst", "True", true);
-                vesselNode.SetValue("cln", "False", true);
-
-                // Defensive: ensure sub-nodes that SpaceTracking.buildVesselsList and other
-                // KSP internals assume exist. CreateVesselNode adds ACTIONGROUPS but omits
-                // these three. Missing nodes can cause NREs in tracking station code paths.
-                if (vesselNode.GetNode("FLIGHTPLAN") == null)
-                    vesselNode.AddNode("FLIGHTPLAN");
-                if (vesselNode.GetNode("CTRLSTATE") == null)
-                    vesselNode.AddNode("CTRLSTATE");
-                if (vesselNode.GetNode("VESSELMODULES") == null)
-                    vesselNode.AddNode("VESSELMODULES");
+                ConfigNode vesselNode = BuildGhostProtoVesselNode(
+                    traj,
+                    orbit,
+                    out VesselType vtype,
+                    out string vesselName);
 
                 pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
 
@@ -4266,8 +4242,7 @@ namespace Parsek
                         string.Format(ic,
                             "BuildAndLoadGhostProtoVessel: vesselRef is null after Load for {0}",
                             logContext));
-                    ghostMapVesselPids.Remove(pv.persistentId);
-                    HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: false);
                     return null;
                 }
 
@@ -4328,8 +4303,7 @@ namespace Parsek
             {
                 if (pv != null)
                 {
-                    ghostMapVesselPids.Remove(pv.persistentId);
-                    HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: true);
                 }
                 ParsekLog.Error(Tag,
                     string.Format(ic,
@@ -4337,6 +4311,54 @@ namespace Parsek
                         logContext, ex.Message));
                 return null;
             }
+        }
+
+        private static ConfigNode BuildGhostProtoVesselNode(
+            IPlaybackTrajectory traj,
+            Orbit orbit,
+            out VesselType vtype,
+            out string vesselName)
+        {
+            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
+            ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
+
+            // Discovery: fully visible, infinite lifetime
+            ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
+                DiscoveryLevels.Owned, UntrackedObjectClass.C,
+                double.PositiveInfinity, double.PositiveInfinity);
+
+            vtype = ResolveVesselType(traj.VesselSnapshot);
+            vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
+
+            ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
+                vesselName, vtype, orbit, 0,
+                new ConfigNode[] { partNode }, discovery);
+
+            // Critical settings: prevent ground positioning and KSC cleanup
+            vesselNode.SetValue("vesselSpawning", "False", true);
+            vesselNode.SetValue("prst", "True", true);
+            vesselNode.SetValue("cln", "False", true);
+
+            // Defensive: ensure sub-nodes that SpaceTracking.buildVesselsList and other
+            // KSP internals assume exist. CreateVesselNode adds ACTIONGROUPS but omits
+            // these three. Missing nodes can cause NREs in tracking station code paths.
+            if (vesselNode.GetNode("FLIGHTPLAN") == null)
+                vesselNode.AddNode("FLIGHTPLAN");
+            if (vesselNode.GetNode("CTRLSTATE") == null)
+                vesselNode.AddNode("CTRLSTATE");
+            if (vesselNode.GetNode("VESSELMODULES") == null)
+                vesselNode.AddNode("VESSELMODULES");
+
+            return vesselNode;
+        }
+
+        private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
+        {
+            ghostMapVesselPids.Remove(pv.persistentId);
+            if (nullSafeFlightState)
+                HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+            else
+                HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
         }
 
         /// <summary>

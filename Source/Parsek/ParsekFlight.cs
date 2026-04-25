@@ -5271,6 +5271,43 @@ namespace Parsek
                 currentUT,
                 state.NextManifestEvaluationUt,
                 needsCacheRefresh);
+            RefreshPostSwitchAutoRecordModuleCachesIfNeeded(state, v, needsCacheRefresh);
+
+            bool engineTriggered = EvaluatePostSwitchEngineActivity(state, currentUT);
+            bool rcsTriggered = EvaluatePostSwitchRcsActivity(state, currentUT);
+            bool attitudeChanged = EvaluatePostSwitchAttitudeChange(v, state, currentUT);
+
+            bool crewChanged = false;
+            bool resourceChanged = false;
+            bool partStateChanged = false;
+            EvaluatePostSwitchManifestChanges(
+                v,
+                state,
+                currentUT,
+                evaluateManifestDiff,
+                out crewChanged,
+                out resourceChanged,
+                out partStateChanged);
+
+            bool landedMotionChanged = EvaluatePostSwitchLandedMotion(v, state);
+            bool orbitChanged = EvaluatePostSwitchOrbitChange(v, state);
+
+            return EvaluatePostSwitchAutoRecordTrigger(
+                engineTriggered,
+                rcsTriggered,
+                attitudeChanged,
+                crewChanged,
+                resourceChanged,
+                partStateChanged,
+                landedMotionChanged,
+                orbitChanged);
+        }
+
+        private void RefreshPostSwitchAutoRecordModuleCachesIfNeeded(
+            PostSwitchAutoRecordState state,
+            Vessel v,
+            bool needsCacheRefresh)
+        {
             if (needsCacheRefresh)
             {
                 RefreshPostSwitchAutoRecordModuleCaches(state, v);
@@ -5278,7 +5315,12 @@ namespace Parsek
                     $"Post-switch watch refreshed module caches: pid={state.VesselPid} " +
                     $"parts={state.CachedPartCount}", 1.0);
             }
+        }
 
+        private static bool EvaluatePostSwitchEngineActivity(
+            PostSwitchAutoRecordState state,
+            double currentUT)
+        {
             bool engineTriggered = false;
             for (int i = 0; i < state.CachedEngines.Count && !engineTriggered; i++)
             {
@@ -5301,6 +5343,13 @@ namespace Parsek
                 engineTriggered = engineEvents.Count > 0;
             }
 
+            return engineTriggered;
+        }
+
+        private static bool EvaluatePostSwitchRcsActivity(
+            PostSwitchAutoRecordState state,
+            double currentUT)
+        {
             bool rcsTriggered = false;
             for (int i = 0; i < state.CachedRcsModules.Count && !rcsTriggered; i++)
             {
@@ -5325,6 +5374,14 @@ namespace Parsek
                 rcsTriggered = rcsEvents.Count > 0;
             }
 
+            return rcsTriggered;
+        }
+
+        private static bool EvaluatePostSwitchAttitudeChange(
+            Vessel v,
+            PostSwitchAutoRecordState state,
+            double currentUT)
+        {
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
             float attitudeDeltaDegrees = ComputePostSwitchAttitudeDeltaDegrees(
                 state.BaselineWorldRotation,
@@ -5368,9 +5425,21 @@ namespace Parsek
                     $"debounce={currentUT - state.AttitudeThresholdExceededAtUt:F2}s");
             }
 
-            bool crewChanged = false;
-            bool resourceChanged = false;
-            bool partStateChanged = false;
+            return attitudeChanged;
+        }
+
+        private static void EvaluatePostSwitchManifestChanges(
+            Vessel v,
+            PostSwitchAutoRecordState state,
+            double currentUT,
+            bool evaluateManifestDiff,
+            out bool crewChanged,
+            out bool resourceChanged,
+            out bool partStateChanged)
+        {
+            crewChanged = false;
+            resourceChanged = false;
+            partStateChanged = false;
             if (evaluateManifestDiff)
             {
                 ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
@@ -5390,29 +5459,28 @@ namespace Parsek
                 state.NextManifestEvaluationUt =
                     currentUT + PostSwitchManifestEvaluationIntervalSeconds;
             }
+        }
 
+        private static bool EvaluatePostSwitchLandedMotion(
+            Vessel v,
+            PostSwitchAutoRecordState state)
+        {
             double distanceDelta = Vector3d.Distance(state.BaselineWorldPosition, v.GetWorldPos3D());
-            bool landedMotionChanged =
-                (v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED)
+            return (v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED)
                 && HasMeaningfulLandedMotionChange(distanceDelta, v.srfSpeed);
-            bool orbitChanged =
-                v.situation != Vessel.Situations.LANDED
+        }
+
+        private static bool EvaluatePostSwitchOrbitChange(
+            Vessel v,
+            PostSwitchAutoRecordState state)
+        {
+            return v.situation != Vessel.Situations.LANDED
                 && v.situation != Vessel.Situations.SPLASHED
                 && v.mainBody != null
                 && (!v.mainBody.atmosphere || v.altitude > v.mainBody.atmosphereDepth)
                 && HasMeaningfulOrbitChange(
                     state.BaselineOrbit,
                     CapturePostSwitchOrbitSnapshot(v));
-
-            return EvaluatePostSwitchAutoRecordTrigger(
-                engineTriggered,
-                rcsTriggered,
-                attitudeChanged,
-                crewChanged,
-                resourceChanged,
-                partStateChanged,
-                landedMotionChanged,
-                orbitChanged);
         }
 
         private void PrepareActiveTreeForFreshPostSwitchRecording(

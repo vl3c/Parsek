@@ -1918,6 +1918,30 @@ namespace Parsek
                 return;
             }
 
+            int mergeCount = RunOptimizationMergePass(recordings);
+            int splitCount = RunOptimizationSplitPass(recordings);
+            TrimBoringTailsForOptimization(recordings);
+
+            // Loop sync pass: link debris recordings to their parent recording
+            // so debris ghosts replay in sync with the parent's loop cycle.
+            PopulateLoopSyncParentIndices(recordings);
+
+            // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
+            // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
+            // new recordings and merges remove them, invalidating the map.
+            if (mergeCount > 0 || splitCount > 0)
+            {
+                for (int t = 0; t < committedTrees.Count; t++)
+                    committedTrees[t].RebuildBackgroundMap();
+            }
+
+            // Flush all dirty recordings to disk so the crash window after
+            // commit+optimize is closed (data no longer lives only in RAM).
+            FlushDirtyFiles(recordings);
+        }
+
+        private static int RunOptimizationMergePass(List<Recording> recordings)
+        {
             int mergeCount = 0;
             const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
@@ -1965,6 +1989,11 @@ namespace Parsek
             else
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
 
+            return mergeCount;
+        }
+
+        private static int RunOptimizationSplitPass(List<Recording> recordings)
+        {
             // Split pass: break multi-environment recordings at environment boundaries.
             // Each split produces two recordings sharing a ChainId for UI grouping.
             // Uses CanAutoSplitIgnoringGhostTriggers — ghosting triggers don't block
@@ -2090,6 +2119,11 @@ namespace Parsek
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
+            return splitCount;
+        }
+
+        private static void TrimBoringTailsForOptimization(List<Recording> recordings)
+        {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
             // ghost sitting motionless on the surface or coasting in orbit.
@@ -2107,23 +2141,6 @@ namespace Parsek
             if (trimCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
-
-            // Loop sync pass: link debris recordings to their parent recording
-            // so debris ghosts replay in sync with the parent's loop cycle.
-            PopulateLoopSyncParentIndices(recordings);
-
-            // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
-            // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
-            // new recordings and merges remove them, invalidating the map.
-            if (mergeCount > 0 || splitCount > 0)
-            {
-                for (int t = 0; t < committedTrees.Count; t++)
-                    committedTrees[t].RebuildBackgroundMap();
-            }
-
-            // Flush all dirty recordings to disk so the crash window after
-            // commit+optimize is closed (data no longer lives only in RAM).
-            FlushDirtyFiles(recordings);
         }
 
         /// <summary>
@@ -3075,6 +3092,10 @@ namespace Parsek
             rec.WalkbackExhausted = false;
             rec.DuplicateBlockerRecovered = false;
             rec.LastAppliedResourceIndex = -1;
+            // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
+            // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the
+            // rewound tree's recordings AFTER ResetAllPlaybackState fires.
+            rec.SpawnSuppressedByRewind = false;
 
             rec.SceneExitSituation = -1;
         }
@@ -3481,23 +3502,7 @@ namespace Parsek
                     $"Rewind via tree root: branch '{rec.VesselName}' -> root '{owner.VesselName}' " +
                     $"save={owner.RewindSaveFileName}");
 
-            var reserved = new BudgetSummary
-            {
-                reservedFunds = owner.RewindReservedFunds,
-                reservedScience = owner.RewindReservedScience,
-                reservedReputation = owner.RewindReservedRep
-            };
-
-            // Baseline resources from the owner's pre-launch snapshot.
-            // The rewind save was captured at the same moment as PreLaunch values.
-            RewindContext.BeginRewind(owner.StartUT, reserved,
-                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
-            SetRewindReplayTargetScope(owner);
-
-            if (!SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {owner.StartUT} " +
-                    $"(save: {owner.RewindSaveFileName})");
+            BeginRewindForOwner(owner);
 
             string tempCopyName = null;
             try
@@ -3520,26 +3525,7 @@ namespace Parsek
                 // 2. Wind back UT by the rewind-to-launch lead time so the player can
                 //    regain control on the pad before launch.
 
-                // Collect all vessel names to strip — use owner's identity since the
-                // quicksave contains the owner's vessel (not the branch's).
-                var stripNames = new HashSet<string> { owner.VesselName };
-                if (!string.IsNullOrEmpty(owner.ChainId))
-                {
-                    // EVA child recordings have different vessel names (the kerbal's name)
-                    // and would otherwise survive the strip
-                    foreach (var committed in committedRecordings)
-                    {
-                        if (committed.ChainId == owner.ChainId &&
-                            !string.IsNullOrEmpty(committed.EvaCrewName) &&
-                            committed.VesselName != owner.VesselName)
-                        {
-                            stripNames.Add(committed.VesselName);
-                        }
-                    }
-                    if (stripNames.Count > 1 && !SuppressLogging)
-                        ParsekLog.Info("Rewind",
-                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{owner.ChainId}'");
-                }
+                var stripNames = BuildRewindStripNames(owner);
                 // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                 // alongside name matching — catches renamed vessels or debris)
                 var (stripPids, _) = CollectSpawnedVesselInfo();
@@ -3548,8 +3534,7 @@ namespace Parsek
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
-                try { File.Delete(tempPath); }
-                catch { }
+                TryDeleteFileQuietly(tempPath);
 
                 if (game == null)
                 {
@@ -3580,27 +3565,85 @@ namespace Parsek
             {
                 ResetRewindFlags();
 
-                // Clean up temp copy on failure
-                if (tempCopyName != null)
-                {
-                    try
-                    {
-                        string savesDir = Path.Combine(
-                            KSPUtil.ApplicationRootPath ?? "",
-                            "saves",
-                            HighLogic.SaveFolder ?? "");
-                        string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
-                        if (File.Exists(tempPath))
-                            File.Delete(tempPath);
-                    }
-                    catch { }
-                }
+                DeleteTemporaryRewindSaveCopy(tempCopyName);
 
                 if (!SuppressLogging)
                     ParsekLog.Error("Rewind",
                         $"Rewind failed: {ex.Message}. " +
                         $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
             }
+        }
+
+        private static void BeginRewindForOwner(Recording owner)
+        {
+            var reserved = new BudgetSummary
+            {
+                reservedFunds = owner.RewindReservedFunds,
+                reservedScience = owner.RewindReservedScience,
+                reservedReputation = owner.RewindReservedRep
+            };
+
+            // Baseline resources from the owner's pre-launch snapshot.
+            // The rewind save was captured at the same moment as PreLaunch values.
+            RewindContext.BeginRewind(owner.StartUT, reserved,
+                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
+            SetRewindReplayTargetScope(owner);
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName})");
+        }
+
+        private static HashSet<string> BuildRewindStripNames(Recording owner)
+        {
+            // Collect all vessel names to strip — use owner's identity since the
+            // quicksave contains the owner's vessel (not the branch's).
+            var stripNames = new HashSet<string> { owner.VesselName };
+            if (!string.IsNullOrEmpty(owner.ChainId))
+            {
+                // EVA child recordings have different vessel names (the kerbal's name)
+                // and would otherwise survive the strip
+                foreach (var committed in committedRecordings)
+                {
+                    if (committed.ChainId == owner.ChainId &&
+                        !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                        committed.VesselName != owner.VesselName)
+                    {
+                        stripNames.Add(committed.VesselName);
+                    }
+                }
+                if (stripNames.Count > 1 && !SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{owner.ChainId}'");
+            }
+
+            return stripNames;
+        }
+
+        private static void DeleteTemporaryRewindSaveCopy(string tempCopyName)
+        {
+            // Clean up temp copy on failure
+            if (tempCopyName == null)
+                return;
+
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch { }
+        }
+
+        private static void TryDeleteFileQuietly(string path)
+        {
+            try { File.Delete(path); }
+            catch { }
         }
 
         /// <summary>

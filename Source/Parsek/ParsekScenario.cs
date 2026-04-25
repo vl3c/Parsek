@@ -1908,6 +1908,19 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
 
+            // Mark the rewound tree's future-of-rewind-point recordings as "ghost-only past"
+            // so chain-tip / effective-leaf playback in the new FLIGHT timeline cannot
+            // materialize them as real vessels (#573 follow-up). The strip above removed
+            // them from flightState; this flag prevents the same recordings from being
+            // re-spawned later when chain replay reaches their activation UT (the
+            // production duplicate-spawn that the IsRewinding guard could not catch
+            // because it runs from the Flight Update path AFTER EndRewind() fires).
+            int suppressedCount = MarkRewoundTreeRecordingsAsGhostOnly(recordings);
+            if (suppressedCount > 0)
+                ParsekLog.Info("Rewind",
+                    $"OnLoad: SpawnSuppressedByRewind=true on {suppressedCount} recording(s) — " +
+                    $"chain-leaf spawns blocked for the rewound tree (#573)");
+
             // Strip ALL vessels matching recording names from flightState.
             // The rewind save was preprocessed to strip the recorded vessel,
             // but KSP's scene transition may reintroduce vessels from the old
@@ -3540,6 +3553,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// After plain Rewind-to-Launch, mark every committed recording in the rewound
+        /// tree as <see cref="Recording.SpawnSuppressedByRewind"/> = true so chain-tip
+        /// playback in the new FLIGHT timeline cannot materialize a duplicate real vessel
+        /// (#573 follow-up to PR #541).
+        ///
+        /// <para>Why this is needed: <see cref="RecordingStore.ResetAllPlaybackState"/>
+        /// zeros every recording's <c>VesselSpawned</c> + <c>SpawnedVesselPersistentId</c>
+        /// to allow legitimate re-spawn after revert. After a rewind, however, the tree's
+        /// future-of-rewind-point segments are ghost-only history — they should NEVER
+        /// re-materialize, even when the chain replay reaches a leaf with a
+        /// <c>VesselSnapshot</c>. The earlier <see cref="RewindContext.IsRewinding"/>
+        /// short-circuit in <see cref="ParsekPlaybackPolicy.RunSpawnDeathChecks"/> only
+        /// covered the spawn-death code path, which the production duplicate-spawn does
+        /// not actually traverse: by the time the chain replay reaches the leaf
+        /// activation UT in FLIGHT, <c>IsRewinding</c> is already false (cleared at the
+        /// end of <see cref="HandleRewindOnLoad"/>) and the spawn fires through
+        /// <see cref="VesselGhoster.SpawnAtChainTip"/>.</para>
+        ///
+        /// <para>Scope: every recording is checked. The rewind owner's TreeId (if any)
+        /// is the primary scope; standalone recordings whose <c>VesselPersistentId</c>
+        /// matches <see cref="RecordingStore.RewindReplayTargetSourcePid"/> are also
+        /// included so a non-tree rewind still suppresses duplicates.</para>
+        /// </summary>
+        internal static int MarkRewoundTreeRecordingsAsGhostOnly(
+            IReadOnlyList<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return 0;
+
+            uint rewindSourcePid = RecordingStore.RewindReplayTargetSourcePid;
+            string rewindRecId = RecordingStore.RewindReplayTargetRecordingId;
+            string rewoundTreeId = ResolveRewoundTreeId(recordings, rewindRecId);
+
+            int marked = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || rec.SpawnSuppressedByRewind)
+                    continue;
+
+                bool inRewoundTree = rewoundTreeId != null
+                    && string.Equals(rec.TreeId, rewoundTreeId, StringComparison.Ordinal);
+                bool matchesRewindSource = rewindSourcePid != 0
+                    && rec.VesselPersistentId == rewindSourcePid;
+
+                if (!inRewoundTree && !matchesRewindSource)
+                    continue;
+
+                rec.SpawnSuppressedByRewind = true;
+                marked++;
+                ParsekLog.Verbose("Rewind",
+                    $"SpawnSuppressedByRewind: #{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"tree={(rec.TreeId ?? "<none>")} reason={(inRewoundTree ? "tree-match" : "pid-match")}");
+            }
+
+            return marked;
+        }
+
+        /// <summary>
+        /// Returns the TreeId of the rewind owner recording, or null when the rewind
+        /// scope was not a tree (e.g., standalone recording rewind, or scope cleared).
+        /// </summary>
+        private static string ResolveRewoundTreeId(
+            IReadOnlyList<Recording> recordings, string rewindRecordingId)
+        {
+            if (string.IsNullOrEmpty(rewindRecordingId))
+                return null;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec != null && string.Equals(rec.RecordingId, rewindRecordingId, StringComparison.Ordinal))
+                    return rec.TreeId;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Collects persistent IDs from all remaining protoVessels.
         /// </summary>
         private static HashSet<uint> CollectSurvivingPids(List<ProtoVessel> protoVessels)
@@ -3659,6 +3750,21 @@ namespace Parsek
         /// </summary>
         internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)
         {
+            LoadRecordingIdentityAndLoopMetadata(recNode, rec);
+
+            LoadRecordingBudgetAndRewindMetadata(recNode, rec);
+            LoadRecordingGroupAndSegmentMetadata(recNode, rec);
+
+            LoadRecordingLocationAndTerminalMetadata(recNode, rec);
+            LoadRecordingPlaybackFlags(recNode, rec);
+
+            LoadRecordingManifestMetadata(recNode, rec);
+
+            RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
+        }
+
+        private static void LoadRecordingIdentityAndLoopMetadata(ConfigNode recNode, Recording rec)
+        {
             string id = recNode.GetValue("recordingId");
             if (!string.IsNullOrEmpty(id))
                 rec.RecordingId = id;
@@ -3762,7 +3868,10 @@ namespace Parsek
             string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
             if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
                 rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
+        }
 
+        private static void LoadRecordingBudgetAndRewindMetadata(ConfigNode recNode, Recording rec)
+        {
             string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
             if (preLaunchFundsStr != null)
             {
@@ -3808,7 +3917,10 @@ namespace Parsek
                 if (float.TryParse(rewindRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindRep))
                     rec.RewindReservedRep = rewindRep;
             }
+        }
 
+        private static void LoadRecordingGroupAndSegmentMetadata(ConfigNode recNode, Recording rec)
+        {
             // UI grouping tags (multi-group membership, backward compat with single value)
             string[] groups = recNode.GetValues("recordingGroup");
             if (groups != null && groups.Length > 0)
@@ -3821,7 +3933,10 @@ namespace Parsek
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+        }
 
+        private static void LoadRecordingLocationAndTerminalMetadata(ConfigNode recNode, Recording rec)
+        {
             // Location context (Phase 10) — null if missing (legacy recordings)
             rec.StartBodyName = recNode.GetValue("startBodyName");
             rec.StartBiome = recNode.GetValue("startBiome");
@@ -3850,7 +3965,10 @@ namespace Parsek
                 double.TryParse(recNode.GetValue("tOrbMna"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitMeanAnomalyAtEpoch);
                 double.TryParse(recNode.GetValue("tOrbEpoch"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitEpoch);
             }
+        }
 
+        private static void LoadRecordingPlaybackFlags(ConfigNode recNode, Recording rec)
+        {
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)
             {
@@ -3865,7 +3983,10 @@ namespace Parsek
                 if (bool.TryParse(hiddenStr, out hidden))
                     rec.Hidden = hidden;
             }
+        }
 
+        private static void LoadRecordingManifestMetadata(ConfigNode recNode, Recording rec)
+        {
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);
 
@@ -3897,9 +4018,6 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
-
-            RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
-
         }
 
         /// <summary>

@@ -270,6 +270,7 @@ namespace Parsek
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
+        public bool SpawnSuppressedByRewind;     // True after plain Rewind-to-Launch marked this recording's tree as ghost-only past (#573 / PR #541 follow-up). Persisted with tree mutable state. Survives across save/load until the rewound tree is committed/discarded. Distinct from SpawnAbandoned (transient, collision/death) and TerminalSpawnSupersededByRecordingId (continuation-superseded).
 
         public double StartUT
         {
@@ -627,6 +628,7 @@ namespace Parsek
             clone.DuplicateBlockerRecovered = source.DuplicateBlockerRecovered;
             clone.SpawnDeathCount = source.SpawnDeathCount;
             clone.SceneExitSituation = source.SceneExitSituation;
+            clone.SpawnSuppressedByRewind = source.SpawnSuppressedByRewind;
 
             return clone;
         }

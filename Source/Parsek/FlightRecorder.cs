@@ -2492,30 +2492,47 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"  Visual coverage [{label}] {entries.Count}: {FormatCoverageEntries(entries)}");
         }
 
+        private sealed class VisualCoverageAccumulator
+        {
+            public int ModuleCount;
+            public readonly List<string> ParachuteParts = new List<string>();
+            public readonly List<string> JettisonModules = new List<string>();
+            public readonly List<string> DeployableParts = new List<string>();
+            public readonly List<string> LadderModules = new List<string>();
+            public readonly List<string> AnimationGroupModules = new List<string>();
+            public readonly List<string> AnimateGenericModules = new List<string>();
+            public readonly List<string> LightParts = new List<string>();
+            public readonly List<string> GearModules = new List<string>();
+            public readonly List<string> CargoBayParts = new List<string>();
+            public readonly List<string> FairingParts = new List<string>();
+            public readonly List<string> AeroSurfaceModules = new List<string>();
+            public readonly List<string> ControlSurfaceModules = new List<string>();
+            public readonly List<string> RobotArmScannerModules = new List<string>();
+            public readonly List<string> AnimateHeatModules = new List<string>();
+            public readonly List<string> EngineModules = new List<string>();
+            public readonly List<string> RcsModules = new List<string>();
+            public readonly List<string> RoboticModules = new List<string>();
+        }
+
         private void LogVisualRecordingCoverage(Vessel v)
         {
             if (v == null || v.parts == null)
                 return;
 
-            int moduleCount = 0;
-            var parachuteParts = new List<string>();
-            var jettisonModules = new List<string>();
-            var deployableParts = new List<string>();
-            var ladderModules = new List<string>();
-            var animationGroupModules = new List<string>();
-            var animateGenericModules = new List<string>();
-            var lightParts = new List<string>();
-            var gearModules = new List<string>();
-            var cargoBayParts = new List<string>();
-            var fairingParts = new List<string>();
-            var aeroSurfaceModules = new List<string>();
-            var controlSurfaceModules = new List<string>();
-            var robotArmScannerModules = new List<string>();
-            var animateHeatModules = new List<string>();
-            var engineModules = new List<string>();
-            var rcsModules = new List<string>();
-            var roboticModules = new List<string>();
+            var coverage = new VisualCoverageAccumulator();
 
+            CollectPartVisualCoverage(v, coverage);
+            CollectCachedEngineVisualCoverage(coverage);
+            CollectCachedRcsVisualCoverage(coverage);
+            CollectCachedRoboticVisualCoverage(coverage);
+            LogVisualCoverageSummary(v, coverage);
+            LogVisualCoverageDetails(coverage);
+        }
+
+        private static void CollectPartVisualCoverage(
+            Vessel v,
+            VisualCoverageAccumulator coverage)
+        {
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -2525,23 +2542,23 @@ namespace Parsek
                 string partRef = $"{partName}[pid={p.persistentId}]";
 
                 if (p.FindModuleImplementing<ModuleParachute>() != null)
-                    parachuteParts.Add(partRef);
+                    coverage.ParachuteParts.Add(partRef);
 
                 ModuleDeployablePart deployable = p.FindModuleImplementing<ModuleDeployablePart>();
                 if (deployable != null)
-                    deployableParts.Add(
+                    coverage.DeployableParts.Add(
                         $"{partRef}(state={deployable.deployState})");
 
                 if (p.FindModuleImplementing<ModuleLight>() != null)
-                    lightParts.Add(partRef);
+                    coverage.LightParts.Add(partRef);
 
                 ModuleCargoBay cargoBay = p.FindModuleImplementing<ModuleCargoBay>();
                 if (cargoBay != null)
-                    cargoBayParts.Add(
+                    coverage.CargoBayParts.Add(
                         $"{partRef}(deployIdx={cargoBay.DeployModuleIndex},closed={cargoBay.closedPosition:F2})");
 
                 if (p.FindModuleImplementing<ModuleProceduralFairing>() != null)
-                    fairingParts.Add(partRef);
+                    coverage.FairingParts.Add(partRef);
 
                 bool hasRetractableLadder = false;
                 bool hasAnimationGroup = false;
@@ -2558,57 +2575,57 @@ namespace Parsek
                 {
                     PartModule module = p.Modules[m];
                     if (module == null) continue;
-                    moduleCount++;
+                    coverage.ModuleCount++;
 
                     string moduleName = module.moduleName ?? string.Empty;
 
                     var jettison = module as ModuleJettison;
                     if (jettison != null && !string.IsNullOrWhiteSpace(jettison.jettisonName))
                     {
-                        jettisonModules.Add(
+                        coverage.JettisonModules.Add(
                             $"{partRef}(midx={m},names={jettison.jettisonName})");
                     }
 
                     var wheel = module as ModuleWheels.ModuleWheelDeployment;
                     if (wheel != null)
                     {
-                        gearModules.Add(
+                        coverage.GearModules.Add(
                             $"{partRef}(midx={m},state='{wheel.stateString}')");
                     }
 
                     if (string.Equals(moduleName, "RetractableLadder", StringComparison.Ordinal))
                     {
-                        ladderModules.Add($"{partRef}(midx={m})");
+                        coverage.LadderModules.Add($"{partRef}(midx={m})");
                         hasRetractableLadder = true;
                     }
 
                     if (string.Equals(moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
                     {
-                        animationGroupModules.Add($"{partRef}(midx={m})");
+                        coverage.AnimationGroupModules.Add($"{partRef}(midx={m})");
                         hasAnimationGroup = true;
                     }
 
                     if (string.Equals(moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
                     {
-                        aeroSurfaceModules.Add($"{partRef}(midx={m})");
+                        coverage.AeroSurfaceModules.Add($"{partRef}(midx={m})");
                         hasAeroSurface = true;
                     }
 
                     if (string.Equals(moduleName, "ModuleControlSurface", StringComparison.Ordinal))
                     {
-                        controlSurfaceModules.Add($"{partRef}(midx={m})");
+                        coverage.ControlSurfaceModules.Add($"{partRef}(midx={m})");
                         hasControlSurface = true;
                     }
 
                     if (string.Equals(moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
                     {
-                        robotArmScannerModules.Add($"{partRef}(midx={m})");
+                        coverage.RobotArmScannerModules.Add($"{partRef}(midx={m})");
                         hasRobotArmScanner = true;
                     }
 
                     if (string.Equals(moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
                     {
-                        animateHeatModules.Add($"{partRef}(midx={m})");
+                        coverage.AnimateHeatModules.Add($"{partRef}(midx={m})");
                         hasAnimateHeat = true;
                     }
                 }
@@ -2623,11 +2640,14 @@ namespace Parsek
                     if (animateModule == null) continue;
                     if (string.IsNullOrEmpty(animateModule.animationName)) continue;
 
-                    animateGenericModules.Add(
+                    coverage.AnimateGenericModules.Add(
                         $"{partRef}(midx={m},anim={animateModule.animationName})");
                 }
             }
+        }
 
+        private void CollectCachedEngineVisualCoverage(VisualCoverageAccumulator coverage)
+        {
             if (cachedEngines != null)
             {
                 for (int i = 0; i < cachedEngines.Count; i++)
@@ -2637,11 +2657,14 @@ namespace Parsek
                     string partName = part.partInfo?.name ?? "unknown";
                     string engineId = string.IsNullOrEmpty(engine.engineID) ? "<none>" : engine.engineID;
                     int thrustTransformCount = engine.thrustTransforms != null ? engine.thrustTransforms.Count : 0;
-                    engineModules.Add(
+                    coverage.EngineModules.Add(
                         $"{partName}[pid={part.persistentId}](midx={moduleIndex},id={engineId},thrust={thrustTransformCount})");
                 }
             }
+        }
 
+        private void CollectCachedRcsVisualCoverage(VisualCoverageAccumulator coverage)
+        {
             if (cachedRcsModules != null)
             {
                 for (int i = 0; i < cachedRcsModules.Count; i++)
@@ -2651,11 +2674,14 @@ namespace Parsek
                     string partName = part.partInfo?.name ?? "unknown";
                     int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
                     int forceCount = rcs.thrustForces != null ? rcs.thrustForces.Length : 0;
-                    rcsModules.Add(
+                    coverage.RcsModules.Add(
                         $"{partName}[pid={part.persistentId}](midx={moduleIndex},thrusters={thrusterCount},forces={forceCount},power={rcs.thrusterPower:F1})");
                 }
             }
+        }
 
+        private void CollectCachedRoboticVisualCoverage(VisualCoverageAccumulator coverage)
+        {
             if (cachedRoboticModules != null)
             {
                 for (int i = 0; i < cachedRoboticModules.Count; i++)
@@ -2663,38 +2689,46 @@ namespace Parsek
                     var (part, _, moduleIndex, moduleName) = cachedRoboticModules[i];
                     if (part == null) continue;
                     string partName = part.partInfo?.name ?? "unknown";
-                    roboticModules.Add(
+                    coverage.RoboticModules.Add(
                         $"{partName}[pid={part.persistentId}](midx={moduleIndex},module={moduleName})");
                 }
             }
+        }
 
+        private static void LogVisualCoverageSummary(
+            Vessel v,
+            VisualCoverageAccumulator coverage)
+        {
             ParsekLog.Verbose("Recorder", 
                 $"Visual recording coverage for '{v.vesselName}' pid={v.persistentId}: " +
-                $"parts={v.parts.Count} modules={moduleCount} " +
-                $"parachute={parachuteParts.Count} jettison={jettisonModules.Count} deployable={deployableParts.Count} " +
-                $"ladder={ladderModules.Count} animationGroup={animationGroupModules.Count} animateGeneric={animateGenericModules.Count} " +
-                $"lights={lightParts.Count} gear={gearModules.Count} cargoBay={cargoBayParts.Count} fairing={fairingParts.Count} " +
-                $"aeroSurface={aeroSurfaceModules.Count} controlSurface={controlSurfaceModules.Count} " +
-                $"robotArmScanner={robotArmScannerModules.Count} animateHeat={animateHeatModules.Count} " +
-                $"engine={engineModules.Count} rcs={rcsModules.Count} robotics={roboticModules.Count}");
+                $"parts={v.parts.Count} modules={coverage.ModuleCount} " +
+                $"parachute={coverage.ParachuteParts.Count} jettison={coverage.JettisonModules.Count} deployable={coverage.DeployableParts.Count} " +
+                $"ladder={coverage.LadderModules.Count} animationGroup={coverage.AnimationGroupModules.Count} animateGeneric={coverage.AnimateGenericModules.Count} " +
+                $"lights={coverage.LightParts.Count} gear={coverage.GearModules.Count} cargoBay={coverage.CargoBayParts.Count} fairing={coverage.FairingParts.Count} " +
+                $"aeroSurface={coverage.AeroSurfaceModules.Count} controlSurface={coverage.ControlSurfaceModules.Count} " +
+                $"robotArmScanner={coverage.RobotArmScannerModules.Count} animateHeat={coverage.AnimateHeatModules.Count} " +
+                $"engine={coverage.EngineModules.Count} rcs={coverage.RcsModules.Count} robotics={coverage.RoboticModules.Count}");
+        }
 
-            LogCoverageDetails("Parachute", parachuteParts);
-            LogCoverageDetails("Jettison", jettisonModules);
-            LogCoverageDetails("Deployable", deployableParts);
-            LogCoverageDetails("Ladder", ladderModules);
-            LogCoverageDetails("AnimationGroup", animationGroupModules);
-            LogCoverageDetails("AnimateGeneric", animateGenericModules);
-            LogCoverageDetails("Light", lightParts);
-            LogCoverageDetails("Gear", gearModules);
-            LogCoverageDetails("CargoBay", cargoBayParts);
-            LogCoverageDetails("Fairing", fairingParts);
-            LogCoverageDetails("AeroSurface", aeroSurfaceModules);
-            LogCoverageDetails("ControlSurface", controlSurfaceModules);
-            LogCoverageDetails("RobotArmScanner", robotArmScannerModules);
-            LogCoverageDetails("AnimateHeat", animateHeatModules);
-            LogCoverageDetails("Engine", engineModules);
-            LogCoverageDetails("RCS", rcsModules);
-            LogCoverageDetails("Robotics", roboticModules);
+        private static void LogVisualCoverageDetails(VisualCoverageAccumulator coverage)
+        {
+            LogCoverageDetails("Parachute", coverage.ParachuteParts);
+            LogCoverageDetails("Jettison", coverage.JettisonModules);
+            LogCoverageDetails("Deployable", coverage.DeployableParts);
+            LogCoverageDetails("Ladder", coverage.LadderModules);
+            LogCoverageDetails("AnimationGroup", coverage.AnimationGroupModules);
+            LogCoverageDetails("AnimateGeneric", coverage.AnimateGenericModules);
+            LogCoverageDetails("Light", coverage.LightParts);
+            LogCoverageDetails("Gear", coverage.GearModules);
+            LogCoverageDetails("CargoBay", coverage.CargoBayParts);
+            LogCoverageDetails("Fairing", coverage.FairingParts);
+            LogCoverageDetails("AeroSurface", coverage.AeroSurfaceModules);
+            LogCoverageDetails("ControlSurface", coverage.ControlSurfaceModules);
+            LogCoverageDetails("RobotArmScanner", coverage.RobotArmScannerModules);
+            LogCoverageDetails("AnimateHeat", coverage.AnimateHeatModules);
+            LogCoverageDetails("Engine", coverage.EngineModules);
+            LogCoverageDetails("RCS", coverage.RcsModules);
+            LogCoverageDetails("Robotics", coverage.RoboticModules);
         }
 
         internal static void CheckEngineTransition(
