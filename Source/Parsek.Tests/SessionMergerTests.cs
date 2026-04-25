@@ -1419,6 +1419,192 @@ namespace Parsek.Tests
                 l.Contains("flatSync=healed-track-sections-preserved-flat-tail"));
         }
 
+        [Fact]
+        public void MergeTree_BackgroundToActiveSampleSkip_LeavesBoundaryWarningUnhealed()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(1f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 1000.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+
+            var rec = MakeRecording("rec-580-sample-skip", "Kerbal X",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Sample Skip", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-sample-skip"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(2.0, merged.TrackSections[1].frames[0].ut);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-sample-skip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Kerbal X'") &&
+                l.Contains("prevSrc=Background") &&
+                l.Contains("nextSrc=Active") &&
+                l.Contains("cause=sample-skip"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveRelativeAnchorMismatch_SkipsHeal()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 0.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+            background.anchorVesselId = 101;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 50.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+            active.anchorVesselId = 202;
+
+            var rec = MakeRecording("rec-580-anchor", "Anchor Vessel",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Anchor Mismatch", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-anchor"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(2.0, merged.TrackSections[1].frames[0].ut);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-anchor"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Anchor Vessel'") &&
+                l.Contains("prevRef=Relative") &&
+                l.Contains("nextRef=Relative") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_HealsMultipleBoundaries()
+        {
+            var background1 = MakeSectionWithFrame(
+                0.0, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background1.startUT = 0.0;
+            background1.endUT = 1.0;
+
+            var active1 = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 200.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active1.startUT = 1.0;
+            active1.endUT = 3.0;
+
+            var background2 = MakeSectionWithFrame(
+                3.0, lat: 0, lon: 0, alt: 200.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background2.startUT = 3.0;
+            background2.endUT = 4.0;
+
+            var active2 = MakeSectionWithFrame(
+                5.0, lat: 0, lon: 0, alt: 350.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active2.startUT = 4.0;
+            active2.endUT = 6.0;
+
+            var rec = MakeRecording("rec-580-multi", "Multi Vessel",
+                new List<TrackSection> { background1, active1, background2, active2 });
+            var tree = MakeTree("580 Multiple Handoffs", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-multi"];
+
+            Assert.Equal(4, merged.TrackSections.Count);
+            Assert.Equal(1.0, merged.TrackSections[0].frames.Last().ut);
+            Assert.Equal(1.0, merged.TrackSections[1].frames[0].ut);
+            Assert.Equal(4.0, merged.TrackSections[2].frames.Last().ut);
+            Assert.Equal(4.0, merged.TrackSections[3].frames[0].ut);
+            Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 0f, 0.01f);
+            Assert.InRange(merged.TrackSections[3].boundaryDiscontinuityMeters, 0f, 0.01f);
+            Assert.Contains(merged.Points, p => Math.Abs(p.ut - 1.0) <= 1e-6);
+            Assert.Contains(merged.Points, p => Math.Abs(p.ut - 4.0) <= 1e-6);
+            Assert.Equal(2, logLines.Count(l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("recId=rec-580-multi") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("cause=unrecorded-gap #580")));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveUnrecordedGap_LogsUnhealableSeam()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                bodyName: "Kerbin",
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 150.0,
+                velocity: Vector3.zero,
+                bodyName: "Mun",
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+
+            var rec = MakeRecording("rec-580-body-mismatch", "Body Mismatch",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Body Mismatch", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-body-mismatch"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("rec-580-body-mismatch") &&
+                l.Contains("healed unrecorded-gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("unable to heal unrecorded-gap") &&
+                l.Contains("recId=rec-580-body-mismatch") &&
+                l.Contains("reason=body-mismatch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Body Mismatch'") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
         #endregion
 
         #region ResolveOverlaps — frame trimming

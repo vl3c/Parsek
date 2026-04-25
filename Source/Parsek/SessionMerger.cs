@@ -89,9 +89,8 @@ namespace Parsek
                 // Resolve overlapping TrackSections
                 List<TrackSection> mergedSections = ResolveOverlaps(
                     srcRec.TrackSections ?? new List<TrackSection>());
-                List<TrackSection> preHealMergedSections = CloneTrackSections(mergedSections);
                 int healedUnrecordedGaps = HealBackgroundActiveUnrecordedGapBoundaries(
-                    recId, srcRec.VesselName, mergedSections);
+                    recId, srcRec.VesselName, mergedSections, out List<TrackSection> preHealMergedSections);
                 if (healedUnrecordedGaps > 0)
                     RecomputeBoundaryDiscontinuities(mergedSections);
 
@@ -110,54 +109,12 @@ namespace Parsek
                 merged.TrackSections = mergedSections;
                 merged.PartEvents = mergedEvents;
 
-                // Preserve newer flat tail data when the resolved TrackSections are only a
-                // prefix of the source flat trajectory (e.g. board/merge appended points after
-                // the last flushed sparse section). Otherwise prefer the resolved sections and
-                // rebuild the flat lists from them.
-                bool flatTailExtendsResolvedSections =
-                    RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
-                        srcRec, mergedSections, allowRelativeSections: true);
-                bool rebuiltFlatTrajectory = false;
-                string flatSyncMode = null;
-                if (!flatTailExtendsResolvedSections
-                    && healedUnrecordedGaps > 0
-                    && RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
-                        merged, srcRec, preHealMergedSections, allowRelativeSections: true))
-                {
-                    rebuiltFlatTrajectory = true;
-                    flatSyncMode = "healed-track-sections-preserved-flat-tail";
-                }
-                if (!rebuiltFlatTrajectory && !flatTailExtendsResolvedSections)
-                {
-                    rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
-                        merged, allowRelativeSections: true);
-                    if (rebuiltFlatTrajectory && flatSyncMode == null)
-                        flatSyncMode = "track-sections";
-                }
-
-                if (!rebuiltFlatTrajectory)
-                {
-                    bool copiedFlatTrajectory = false;
-                    if (srcRec.Points != null && srcRec.Points.Count > 0)
-                    {
-                        merged.Points = new List<TrajectoryPoint>(srcRec.Points);
-                        copiedFlatTrajectory = true;
-                    }
-
-                    if (srcRec.OrbitSegments != null && srcRec.OrbitSegments.Count > 0)
-                    {
-                        merged.OrbitSegments = new List<OrbitSegment>(srcRec.OrbitSegments);
-                        copiedFlatTrajectory = true;
-                    }
-
-                    if (!copiedFlatTrajectory)
-                    {
-                        rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
-                            merged, allowRelativeSections: true);
-                        if (rebuiltFlatTrajectory)
-                            flatSyncMode = "track-sections-fallback";
-                    }
-                }
+                SyncMergedFlatTrajectory(
+                    srcRec,
+                    merged,
+                    preHealMergedSections,
+                    healedUnrecordedGaps,
+                    out string flatSyncMode);
 
                 // Copy SegmentEvents
                 if (srcRec.SegmentEvents != null)
@@ -184,10 +141,6 @@ namespace Parsek
 
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
-                if (flatSyncMode == null)
-                    flatSyncMode = rebuiltFlatTrajectory
-                        ? "track-sections"
-                        : (flatTailExtendsResolvedSections ? "preserved-flat-copy" : "track-sections-fallback");
                 ParsekLog.Verbose(Tag,
                     $"MergeTree: recording='{recId}' flatSync={flatSyncMode}");
             }
@@ -196,6 +149,73 @@ namespace Parsek
                 $"MergeTree: completed merge for tree='{tree.TreeName}' merged={result.Count} recordings");
 
             return result;
+        }
+
+        private static bool SyncMergedFlatTrajectory(
+            Recording source,
+            Recording target,
+            List<TrackSection> preHealMergedSections,
+            int healedUnrecordedGaps,
+            out string flatSyncMode)
+        {
+            const bool allowRelativeSections = true;
+            flatSyncMode = "track-sections-fallback";
+
+            // Preserve newer flat tail data when the resolved TrackSections are only a
+            // prefix of the source flat trajectory (e.g. board/merge appended points after
+            // the last flushed sparse section). Otherwise prefer the resolved sections and
+            // rebuild the flat lists from them.
+            bool flatTailExtendsResolvedSections =
+                RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                    source, target.TrackSections, allowRelativeSections);
+
+            if (!flatTailExtendsResolvedSections)
+            {
+                if (healedUnrecordedGaps > 0
+                    && preHealMergedSections != null
+                    && RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                        target, source, preHealMergedSections, allowRelativeSections))
+                {
+                    flatSyncMode = "healed-track-sections-preserved-flat-tail";
+                    return true;
+                }
+
+                if (RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                        target, allowRelativeSections))
+                {
+                    flatSyncMode = "track-sections";
+                    return true;
+                }
+            }
+
+            bool copiedFlatTrajectory = false;
+            if (source.Points != null && source.Points.Count > 0)
+            {
+                target.Points = new List<TrajectoryPoint>(source.Points);
+                copiedFlatTrajectory = true;
+            }
+
+            if (source.OrbitSegments != null && source.OrbitSegments.Count > 0)
+            {
+                target.OrbitSegments = new List<OrbitSegment>(source.OrbitSegments);
+                copiedFlatTrajectory = true;
+            }
+
+            if (copiedFlatTrajectory)
+            {
+                flatSyncMode = flatTailExtendsResolvedSections
+                    ? "preserved-flat-copy"
+                    : "track-sections-fallback";
+                return false;
+            }
+
+            bool rebuiltFlatTrajectory =
+                RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                    target, allowRelativeSections);
+            flatSyncMode = rebuiltFlatTrajectory
+                ? "track-sections"
+                : "track-sections-fallback";
+            return rebuiltFlatTrajectory;
         }
 
         /// <summary>
@@ -600,8 +620,10 @@ namespace Parsek
         }
 
         private static int HealBackgroundActiveUnrecordedGapBoundaries(
-            string recId, string vesselName, List<TrackSection> sections)
+            string recId, string vesselName, List<TrackSection> sections,
+            out List<TrackSection> preHealSections)
         {
+            preHealSections = null;
             if (sections == null || sections.Count < 2)
                 return 0;
 
@@ -612,6 +634,10 @@ namespace Parsek
             {
                 TrackSection prev = sections[i - 1];
                 TrackSection next = sections[i];
+                // #580 is specifically a resume-into-active seam: Background holds
+                // the tail and Active owns the next authoritative head. Leave the
+                // reverse direction diagnostic-only until its sampling semantics are
+                // proven equivalent.
                 if (prev.source != TrackSectionSource.Background
                     || next.source != TrackSectionSource.Active
                     || prev.referenceFrame != next.referenceFrame
@@ -664,6 +690,8 @@ namespace Parsek
                     continue;
                 }
 
+                if (preHealSections == null)
+                    preHealSections = CloneTrackSections(sections);
                 sections[i - 1] = prev;
                 sections[i] = next;
                 healed++;
@@ -860,6 +888,9 @@ namespace Parsek
 
         private static void ExpandAltitudeRange(ref TrackSection section, double altitude)
         {
+            // The healer only inserts after TryBuildBoundarySeamPoint has verified
+            // non-empty frame lists; NaN guards keep synthetic tests and legacy
+            // sections from narrowing an uninitialized range.
             float value = (float)altitude;
             if (float.IsNaN(section.minAltitude) || value < section.minAltitude)
                 section.minAltitude = value;
@@ -884,6 +915,9 @@ namespace Parsek
 
         private static Quaternion LerpRotation(Quaternion a, Quaternion b, float t)
         {
+            // UnityEngine.Quaternion.Slerp is an engine internal call and throws under
+            // the net472 headless test runner, so use hemisphere-corrected NLERP for
+            // this visual seam glue instead.
             float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
             if (dot < 0f)
                 b = new Quaternion(-b.x, -b.y, -b.z, -b.w);
