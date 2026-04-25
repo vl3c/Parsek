@@ -351,9 +351,23 @@ namespace Parsek
             }
             else if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None)
             {
-                ParsekLog.Warn("Extrapolator",
+                // #576: rate-limit per (recordingId, failureReason). The same
+                // 2026-04-25 playtest emitted 146 of these paired with the
+                // `[PatchedSnapshot] solver unavailable` floor — same root cause
+                // (debris/EVA-kerbal/probe vessels with no patched-conic solver
+                // by design). The downstream NullSolver branch at lines 287-289
+                // still runs unchanged: NullSolver remains the
+                // destroyed-vessel / no-solver-by-design fingerprint that drives
+                // the live-orbit fallback, only the log-noise floor changes.
+                // Keying on (recordingId, failureReason) lets a fresh regression
+                // on the SAME recording with a DIFFERENT failure mode surface
+                // immediately while the repeating same-cause floor is absorbed
+                // into a single line per 30 s with a `suppressed=N` suffix.
+                ParsekLog.WarnRateLimited("Extrapolator",
+                    $"finalize-snapshot-failed-{recordingId}-{snapshot.FailureReason}",
                     $"TryFinalizeRecording: patched-conic snapshot failed for '{recordingId}' " +
-                    $"with {snapshot.FailureReason}; falling back to live orbit state");
+                    $"with {snapshot.FailureReason}; falling back to live orbit state",
+                    minIntervalSeconds: 30.0);
             }
 
             // Early ascent / transient patched-conic failures (`MissingPatchBody`,

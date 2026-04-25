@@ -42,6 +42,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#576` PatchedConicSnapshot `solver unavailable` and the paired Extrapolator `patched-conic snapshot failed for ... with NullSolver; falling back to live orbit state` WARNs are now rate-limited per (vessel-name) and per (recording-id, failure-reason) respectively. The 2026-04-25 marker-validator-fix playtest emitted 146 of each — almost all from debris, EVA-kerbals, and probe-debris that have no patched-conic solver by design in stock KSP. Downstream NullSolver semantics (live-orbit fallback for the destroyed-vessel case) are unchanged; only the log-noise floor is trimmed.
+
+- `#581` New "Playback hybrid breakdown" one-shot diagnostic WARN closes the gap between the existing #450 (heaviest spawn ≥ 15 ms) and #460 (mainLoop ≥ 10 ms with spawn < 1 ms) sub-breakdown latches. The 2026-04-25 playtest's only budget-exceeded frame was a hybrid 11.6 ms spike (mainLoop 7.51 ms + spawn 3.44 ms) that fit neither prior latch and produced no Phase-B attribution; the new latch reports per-bucket itemisation plus mainLoop/spawn percent-of-frame fractions on the next such gap-shaped breach.
+
 - `#582` Format-v6 RELATIVE TrackSection position contract is now documented in `AGENTS.md` and `.claude/CLAUDE.md`, and pinned by regression tests so flat `Recording.Points` readers cannot silently misinterpret anchor-local metres as body-fixed lat/lon/alt.
 
 - MergeTree now heals velocity-consistent Background-to-Active handoff gaps by inserting a shared boundary point, preventing Kerbal X-style ghost trajectory pops from section-authoritative merged recordings.
