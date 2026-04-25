@@ -39,7 +39,6 @@ namespace Parsek
                 case TimelineEntryType.ContractFail:
                 case TimelineEntryType.FacilityUpgrade:
                 case TimelineEntryType.FacilityDestruction:
-                case TimelineEntryType.KerbalHire:
                 case TimelineEntryType.FundsInitial:
                 case TimelineEntryType.ScienceInitial:
                 case TimelineEntryType.ReputationInitial:
@@ -280,7 +279,7 @@ namespace Parsek
         /// Custom handling for science subjects (humanized), kerbal assignments (with vessel),
         /// ScienceInitial, and ReputationInitial. All others delegate to GameActionDisplay.
         /// </summary>
-        internal static string GetGameActionText(GameAction action, string vesselName)
+        internal static string GetGameActionText(GameAction action, string vesselName, Game.Modes? currentMode = null)
         {
             if (action == null)
                 return "";
@@ -351,8 +350,41 @@ namespace Parsek
                     return crew;
                 }
 
+                case GameActionType.KerbalHire:
+                    return GetKerbalHireText(action, currentMode);
+
                 default:
                     return GameActionDisplay.GetDescription(action);
+            }
+        }
+
+        private static string GetKerbalHireText(GameAction action, Game.Modes? currentMode)
+        {
+            string kerbalName = action.KerbalName ?? "unknown";
+            if (!ShouldShowFundsForHire(action, currentMode))
+                return "Hire: " + kerbalName;
+
+            return string.Format(IC, "Hire: {0} -{1:0} funds", kerbalName, action.HireCost);
+        }
+
+        private static bool ShouldShowFundsForHire(GameAction action, Game.Modes? currentMode)
+        {
+            if (action.HireCost <= 0f)
+                return false;
+
+            if (!currentMode.HasValue)
+                return true;
+
+            switch (currentMode.Value)
+            {
+                case Game.Modes.SANDBOX:
+                case Game.Modes.SCIENCE_SANDBOX:
+                case Game.Modes.MISSION_BUILDER:
+                case Game.Modes.MISSION:
+                    return false;
+
+                default:
+                    return true;
             }
         }
 

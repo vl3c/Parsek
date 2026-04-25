@@ -494,7 +494,7 @@ namespace Parsek
                 {
                     UT = action.UT,
                     Type = entryType,
-                    DisplayText = TimelineEntryDisplay.GetGameActionText(action, vesselName),
+                    DisplayText = TimelineEntryDisplay.GetGameActionText(action, vesselName, currentMode),
                     Source = TimelineSource.GameAction,
                     Tier = tier,
                     DisplayColor = GameActionDisplay.GetColor(action.Type),
