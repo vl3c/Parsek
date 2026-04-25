@@ -1,10 +1,13 @@
 # Refactor-4 Pass 2 - Storage and Sidecar Owner Proposal
 
 **Date:** 2026-04-25.
-**Worktree:** `Parsek-refactor-4-pass2`, branch `refactor-4-pass2`.
-**Base:** `18574260` (`main`, after PR #545 merge).
-**Status:** Proposal only. No production code changes are approved by this
-document.
+**Worktree:** `Parsek-refactor-4-pass2-sidecar-save`, branch
+`refactor-4-pass2-sidecar-save`.
+**Base:** PR #552 branch `refactor-4-pass2`.
+**Status:** Proposal plus implementation checkpoints. The
+`SidecarFileCommitBatch` and save-path `RecordingSidecarStore` slices are
+complete; load-path, codec, and tree-record moves remain proposal-only until a
+separate approval.
 
 ## Guardrails
 
@@ -295,3 +298,34 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
 ```
+
+## Implementation Checkpoint - RecordingSidecarStore Save Path
+
+Approved second slice started from PR #552's branch and kept to the save path
+only:
+
+- Added `Source/Parsek/RecordingSidecarStore.cs`.
+- Moved only save-side path resolution, sidecar epoch bump/rollback, staged
+  authoritative sidecar writes, readable mirror reconciliation, and
+  `FilesDirty` clearing behind the existing `RecordingStore` wrappers.
+- Left `LoadRecordingFiles`, `LoadRecordingFilesFromPathsInternal`, trajectory
+  probe/id/epoch validation, loop migration and degenerate-loop repair,
+  terminal-orbit backfill, endpoint backfill, snapshot fallback/failure policy,
+  and sidecar load-failure marking in `RecordingStore`.
+- Preserved the `RecordingStore` log tag, `SidecarFileCommitBatch` transaction
+  behavior, sidecar epoch mutation order, `GhostSnapshotMode` rollback, and
+  `FilesDirty` mutation order.
+- Added direct xUnit coverage for
+  `RecordingSidecarStore.SaveRecordingFilesToPathsForTesting` while retaining
+  the existing `RecordingStore` wrapper tests.
+
+Validation completed:
+
+```powershell
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
+```
+
+Runtime canaries are not required for this save-only mechanical move, but the
+load-path extraction will need the runtime sidecar probe canary before merge.
