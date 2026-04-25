@@ -9,11 +9,18 @@ namespace Parsek.Tests
     /// Tests for the PR #572 second-order data-loss companion fix:
     /// `ParsekFlight.FinalizeIndividualRecording` and
     /// `EnsureActiveRecordingTerminalState` must not bulldoze a recording's
-    /// terminal state into Landed/Splashed when (a) the recording was just
+    /// terminal state into Landed/Splashed when the recording was just
     /// repaired from the committed tree this frame
-    /// (`Recording.RestoredFromCommittedTreeThisFrame`), or (b) the recording
-    /// carries unambiguous orbital trajectory evidence
-    /// (`HasOrbitalTrajectoryEvidence`).
+    /// (`Recording.RestoredFromCommittedTreeThisFrame`). That single flag
+    /// is the entire gate. An orbital-evidence clause was considered as
+    /// Option D in the design plan
+    /// (`docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md`)
+    /// and rejected because the legitimate orbit-then-land case
+    /// (`Bug278FinalizeLimboTests.EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`,
+    /// `SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog`)
+    /// shares the same shape; the `OrbitThenLand_StillInfersLanded` case
+    /// below pins that the unrestored orbit-then-land path still infers
+    /// Landed.
     ///
     /// <para>Reproduces the 2026-04-25_2334 playtest where the capsule
     /// recording <c>66be32fa…</c>, repaired from the committed tree at
@@ -138,9 +145,9 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Sanity: a normally-finalized scene-exit recording with a low last-
-        /// point altitude, no orbital evidence, and the restore flag NOT set
-        /// must still hit the original Landed inference path. PR #572 follow-up
-        /// must not regress legitimate "vessel landed and unloaded".
+        /// point altitude and the restore flag NOT set must still hit the
+        /// original Landed inference path. PR #572 follow-up must not regress
+        /// legitimate "vessel landed and unloaded".
         /// </summary>
         [Fact]
         public void FinalizeIndividualRecording_NormalUnloadedLanding_StillInfersLanded()

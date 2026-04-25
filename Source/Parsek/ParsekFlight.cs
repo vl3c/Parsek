@@ -9416,9 +9416,16 @@ namespace Parsek
             {
                 // PR #572 follow-up: same gate as the leaf path — when the
                 // active recording was just repaired from the committed tree
-                // this frame, or carries unambiguous orbital evidence, do not
-                // overwrite its (intentionally unset) terminal state with a
-                // Landed/Splashed inference based on the last trajectory point.
+                // this frame, do not overwrite its (intentionally unset)
+                // terminal state with a Landed/Splashed inference based on
+                // the last trajectory point. The gate's only clause is
+                // RestoredFromCommittedTreeThisFrame; an additional
+                // orbital-evidence clause was considered (Option D in the
+                // design plan) and rejected because the legitimate
+                // orbit-then-land case shares the same shape (high
+                // MaxDistanceFromLaunch + stable orbit segment + low-altitude
+                // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
+                // doc comment.
                 if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
                         activeRec, out string skipReason))
                 {
@@ -9627,9 +9634,14 @@ namespace Parsek
                     // just repaired from the committed tree this frame (the trajectory
                     // came from a copy that already lacked a terminal state, so the
                     // "vessel was alive when unloaded" heuristic does not apply — typically
-                    // means the live pid was a deliberate Re-Fly strip casualty), or when
-                    // the trajectory carries unambiguous orbital evidence that contradicts
-                    // a low-altitude last-point heuristic.
+                    // means the live pid was a deliberate Re-Fly strip casualty). The gate's
+                    // only clause is RestoredFromCommittedTreeThisFrame; an additional
+                    // orbital-evidence clause was considered (Option D in the design plan)
+                    // and rejected because the legitimate orbit-then-land case shares the
+                    // same shape (high MaxDistanceFromLaunch + stable orbit segment + low-
+                    // altitude last point) and adding such a clause would regress
+                    // EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory
+                    // and SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog.
                     if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
                             rec, out string skipReason))
                     {
@@ -9873,14 +9885,21 @@ namespace Parsek
         /// </para>
         ///
         /// <para>
-        /// We deliberately do NOT also gate on "orbital evidence" — a
-        /// recording can legitimately reach orbit, deorbit, and land at
-        /// altitude &lt; 50 m, and the existing tests
-        /// (<c>EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory</c>,
-        /// <c>SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog</c>)
-        /// pin that "orbit-then-land" remains a Landed inference. The user's
-        /// 2026-04-25 case is solved by the restore flag alone because the
-        /// committed copy carried no terminal state.
+        /// An additional "orbital evidence" clause (high
+        /// <see cref="Recording.MaxDistanceFromLaunch"/> and/or a stable
+        /// orbit segment) was considered as Option D in the design plan
+        /// (<c>docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md</c>)
+        /// and rejected: the legitimate "orbit-then-land" case shares the
+        /// same shape (high MaxDistanceFromLaunch + stable orbit segment
+        /// alongside a low-altitude last point), so any threshold that
+        /// captures the user's strip-casualty case also breaks the existing
+        /// pinned tests
+        /// <c>EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory</c>
+        /// and <c>SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog</c>.
+        /// The user's 2026-04-25 case is solved by the restore flag alone
+        /// because the committed copy carried no terminal state. Future
+        /// readers: do not add an orbital-evidence clause here without
+        /// first revisiting those two tests.
         /// </para>
         ///
         /// Returns true with a human-readable <paramref name="reason"/>

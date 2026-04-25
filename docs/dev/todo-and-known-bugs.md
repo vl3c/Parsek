@@ -2064,7 +2064,7 @@ missing live pid is a deliberate kill, and the trajectory's last
 point is whatever the committed copy carried, not a current "where
 the vessel is right now" hint.
 
-**Resolution (2026-04-28):** added a transient
+**Resolution:** added a transient
 `[NonSerialized] Recording.RestoredFromCommittedTreeThisFrame`
 flag set by `ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording`
 on every record it repairs from the committed tree. New
@@ -2093,7 +2093,7 @@ finalize call cannot accidentally re-trigger).
 Plan in
 `docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md`.
 
-**Status:** CLOSED 2026-04-28.
+**Status:** Open until merged.
 
 ---
 
