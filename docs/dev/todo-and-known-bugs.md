@@ -3029,38 +3029,67 @@ With ~6 vessels in claims, a single per-frame call fanned out to ~30
 verbose lines, dominating every tracking-station session that had a
 selected ghost.
 
-**Resolution (2026-04-26):** Routed all six diagnostic emissions
-through `ParsekLog.VerboseOnChange` with state keys that capture the
-decision tuple:
+**Resolution (2026-04-26):** Routed every diagnostic in the chain-walk
+hot path through `ParsekLog.VerboseOnChange` with state keys that
+capture the decision tuple — including the no-claim and skipped-tree
+summaries that fire once per call regardless of whether any claims
+were found:
 
 - `HasGhostingTriggerEvents` — identity `trigger|<recId>`,
   state `(found, partCount, segCount)`.
 - `Vessel PID claimed via {Dock|Board|Undock|EVA|JointBreak}` —
-  identity `claim|<pid>|<treeId>`, state `(interactionType, bp.UT, bpId)`.
+  identity `claim|<pid>|<treeId>|<bp.Id>`, state `(interactionType, bp.UT)`.
+  The bp.Id is in the identity (not the state key) so multiple claims
+  for the same `(pid, treeId)` pair don't share a single VerboseOnChange
+  slot and ping-pong their differing state keys on every frame.
 - `Vessel PID claimed via BACKGROUND_EVENT` — identity
-  `claim-bg|<pid>|<treeId>`, state `(rec.RecordingId, rec.StartUT)`.
+  `claim-bg|<pid>|<treeId>|<rec.RecordingId>`, state `rec.StartUT`.
+  Same disambiguation reason — multiple background recordings of the
+  same `(pid, treeId)` would otherwise oscillate.
+- `WalkToLeaf: step N: rec=… → child=…` — identity `walk-step|<startId>|<step>`,
+  state `(currentId, childId, bpId)`. Per-step diagnostic gets one
+  identity slot per step so a stable multi-step walk emits each step
+  exactly once, then stays silent.
 - `WalkToLeaf reached leaf` — identity `walk|<startId>`,
   state `(leafId, steps)`.
 - `ResolveTermination marked terminated` — identity `terminate|<pid>`,
   state `(tipId, terminalState)`.
 - `Chain built` — identity `chain|<pid>`,
   state `(links, tip, spawnUT, terminated)`.
-- `Found claims for N vessel(s) across N committed trees` — identity
-  `claims-summary`, state `(Nvessels, Ntrees)`.
+- Mutually-exclusive summary lines (`No committed trees`,
+  `No claims found in N committed trees`,
+  `Found claims for N vessel(s) across N committed trees`) all share
+  identity `claims-summary` with state-key prefixes `no-trees` /
+  `no-claims|<N>` / `found|<Nvessels>|<Ntrees>` so flipping between
+  the variants is a real state change but stable repeats inside a
+  variant coalesce.
+- `Skipped N fully-terminated tree(s)` — identity `skipped-terminated`,
+  state `N`.
+- `Skipped N claim(s) from session-suppressed recording(s)` — identity
+  `skipped-session-suppressed`, state `N`.
 
-Stable per-frame rebuilds (the dominant case in the tracking station)
-now emit each diagnostic exactly once, then stay completely silent
-across identical-state repeats; the next genuine state flip surfaces
-`| suppressed=N` to confirm coalescing happened.
+Stable per-frame rebuilds (the dominant case in the tracking station,
+including the no-claim case for sandbox saves) now emit each diagnostic
+exactly once and surface `| suppressed=N` on the next genuine state
+flip.
 
 Cold paths (`Warn` for missing parents, `Verbose` for null-tree /
 unfound-child fallbacks) remain raw `Verbose` since they are decision
 flips rather than per-frame stable repeats. Regression coverage:
-`GhostChainWalkerTests.RepeatedCalls_StableInput_DoNotRespamDiagnostics`
-(8 repeat calls after warm-up emit zero new spam lines), and
-`ChainSaveLoadTests.DeterministicReDerivation_StableInput_ReturnsIdenticalChains`
-flipped from log-count assertion to chain-result equivalence so the
-determinism guarantee survives the coalescing change.
+
+- `GhostChainWalkerTests.RepeatedCalls_StableInput_DoNotRespamDiagnostics`
+  — multi-step chain (R1 → R1-mid → R1-leaf) so `WalkToLeaf: step …`
+  is exercised; counts every flavor of ChainWalker line and asserts 0
+  new lines after warm-up.
+- `GhostChainWalkerTests.RepeatedCalls_NoClaims_DoNotRespamSummary` —
+  covers the per-frame no-claim path that a fresh sandbox with a
+  selected ghost would hit, plus the empty-trees variant.
+- `GhostChainWalkerTests.RepeatedCalls_MultipleClaimsSamePidSameTree_DoNotRespam`
+  — two Dock BPs claiming the same PID in the same tree; pins the
+  identity-disambiguation against the bp.Id-in-identity choice.
+- `ChainSaveLoadTests.DeterministicReDerivation_StableInput_ReturnsIdenticalChains`
+  — flipped from log-count assertion to chain-result equivalence so
+  the determinism guarantee survives the coalescing change.
 
 **Status:** CLOSED 2026-04-26.
 

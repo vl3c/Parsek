@@ -24,7 +24,10 @@ namespace Parsek
 
             if (committedTrees == null || committedTrees.Count == 0)
             {
-                ParsekLog.Verbose(Tag, "No committed trees — returning empty chain map");
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "claims-summary",
+                    stateKey: "no-trees",
+                    message: "No committed trees — returning empty chain map");
                 return new Dictionary<uint, GhostChain>();
             }
 
@@ -52,8 +55,11 @@ namespace Parsek
 
             if (skippedTerminated > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "Skipped {0} fully-terminated tree(s)", skippedTerminated));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "skipped-terminated",
+                    stateKey: skippedTerminated.ToString(ic),
+                    message: string.Format(ic,
+                        "Skipped {0} fully-terminated tree(s)", skippedTerminated));
             }
 
             // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
@@ -62,22 +68,27 @@ namespace Parsek
             // ERS from the walker's perspective.
             if (skippedSessionSuppressed > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "skipped-session-suppressed",
+                    stateKey: skippedSessionSuppressed.ToString(ic),
+                    message: string.Format(ic,
                         "Skipped {0} claim(s) from session-suppressed recording(s)",
                         skippedSessionSuppressed));
             }
 
             if (claimsByPid.Count == 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "No claims found in {0} committed trees", committedTrees.Count));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "claims-summary",
+                    stateKey: string.Format(ic, "no-claims|{0}", committedTrees.Count),
+                    message: string.Format(ic,
+                        "No claims found in {0} committed trees", committedTrees.Count));
                 return new Dictionary<uint, GhostChain>();
             }
 
             ParsekLog.VerboseOnChange(Tag,
                 identity: "claims-summary",
-                stateKey: string.Format(ic, "{0}|{1}",
+                stateKey: string.Format(ic, "found|{0}|{1}",
                     claimsByPid.Count, committedTrees.Count),
                 message: string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
                     claimsByPid.Count, committedTrees.Count));
@@ -261,9 +272,8 @@ namespace Parsek
                 list.Add(link);
 
                 ParsekLog.VerboseOnChange(Tag,
-                    identity: string.Format(ic, "claim|{0}|{1}", pid, tree.Id),
-                    stateKey: string.Format(ic, "{0}|{1:F1}|{2}",
-                        interactionType, bp.UT, bp.Id),
+                    identity: string.Format(ic, "claim|{0}|{1}|{2}", pid, tree.Id, bp.Id),
+                    stateKey: string.Format(ic, "{0}|{1:F1}", interactionType, bp.UT),
                     message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via {2} at UT={3:F1}",
                         pid, tree.Id, interactionType, bp.UT));
@@ -325,8 +335,9 @@ namespace Parsek
                 list.Add(link);
 
                 ParsekLog.VerboseOnChange(Tag,
-                    identity: string.Format(ic, "claim-bg|{0}|{1}", pid, tree.Id),
-                    stateKey: string.Format(ic, "{0}|{1:F1}", rec.RecordingId, rec.StartUT),
+                    identity: string.Format(ic, "claim-bg|{0}|{1}|{2}",
+                        pid, tree.Id, rec.RecordingId),
+                    stateKey: string.Format(ic, "{0:F1}", rec.StartUT),
                     message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via BACKGROUND_EVENT at UT={2:F1}",
                         pid, tree.Id, rec.StartUT));
@@ -613,8 +624,12 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(bestChildId, out child))
                 {
                     steps++;
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic,
+                            "walk-step|{0}|{1}", rec.RecordingId, steps),
+                        stateKey: string.Format(ic,
+                            "{0}|{1}|{2}", current.RecordingId, bestChildId, bp.Id),
+                        message: string.Format(ic,
                             "WalkToLeaf: step {0}: rec={1} → child={2} via bp={3}",
                             steps, current.RecordingId, bestChildId, bp.Id));
                     current = child;

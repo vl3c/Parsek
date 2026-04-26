@@ -803,32 +803,39 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Regression: per-frame callers (e.g. ParsekTrackingStation.RefreshGhostActionCache)
-        /// invoke ComputeAllGhostChains every Update tick. The chain-walk diagnostic
-        /// lines (claim, chain-built, walk-to-leaf, terminate, claims-summary) must
-        /// coalesce silently when the input is stable — only the first call should
-        /// emit them, repeats with the same state-key must be suppressed via
-        /// VerboseOnChange.
+        /// invoke ComputeAllGhostChains every Update tick. Every diagnostic in the
+        /// chain-walk path — claim, chain-built, walk-step, walk-reached-leaf,
+        /// terminate, claims summary, has-ghosting-trigger — must coalesce silently
+        /// when the input is stable. Counts every flavor of ChainWalker line, not
+        /// just the leaf summary, so per-step walk diagnostics can't silently slip
+        /// back into the per-frame path.
         /// </summary>
         [Fact]
         public void RepeatedCalls_StableInput_DoNotRespamDiagnostics()
         {
+            // Multi-step chain: R1 → R1-mid → R1-leaf so WalkToLeaf takes >1 step.
             var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock");
-            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
-                terminal: TerminalState.Destroyed, parentBpId: "bp-dock");
-            var r1LeafB = MakeRecording("R1-leafB", 200, 1060, 1120,
-                terminal: TerminalState.Landed, parentBpId: "bp-dock");
+            var r1Mid = MakeRecording("R1-mid", 100, 1060, 1090,
+                parentBpId: "bp-dock", childBpId: "bp-split");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1090, 1120,
+                terminal: TerminalState.Destroyed, parentBpId: "bp-split");
+            var r1LeafB = MakeRecording("R1-leafB", 200, 1090, 1120,
+                terminal: TerminalState.Landed, parentBpId: "bp-split");
             var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
-                1060, 100, new[] { "R1" }, new[] { "R1-leaf", "R1-leafB" });
-            var tree = MakeTree("tree-1", new[] { r1, r1Leaf, r1LeafB },
-                new[] { dockBp });
+                1060, 100, new[] { "R1" }, new[] { "R1-mid" });
+            var splitBp = MakeBranchPoint("bp-split", BranchPointType.Breakup,
+                1090, 0, new[] { "R1-mid" }, new[] { "R1-leaf", "R1-leafB" });
+            var tree = MakeTree("tree-1", new[] { r1, r1Mid, r1Leaf, r1LeafB },
+                new[] { dockBp, splitBp });
             var trees = new List<RecordingTree> { tree };
 
             // Warm-up call seeds VerboseOnChange state and emits each diagnostic once.
             GhostChainWalker.ComputeAllGhostChains(trees, 900);
             logLines.Clear();
 
-            // Subsequent calls with identical input must emit zero new lines for the
-            // per-frame-spammy diagnostics. Suppressed counters absorb the repeats.
+            // Subsequent calls with identical input must emit zero new lines for any
+            // of the per-frame-spammy diagnostics. Suppressed counters absorb the
+            // repeats; only the next genuine state flip would re-emit.
             for (int i = 0; i < 8; i++)
                 GhostChainWalker.ComputeAllGhostChains(trees, 900);
 
@@ -839,12 +846,104 @@ namespace Parsek.Tests
                 if (l.Contains("claimed by tree=")) spamCount++;
                 else if (l.Contains("Chain built:")) spamCount++;
                 else if (l.Contains("WalkToLeaf: reached leaf=")) spamCount++;
+                else if (l.Contains("WalkToLeaf: step ")) spamCount++;
                 else if (l.Contains("ResolveTermination:") && l.Contains("marked terminated")) spamCount++;
                 else if (l.Contains("Found claims for")) spamCount++;
                 else if (l.Contains("HasGhostingTriggerEvents:")) spamCount++;
             }
 
             Assert.Equal(0, spamCount);
+        }
+
+        /// <summary>
+        /// Regression: per-frame callers also hit the no-claim path in saves with
+        /// no chain claims yet (e.g. fresh sandbox with one selected ghost). The
+        /// "No claims found" and "No committed trees" summaries must coalesce.
+        /// </summary>
+        [Fact]
+        public void RepeatedCalls_NoClaims_DoNotRespamSummary()
+        {
+            // Tree with no ghosting-trigger events and no claiming branch points.
+            var r1 = MakeRecording("R1", 50, 1000, 1120);
+            var tree = MakeTree("tree-1", new[] { r1 }, null);
+            var trees = new List<RecordingTree> { tree };
+
+            GhostChainWalker.ComputeAllGhostChains(trees, 900);
+            logLines.Clear();
+
+            for (int i = 0; i < 8; i++)
+                GhostChainWalker.ComputeAllGhostChains(trees, 900);
+
+            int spamCount = 0;
+            foreach (var l in logLines)
+            {
+                if (!l.Contains("[ChainWalker]")) continue;
+                if (l.Contains("No claims found in")) spamCount++;
+                else if (l.Contains("No committed trees")) spamCount++;
+                else if (l.Contains("HasGhostingTriggerEvents:")) spamCount++;
+            }
+
+            Assert.Equal(0, spamCount);
+
+            // And the empty-input path is also coalesced.
+            var empty = new List<RecordingTree>();
+            GhostChainWalker.ComputeAllGhostChains(empty, 900);
+            logLines.Clear();
+
+            for (int i = 0; i < 8; i++)
+                GhostChainWalker.ComputeAllGhostChains(empty, 900);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[ChainWalker]") && l.Contains("No committed trees"));
+        }
+
+        /// <summary>
+        /// Regression: when multiple branch points claim the same vessel PID in
+        /// the same tree, the per-claim VerboseOnChange identity must scope to
+        /// the individual claim (bp.Id / rec.RecordingId), not just the
+        /// (pid, treeId) pair. Otherwise the two claims share an identity slot
+        /// and their differing state keys ping-pong, re-emitting on every frame.
+        /// </summary>
+        [Fact]
+        public void RepeatedCalls_MultipleClaimsSamePidSameTree_DoNotRespam()
+        {
+            // Same tree, two Dock branch points, both claiming PID=100.
+            var root = MakeRecording("root", 50, 1000, 1020, childBpId: "bp-split");
+            var branchA = MakeRecording("branch-a", 60, 1020, 1060,
+                parentBpId: "bp-split", childBpId: "bp-dock-a");
+            var branchALeaf = MakeRecording("branch-a-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock-a");
+            var branchB = MakeRecording("branch-b", 70, 1020, 1080,
+                parentBpId: "bp-split", childBpId: "bp-dock-b");
+            var branchBLeaf = MakeRecording("branch-b-leaf", 100, 1080, 1160,
+                parentBpId: "bp-dock-b");
+
+            var splitBp = MakeBranchPoint("bp-split", BranchPointType.Breakup,
+                1020, 0, new[] { "root" }, new[] { "branch-a", "branch-b" });
+            var dockA = MakeBranchPoint("bp-dock-a", BranchPointType.Dock,
+                1060, 100, new[] { "branch-a" }, new[] { "branch-a-leaf" });
+            var dockB = MakeBranchPoint("bp-dock-b", BranchPointType.Dock,
+                1080, 100, new[] { "branch-b" }, new[] { "branch-b-leaf" });
+
+            var tree = MakeTree("tree-1",
+                new[] { root, branchA, branchALeaf, branchB, branchBLeaf },
+                new[] { splitBp, dockA, dockB });
+            var trees = new List<RecordingTree> { tree };
+
+            GhostChainWalker.ComputeAllGhostChains(trees, 900);
+            logLines.Clear();
+
+            for (int i = 0; i < 8; i++)
+                GhostChainWalker.ComputeAllGhostChains(trees, 900);
+
+            int respam = 0;
+            foreach (var l in logLines)
+            {
+                if (l.Contains("[ChainWalker]") && l.Contains("claimed by tree="))
+                    respam++;
+            }
+
+            Assert.Equal(0, respam);
         }
 
         #endregion
