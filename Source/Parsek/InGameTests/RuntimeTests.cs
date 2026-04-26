@@ -4683,6 +4683,70 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// #612 rescue-completion guard: the production
+        /// <c>KerbalsModule.IKerbalRosterFacade.IsKerbalOnLiveVessel</c>
+        /// implementation walks <see cref="FlightGlobals.Vessels"/> and the
+        /// xUnit harness can not init that statically (the type initializer
+        /// pulls in <c>UnityEngine.Quaternion.Euler</c>). This in-game test
+        /// covers the live walk in FLIGHT scene: the active vessel's crew
+        /// must be reported as on a live vessel and a name that is not on
+        /// any vessel must be reported as not on a live vessel. Mirrors the
+        /// rescue-completion happy path inside an actual Unity runtime so
+        /// the headless xUnit guard tests are reinforced by a runtime
+        /// regression.
+        /// </summary>
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "#612 IsKerbalOnLiveVessel reports live FlightGlobals crew correctly")]
+        public void IsKerbalOnLiveVessel_LiveFlightGlobalsWalk()
+        {
+            var active = FlightGlobals.ActiveVessel;
+            if (active == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            var crew = active.GetVesselCrew();
+            if (crew == null || crew.Count == 0)
+            {
+                InGameAssert.Skip("Active vessel has no crew");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
+            // Build a production facade exactly the way KerbalsModule does
+            // and exercise IsKerbalOnLiveVessel through the interface, so
+            // any future facade-level wrapping (e.g. ghost-map filtering
+            // changes) is covered.
+            var facadeType = typeof(KerbalsModule).GetNestedType(
+                "KerbalRosterFacade",
+                System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance);
+            InGameAssert.IsNotNull(facadeType, "KerbalRosterFacade type must exist");
+            var ctor = facadeType.GetConstructor(new[] { typeof(KerbalRoster) });
+            InGameAssert.IsNotNull(ctor, "KerbalRosterFacade(KerbalRoster) ctor must exist");
+            var facade = (KerbalsModule.IKerbalRosterFacade)ctor.Invoke(new object[] { roster });
+
+            // Active vessel's first crew member must be reported on a live vessel.
+            string activeName = crew[0].name;
+            InGameAssert.IsTrue(facade.IsKerbalOnLiveVessel(activeName),
+                $"IsKerbalOnLiveVessel('{activeName}') must be true (kerbal is on active vessel)");
+
+            // A clearly-fake name must be reported as not on a live vessel.
+            InGameAssert.IsFalse(facade.IsKerbalOnLiveVessel("Definitely Not A Real Kerbal"),
+                "IsKerbalOnLiveVessel('Definitely Not A Real Kerbal') must be false");
+
+            ParsekLog.Verbose("TestRunner",
+                $"IsKerbalOnLiveVessel: live FlightGlobals walk OK for activeCrew='{activeName}'");
+        }
+
         [InGameTest(Category = "CrewReservation",
             Description = "No replacement name appears as both a key and a value (circular chain)")]
         public void NoCircularReplacements()

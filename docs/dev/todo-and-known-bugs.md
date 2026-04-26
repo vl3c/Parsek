@@ -2343,6 +2343,28 @@ which still describes the orphan-placement-deferred preamble.
 
 ---
 
+## ~~612. Re-Fly post-spawn churns crew stand-ins after rescue restored the originals — `Recreated stand-in` re-fires per recalc walk and the next ghost spawn's `Crew dedup` WARN catches the doubled-original~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. The same Jeb / Bill / Bob slot churns through generate -> rescue+remove -> recreate -> rescue+remove on every ghost spawn after the in-place Re-Fly:
+
+- Lines 13883-13886 — initial stand-ins generated for the three reservation slots: `Erilan`, `Debgas`, `Rodbro`.
+- Lines 14404-14407 — orphan placement deferred for the same three (no matching part with free seat in the active booster vessel) as expected post-#608.
+- Lines 15374-15386 — first ghost spawn for the capsule recording: `Spawn-block carve-out applied (#608/#609)` rescues the three Reserved+Missing originals to `Available`, snapshot loads them onto the spawned vessel, then `Removed replacement '...' (was unused)` removes each historical stand-in from the roster.
+- Lines 16101-16109 — recalculation walk runs after commit, rebuilds the reservations from the recording's `KerbalAssignment` actions (still in ELS), `EnsureChainDepth` re-uses the persisted `slot.Chain[0]` names, and `ApplyToRoster` step 1 sees `slot.Chain[i]` not in the roster (just removed) and fires `Recreated stand-in 'Erilan Kerman'` -> `Debgas` -> `Rodbro`. The replacement dictionary is repopulated in step 3 of the same call.
+- Lines 18766-18769 — second ghost spawn for a sibling recording: same rescue+remove cycle, then `Crew dedup: 'Jebediah Kerman' already on a vessel in the scene — removed from spawn snapshot` WARN fires because the snapshot still carries Jeb but the active scene already has him on the first spawned vessel.
+
+The `Crew dedup` WARN is defense-in-depth — it correctly prevents the original from being placed on two vessels — but it should not be exercised in the happy path. The root cause is the redundant `ApplyToRoster` recreate, which mints a brand-new ProtoCrewMember with the historical stand-in's name immediately after the spawn-side `UnreserveCrewInSnapshot` deleted it.
+
+**Lifecycle:** the reservation derives from the recording's `KerbalAssignment` (Aboard / Recovered) action and is rebuilt every recalculation walk. The slot chain (`KerbalsModule.KerbalSlot.Chain`) is module-level state that persists across walks via `LoadSlots`, so the historical stand-in name survives. After the rescue places the original on the spawned vessel, the slot's "active occupant" is conceptually the original — but the chain still names the stand-in and the recreate-if-missing path runs unconditionally.
+
+**Fix:** Added a rescue-completion guard at `KerbalsModule.ApplyToRoster` step 1 keyed off "the kerbal being replaced at depth `i` is currently a crew member on a non-ghost loaded vessel". The predicate is `slot.OwnerName` at depth 0 and `slot.Chain[i-1]` at deeper levels. The guard is implemented as a new `IsKerbalOnLiveVessel(string)` method on the existing `IKerbalRosterFacade`, with the production `KerbalRosterFacade` walking `FlightGlobals.Vessels` (skipping ghost-map ProtoVessels) and the headless test fake exposing a `MarkOnLiveVessel(name)` setter. When the guard fires, the chain entry stays in the slot as historical metadata — a future rewind / re-fly that re-reserves the original will find it and the existing depth-0 logic will re-use the same stand-in name deterministically — but no roster entry is created. A Verbose `Rescue-completion guard:` line fires per skipped depth, a fall-through Verbose `Stand-in recreate:` line pins the legitimate-recreate path so the two branches are auditable from `KSP.log`, and an Info `Rescue-completion guard fired: skipped N stand-in create/recreate(s)` summary fires once per `ApplyToRoster` walk. The production facade catches `TypeInitializationException` for the headless xUnit case so old test paths through `ApplyToRoster(KerbalRoster)` still work.
+
+**Files:** `Source/Parsek/KerbalsModule.cs` (interface extension + facade implementation + `ApplyToRoster` step 1 guard), `Source/Parsek.Tests/KerbalLoadDiagnosticsTests.cs` (`FakeRoster` interface conformance + `MarkOnLiveVessel` helper), `Source/Parsek.Tests/RescueCompletionGuardTests.cs` (5 new xUnit cases: happy path, single-rescue partial, no-rescue legacy fall-through, defense-in-depth idempotent, pending-generation skip), `Source/Parsek/InGameTests/RuntimeTests.cs` (in-game `IsKerbalOnLiveVessel_LiveFlightGlobalsWalk` because `FlightGlobals` cannot init in xUnit), `CHANGELOG.md`. The defense-in-depth `Crew dedup` WARN at `VesselSpawner.cs:2335` is preserved.
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
 ## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
 
 **Source:** `logs/2026-04-25_2147/KSP.log` lines 75858 (`Time-jump launch auto-record suppression armed: jump=epoch-shift`) and 76410 (`FAILED: FlightIntegrationTests.RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording — Real Spawn Control pad canary should exercise the time-jump transient suppression path`); same shape for `TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording` at lines 81376 / 81654.

@@ -701,6 +701,8 @@ namespace Parsek.Tests
             private readonly bool allowRecreateStandIns;
             private readonly Dictionary<string, ProtoCrewMember.RosterStatus> members
                 = new Dictionary<string, ProtoCrewMember.RosterStatus>();
+            private readonly HashSet<string> liveVesselCrew
+                = new HashSet<string>(System.StringComparer.Ordinal);
             private int generatedCounter;
 
             public FakeRoster(bool allowGeneratedStandIns = true, bool allowRecreateStandIns = true)
@@ -717,6 +719,16 @@ namespace Parsek.Tests
             public bool Contains(string name)
             {
                 return members.ContainsKey(name);
+            }
+
+            /// <summary>
+            /// Mark <paramref name="name"/> as currently seated on a loaded
+            /// non-ghost vessel — equivalent to the rescue path having placed
+            /// the original kerbal back into the spawned vessel.
+            /// </summary>
+            public void MarkOnLiveVessel(string name)
+            {
+                if (!string.IsNullOrEmpty(name)) liveVesselCrew.Add(name);
             }
 
             public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
@@ -750,6 +762,11 @@ namespace Parsek.Tests
             public bool TryRemove(string name)
             {
                 return members.Remove(name);
+            }
+
+            public bool IsKerbalOnLiveVessel(string kerbalName)
+            {
+                return !string.IsNullOrEmpty(kerbalName) && liveVesselCrew.Contains(kerbalName);
             }
         }
     }

@@ -842,6 +842,23 @@ namespace Parsek
             bool TryCreateGeneratedStandIn(string trait, out string generatedName);
             bool TryRecreateStandIn(string desiredName, string trait);
             bool TryRemove(string name);
+
+            /// <summary>
+            /// True if the named kerbal is currently a crew member on a loaded
+            /// non-ghost vessel in the active scene. Used by
+            /// <see cref="ApplyToRoster"/> as the rescue-completion signal: when
+            /// the post-spawn rescue path (#608/#609) places the original
+            /// reserved kerbal back into the spawned vessel, the historical
+            /// stand-in for that slot must NOT be recreated even though the
+            /// reservation is still derived from the recording's
+            /// <see cref="GameActionType.KerbalAssignment"/> action. Without
+            /// this guard the stand-in churns: spawn deletes it via
+            /// <see cref="CrewReservationManager.UnreserveCrewInSnapshot"/>,
+            /// the next post-spawn recalculation walk recreates it, and the
+            /// next ghost spawn's `Crew dedup` warn fires for the original
+            /// because two vessels would otherwise carry the same kerbal.
+            /// </summary>
+            bool IsKerbalOnLiveVessel(string kerbalName);
         }
 
         private sealed class KerbalRosterFacade : IKerbalRosterFacade
@@ -911,6 +928,60 @@ namespace Parsek
                 roster.Remove(pcm);
                 return true;
             }
+
+            /// <summary>
+            /// Walk loaded vessels (excluding the lightweight ghost-map ProtoVessels
+            /// owned by <see cref="GhostMapPresence"/>) and return true if
+            /// <paramref name="kerbalName"/> is on any of them. Mirrors the
+            /// "existing crew" set built by <see cref="VesselSpawner.BuildExistingCrewSet"/>
+            /// but checks a single name without materializing the full set.
+            ///
+            /// <para>
+            /// Wrapped in a try/catch because <c>FlightGlobals</c> initializes
+            /// against Unity's <c>Quaternion.Euler</c> (TypeInitializationException
+            /// outside Unity runtime). xUnit harness tests that call
+            /// <see cref="ApplyToRoster(KerbalRoster)"/> through the wrapper
+            /// must still see the rescue-completion guard return false (no
+            /// rescue happened in a headless test) instead of crashing.
+            /// </para>
+            /// </summary>
+            public bool IsKerbalOnLiveVessel(string kerbalName)
+            {
+                if (string.IsNullOrEmpty(kerbalName)) return false;
+                try
+                {
+                    var vessels = FlightGlobals.Vessels;
+                    if (vessels == null) return false;
+                    for (int v = 0; v < vessels.Count; v++)
+                    {
+                        var vessel = vessels[v];
+                        if (vessel == null) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                        var crew = vessel.GetVesselCrew();
+                        if (crew == null) continue;
+                        for (int c = 0; c < crew.Count; c++)
+                        {
+                            var pcm = crew[c];
+                            if (pcm == null) continue;
+                            if (string.Equals(pcm.name, kerbalName, System.StringComparison.Ordinal))
+                                return true;
+                        }
+                    }
+                    return false;
+                }
+                catch (System.Exception ex)
+                {
+                    // FlightGlobals not initialized (xUnit test environment) or
+                    // some other transient KSP-side failure. Fall through as if
+                    // the kerbal is not on a live vessel — the recreate path
+                    // will run, and the in-game playtest exercises the live
+                    // path.
+                    ParsekLog.Verbose("KerbalsModule",
+                        $"IsKerbalOnLiveVessel: FlightGlobals access failed ({ex.GetType().Name}) — " +
+                        $"treating '{kerbalName}' as not on live vessel");
+                    return false;
+                }
+            }
         }
 
         /// <summary>
@@ -955,6 +1026,7 @@ namespace Parsek
                 var recreatedNames = new HashSet<string>();
 
                 // Step 1: Create missing stand-ins
+                int skippedRescuedOriginal = 0;
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
@@ -963,13 +1035,54 @@ namespace Parsek
                         if (!ShouldEnsureChainEntryInRoster(slot, i))
                             continue;
 
+                        // Rescue-completion guard (#612): the post-spawn rescue
+                        // path (#608/#609) restores the reserved+Missing original
+                        // kerbal to Available and lets the snapshot place them
+                        // back into the spawned vessel. The recording still
+                        // contributes its KerbalAssignment action to ELS, so the
+                        // reservation is rebuilt on every recalc walk and the
+                        // historical chain entry survives across walks. Without
+                        // this guard, the recreate path below would re-spawn the
+                        // stand-in that the spawn's UnreserveCrewInSnapshot just
+                        // removed — observable as the "Recreated stand-in"
+                        // info log firing once per recalc walk for kerbals the
+                        // player can already see in their pod.
+                        //
+                        // The "person being replaced at depth i" is the slot
+                        // owner at depth 0 and the prior chain entry at deeper
+                        // levels. If that name is on any non-ghost loaded
+                        // vessel, the rescue is effective for this depth and
+                        // the stand-in is no longer needed in the roster — the
+                        // chain entry stays as historical metadata so a later
+                        // rewind / re-fly can deterministically reuse the same
+                        // name when the original is reservation-locked again.
+                        string replacedName = i == 0 ? slot.OwnerName : slot.Chain[i - 1];
+                        if (!string.IsNullOrEmpty(replacedName)
+                            && roster.IsKerbalOnLiveVessel(replacedName))
+                        {
+                            string standInLabel = slot.Chain[i] ?? "<pending>";
+                            ParsekLog.Verbose(Tag,
+                                $"Rescue-completion guard: kerbal '{replacedName}' already placed on " +
+                                $"active vessel via rescue path — skipping stand-in '{standInLabel}' " +
+                                $"for slot '{slot.OwnerName}' depth {i}");
+                            skippedRescuedOriginal++;
+                            continue;
+                        }
+
                         if (slot.Chain[i] != null)
                         {
                             // Verify stand-in still exists in roster
                             ProtoCrewMember.RosterStatus existingStatus;
                             if (!roster.TryGetStatus(slot.Chain[i], out existingStatus))
                             {
-                                // Stand-in was removed (e.g., KSP cleanup) — recreate
+                                // Stand-in was removed (e.g., KSP cleanup) — recreate.
+                                // Verbose preamble pins the legitimate-recreation
+                                // path so KSP.log shows the rescue guard above
+                                // declined and this fall-through path fired instead.
+                                ParsekLog.Verbose(Tag,
+                                    $"Stand-in recreate: '{slot.Chain[i]}' missing from roster, " +
+                                    $"replaced='{replacedName}' not on live vessel — proceeding to " +
+                                    $"recreate for slot '{slot.OwnerName}' depth {i}");
                                 if (!roster.TryRecreateStandIn(slot.Chain[i], slot.OwnerTrait))
                                     ParsekLog.Warn(Tag,
                                         $"Failed to recreate stand-in '{slot.Chain[i]}'");
@@ -1002,6 +1115,11 @@ namespace Parsek
                         }
                     }
                 }
+
+                if (skippedRescuedOriginal > 0)
+                    ParsekLog.Info(Tag,
+                        $"Rescue-completion guard fired: skipped {skippedRescuedOriginal} stand-in " +
+                        "create/recreate(s) because the replaced kerbal is already on a live vessel");
 
                 // Step 2: Remove unused displaced stand-ins from roster
                 foreach (var kvp in slots)
