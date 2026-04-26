@@ -316,7 +316,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndBlocksStockActions()
+        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndOmitsBlockedStockActions()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -335,9 +335,6 @@ namespace Parsek.Tests
             TrackingStationGhostActionState target = FindState(states, TrackingStationGhostActionKind.SetTarget);
             TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
-            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
-            TrackingStationGhostActionState delete = FindState(states, TrackingStationGhostActionKind.Delete);
-            TrackingStationGhostActionState recover = FindState(states, TrackingStationGhostActionKind.Recover);
 
             Assert.True(focus.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
@@ -348,16 +345,18 @@ namespace Parsek.Tests
             Assert.True(materialize.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
 
-            Assert.False(fly.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnlyAfterMaterialization, fly.Safety);
-            Assert.False(delete.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, delete.Safety);
-            Assert.False(recover.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, recover.Safety);
+            // Permanently-disabled stock actions are no longer rendered, so
+            // BuildActionStates must not return them at all — callers iterate
+            // the array, so leftover entries would re-introduce the dead
+            // button row.
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Fly);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Delete);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Recover);
+            Assert.Equal(4, states.Length);
         }
 
         [Fact]
-        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsFlyBlock()
+        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsReason()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -373,12 +372,9 @@ namespace Parsek.Tests
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
-            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
 
             Assert.False(materialize.Enabled);
             Assert.Contains("endpoint", materialize.Reason);
-            Assert.False(fly.Enabled);
-            Assert.Contains("materialize", fly.Reason);
         }
 
         [Fact]

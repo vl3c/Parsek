@@ -233,6 +233,12 @@ namespace Parsek
         {
             if (!showUI) return;
 
+            // Hide the toolbar window while the Esc / pause overlay is up so
+            // it doesn't punch through the menu (KSP's Canvas pause overlay
+            // sorts above our IMGUI surface). See PauseMenuGate for context.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             windowRect.height = 0f;
             var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)

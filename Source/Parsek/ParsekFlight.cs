@@ -1382,6 +1382,16 @@ namespace Parsek
 
         void OnGUI()
         {
+            // The Esc / pause overlay lives on KSP's Canvas and sorts above
+            // our IMGUI layer, so without this gate the custom map markers,
+            // watch-mode HUD, ghost labels, and Parsek windows render on top
+            // of the pause menu. Stock vessel labels hide automatically
+            // because they live on the same Canvas as the overlay; ours do
+            // not. Skip both Layout and Repaint passes so layout-driven sizes
+            // don't flicker between events while paused.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
