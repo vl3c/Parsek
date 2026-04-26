@@ -57,6 +57,10 @@ suppression, renderer force-enable, and watched-ghost map-focus restore blockers
 Review follow-up: map-focus restore logging now uses one stable on-change
 identity with the watched recording/pid/reason in the state key, avoiding
 per-recording cache growth while preserving reason-change visibility.
+Review follow-up: Flight scene teardown and `DestroyAllTimelineGhosts` now clear
+ghost-skip reason state and the matching `Flight|ghost-skip|` `VerboseOnChange`
+identities, with coverage showing per-recording skip reasons re-emit after
+scene cleanup and rewind/timeline destruction.
 Remaining observability audit items stay open.
 
 Phase 3 persistence/rewind observability is closed on
@@ -97,6 +101,11 @@ save/load exception context, sidecar/path severity expansion, rewind
 `CanInvoke` reason-change logging, playback-engine frame skip counters, and
 Phase 6 retained in-game log-package validation still need separate passes.
 
+Review follow-up coverage (2026-04-26): closed the deferred log-assertion gaps
+for finalizer refresh identity isolation, Diagnostics missing-sidecar path
+warning scopes, `ComputePlaybackFlags` ghost-skip emit/suppress behavior,
+`OnSave` exception context/RecState, and unsupported snapshot probe logging.
+
 Post-merge spam fix (2026-04-26, `fix/rewindui-canInvokeSlot-spam`): the
 2026-04-26_1025 playtest log showed 1389 identical `[RewindUI] CanInvokeSlot:
 slot-ok` lines in 6 seconds for a single rp/slot — the existing
@@ -109,11 +118,18 @@ tracks the last-emitted decision stateKey in a file-local
 changes — mirroring the `lastCanInvoke` pattern already used by
 `DrawUnfinishedFlightRewindButton` ~300 lines above. Existing
 `ClearRewindSlotCanInvokeLogState` callers (LoadTimeSweep, RewindPointAuthor,
-RewindPointReaper, TreeDiscardPurge, RecordingsTableUI window-close,
-ParsekScenario.OnLoad) clear the new dict alongside the original
-`ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix` call. Regression test:
+RewindPointReaper, TreeDiscardPurge, ParsekScenario.OnLoad) clear the new
+dict alongside the original `ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix`
+call. Review follow-up: removed the per-OnGUI-pass clear that
+`RecordingsTableUI.DrawIfOpen` was firing while the Recordings window was
+closed — it wiped the cache before TimelineWindowUI's Fly button could
+reuse it, re-spamming `slot-ok` whenever Timeline was open without
+Recordings. Regression tests:
 `RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk` drives
-200 consecutive calls and asserts a single emit.
+200 calls and asserts a single emit;
+`RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose`
+drives 200 Timeline-style calls after a single close-transition clear and
+asserts only 2 emits total.
 
 ---
 
@@ -146,6 +162,8 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 28. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
 
 29. **Re-Fly 22:10 cascade: duplicate upper-stage view, marker/RP loss, and zero-payload sidecar overwrite broke playback after rewind.** ~~done~~ — Reproduced from `logs/2026-04-25_2210_refly-bugs`. The duplicate upper-stage view was a post-load ordering race: `UpdateTimelinePlaybackViaEngine` spawned/positioned timeline ghosts before `RewindInvoker.ConsumePostLoad` completed strip/activate/atomic marker write, so the selected in-place continuation vessel could coexist for a few frames with its own pre-marker ghost. The later playback failure had two persistence causes: `MarkerValidator` rejected a valid live marker when the tree existed only as `RecordingStore.PendingTree`, `RewindPointReaper` could reap the RP still referenced by the live marker, and the pending-Limbo active tree carried stale-sidecar epoch failures for the root/upper-stage recordings; a later active-tree save wrote those failed records back out as empty `.prec` files, replacing the good committed launch trajectory and leaving no watchable ghost. Fixed by gating timeline playback while `RewindInvokeContext.Pending` is true, accepting pending-tree marker ownership during validation, preserving marker-referenced RPs during reap, repairing hydration-failed active-tree records from the committed tree during restore/save, and skipping an active-tree sidecar write if a failed-hydration record is still truly empty. Regression coverage: `LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`, `LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`, `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`, and `RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
+
+30. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
 
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
