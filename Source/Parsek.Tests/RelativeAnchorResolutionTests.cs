@@ -236,6 +236,49 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ReFly Log Builders
+
+        [Fact]
+        public void BuildRelativeOffsetAppliedLog_ReportsRecordedOrLiveSource()
+        {
+            string recorded = ParsekFlight.BuildRelativeOffsetAppliedLog(
+                RecordingStore.CurrentRecordingFormatVersion,
+                dx: 1.0,
+                dy: 2.0,
+                dz: 3.0,
+                anchorVesselId: 698412738u,
+                anchorFromRecordedTrajectory: true);
+            string live = ParsekFlight.BuildRelativeOffsetAppliedLog(
+                RecordingStore.CurrentRecordingFormatVersion,
+                dx: 1.0,
+                dy: 2.0,
+                dz: 3.0,
+                anchorVesselId: 698412738u,
+                anchorFromRecordedTrajectory: false);
+
+            Assert.Contains("source=recorded", recorded);
+            Assert.Contains("source=live", live);
+            Assert.Contains("anchor=698412738", recorded);
+        }
+
+        [Fact]
+        public void BuildDeadOnArrivalControlledChildSkipLog_ReportsSnapshotPresence()
+        {
+            string withSnapshot = ParsekFlight.BuildDeadOnArrivalControlledChildSkipLog(
+                pid: 42u,
+                hasPreCapturedSnapshot: true);
+            string withoutSnapshot = ParsekFlight.BuildDeadOnArrivalControlledChildSkipLog(
+                pid: 42u,
+                hasPreCapturedSnapshot: false);
+
+            Assert.Contains("pid=42", withSnapshot);
+            Assert.Contains("preCapturedSnapshot=True", withSnapshot);
+            Assert.Contains("preCapturedSnapshot=False", withoutSnapshot);
+            Assert.Contains("Unknown", withSnapshot);
+        }
+
+        #endregion
+
         #region DedupeKey
 
         [Fact]

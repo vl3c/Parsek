@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#613` Ghosts whose recorded relative-frame anchor vessel is unsafe or unavailable now first reconstruct from the anchor's recorded ground-frame trajectory; if no recorded pose exists, they retire (hide) gracefully instead of appearing frozen at the world origin with a bogus distance reading. The Re-Fly case where another vessel's recorded anchor pid resolves to the active Re-Fly target now bypasses that live vessel, so upper-stage ghosts no longer lock to the booster being re-flown. The retire fallback still persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
+- `#613` Re-Fly relative ghosts now reconstruct unsafe or unavailable anchors from the recorded ground-frame anchor trajectory before retiring. This keeps other vessels' paths ground-relative instead of locking to the live Re-Fly target.
 
 - Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.
 

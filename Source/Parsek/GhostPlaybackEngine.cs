@@ -3760,6 +3760,8 @@ namespace Parsek
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+            // Hidden priming is allowed to apply persistent part state, but it
+            // must not emit transient FX before the playback transform is visible.
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
                 skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);
             if (state.ghost.activeSelf)
