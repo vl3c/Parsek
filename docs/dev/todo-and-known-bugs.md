@@ -163,7 +163,11 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 29. **Re-Fly 22:10 cascade: duplicate upper-stage view, marker/RP loss, and zero-payload sidecar overwrite broke playback after rewind.** ~~done~~ — Reproduced from `logs/2026-04-25_2210_refly-bugs`. The duplicate upper-stage view was a post-load ordering race: `UpdateTimelinePlaybackViaEngine` spawned/positioned timeline ghosts before `RewindInvoker.ConsumePostLoad` completed strip/activate/atomic marker write, so the selected in-place continuation vessel could coexist for a few frames with its own pre-marker ghost. The later playback failure had two persistence causes: `MarkerValidator` rejected a valid live marker when the tree existed only as `RecordingStore.PendingTree`, `RewindPointReaper` could reap the RP still referenced by the live marker, and the pending-Limbo active tree carried stale-sidecar epoch failures for the root/upper-stage recordings; a later active-tree save wrote those failed records back out as empty `.prec` files, replacing the good committed launch trajectory and leaving no watchable ghost. Fixed by gating timeline playback while `RewindInvokeContext.Pending` is true, accepting pending-tree marker ownership during validation, preserving marker-referenced RPs during reap, repairing hydration-failed active-tree records from the committed tree during restore/save, and skipping an active-tree sidecar write if a failed-hydration record is still truly empty. Regression coverage: `LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`, `LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`, `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`, and `RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
 
-30. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
+30. **Re-Fly merge left a clickable real upper-stage vessel alongside the playback ghost.** ~~done~~ — Reproduced from `logs/2026-04-26_1025_3bugs-refly` (`SuppressedSubtree=[2 ids: 89eff843..., 805d53b7...]`, `ApplyVesselDecisions: ghost-only for 'Kerbal X Probe'` only the leaf, `Held ghost spawn succeeded on retry: #9 'Kerbal X' id=1d6d2116...`, then post-facto `Stripping orphaned spawned vessel 'Kerbal X Probe'`). `MergeDialog.BuildDefaultVesselDecisions` only iterated `tree.GetAllLeaves()`, so a non-leaf parent recording inside `EffectiveState.ComputeSessionSuppressedSubtree` (a recording with `ChildBranchPointId != null` because of breakup/decoupling/chain-split branches) never had its `VesselSnapshot` nulled by `ApplyVesselDecisions`. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` then saw `rec.VesselSnapshot != null` for the parent and spawned a real vessel for it. Fixed in `MergeDialog.cs` by computing the suppression closure from `ParsekScenario.Instance.ActiveReFlySessionMarker` in `ShowTreeDialog` and passing it (plus the active Re-Fly target id) into a new `BuildDefaultVesselDecisions(tree, suppressedRecordingIds, activeReFlyTargetId)` overload. The new pass force-flips every closure id present in the pending tree to ghost-only, except the active Re-Fly target id which must stay spawnable (it is the live vessel the player is flying). Tests `BuildDefaultVesselDecisions_SuppressedNonLeafForcedGhostOnly`, `BuildDefaultVesselDecisions_NullSuppression_LeafBehaviourUnchanged`, `BuildDefaultVesselDecisions_SuppressedIdNotInTree_CountedAndIgnored`, and `BuildDefaultVesselDecisions_ActiveTargetNotInClosure_NoSkipLog` in `MergeDialogVesselTests.cs`. New `[MergeDialog]` `forcing ghost-only on suppressed`, `keeping active Re-Fly target spawnable`, and `suppressed-subtree pass complete` log lines make the per-id and aggregate decisions auditable from `KSP.log` alone.
+
+31. **Re-Fly in-place continuation merge skipped supersede rows for sibling/parent recordings; a destroyed-final-state sibling like "Kerbal X Probe" stayed visible after merge.** ~~done~~ — Reproduced from `logs/2026-04-26_1025_3bugs-refly/KSP.log` (`SessionSuppressedSubtree: 3 recording(s) closed from origin=89eff843...`, then `TryCommitReFlySupersede: in-place continuation detected (provisional == origin == 89eff843...); skipping supersede merge (no self-supersede row)`). `MergeDialog.TryCommitReFlySupersede`'s in-place continuation branch (provisional `RecordingId == origin id`) called `SupersedeCommit.FlipMergeStateAndClearTransient` but completely skipped `SupersedeCommit.AppendRelations`, so the 3-recording closure (origin + 2 chain siblings, including the destroyed Kerbal X Probe segment) wrote zero supersede rows. With no supersede rows, `EffectiveState.IsVisible` returned true for the destroyed sibling and it stayed in the recordings list. First-cut fix in `MergeDialog.cs` called `SupersedeCommit.AppendRelations` on the in-place path before `FlipMergeStateAndClearTransient`, and re-introduced the `old==new` self-link guard inside `SupersedeCommit.AppendRelations` so the trivial origin-self entry is filtered without producing a 1-node `EffectiveRecordingId` cycle. The journaled merge (`MergeJournalOrchestrator.RunMerge`) is still skipped; only `AppendRelations` runs to write rows for sibling/parent ids in the closure. The existing `RelationExists` duplicate guard makes the call resume-safe. **Review follow-up (optimizer-split chain-tip resolve):** `MergeDialog.MergeCommit` runs `RecordingStore.RunOptimizationPass()` BEFORE `TryCommitReFlySupersede`. When the in-place continuation crossed an environment boundary (atmo↔exo), `RecordingOptimizer.SplitAtSection` (`Source/Parsek/RecordingOptimizer.cs:513-514` and `:536-537`) MOVES `VesselSnapshot` and `TerminalStateValue` from the original head to a freshly-allocated chain TIP, leaving the head with `TerminalStateValue == null`. The first-cut fix passed the head straight to `AppendRelations`, which then failed `ValidateSupersedeTarget`'s `null TerminalState` clause — throw in DEBUG, silent empty subtree in RELEASE — and the sibling supersede rows the in-place fix needs were never written. Resolved in the in-place branch of `TryCommitReFlySupersede` by walking `EffectiveState.ResolveChainTerminalRecording(provisional)` to find the chain tip (same helper `EffectiveState.IsUnfinishedFlight` already uses for post-split terminal lookup) and passing the resolved tip to `AppendRelations` as the validated supersede target; a new optional `extraSelfSkipRecordingIds` parameter on a 4-arg `SupersedeCommit.AppendRelations` overload carries the **full chain membership of the in-place continuation** so no chain segment of the new flight ends up with a row pointing at another member (every member is part of the new flight; superseding any of them would collapse ERS via `EffectiveRecordingId` redirect). The skip set is built by enumerating `RecordingStore.CommittedRecordings` (the same source the closure walk reads at `EffectiveState.cs:550`) and matching `TreeId + ChainId + ChainBranch` against the provisional — the exact predicate `EnqueueChainSiblings` uses at `EffectiveState.cs:722-724` — so the skip set's scope is coherent with the closure walk. Lone-origin in-place merges (no `ChainId` set) degenerate to a single-element skip set with the provisional's own id, which is already filtered by the trivial `old==new` self-link guard inside `AppendRelations`. Same-`ChainId`-but-different-`ChainBranch` siblings (e.g. legacy / clone / import shapes) are correctly excluded from the skip set and still get supersede rows when they enter the closure via the BP walk. **Review follow-up #2 (full-chain skip set):** the first cut of this fix added only the head's id to the skip set, which left a 3+-segment in-place chain (HEAD -> MIDDLE -> TIP) writing a row `old=MIDDLE new=TIP` and silently collapsing MIDDLE in ERS — replaced with the full-chain enumeration described above. The legacy 3-arg `AppendRelations` overload (used by `SupersedeCommit.CommitSupersede` and `MergeJournalOrchestrator.RunMerge`) is unchanged. Tests `TryCommitReFlySupersede_InPlaceContinuation_AppendsSupersedeRowsForSiblings` (rewritten so the head has no terminal post-split and the tip carries the terminal payload, mirroring the post-`RunOptimizationPass` reality), `TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly`, `AppendRelations_SelfLinkSkipped_OtherSubtreeIdsStillWriteRows`, `TryCommitReFlySupersede_InPlaceContinuation_OptimizerSplit_ResolvesChainTipAndWritesSiblingRows` (full dialog path with the optimizer-split topology and a prior-attempt sibling whose row IS the one we care about), `AppendRelations_ExtraSelfSkip_FiltersHeadWhileTipIsTheTarget` (direct `AppendRelations` API test independent of dialog wiring), `AppendRelations_LegacyThreeArgOverload_NoExtraSkip_BehavesAsBefore` (regression-pin so the journaled merge path is not silently affected), `TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember` (HEAD -> MIDDLE -> TIP regression-pin for review follow-up #2), `TryCommitReFlySupersede_InPlaceContinuation_SameChainIdDifferentBranch_StillSuperseded` (same-`ChainId`/different-`ChainBranch` sibling stays supersedable), and `TryCommitReFlySupersede_InPlaceContinuation_NoChain_ChainSkipSetLogsSizeOne` (lone-origin pin) in `SupersedeCommitTests.cs`. New `[Supersede]` `AppendRelations: skip self-link` and `AppendRelations: skip extra-self-link` Verbose lines plus `skippedSelfLink=N skippedExtraSelfLink=N` aggregate, and `[MergeDialog]` `in-place continuation supersede append wrote N relation(s)`, `resolved chain tip for supersede target: head=... -> tip=...`, and `chain-skip-set: chainId=... chainBranch=... treeId=... members=[...] head=... tip=... size=N` make the new path auditable from `KSP.log`. The same optimizer-split-vs-validation interaction theoretically affects the journaled merge path (`MergeJournalOrchestrator.RunMerge` also calls `AppendRelations` post-`RunOptimizationPass`); not yet observed in playtests because the journaled provisional rarely crosses an env boundary in the brief re-fly window before merge — flagged in this entry for future hardening if it ever bites. Items 30 + 31 reproduced from the same `logs/2026-04-26_1025_3bugs-refly` playtest.
+
+32. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
 
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
@@ -519,6 +523,235 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
+3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
+entered its first relative-frame track section (`UT=199.3-214.7`,
+`anchorPid=3151978247`) at line ~17943. The very next line emitted the
+WARN `[Anchor] RELATIVE playback: anchor vessel pid=3151978247 not found
+— ghost frozen at last known position`, and the subsequent
+`[GhostAppearance]` line reported `root=(0.00,0.00,0.00)` with
+`rootRot=identity` and a render distance of `1140719m`. The recorded
+anchor pid (`3151978247`) had been the active Re-Fly probe; it was
+destroyed in the background at 10:14:23 (line ~11001
+`[BgRecorder] Background vessel destroyed`) and the rewind erased it from
+the future, so the post-rewind `FlightGlobals.Vessels` never contained
+that pid again.
+
+**PID lifecycle (verified):** `TrackSection.anchorVesselId` (uint pid) is
+captured by `FlightRecorder.ApplyRelativeOffset` at recording time
+(`Source/Parsek/FlightRecorder.cs:5566`) and persisted in the recording's
+on-disk track sections (`RecordingStore.cs:5132`,
+`TrajectorySidecarBinary.cs:631`). It is **never rewritten** after the
+recording finalizes — recordings are immutable across rewinds. After a
+Re-Fly rewind the recording sits in `RecordingStore.CommittedRecordings`
+with the original anchor pid intact, but the live `FlightGlobals.Vessels`
+no longer contains that pid (the anchor's recording-side
+`Vessel.persistentId` is gone with the destroyed-future strip).
+`FlightRecorder.FindVesselByPid(3151978247)` then returns null on every
+playback frame. The ghost-map presence path already gracefully defers in
+this case (`GhostMapPresence.TryResolveStateVectorMapPointPure` returns
+`relative-frame-anchor-unresolved`), but the in-flight ghost-positioning
+path was still using the older "freeze at last known position" branch,
+which renders a freshly-spawned ghost at `(0,0,0)`.
+
+**Fix direction:** retire (hide) the ghost during the relative section
+rather than re-resolve. Re-resolution by name was rejected: the recorded
+anchor was a transient sibling vessel (a decoupled probe) with no stable
+identifier — there is nothing to rebind to in the post-rewind scene. The
+fix in `Source/Parsek/ParsekFlight.cs` (`InterpolateAndPositionRelative`
+~line 15264, `PositionGhostRelativeAt` ~line 15400) replaces the
+freeze-in-place branch with `ghost.SetActive(false)` plus a one-shot
+per-(recordingIndex, anchorPid) WARN under the `[Anchor]` tag carrying a
+greppable `relative-anchor-retired` keyword. Hiding strictly dominates
+freezing: if the anchor reappears on a later frame the engine re-enters
+the same method and repositions; if it never reappears, the ghost stays
+gracefully ungraphable instead of marooned at world origin with bogus
+distance reports. The `LateUpdate` Relative-mode path in `ParsekFlight`
+already deactivated the ghost on null anchor, so this brings the two
+positioning entry points into alignment.
+
+**Decision helper:** new pure static `RelativeAnchorResolution` (Decide /
+DedupeKey / FormatRetiredMessage) so the resolver decision is unit
+testable with an injectable resolver delegate, mirroring the existing
+`GhostMapPresence.AnchorResolvableForTesting` pattern.
+
+**Tests:** 21 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
+covering: Decide outcomes (Resolved / Retired / pid==0 short-circuit /
+null resolver), DedupeKey uniqueness across (recIdx, pid) combos and high
+bit handling, FormatRetiredMessage greppable keyword + identifying field
+inclusion + null-vessel-name placeholder + Re-Fly root-cause mention, the
+log-assertion case that pipes the formatted message through
+`ParsekLog.Warn("Anchor", ...)` and asserts the resulting line carries
+`[WARN]`, `[Anchor]`, and `relative-anchor-retired`, and the rewind
+scenario coverage (anchor still alive in post-rewind FlightGlobals -->
+Resolved with no spurious retirement; anchor erased --> Retired with no
+freeze-path reachable). The Outcome enum has a defensive shape test that
+locks the contract to exactly two values, blocking any future "partial
+positioning" outcome. The P1-fix follow-up adds 5 cases pinning the
+`ShouldSkipPostPositionPipeline` predicate (true/false round-trip + pure
+function), the `GhostPlaybackState.anchorRetiredThisFrame` default + reset
+through `ClearLoadedVisualReferences`, and a 3-frame integration scenario
+that mirrors the production engine + positioner contract: frame 1 sets
+the flag and emits the one-shot WARN, frame 2 re-enters the retire branch
+on the same key without re-emitting the WARN, frame 3 resolves the anchor
+and the gate lets the activation pipeline run again. In-game coverage
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetiredAnchor_EndsFrameInactive_NoAppearance` /
+`Bug613_DeferredSyncWithResolvedAnchor_StillActivates` /
+`Bug613_PerFrameClear_StaleFlagDoesNotLeak`) drives a full
+`engine.UpdatePlayback` frame with a mock `IGhostPositioner` whose
+`InterpolateAndPositionRelative` mimics the production retire branch
+(`SetActive(false)` plus `state.anchorRetiredThisFrame = true`); the
+asserts pin `ghost.activeSelf == false`, `appearanceCount == 0`, and the
+absence of any `[GhostAppearance]` log line on a retired frame, plus the
+positive case where deferred-sync activation still flips the ghost active
+when the anchor is resolved.
+
+**P1 review narrative (PR #594):** The first commit retired the ghost
+correctly inside the positioner (`SetActive(false)` plus the WARN), but
+review noticed that in the same `engine.RenderInRangeGhost` frame
+`ActivateGhostVisualsIfNeeded` ran unconditionally after positioning and
+flipped the ghost back to active before the frame returned. The visible
+symptom was unchanged from the original bug B repro: a (0,0,0) ghost
+appearance for one rendered frame on every per-frame call inside the
+relative section. Two fix shapes were considered:
+
+- **Option (a):** thread an explicit out-parameter / return value
+  (`AnchorOutcome` enum) up through `InterpolateAndPositionRelative` and
+  `PositionLoopGhost` so the engine can branch directly on the decision.
+  Cleanest signal but five callsites in the engine (`RenderInRangeGhost`,
+  loop-playback main, loop-primary, loop-overlap, and the `WatchSync`
+  rebuild path) plus the loop-pause window each need to consume the new
+  shape, and the watch-sync path crosses an additional helper boundary
+  (`PositionLoadedGhostAtPlaybackUT`) that does not currently take the
+  positioner. Touches the `IGhostPositioner` interface contract.
+
+- **Option (b, shipped):** single `bool anchorRetiredThisFrame` on
+  `GhostPlaybackState`. Engine clears it before each per-frame call to
+  the positioner; positioner sets it true on the retire branch; the
+  engine's existing post-position pipeline reads it and skips the
+  visuals + activation + appearance steps. Pure predicate
+  `RelativeAnchorResolution.ShouldSkipPostPositionPipeline(bool)` named
+  the gate so the call sites are reviewable from xUnit. No
+  `IGhostPositioner` signature churn, no new event types, and the flag's
+  one-frame scope is self-documenting.
+
+The shipped fix gates six engine callsites (`RenderInRangeGhost` line
+~1035, loop-playback main line ~1457, `HandleLoopPauseWindow` line ~1865
+caught in the P1 second pass, primary-loop overlap line ~1659,
+`OverlapGhost` loop line ~1796, and the `SynchronizeLoadedGhostForWatch`
+watch-sync rebuild line ~3667). Each gate calls
+`ApplyFrameVisuals(skipPartEvents=true, suppressVisualFx=true)` to tear
+down any previously-emitting plumes/audio, then early-returns / falls
+through past `ActivateGhostVisualsIfNeeded` and `TrackGhostAppearance`.
+The retire branch in `ParsekFlight.InterpolateAndPositionRelative` and
+`PositionGhostRelativeAt` (the `PositionLoopGhost` callee) now takes an
+extra `GhostPlaybackState retireSignalState` argument that may be null in
+test fixtures that drive the method without a state object; the
+production callsites always pass the live state.
+
+**P1 review narrative (PR #594, round 2):** A second review pass caught
+that the six visibility gates above only cover
+`ActivateGhostVisualsIfNeeded` + `TrackGhostAppearance` + transient
+`ApplyFrameVisuals` events. Three additional code paths still ran
+side-effect helpers (explosion FX, completion-event queueing, loop
+camera-action / restart payloads) from the stale (0,0,0) transform of
+the just-hidden ghost when the relative anchor was unresolvable:
+
+1. `RenderInRangeGhost` falling through to
+   `TryHandleEarlyDestroyedDebrisCompletion` (line ~1070) with
+   `ghostActive` computed BEFORE positioning. On a retired frame the
+   helper still called `TriggerExplosionIfDestroyed` against the stale
+   transform, marked `explosionFired`/`completed`, and queued a
+   `PlaybackCompletedEvent` that policy handlers would react to.
+   Fix: gate the call on `!retired`; emit a one-shot
+   `early-completion suppressed: anchor retired` Verbose log when
+   skipping. If the recording was a legitimate early-debris destruction,
+   the next replay frame with a resolvable anchor handles the completion.
+
+2. `UpdateLoopingPlayback` cycle-change endpoint (line ~1296):
+   `PositionGhostAtLoopEndpoint` routes through `positioner.PositionLoop`
+   which CAN raise `state.anchorRetiredThisFrame`, but the immediately
+   following block called `TriggerExplosionIfDestroyed`, emitted
+   `OnLoopCameraAction(ExplosionHoldStart/End)` with
+   `AnchorPosition = state.ghost.transform.position`, and emitted
+   `OnLoopRestarted` with `ExplosionPosition` from the same stale
+   transform. Fix: clear the flag before `PositionGhostAtLoopEndpoint`,
+   read it back, suppress all four side effects (explosion + camera +
+   restart event + retarget event) when retired. Suppression log:
+   `loop endpoint side effects suppressed: anchor retired ghost #N
+   "vesselName" cycle=K`.
+
+3. `UpdateExpireAndPositionOverlaps` overlap-expiry endpoint (line
+   ~1723): same pattern — `PositionGhostAtLoopEndpoint` followed by
+   `TriggerExplosionIfDestroyed` + `OnOverlapCameraAction` +
+   `OnOverlapExpired`, all reading `ovState.ghost.transform.position`.
+   Fix: identical clear-then-check-flag wrap; suppress on retired.
+
+4. `HandleLoopPauseWindow` (line ~1865): the existing visibility gate
+   ran AFTER `TriggerExplosionIfDestroyed`. P3 follow-up: the retire
+   early-return only called `HideAllGhostParts` (which itself only
+   calls `MuteAllAudio`) so previously-emitting engine plumes / RCS /
+   reentry FX continued rendering at the (0,0,0) retired position. Fix:
+   gate `TriggerExplosionIfDestroyed` on `!loopPauseRetired`, and add
+   `ApplyFrameVisuals(skipPartEvents:true, suppressVisualFx:true,
+   allowTransientEffects:false)` before the early-return so the FX
+   teardown matches the contract of the other five visibility gates.
+   Suppression log: `loop endpoint side effects suppressed: anchor
+   retired ghost #N "vesselName" loop-pause`.
+
+The total surface is now **6 visibility gates** + **3 endpoint
+side-effect gates** (loop cycle endpoint, overlap expiry, loop pause)
++ **1 early-completion gate** in `RenderInRangeGhost`. In-game tests
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetireDuringRender_DoesNotFireEarlyDestroyedCompletion`,
+`Bug613_ResolvedAnchorFiresEarlyDestroyedCompletion`,
+`Bug613_RetireDuringLoopCycleEndpoint_NoExplosionOrCameraRestart`,
+`Bug613_ResolvedAnchorFiresLoopCycleEndpoint`,
+`Bug613_RetireDuringOverlapExpiry_NoExplosionOrCamera`,
+`Bug613_ResolvedAnchorFiresOverlapExpiry`,
+`Bug613_RetireDuringLoopPause_StopsEngineFx`,
+`Bug613_ResolvedAnchorLoopPauseFiresExplosion`) extend the existing
+`Bug613_*` mock-positioner harness with a `SetsLoopRetireFlag` knob and
+two new test trajectories (`Bug613EarlyDebrisRelativeTrajectory` for
+the early-debris path, `Bug613LoopRelativeTrajectory` for the three
+loop-endpoint paths). Each retire test asserts `explosionFired==false`,
+no event-list emissions, and the suppression log line; each negative
+test asserts the same side effects DO fire when the anchor resolves.
+
+**P1 review follow-up (finalize-spawn retarget):** PR #594's gates
+covered continuing playback, loop endpoints, overlap expiry, loop pause,
+and early-completion side effects, but `FinalizePendingSpawnLifecycle`
+still ran immediately after `PrimeLoadedGhostForPlaybackUT`. On a fresh
+loop or overlap-primary spawn whose first priming pass landed inside a
+Relative section with an unresolvable anchor, the priming positioner set
+`state.anchorRetiredThisFrame = true`, hid the ghost, and left its pivot
+under the just-built origin-positioned hierarchy. The pending lifecycle
+then cleared normally and emitted `OnLoopCameraAction` /
+`OnOverlapCameraAction(RetargetToNewGhost)` with
+`GhostPivot = state.cameraPivot`. Watch mode could anchor at world origin
+for one frame before the next per-frame gate suppressed continuing
+playback. Fix: `FinalizePendingSpawnLifecycle` now leaves
+`OnGhostCreated`, pending-lifecycle cleanup, flag visibility, and range
+entry logging intact, but suppresses only the `RetargetToNewGhost`
+camera side effect when `state.anchorRetiredThisFrame` is true. It emits
+the greppable Verbose line `finalize-spawn retire: suppressing
+RetargetToNewGhost (anchor retired on first spawn) ghost #N
+"vesselName"` with the lifecycle and cycle context. In-game regressions
+`Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin` and
+`Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget` drive both
+`LoopEnter` and `OverlapPrimaryEnter` fresh-spawn paths through the
+mock relative positioner, asserting that retired anchors keep the state
+machine and `OnGhostCreated` path complete without camera retargeting,
+while resolved anchors still emit exactly one retarget with the spawned
+state's `cameraPivot`.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
@@ -590,8 +823,6 @@ paths. The end-to-end production-gate test
 `ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
 exact production tree shape and asserts both the suppress decision and
 the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
-
-**Status:** Open until merged.
 
 ---
 
@@ -2594,6 +2825,74 @@ Missing.
 
 **Status:** CLOSED 2026-04-26 (PR #(this)). Cross-reference `#608`,
 which still describes the orphan-placement-deferred preamble.
+
+---
+
+## ~~615. Re-Fly post-spawn churns crew stand-ins after rescue restored the originals — `Recreated stand-in` re-fires per recalc walk and the next ghost spawn's `Crew dedup` WARN catches the doubled-original~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. The same Jeb / Bill / Bob slot churns through generate -> rescue+remove -> recreate -> rescue+remove on every ghost spawn after the in-place Re-Fly:
+
+- Lines 13883-13886 — initial stand-ins generated for the three reservation slots: `Erilan`, `Debgas`, `Rodbro`.
+- Lines 14404-14407 — orphan placement deferred for the same three (no matching part with free seat in the active booster vessel) as expected post-#608.
+- Lines 15374-15386 — first ghost spawn for the capsule recording: `Spawn-block carve-out applied (#608/#609)` rescues the three Reserved+Missing originals to `Available`, snapshot loads them onto the spawned vessel, then `Removed replacement '...' (was unused)` removes each historical stand-in from the roster.
+- Lines 16101-16109 — recalculation walk runs after commit, rebuilds the reservations from the recording's `KerbalAssignment` actions (still in ELS), `EnsureChainDepth` re-uses the persisted `slot.Chain[0]` names, and `ApplyToRoster` step 1 sees `slot.Chain[i]` not in the roster (just removed) and fires `Recreated stand-in 'Erilan Kerman'` -> `Debgas` -> `Rodbro`. The replacement dictionary is repopulated in step 3 of the same call.
+- Lines 18766-18769 — second ghost spawn for a sibling recording: same rescue+remove cycle, then `Crew dedup: 'Jebediah Kerman' already on a vessel in the scene — removed from spawn snapshot` WARN fires because the snapshot still carries Jeb but the active scene already has him on the first spawned vessel.
+
+The `Crew dedup` WARN is defense-in-depth — it correctly prevents the original from being placed on two vessels — but it should not be exercised in the happy path. The root cause is the redundant `ApplyToRoster` recreate, which mints a brand-new ProtoCrewMember with the historical stand-in's name immediately after the spawn-side `UnreserveCrewInSnapshot` deleted it.
+
+**Lifecycle:** the reservation derives from the recording's `KerbalAssignment` (Aboard / Recovered) action and is rebuilt every recalculation walk. The slot chain (`KerbalsModule.KerbalSlot.Chain`) is module-level state that persists across walks via `LoadSlots`, so the historical stand-in name survives. After the rescue places the original on the spawned vessel, the slot's "active occupant" is conceptually the original — but the chain still names the stand-in and the recreate-if-missing path runs unconditionally.
+
+**Fix:** Added a rescue-completion guard at `KerbalsModule.ApplyToRoster` step 1. **P1 review revisions** (after the initial commit, then a second pass, then a third pass after a deeper user review):
+
+The guard's predicate combines TWO signals — the rescue-specific marker set by `CrewReservationManager.MarkRescuePlaced` from the `VesselSpawner.RescueReservedMissingCrewInSnapshot` path (#608/#609) AND a live-vessel check on the same name. The "person being replaced at depth `i`" is `slot.OwnerName` at depth 0 and `slot.Chain[i-1]` at deeper levels. The first review iteration used only the live-vessel check, but the reviewer pointed out a fresh reservation where the kerbal sits on the **active player vessel** without ever passing through the rescue path would have hit the guard, the create path would have been skipped, the chain entry would have stayed null, step 3's `SetReplacement` would have emitted no mapping, and `SwapReservedCrewInFlight` would have had nothing to swap with — silent regression on every legitimate fresh launch. The combined predicate is rescue-specific:
+
+- "on a live vessel" alone fires for fresh reservations on the active player vessel — wrong.
+- "rescue-placed marker" alone fires after the rescued vessel was destroyed (kerbal back to Missing) — wrong.
+- Combined fires only when the rescue path actually placed this kerbal AND they are still on a loaded non-ghost vessel — exactly the bug-repro happy path.
+
+**P1 review (second pass):** the first revision installed `CleanUpReplacement` as the per-name marker-clearing site so a future fresh reservation of the same name would not see a stale signal. That broke the production lifecycle: both spawn paths (`VesselSpawner.RespawnVessel` and `VesselSpawner.SpawnAtPosition`) call `RescueReservedMissingCrewInSnapshot(spawnNode)` (sets the marker) and IMMEDIATELY follow with `CrewReservationManager.UnreserveCrewInSnapshot(spawnNode)` on the SAME snapshot, which loops every reserved kerbal in the snapshot through `CleanUpReplacement` — the marker was wiped before the next `ApplyToRoster` walk could read it. The guard read `IsRescuePlaced=false`, fell through to the recreate path, and the original churning the user reported was preserved (the defense-in-depth `Crew dedup` WARN at the downstream ghost spawn was the only thing keeping the kerbal off two vessels). The first-pass xUnit tests passed because they called `MarkRescuePlaced` directly and never exercised the `Rescue -> Unreserve -> ApplyToRoster` sequence — false green.
+
+The second-pass fix decoupled the marker lifecycle from the per-name unreserve and one-shot consumed the marker on guard fire (via a new `CrewReservationManager.ConsumeRescuePlaced` API).
+
+**P1 review (third pass):** the second-pass one-shot-consume design was also broken. The reservation slot is rebuilt on every `LedgerOrchestrator.RecalculateAndPatch` walk while the historical chain entry survives in `slot.Chain`. `RecalculateAndPatch` is invoked from 14+ call sites — every recording commit, KSC spending event (`OnKscSpending`, `OnVesselRolloutSpending`), vessel recovery (`OnVesselRecoveryFunds`), warp exit (`ParsekFlight.cs:6366`, `Warp exit detected — recalculating ledger`), scene transition (`ParsekScenario.cs:4301/4340/4394`), and save load. The merge-tail walk consumed the marker on first fire; the very next trigger saw `IsRescuePlaced=false`, took the legitimate "live-but-no-marker" branch, regenerated the stand-in, and the original lines 16106-16109 symptom returned. The second-pass tests only called `ApplyToRoster` once and missed this regression — the false-confidence test pattern.
+
+The third-pass fix makes the marker PERSISTENT across `ApplyToRoster` walks:
+
+- `CleanUpReplacement` does NOT clear the marker (unchanged from second pass — the marker survives the spawn pipeline's `UnreserveCrewInSnapshot` step).
+- The `ApplyToRoster` guard does NOT consume the marker on fire. Every recalc walk for the lifetime of the rescue observes the same marker and skips the stand-in. The `ConsumeRescuePlaced` API was removed (no remaining callers).
+- Bulk lifecycle paths (`LoadCrewReplacements`, `RestoreReplacements`, `ClearReplacements`, `ResetReplacementsForTesting`) are the only in-process clear sites — they wipe the marker set on session / rewind / wipe-all boundaries.
+
+Within a session the marker accumulates harmlessly: the third-pass combined predicate's second clause required `IsKerbalOnLiveVessel`, so a stale-true marker for a kerbal who was no longer on a vessel fell through to the legitimate-recreate path. (No per-vessel-destruction clear hook is implemented — would need a `GameEvents.onVesselDestroy` subscription with a per-vessel kerbal walk.)
+
+**P1 review (fourth pass):** the third-pass design failed on a stronger stale-marker scenario. The marker was scoped only by kerbal name and only cleared by bulk lifecycle paths. After a rescue placed Jeb on an early Re-Fly, the rescued vessel could be destroyed / recovered while the marker stayed set; later, a NEW unrelated reservation for Jeb (e.g. fresh contract / mission) could be created, and Jeb might happen to be on the active player vessel during this fresh reservation. The third-pass predicate `IsRescuePlaced(name) AND IsKerbalOnLiveVessel(name)` would then evaluate (true, true), the guard would fire, stand-in generation would be skipped, and `SwapReservedCrewInFlight` would have no stand-in to swap — recreating the original P1 failure mode (live-but-no-rescue treated as rescue, fresh reservation broken silently). The third-pass `MultipleApplyToRosterPasses_StaleMarker_VesselDestroyed_NextPassRecreatesStandIn` regression only covered the no-live-vessel case; it did NOT cover stale marker plus unrelated live vessel.
+
+The fourth-pass fix scopes the marker to the vessel pid where the rescue placed the kerbal:
+
+- The marker is now `Dictionary<string, ulong>` (kerbal name -> rescued vessel persistentId) on `CrewReservationManager`.
+- `MarkRescuePlaced(name, vesselPid)` is the only mark API; the rescue spawn paths in `VesselSpawner.RespawnVessel` and `VesselSpawner.SpawnAtPosition` collect the rescued names through a new overload `RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` and call `MarkRescuePlaced(name, pv.vesselRef.persistentId)` AFTER `ProtoVessel.Load` assigns the runtime pid (the snapshot's `persistentId` field is zeroed by `RegenerateVesselIdentity` before load, so the new pid is only available post-load).
+- `TryGetRescuePlacedVessel(name, out vesselPid)` is the new accessor the guard uses.
+- `IKerbalRosterFacade.IsKerbalOnVesselWithPid(name, pid)` is a new interface method whose production implementation walks `FlightGlobals.Vessels`, matches `vessel.persistentId == pid`, skips ghost-map vessels, and checks the named kerbal's `GetVesselCrew()`. The legacy `IsKerbalOnLiveVessel` is retained for diagnostic logging only (the declined-branch `legitimate fresh reservation` and `marker without live vessel` lines).
+- The `ApplyToRoster` guard predicate is now `if (TryGetRescuePlacedVessel(replacedName, out rescuedVesselPid) AND roster.IsKerbalOnVesselWithPid(replacedName, rescuedVesselPid))`. If the kerbal moved off the rescued vessel, `IsKerbalOnVesselWithPid` returns false; the guard declines; the legitimate-recreate path runs.
+
+Re-marking the same kerbal with a different pid OVERWRITES the prior pid (a later rescue supersedes the earlier one). The marker stays persistent within a session and is cleared only by the bulk lifecycle paths (`LoadCrewReplacements`, `RestoreReplacements`, `ClearReplacements`, `ResetReplacementsForTesting`). Stale entries with a now-invalid pid simply never match a live vessel — the predicate naturally returns false and the legitimate-recreate path runs. No per-vessel-destruction invalidation hook is needed.
+
+When the guard fires, the chain entry stays in the slot as historical metadata so a future rewind / re-fly that re-reserves the original deterministically reuses the same stand-in name. Logging:
+
+- `Marked rescue-placed: '<name>' vesselPid=<N>` (Verbose) at the spawn-side mark site, including the pid.
+- `Re-marked rescue-placed: '<name>' vesselPid=<N> (superseding prior pid=<M>)` (Verbose) when a later rescue replaces an earlier pid for the same kerbal.
+- `Rescue-completion guard:` (Verbose) per skipped depth, with `rescuePlacedPid=<N>` `onRescuedVessel=true` and the `marker persistent — not consumed on fire; pid-scoped` payload.
+- `Rescue-completion guard declined:` (Verbose) when the kerbal is on a live vessel but not rescue-placed — diagnoses the legitimate fresh reservation case.
+- `Stand-in recreate: rescue marker stale (kerbal '<name>' moved off rescued vessel pid=<N>)` (Info) — fourth-pass NEW log, fires on the bug-repro of this round (kerbal on a different live vessel from where the rescue placed them).
+- `Stand-in recreate:` (Verbose) pins the legitimate-recreate fall-through with `rescuePlaced=<bool> onLiveVessel=<bool> onRescuedVessel=<bool> rescuedVesselPid=<N>` so the decision is auditable.
+- `Rescue-completion guard fired: skipped N stand-in create/recreate(s)` (Info) once per `ApplyToRoster` walk summary.
+- `Rescue-completion guard summary: fired=N (marker persistent — preserved across walks; pid-scoped) declinedLiveButNoMarker=X declinedMarkerButNotLive=Y declinedMarkerStalePid=Z` (Info) — fourth-pass aggregate visibility, with the new pid-stale bucket.
+- `Cleared rescue-placed marker: '<name>' vesselPid=<N> (bulk lifecycle)` (Verbose).
+
+The production `KerbalRosterFacade.IsKerbalOnLiveVessel` walks `FlightGlobals.Vessels` (skipping ghost-map ProtoVessels) and catches `TypeInitializationException` so headless xUnit tests calling `ApplyToRoster(KerbalRoster)` still work; the new `IsKerbalOnVesselWithPid` overload uses the same defensive try/catch.
+
+**Files:** `Source/Parsek/CrewReservationManager.cs` (rescue-placed marker map keyed by name -> pid + `MarkRescuePlaced(name, pid)` / `IsRescuePlaced` / `TryGetRescuePlacedVessel` / `ClearRescuePlaced` API; `CleanUpReplacement` does not clear the marker; `SeedReplacementForTesting` + `CleanUpReplacementForTesting` seams), `Source/Parsek/VesselSpawner.cs` (`RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` overload collects names; both `RespawnVessel` and `SpawnAtPosition` call `MarkRescuePlaced(name, pv.vesselRef.persistentId)` AFTER `ProtoVessel.Load`), `Source/Parsek/KerbalsModule.cs` (interface extension `IsKerbalOnVesselWithPid` + facade implementation + `ApplyToRoster` step 1 pid-scoped predicate, persistent marker — guard fires on every walk, fourth-pass summary log with `declinedMarkerStalePid`), `Source/Parsek.Tests/KerbalLoadDiagnosticsTests.cs` (`FakeRoster` interface conformance with no-match `IsKerbalOnVesselWithPid`), `Source/Parsek.Tests/RescueCompletionGuardTests.cs` (xUnit cases including the fourth-pass pid-scoping regressions `StaleNameMarker_KerbalOnUnrelatedActiveVessel_GuardDeclines_StandInGenerated`, `MarkerScopedByPid_KerbalOnDifferentVessel_GuardDeclines`, `MarkerScopedByPid_KerbalOnRescuedVessel_GuardFires`; lifecycle pins `MarkRescuePlaced_RemarkDifferentPidOverwrites`, `RescuePlacedMarker_BulkClearWipesPidEntries`; existing tests updated to use the pid-scoped fixture `GuardFakeRoster.MarkOnVessel(name, pid)` + the constants `RescuedVesselPid` / `UnrelatedVesselPid`), `Source/Parsek/InGameTests/RuntimeTests.cs` (in-game `RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives` updated for the fourth-pass pid-scoping contract: uses the new `RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` overload, calls `MarkRescuePlaced(name, syntheticTestPid)`, and asserts pid-scoping survives across walks). The defense-in-depth `Crew dedup` WARN at `VesselSpawner.cs:2335` is preserved.
+
+**Status:** CLOSED. Fixed for v0.9.0.
 
 ---
 

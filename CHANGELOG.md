@@ -45,14 +45,26 @@ All notable changes to Parsek are documented here.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
 - `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
 - Runtime observability now adds compact recorder, map, Tracking Station, post-switch, game-action, and in-game test summaries without repeating stable no-op decisions.
+- Recordings table renames the Unfinished Flights `Re-Fly` button to `Fly` so the rec window and Timeline window use the same glyph for the same action; the confirmation popup that follows the click also relabels its accept button from `Re-Fly` to `Fly` for consistency.
+- Recordings table hides every loop control inside the virtual `Unfinished Flights` group — the per-row loop checkbox and period editor on member rows, plus the group-header aggregate loop toggle — and the Timeline window hides the `L` button on Unfinished Flight rows; loop remains editable from the recording's row in its real (mission) group.
 
 ### Bug Fixes
 
 - KSC ghost playback now honors v6 RELATIVE track sections, keeping rendezvous/docking ghosts attached to their anchor instead of drawing them underground.
 
+- `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading. The retire now persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
+
+- `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
+
+- `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the guard skips the stand-in recreate only when the kerbal is currently on the SAME vessel where the rescue placed them (pid-scoped marker), so fresh reservations on the active player vessel still get their swap stand-in even if the kerbal happened to be rescued onto a different vessel earlier in the same session.
+
 - Re-Fly slot precondition log no longer spams `KSP.log` with thousands of identical `slot-ok` lines per session; the on-change gate now uses a per-call-site decision cache that reliably suppresses repeats from the OnGUI draw loop.
 
 - `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances, angular fields (LAN, argument of periapsis, inclination) use a shortest-angle delta so a tail that crosses the 0/360 boundary still matches, and each `TrimBoringTail` skip reports which guard rejected.
+
+- Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
+
+- Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge — including when the new flight crossed an atmo-exo boundary and the optimizer split it into chained segments.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 

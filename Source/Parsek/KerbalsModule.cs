@@ -842,6 +842,38 @@ namespace Parsek
             bool TryCreateGeneratedStandIn(string trait, out string generatedName);
             bool TryRecreateStandIn(string desiredName, string trait);
             bool TryRemove(string name);
+
+            /// <summary>
+            /// True if the named kerbal is currently a crew member on a loaded
+            /// non-ghost vessel in the active scene. Retained for
+            /// diagnostics / legacy callers; the
+            /// <see cref="ApplyToRoster"/> guard now uses the pid-scoped
+            /// <see cref="IsKerbalOnVesselWithPid"/> instead so a stale
+            /// name-only rescue marker cannot suppress an unrelated fresh
+            /// reservation for the same kerbal who happens to be on the
+            /// active player vessel (#615 P1 review fourth pass).
+            /// </summary>
+            bool IsKerbalOnLiveVessel(string kerbalName);
+
+            /// <summary>
+            /// True if the named kerbal is currently a crew member on the
+            /// loaded non-ghost vessel whose <see cref="Vessel.persistentId"/>
+            /// equals <paramref name="vesselPersistentId"/>. Used by the
+            /// <see cref="ApplyToRoster"/> rescue-completion guard to scope
+            /// the rescue marker to the actual vessel the rescue placed the
+            /// kerbal onto: a stale marker pointing at a destroyed or
+            /// stale-pid vessel produces <c>false</c> here, so the guard
+            /// declines and the legitimate-recreate path runs.
+            ///
+            /// <para>
+            /// P1 review (fourth pass): the previous "marker plus
+            /// IsKerbalOnLiveVessel" predicate could fire on a later
+            /// unrelated reservation for the same kerbal who was on the
+            /// active player vessel — exactly the failure mode this
+            /// pid-scoped check eliminates.
+            /// </para>
+            /// </summary>
+            bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId);
         }
 
         private sealed class KerbalRosterFacade : IKerbalRosterFacade
@@ -911,6 +943,104 @@ namespace Parsek
                 roster.Remove(pcm);
                 return true;
             }
+
+            /// <summary>
+            /// Walk loaded vessels (excluding the lightweight ghost-map ProtoVessels
+            /// owned by <see cref="GhostMapPresence"/>) and return true if
+            /// <paramref name="kerbalName"/> is on any of them. Mirrors the
+            /// "existing crew" set built by <see cref="VesselSpawner.BuildExistingCrewSet"/>
+            /// but checks a single name without materializing the full set.
+            ///
+            /// <para>
+            /// Wrapped in a try/catch because <c>FlightGlobals</c> initializes
+            /// against Unity's <c>Quaternion.Euler</c> (TypeInitializationException
+            /// outside Unity runtime). xUnit harness tests that call
+            /// <see cref="ApplyToRoster(KerbalRoster)"/> through the wrapper
+            /// must still see the rescue-completion guard return false (no
+            /// rescue happened in a headless test) instead of crashing.
+            /// </para>
+            /// </summary>
+            public bool IsKerbalOnLiveVessel(string kerbalName)
+            {
+                if (string.IsNullOrEmpty(kerbalName)) return false;
+                try
+                {
+                    var vessels = FlightGlobals.Vessels;
+                    if (vessels == null) return false;
+                    for (int v = 0; v < vessels.Count; v++)
+                    {
+                        var vessel = vessels[v];
+                        if (vessel == null) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                        var crew = vessel.GetVesselCrew();
+                        if (crew == null) continue;
+                        for (int c = 0; c < crew.Count; c++)
+                        {
+                            var pcm = crew[c];
+                            if (pcm == null) continue;
+                            if (string.Equals(pcm.name, kerbalName, System.StringComparison.Ordinal))
+                                return true;
+                        }
+                    }
+                    return false;
+                }
+                catch (System.Exception ex)
+                {
+                    // FlightGlobals not initialized (xUnit test environment) or
+                    // some other transient KSP-side failure. Fall through as if
+                    // the kerbal is not on a live vessel — the recreate path
+                    // will run, and the in-game playtest exercises the live
+                    // path.
+                    ParsekLog.Verbose("KerbalsModule",
+                        $"IsKerbalOnLiveVessel: FlightGlobals access failed ({ex.GetType().Name}) — " +
+                        $"treating '{kerbalName}' as not on live vessel");
+                    return false;
+                }
+            }
+
+            /// <summary>
+            /// Walk loaded vessels (excluding ghost-map ProtoVessels) and
+            /// return true if <paramref name="kerbalName"/> is on the vessel
+            /// whose <see cref="Vessel.persistentId"/> equals
+            /// <paramref name="vesselPersistentId"/>. Pid-scoped variant used
+            /// by the #615 ApplyToRoster guard so a stale name-only marker
+            /// cannot suppress an unrelated fresh reservation.
+            /// </summary>
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)
+            {
+                if (string.IsNullOrEmpty(kerbalName)) return false;
+                try
+                {
+                    var vessels = FlightGlobals.Vessels;
+                    if (vessels == null) return false;
+                    for (int v = 0; v < vessels.Count; v++)
+                    {
+                        var vessel = vessels[v];
+                        if (vessel == null) continue;
+                        if (vessel.persistentId != vesselPersistentId) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                        var crew = vessel.GetVesselCrew();
+                        if (crew == null) return false;
+                        for (int c = 0; c < crew.Count; c++)
+                        {
+                            var pcm = crew[c];
+                            if (pcm == null) continue;
+                            if (string.Equals(pcm.name, kerbalName, System.StringComparison.Ordinal))
+                                return true;
+                        }
+                        // Pid matched but the kerbal is no longer on it.
+                        return false;
+                    }
+                    return false;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("KerbalsModule",
+                        $"IsKerbalOnVesselWithPid: FlightGlobals access failed ({ex.GetType().Name}) — " +
+                        $"treating '{kerbalName}' / vesselPid={vesselPersistentId} as not matched");
+                    return false;
+                }
+            }
         }
 
         /// <summary>
@@ -955,6 +1085,10 @@ namespace Parsek
                 var recreatedNames = new HashSet<string>();
 
                 // Step 1: Create missing stand-ins
+                int skippedRescuedOriginal = 0;
+                int guardDeclinedLiveButNoMarker = 0;
+                int guardDeclinedMarkerButNotLive = 0;
+                int guardDeclinedMarkerStalePid = 0;
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
@@ -963,13 +1097,142 @@ namespace Parsek
                         if (!ShouldEnsureChainEntryInRoster(slot, i))
                             continue;
 
+                        // Rescue-completion guard (#615): the post-spawn rescue
+                        // path (#608/#609) restores the reserved+Missing original
+                        // kerbal to Available and lets the snapshot place them
+                        // back into the spawned vessel. The recording still
+                        // contributes its KerbalAssignment action to ELS, so the
+                        // reservation is rebuilt on every recalc walk and the
+                        // historical chain entry survives across walks. Without
+                        // this guard, the recreate path below would re-spawn the
+                        // stand-in that the spawn's UnreserveCrewInSnapshot just
+                        // removed — observable as the "Recreated stand-in"
+                        // info log firing once per recalc walk for kerbals the
+                        // player can already see in their pod.
+                        //
+                        // P1 review (fourth pass): the predicate is now
+                        // PID-SCOPED. The rescue-placed marker is keyed by
+                        // (kerbalName -> rescued vessel persistentId), and the
+                        // guard only fires when the kerbal is currently on
+                        // the SAME vessel where the rescue placed them.
+                        // Earlier rounds combined a name-only marker with a
+                        // generic IsKerbalOnLiveVessel check; that regressed
+                        // when a stale marker from a long-past rescue
+                        // suppressed a later UNRELATED reservation for the
+                        // same kerbal who happened to be on the active player
+                        // vessel — SwapReservedCrewInFlight then had no
+                        // stand-in to swap. Pid scoping ensures: a stale
+                        // marker pointing at a destroyed / unrelated pid
+                        // produces IsKerbalOnVesselWithPid=false; the guard
+                        // declines; the legitimate-recreate path runs.
+                        //
+                        // The "person being replaced at depth i" is the slot
+                        // owner at depth 0 and the prior chain entry at
+                        // deeper levels.
+                        string replacedName = i == 0 ? slot.OwnerName : slot.Chain[i - 1];
+                        ulong rescuedVesselPid = 0UL;
+                        bool isRescuePlaced = !string.IsNullOrEmpty(replacedName)
+                            && CrewReservationManager.TryGetRescuePlacedVessel(
+                                replacedName, out rescuedVesselPid);
+                        bool isOnRescuedVessel = isRescuePlaced
+                            && roster.IsKerbalOnVesselWithPid(replacedName, rescuedVesselPid);
+                        // Diagnostic only — surfaces the legacy "live somewhere"
+                        // signal in declined-branch logs so KSP.log can show
+                        // the kerbal moved to a different live vessel vs.
+                        // the rescued vessel being gone entirely.
+                        bool isOnAnyLiveVessel = !string.IsNullOrEmpty(replacedName)
+                            && roster.IsKerbalOnLiveVessel(replacedName);
+                        if (isRescuePlaced && isOnRescuedVessel)
+                        {
+                            string standInLabel = slot.Chain[i] ?? "<pending>";
+                            ParsekLog.Verbose(Tag,
+                                $"Rescue-completion guard: kerbal '{replacedName}' already placed on " +
+                                $"rescued vessel pid={rescuedVesselPid} via rescue path " +
+                                $"(rescuePlacedPid={rescuedVesselPid}, onRescuedVessel=true) " +
+                                $"— skipping stand-in '{standInLabel}' " +
+                                $"for slot '{slot.OwnerName}' depth {i} " +
+                                "(marker persistent — not consumed on fire; pid-scoped)");
+                            skippedRescuedOriginal++;
+                            // P1 review (third pass): the marker is NOT
+                            // consumed here. The reservation slot is rebuilt
+                            // on every recalc walk while the historical chain
+                            // entry survives in slot.Chain, so the guard must
+                            // fire on EVERY subsequent ApplyToRoster pass for
+                            // the lifetime of the rescue. The marker is
+                            // cleared ONLY by the bulk lifecycle paths
+                            // (LoadCrewReplacements, RestoreReplacements,
+                            // ClearReplacements, ResetReplacementsForTesting)
+                            // at session / rewind / wipe-all boundaries.
+                            //
+                            // P1 review (fourth pass): the marker is now
+                            // pid-scoped, so a stale-true name marker that
+                            // points at a destroyed / unrelated pid no longer
+                            // suppresses unrelated reservations — the
+                            // pid-scoped IsKerbalOnVesselWithPid check above
+                            // returns false for those cases.
+                            continue;
+                        }
+                        if (!isRescuePlaced && isOnAnyLiveVessel)
+                        {
+                            // P1 review case: legitimate fresh reservation
+                            // where the player has the original on the active
+                            // vessel without ever passing through the rescue
+                            // path. Stand-in must still be generated /
+                            // recreated so SwapReservedCrewInFlight has a
+                            // mapping to swap with. Log the decision so
+                            // KSP.log shows the guard considered + declined.
+                            ParsekLog.Verbose(Tag,
+                                $"Rescue-completion guard declined: kerbal '{replacedName}' on a live " +
+                                $"vessel but no rescue marker — proceeding with stand-in for slot " +
+                                $"'{slot.OwnerName}' depth {i} (legitimate fresh reservation)");
+                            guardDeclinedLiveButNoMarker++;
+                        }
+                        else if (isRescuePlaced && !isOnAnyLiveVessel)
+                        {
+                            // Marker present but the kerbal is on no live
+                            // vessel at all (e.g. destroyed after rescue).
+                            // The stand-in is genuinely needed; log the
+                            // decision so a stale marker is visible in
+                            // KSP.log.
+                            guardDeclinedMarkerButNotLive++;
+                        }
+                        else if (isRescuePlaced && isOnAnyLiveVessel && !isOnRescuedVessel)
+                        {
+                            // P1 review (fourth pass): marker present and
+                            // the kerbal IS on a live vessel — but NOT the
+                            // one where the rescue placed them. The marker
+                            // is stale relative to this reservation: either
+                            // the player switched the kerbal to a different
+                            // vessel, or this is a fresh unrelated
+                            // reservation for the same kerbal whose old
+                            // rescue marker never got cleared. The guard
+                            // declines; the legitimate-recreate path runs;
+                            // KSP.log surfaces the divergence between the
+                            // marker pid and the kerbal's current vessel.
+                            ParsekLog.Info(Tag,
+                                $"Stand-in recreate: rescue marker stale (kerbal '{replacedName}' " +
+                                $"moved off rescued vessel pid={rescuedVesselPid}) — " +
+                                $"proceeding with stand-in for slot '{slot.OwnerName}' depth {i} " +
+                                "(P1 review fourth pass: pid-scoped guard declines on stale marker)");
+                            guardDeclinedMarkerStalePid++;
+                        }
+
                         if (slot.Chain[i] != null)
                         {
                             // Verify stand-in still exists in roster
                             ProtoCrewMember.RosterStatus existingStatus;
                             if (!roster.TryGetStatus(slot.Chain[i], out existingStatus))
                             {
-                                // Stand-in was removed (e.g., KSP cleanup) — recreate
+                                // Stand-in was removed (e.g., KSP cleanup) — recreate.
+                                // Verbose preamble pins the legitimate-recreation
+                                // path so KSP.log shows the rescue guard above
+                                // declined and this fall-through path fired instead.
+                                ParsekLog.Verbose(Tag,
+                                    $"Stand-in recreate: '{slot.Chain[i]}' missing from roster, " +
+                                    $"replaced='{replacedName}' rescuePlaced={isRescuePlaced} " +
+                                    $"onLiveVessel={isOnAnyLiveVessel} onRescuedVessel={isOnRescuedVessel} " +
+                                    $"rescuedVesselPid={rescuedVesselPid} " +
+                                    $"— proceeding to recreate for slot '{slot.OwnerName}' depth {i}");
                                 if (!roster.TryRecreateStandIn(slot.Chain[i], slot.OwnerTrait))
                                     ParsekLog.Warn(Tag,
                                         $"Failed to recreate stand-in '{slot.Chain[i]}'");
@@ -1002,6 +1265,39 @@ namespace Parsek
                         }
                     }
                 }
+
+                if (skippedRescuedOriginal > 0
+                    || guardDeclinedLiveButNoMarker > 0
+                    || guardDeclinedMarkerButNotLive > 0
+                    || guardDeclinedMarkerStalePid > 0)
+                {
+                    // P1 review (third pass): aggregate outcome of the
+                    // rescue-completion guard for this walk so KSP.log shows
+                    // fired vs. declined counts at a glance. The marker is
+                    // PERSISTENT across walks (not consumed when the guard
+                    // fires) — the slot is rebuilt every recalc pass while
+                    // the historical chain entry survives, so the guard must
+                    // observe the same marker on every subsequent walk for
+                    // the lifetime of the rescue. Bulk lifecycle paths wipe
+                    // the marker set on session boundaries.
+                    //
+                    // P1 review (fourth pass): the marker is pid-scoped, so
+                    // a fourth bucket appears: declinedMarkerStalePid counts
+                    // walks where the kerbal has a marker but is currently
+                    // on a DIFFERENT live vessel — the legitimate-recreate
+                    // path runs (the rescue marker is stale for this
+                    // reservation).
+                    ParsekLog.Info(Tag,
+                        $"Rescue-completion guard summary: fired={skippedRescuedOriginal} " +
+                        "(marker persistent — preserved across walks; pid-scoped) " +
+                        $"declinedLiveButNoMarker={guardDeclinedLiveButNoMarker} " +
+                        $"declinedMarkerButNotLive={guardDeclinedMarkerButNotLive} " +
+                        $"declinedMarkerStalePid={guardDeclinedMarkerStalePid}");
+                }
+                if (skippedRescuedOriginal > 0)
+                    ParsekLog.Info(Tag,
+                        $"Rescue-completion guard fired: skipped {skippedRescuedOriginal} stand-in " +
+                        "create/recreate(s) because the replaced kerbal is already on a live vessel");
 
                 // Step 2: Remove unused displaced stand-ins from roster
                 foreach (var kvp in slots)
