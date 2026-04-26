@@ -1476,10 +1476,24 @@ namespace Parsek
             // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right treatment
             // applied to single-button body cells (DrawBodyCenteredButton).
-            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
-            GUILayout.Space(BodyCellButtonLeftInset);
-            DrawLoopPeriodCell(rec, ri);
-            GUILayout.EndHorizontal();
+            // Suppressed alongside the loop checkbox when this row is being
+            // drawn inside the virtual Unfinished Flights group: the period
+            // editor is editable for any recording with LoopPlayback=true,
+            // so leaving it active would re-open loop configuration on the
+            // re-fly TODO surface that the loop-checkbox hide was meant to
+            // remove. Render an empty cell of the same column width to keep
+            // the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+                GUILayout.Space(BodyCellButtonLeftInset);
+                DrawLoopPeriodCell(rec, ri);
+                GUILayout.EndHorizontal();
+            }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPeriod");
 
             // Watch button (flight only)
@@ -2431,26 +2445,18 @@ namespace Parsek
             // aligned.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Group));
 
-            // Loop aggregate (acts on member rows; members are real recordings
-            // so the per-row loop toggle remains valid).
-            int loopCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].LoopPlayback) loopCount++;
-            bool allLoop = memberCount > 0 && loopCount == memberCount;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool newLoop = GUILayout.Toggle(allLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (newLoop != allLoop)
-            {
-                foreach (int idx in descendants)
-                    committed[idx].LoopPlayback = newLoop;
-                ParsekLog.Info("UI",
-                    $"Virtual group '{groupName}' loop set to {newLoop} ({memberCount} recordings)");
-            }
+            // Loop aggregate placeholder — the virtual Unfinished Flights group
+            // hides its loop toggle (and the per-member rows hide theirs too,
+            // see DrawRecordingRow) because the group is a re-fly TODO list.
+            // Surfacing an aggregate "loop all" toggle here would write
+            // LoopPlayback back to every member, undoing the hide-from-the-
+            // TODO-surface intent. The per-recording loop state stays
+            // editable from the same recording's row in its real (mission)
+            // group. Render an empty cell to keep the column aligned.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
 
-            // Period placeholder.
+            // Period placeholder — paired with the suppressed loop aggregate
+            // above so the virtual group exposes no playback configuration.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
 
             // Watch placeholder (flight only) — Unfinished Flights row does

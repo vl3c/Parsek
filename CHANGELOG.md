@@ -46,7 +46,7 @@ All notable changes to Parsek are documented here.
 - `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
 - Runtime observability now adds compact recorder, map, Tracking Station, post-switch, game-action, and in-game test summaries without repeating stable no-op decisions.
 - Recordings table renames the Unfinished Flights `Re-Fly` button to `Fly` so the rec window and Timeline window use the same glyph for the same action; the confirmation popup that follows the click also relabels its accept button from `Re-Fly` to `Fly` for consistency.
-- Recordings table hides the loop checkbox on rows shown inside the virtual `Unfinished Flights` group, and the Timeline window hides the `L` button on Unfinished Flight rows; loop remains editable from the recording's row in its real (mission) group.
+- Recordings table hides every loop control inside the virtual `Unfinished Flights` group — the per-row loop checkbox and period editor on member rows, plus the group-header aggregate loop toggle — and the Timeline window hides the `L` button on Unfinished Flight rows; loop remains editable from the recording's row in its real (mission) group.
 
 ### Bug Fixes
 
