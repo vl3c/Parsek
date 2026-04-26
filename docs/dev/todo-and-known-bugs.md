@@ -1977,6 +1977,92 @@ tree.
 
 **Status:** Open — needs investigation. Not fixed in PR #(this).
 
+**Spawner-side downstream:** see `#609` for the related fix that
+prevents the deferred state from cascading into a permanent
+`Spawn ABANDONED — all crew dead/missing` for the capsule recording.
+The orphan-placement-deferred state itself is still as-designed; the
+follow-up only removes the spawn-time abandon trap that turned it
+into a hard data-loss bug.
+
+---
+
+## ~~609. Spawner abandons capsule recording forever when reserved crew is Missing post-Re-Fly~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log:14414`
+(plus the `#608` deferred-orphan-placement preamble at line 13539-13541).
+After the orphan-placement pass for a Re-Fly stripped capsule deferred
+all three reserved kerbals (Jeb / Bill / Bob) — booster was the active
+vessel, no command-pod free seats — the spawner's end-of-recording
+spawn for the capsule (`#1 "Kerbal X"`) abandoned permanently:
+
+```
+[WARN][Spawner] Spawn ABANDONED for #1 (Kerbal X): all 3 crew are dead/missing — [Jebediah Kerman, Bill Kerman, Bob Kerman]
+[VERBOSE][Spawner] Spawn suppressed for #1 "Kerbal X": already spawned (VesselSpawned=true)
+```
+
+KSP's natural respawn timer flipped the originals back to Available
+~33 s later (log lines 14863-14874 `Crewmember X has respawned!`),
+but the recording was already in the abandoned terminal state
+(`VesselSpawned=true SpawnAbandoned=true`) and never re-attempted —
+the post-Re-Fly continued timeline never appeared in the scene.
+
+**Root cause:** `VesselSpawner.BuildDeadCrewSet` used
+`IsCrewDeadInRoster` (Dead OR Missing) for every snapshot crew name,
+asymmetric with `RemoveDeadCrewFromSnapshot`'s reserved-kerbal
+carve-out (`reserved.ContainsKey(name) && !isStrictlyDead → keep`).
+A reserved kerbal who was Missing because their original vessel had
+just been Re-Fly-stripped therefore counted as dead in the all-dead
+spawn-block guard, even though the spawn pipeline would have kept them
+in the snapshot if the guard had let them through.
+
+**Fix:**
+
+- `BuildDeadCrewSet` now applies the same reservation carve-out:
+  reserved-and-not-strictly-Dead crew are excluded from the dead set,
+  and `ShouldBlockSpawnForDeadCrewInSnapshot` allows the spawn.
+- New `RescueReservedMissingCrewInSnapshot` pre-spawn step
+  (called from both `RespawnVessel` and `SpawnAtPosition`) flips
+  reserved+Missing kerbals back to Available before the snapshot is
+  loaded by `ProtoVessel.Load`, mirroring the existing rescue branches
+  in `CrewReservationManager.ReserveCrewIn` and
+  `PlaceOrphanedReplacements`.
+- The `Spawn ABANDONED` WARN at `VesselSpawner.cs:1218` and
+  `ParsekKSC.cs:1393` now reports a per-category breakdown
+  (`total=N strictlyDead=N missingNotReserved=N reservedMissing=N alive=N [name: classification, …]`)
+  instead of a flat name list, so future regressions can be diagnosed
+  from the abandon line alone.
+- New `[Verbose][Spawner] Spawn-block carve-out applied (#608/#609)` log
+  fires whenever the carve-out turns a previously-abandoned scenario
+  into a successful spawn — playtest logs make the recovery visible.
+
+Regression coverage: `Bug609Tests.cs` (xUnit — pure pieces:
+`ClassifySnapshotCrew` degraded path,
+`FormatSpawnableClassificationSummary` shape, post-carve-out
+`ShouldBlockSpawnForDeadCrew` decisions); in-game test
+`Bug609_ReservedMissingCrewIsSpawnableAndRescued` in
+`InGameTests/RuntimeTests.cs` exercises the live-roster path
+(reservation registration → rosterStatus = Missing → classification +
+spawn-block check + rescue, with full rollback).
+
+**Known limitation (deliberate, not a bug):** saves authored before
+this fix that already have a recording stuck at
+`VesselSpawned=true SpawnAbandoned=true` from this exact path will
+not auto-recover. A retroactive sweep would risk un-sticking
+recordings that were correctly abandoned, so the fix is
+forward-only — affected players need to re-trigger via save edit or
+discard the abandoned recording. (Q1 design decision logged 2026-04-26.)
+
+**Reproduction:** From `logs/2026-04-26_0118_refly-postfix-still-broken`,
+an in-place continuation Re-Fly where the active-on-load vessel is the
+booster (no command pod, no free seats) and the capsule's recording is
+still live in the tree. KSP marks the original crew Missing on Re-Fly
+strip; the orphan-placement pass defers the stand-ins (per `#608`); the
+end-of-recording capsule spawn fires while the originals are still
+Missing.
+
+**Status:** CLOSED 2026-04-26 (PR #(this)). Cross-reference `#608`,
+which still describes the orphan-placement-deferred preamble.
+
 ---
 
 ## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
