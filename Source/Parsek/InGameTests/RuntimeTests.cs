@@ -4706,6 +4706,252 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// #615 rescue-completion guard: the production
+        /// <c>KerbalsModule.IKerbalRosterFacade.IsKerbalOnLiveVessel</c>
+        /// implementation walks <see cref="FlightGlobals.Vessels"/> and the
+        /// xUnit harness can not init that statically (the type initializer
+        /// pulls in <c>UnityEngine.Quaternion.Euler</c>). This in-game test
+        /// covers the live walk in FLIGHT scene: the active vessel's crew
+        /// must be reported as on a live vessel and a name that is not on
+        /// any vessel must be reported as not on a live vessel. Mirrors the
+        /// rescue-completion happy path inside an actual Unity runtime so
+        /// the headless xUnit guard tests are reinforced by a runtime
+        /// regression.
+        /// </summary>
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "#615 IsKerbalOnLiveVessel reports live FlightGlobals crew correctly")]
+        public void IsKerbalOnLiveVessel_LiveFlightGlobalsWalk()
+        {
+            var active = FlightGlobals.ActiveVessel;
+            if (active == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            var crew = active.GetVesselCrew();
+            if (crew == null || crew.Count == 0)
+            {
+                InGameAssert.Skip("Active vessel has no crew");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
+            // Build a production facade exactly the way KerbalsModule does
+            // and exercise IsKerbalOnLiveVessel through the interface, so
+            // any future facade-level wrapping (e.g. ghost-map filtering
+            // changes) is covered.
+            var facadeType = typeof(KerbalsModule).GetNestedType(
+                "KerbalRosterFacade",
+                System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance);
+            InGameAssert.IsNotNull(facadeType, "KerbalRosterFacade type must exist");
+            var ctor = facadeType.GetConstructor(new[] { typeof(KerbalRoster) });
+            InGameAssert.IsNotNull(ctor, "KerbalRosterFacade(KerbalRoster) ctor must exist");
+            var facade = (KerbalsModule.IKerbalRosterFacade)ctor.Invoke(new object[] { roster });
+
+            // Active vessel's first crew member must be reported on a live vessel.
+            string activeName = crew[0].name;
+            InGameAssert.IsTrue(facade.IsKerbalOnLiveVessel(activeName),
+                $"IsKerbalOnLiveVessel('{activeName}') must be true (kerbal is on active vessel)");
+
+            // A clearly-fake name must be reported as not on a live vessel.
+            InGameAssert.IsFalse(facade.IsKerbalOnLiveVessel("Definitely Not A Real Kerbal"),
+                "IsKerbalOnLiveVessel('Definitely Not A Real Kerbal') must be false");
+
+            ParsekLog.Verbose("TestRunner",
+                $"IsKerbalOnLiveVessel: live FlightGlobals walk OK for activeCrew='{activeName}'");
+        }
+
+        /// <summary>
+        /// #615 P1 review (second pass): pin the production lifecycle that
+        /// the headless xUnit suite cannot exercise. The spawn pipeline runs
+        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
+        /// (sets the rescue-placed marker) and immediately
+        /// <see cref="CrewReservationManager.UnreserveCrewInSnapshot"/> on
+        /// the same snapshot — pre-fix the unreserve cleared the marker
+        /// before the next ApplyToRoster walk could read it. This test
+        /// exercises the exact production call sites with a real KSP
+        /// roster, then asserts the marker survives the unreserve step so
+        /// the guard would observe it on the next walk. Reinforces the
+        /// xUnit
+        /// <c>RescueThenUnreserveThenApplyToRoster_GuardFiresAndStandInNotRegenerated</c>
+        /// regression which uses a roster-free seam.
+        /// </summary>
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "#615 marker survives Rescue + Unreserve and persists across walks (P1 review third pass)")]
+        public void RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives()
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember victim = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    victim = pcm;
+                    break;
+                }
+            }
+            if (victim == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal not on active vessel");
+                return;
+            }
+
+            string fakeStandIn = "P1Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            var savedVictimStatus = victim.rosterStatus;
+            ulong savedVictimMarkerPid;
+            bool victimWasRescuePlaced = CrewReservationManager.TryGetRescuePlacedVessel(
+                victim.name, out savedVictimMarkerPid);
+
+            // P1 review (fourth pass): the marker is pid-scoped. Use a
+            // synthetic pid for this in-game test because we are exercising
+            // the marker contract independent of an actual ProtoVessel.Load.
+            const ulong syntheticTestPid = 0x615F4U; // distinctive marker
+
+            try
+            {
+                // Stage the production state right before the spawn pipeline:
+                //   victim is reserved (in crewReplacements) AND Missing.
+                CrewReservationManager.ClearReplacementsInternal();
+                CrewReservationManager.SetReplacement(victim.name, fakeStandIn);
+                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                // Sanity: marker must start clean.
+                InGameAssert.IsFalse(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"Pre-test sanity: marker for '{victim.name}' must start cleared");
+
+                // Build the snapshot the recording would hand to the spawner.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", "mk1pod.v2");
+                partNode.AddValue("crew", victim.name);
+
+                // Step 1: rescue path — flips Missing->Available and
+                // collects the rescued name. P1 review (fourth pass): the
+                // helper no longer marks; the caller pid-scopes the marker
+                // after the live spawn assigns a vesselPid.
+                var rescuedNames = new List<string>();
+                VesselSpawner.RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames);
+                InGameAssert.IsTrue(rescuedNames.Contains(victim.name),
+                    $"RescueReservedMissingCrewInSnapshot must collect '{victim.name}' " +
+                    "as a rescued name (#615 P1 fourth pass — caller marks with pid)");
+                InGameAssert.AreEqual(ProtoCrewMember.RosterStatus.Available, victim.rosterStatus,
+                    $"After Rescue: '{victim.name}' must be Available");
+
+                // Caller wires the pid (in production this happens after
+                // ProtoVessel.Load; here we use a synthetic pid).
+                CrewReservationManager.MarkRescuePlaced(victim.name, syntheticTestPid);
+                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"After MarkRescuePlaced(pid): marker for '{victim.name}' must be set");
+                ulong pidObserved;
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"TryGetRescuePlacedVessel must surface the pid for '{victim.name}'");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    $"Marker pid for '{victim.name}' must equal the synthetic pid passed in");
+
+                // Step 2: unreserve path — removes the replacement from the
+                // dict via CleanUpReplacement. P1 review (second pass): this
+                // must NOT clear the rescue-placed marker. Pre-fix it did,
+                // and the next ApplyToRoster walk regenerated the stand-in.
+                CrewReservationManager.UnreserveCrewInSnapshot(snapshot);
+
+                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"After Unreserve: marker for '{victim.name}' must SURVIVE — " +
+                    "this is the P1 review second-pass invariant. Pre-fix the marker " +
+                    "was cleared here and the next ApplyToRoster walk regenerated the " +
+                    "stand-in PR #595 was meant to suppress.");
+                // Pid still set to the synthetic value (not overwritten by
+                // unreserve).
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"After Unreserve: TryGetRescuePlacedVessel still surfaces the pid");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    "Pid-scoped marker survives Unreserve unchanged");
+                InGameAssert.IsFalse(
+                    CrewReservationManager.CrewReplacements.ContainsKey(victim.name),
+                    $"After Unreserve: replacement dict entry for '{victim.name}' must be cleared");
+
+                // Step 3: P1 review (third pass) — the marker must be
+                // PERSISTENT across walks, not consumed when the
+                // ApplyToRoster guard fires. The reservation slot is rebuilt
+                // every recalc walk while slot.Chain survives, so the guard
+                // must observe the same marker on every subsequent walk for
+                // the lifetime of the rescue. RecalculateAndPatch fires from
+                // 14+ call sites per session (warp exit, save load, scene
+                // transition, KSC spending, etc.) and the previous one-shot
+                // consume design failed on the very next trigger.
+                //
+                // Pin the persistence contract: the marker must survive an
+                // arbitrary number of "guard observations" (here we just
+                // re-read IsRescuePlaced repeatedly because we cannot run
+                // ApplyToRoster against the live KerbalsModule from this
+                // in-game test without disturbing the production state).
+                for (int walk = 1; walk <= 3; walk++)
+                {
+                    InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                        $"Walk {walk}: marker for '{victim.name}' must persist " +
+                        "(P1 review third pass — guard does not consume on fire)");
+                    InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                            victim.name, out pidObserved),
+                        $"Walk {walk}: TryGetRescuePlacedVessel still surfaces the pid");
+                    InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                        $"Walk {walk}: pid-scoped marker pid must match the rescue's pid");
+                }
+
+                ParsekLog.Info("TestRunner",
+                    $"#615 P1 review fourth pass: '{victim.name}' pid-scoped marker " +
+                    $"(pid={syntheticTestPid}) survived Rescue + Unreserve and persists " +
+                    "across multiple walks (not consumed)");
+            }
+            finally
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+                victim.rosterStatus = savedVictimStatus;
+                if (victimWasRescuePlaced)
+                    CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
+                else
+                    CrewReservationManager.ClearRescuePlaced(victim.name);
+            }
+        }
+
         [InGameTest(Category = "CrewReservation",
             Description = "No replacement name appears as both a key and a value (circular chain)")]
         public void NoCircularReplacements()
