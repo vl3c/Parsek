@@ -1601,6 +1601,7 @@ namespace Parsek
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
             kscSpawnAttempted.Clear();
+            loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();
