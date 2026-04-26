@@ -48,6 +48,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
+
+- Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge.
+
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 
 - `#611` Re-Fly doubled-vessel suppression now searches `RecordingStore.PendingTree` alongside `CommittedTrees` for both the active recording's PID lookup AND the parent-chain BFS walk, so the predicate fires during the load window when `TryRestoreActiveTreeNode`'s post-splice `RemoveCommittedTreeById` has just emptied the committed copy. Previously the gate bailed at the PID lookup with `not-suppressed-active-rec-pid-unknown` (because `CommittedRecordings` no longer held this tree's recordings) before reaching the parent-chain walk, and the doubled `Ghost: <name>` ProtoVessel got created. The success reason now also carries `activePidSource=search-tree:<id>` or `committed-recordings-flat-list` so the load-window vs steady-state distinction is auditable. The BFS walk returns a structured `walkTrace` (`active-not-found` / `active-has-no-parent-bp` / `found-victim-in-parent-chain` / `exhausted-without-victim` plus visited-BP ids and parents-encountered ids) bubbled into both the suppressed and not-suppressed structured log lines so future "predicate didn't fire" diagnoses can read the BFS state from `KSP.log` alone — no more debugging by absence-of-line. A new `[GhostMap] create-state-vector-not-suppressed-during-refly` Verbose decision line fires when a Re-Fly session is active but the predicate declines to suppress, recording the rejection reason + walk trace.

@@ -831,6 +831,252 @@ namespace Parsek.Tests
                 r => r.OldRecordingId == "rec_tip" && r.NewRecordingId == "rec_provisional");
         }
 
+        // ---------- In-place continuation supersede append (bug fix) ------
+        // Bug fix (in-place-supersede): when the merge is an "in-place
+        // continuation" (provisional.RecordingId == origin), the prior code
+        // skipped AppendRelations entirely, so chain siblings / parent
+        // recordings inside the suppressed subtree never got supersede rows
+        // and stayed visible after merge. The fix calls AppendRelations on
+        // the in-place path too, relying on the restored old==new self-skip
+        // inside AppendRelations to filter the trivial self-link.
+
+        /// <summary>
+        /// In-place continuation with sibling chain segments: AppendRelations
+        /// must write rows for the siblings (including a destroyed-final-state
+        /// segment) while skipping the trivial self-link for the origin. The
+        /// MergeState flip + marker clear behaviour is unchanged.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_AppendsSupersedeRowsForSiblings()
+        {
+            // Build a chain-shaped suppressed subtree:
+            //   parentBP --> head (ChainId=A, branch=0, idx=0; in-place target)
+            //                 |
+            //                 + sibling tip (ChainId=A, branch=0, idx=1; terminal=Destroyed,
+            //                                e.g. "Kerbal X Probe" Destroyed)
+            // The marker points at the head (origin == provisional == head).
+            // EnqueueChainSiblings expands the closure to include the tip;
+            // AppendRelations must write a row for the tip while the
+            // old==new self-skip filters the head's own entry.
+            const string kBpId = "bp_parent_for_inplace";
+            var head = Rec("rec_head", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            // Need >=1 trajectory point + non-null terminal to satisfy
+            // ValidateSupersedeTarget (the in-place AppendRelations call goes
+            // through the same validator).
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var tip = Rec("rec_tip", "tree_1",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_head" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // origin == provisional == "rec_head"
+            var marker = Marker(originId: "rec_head", provisionalId: "rec_head");
+            var scenario = InstallScenario(marker);
+
+            // Stub the quicksave file delete so the reaper inside the in-place
+            // path doesn't try to touch disk.
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Bug 2 assertion: tip got a supersede row pointing at the head
+            // (= the in-place provisional). Without this fix the merge would
+            // skip AppendRelations entirely and the destroyed tip would stay
+            // visible in ERS.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_tip" && r.NewRecordingId == "rec_head");
+            // Self-link filter: there must be NO row for old=rec_head new=rec_head.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_head" && r.NewRecordingId == "rec_head");
+
+            // Marker cleared, MergeState flipped to Immutable (Landed terminal),
+            // origin no longer the active marker target.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+
+            // Log assertions: in-place append summary log fires; AppendRelations
+            // self-skip log fires; and the AppendRelations summary reports the
+            // skip count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 1 relation"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_head")
+                && l.Contains("new=rec_head"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 1 supersede relations")
+                && l.Contains("skippedSelfLink=1"));
+        }
+
+        /// <summary>
+        /// In-place continuation where the closure is exactly the origin (no
+        /// chain siblings or BP descendants): AppendRelations finds only the
+        /// origin self-link, skips it via the old==new guard, and the
+        /// supersede list stays empty. The merge still completes; this case
+        /// matches the existing
+        /// <c>TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes</c>
+        /// fixture but locks in the new "self-link skipped" log evidence
+        /// emitted by the restored guard.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly()
+        {
+            var origin = Rec("rec_origin", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: null);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+
+            // The lone-origin closure means the only candidate is the
+            // self-link, which is skipped: list stays empty.
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_origin")
+                && l.Contains("new=rec_origin"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 0 relation"));
+        }
+
+        /// <summary>
+        /// AppendRelations self-link guard: when the subtree closure contains
+        /// the provisional's own id (which happens whenever
+        /// origin == provisional, i.e. in-place continuation), the row is
+        /// skipped instead of producing a 1-node cycle in EffectiveRecordingId.
+        /// Other ids in the closure still get rows. Direct
+        /// AppendRelations call so this test is independent of the
+        /// MergeDialog wiring above.
+        /// </summary>
+        [Fact]
+        public void AppendRelations_SelfLinkSkipped_OtherSubtreeIdsStillWriteRows()
+        {
+            // Closure: head (origin == provisional) + tip (chain sibling).
+            const string kBpId = "bp_self_test";
+            var head = Rec("rec_self_head", "tree_self",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            head.ChainId = "chain_self";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var tip = Rec("rec_self_tip", "tree_self",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_self";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_self");
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_self");
+            var tree = new RecordingTree
+            {
+                Id = "tree_self",
+                TreeName = "tree_self",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_self_head" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_self_head", provisionalId: "rec_self_head",
+                treeId: "tree_self");
+            var scenario = InstallScenario(marker);
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+            var subtree = SupersedeCommit.AppendRelations(marker, head, scenario);
+
+            // Closure includes both head and tip; head is filtered as
+            // self-link, tip becomes a row.
+            Assert.Contains("rec_self_head", subtree);
+            Assert.Contains("rec_self_tip", subtree);
+            int countAfter = scenario.RecordingSupersedes.Count;
+            Assert.Equal(countBefore + 1, countAfter);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_self_tip" && r.NewRecordingId == "rec_self_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_self_head" && r.NewRecordingId == "rec_self_head");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_self_head")
+                && l.Contains("new=rec_self_head"));
+        }
+
         [Fact]
         public void ValidateSupersedeTarget_ReasonStrings()
         {

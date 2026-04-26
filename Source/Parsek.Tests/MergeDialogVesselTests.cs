@@ -450,5 +450,229 @@ namespace Parsek.Tests
 
         // MarkForceSpawnOnTreeRecordings tests removed — spawn dedup bypass is now
         // stateless via RecordingStore.SceneEntryActiveVesselPid (#226).
+
+        // ============================================================
+        // BuildDefaultVesselDecisions: Re-Fly suppressed-subtree pass
+        // (refly-suppressed-non-leaf bug fix)
+        // ============================================================
+
+        /// <summary>
+        /// Bug fix (refly-suppressed-non-leaf): a parent recording inside the
+        /// session-suppressed subtree that has child branch points (so it is
+        /// NOT a leaf) used to retain its <c>VesselSnapshot</c> through the
+        /// merge dialog because <c>BuildDefaultVesselDecisions</c> only walked
+        /// <c>GetAllLeaves()</c>. Later <c>GhostPlaybackLogic.ShouldSpawnAtRecordingEnd</c>
+        /// then spawned the parent as a real clickable vessel alongside its
+        /// playback ghost. With the fix, every non-leaf id in the suppression
+        /// closure is force-marked ghost-only — except the active Re-Fly
+        /// target itself, which must stay spawnable.
+        /// </summary>
+        [Fact]
+        public void BuildDefaultVesselDecisions_SuppressedNonLeafForcedGhostOnly()
+        {
+            // Tree shape:
+            //   parent (non-leaf, has child bp)  --bp1-->  child (leaf, suppressed)
+            //   active (the live Re-Fly target; in-place continuation, also in closure)
+            // The suppression closure contains parent + child + active. Only
+            // active must remain spawnable; parent and child must be flipped
+            // to ghost-only.
+            var tree = new RecordingTree { TreeName = "Branched" };
+            tree.Recordings["parent"] = new Recording
+            {
+                RecordingId = "parent",
+                VesselName = "Kerbal X Upper",
+                ChildBranchPointId = "bp1",  // Not a leaf
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["child"] = new Recording
+            {
+                RecordingId = "child",
+                VesselName = "Kerbal X Probe",
+                ParentBranchPointId = "bp1",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["active"] = new Recording
+            {
+                RecordingId = "active",
+                VesselName = "Kerbal X Booster",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            var suppressed = new HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "parent",
+                "child",
+                "active",
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree, suppressed, activeReFlyTargetId: "active");
+
+            // active stays as a regular leaf decision (spawnable, since
+            // terminal=Landed) and is NOT flipped to ghost-only by the
+            // suppression pass.
+            Assert.True(decisions.ContainsKey("active"));
+            Assert.True(decisions["active"]);
+            // child was a leaf and is in suppression -> ghost-only.
+            Assert.True(decisions.ContainsKey("child"));
+            Assert.False(decisions["child"]);
+            // parent was a non-leaf, never visited by GetAllLeaves(), and
+            // must now be forced ghost-only by the new suppressed-subtree pass.
+            Assert.True(decisions.ContainsKey("parent"));
+            Assert.False(decisions["parent"]);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("forcing ghost-only on suppressed")
+                && l.Contains("id='parent'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("keeping active Re-Fly target spawnable")
+                && l.Contains("id='active'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("suppressed-subtree pass complete")
+                && l.Contains("forcedGhostOnly=1")
+                && l.Contains("skippedActiveTarget=1"));
+        }
+
+        /// <summary>
+        /// When no Re-Fly session is active (or the closure is empty), the
+        /// suppression pass is a no-op and the leaf-only behaviour is
+        /// unchanged.
+        /// </summary>
+        [Fact]
+        public void BuildDefaultVesselDecisions_NullSuppression_LeafBehaviourUnchanged()
+        {
+            var tree = new RecordingTree { TreeName = "Plain" };
+            tree.Recordings["parent"] = new Recording
+            {
+                RecordingId = "parent",
+                VesselName = "Parent",
+                ChildBranchPointId = "bp1",  // Not a leaf
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["child"] = new Recording
+            {
+                RecordingId = "child",
+                VesselName = "Child",
+                ParentBranchPointId = "bp1",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree, suppressedRecordingIds: null, activeReFlyTargetId: null);
+
+            // Only the leaf 'child' shows up.
+            Assert.Single(decisions);
+            Assert.True(decisions.ContainsKey("child"));
+            Assert.False(decisions.ContainsKey("parent"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]") && l.Contains("forcing ghost-only on suppressed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]") && l.Contains("suppressed-subtree pass complete"));
+        }
+
+        /// <summary>
+        /// Closure ids that do not exist in the pending tree are counted but
+        /// produce no decision changes — the suppressed-subtree closure is
+        /// computed against committed recordings and may name records the
+        /// pending tree never knew about.
+        /// </summary>
+        [Fact]
+        public void BuildDefaultVesselDecisions_SuppressedIdNotInTree_CountedAndIgnored()
+        {
+            var tree = new RecordingTree { TreeName = "OnlyOne" };
+            tree.Recordings["leaf"] = new Recording
+            {
+                RecordingId = "leaf",
+                VesselName = "OnlyLeaf",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var suppressed = new HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "ghost-id-not-in-tree",
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree, suppressed, activeReFlyTargetId: null);
+
+            Assert.Single(decisions);
+            Assert.True(decisions["leaf"]);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("suppressed-subtree pass complete")
+                && l.Contains("notInTree=1")
+                && l.Contains("forcedGhostOnly=0"));
+        }
+
+        /// <summary>
+        /// Active Re-Fly target sitting in the suppression closure must keep
+        /// its leaf-derived spawnable decision even when its terminal state
+        /// would normally make it ghost-only — but only if it stays
+        /// genuinely spawnable per <c>CanPersistVessel</c>. Conversely, when
+        /// the closure does not include it, the suppression pass leaves its
+        /// existing decision alone. Verify the explicit "keeping active
+        /// Re-Fly target spawnable" log line fires only when the active id
+        /// is in the closure AND is the named target.
+        /// </summary>
+        [Fact]
+        public void BuildDefaultVesselDecisions_ActiveTargetNotInClosure_NoSkipLog()
+        {
+            var tree = new RecordingTree { TreeName = "Multi" };
+            tree.Recordings["parent"] = new Recording
+            {
+                RecordingId = "parent",
+                VesselName = "Parent",
+                ChildBranchPointId = "bp1",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["leaf"] = new Recording
+            {
+                RecordingId = "leaf",
+                VesselName = "Leaf",
+                ParentBranchPointId = "bp1",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["other"] = new Recording
+            {
+                RecordingId = "other",
+                VesselName = "OtherTree",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            // Suppression names parent + leaf; activeReFlyTargetId="other"
+            // is NOT in the closure (still in the same tree, but excluded
+            // from suppression — e.g. an unrelated leaf). The skip-active
+            // log line must NOT fire because the active id never enters
+            // the suppression loop.
+            var suppressed = new HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "parent",
+                "leaf",
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree, suppressed, activeReFlyTargetId: "other");
+
+            Assert.False(decisions["parent"]);
+            Assert.False(decisions["leaf"]);
+            Assert.True(decisions["other"]);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("keeping active Re-Fly target spawnable"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("suppressed-subtree pass complete")
+                && l.Contains("skippedActiveTarget=0"));
+        }
     }
 }

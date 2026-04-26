@@ -55,7 +55,40 @@ namespace Parsek
                 return;
             }
 
-            var decisions = BuildDefaultVesselDecisions(tree);
+            // Bug fix (refly-suppressed-non-leaf): when a Re-Fly session is
+            // active, gather the session-suppressed subtree closure so
+            // BuildDefaultVesselDecisions can force ghost-only on every
+            // non-leaf recording inside it (parents + chain siblings of the
+            // origin). Without this, GetAllLeaves() returns only chain tips,
+            // and parent recordings keep their VesselSnapshot — later
+            // GhostPlaybackLogic.ShouldSpawnAtRecordingEnd happily spawns
+            // them as real vessels alongside the playback ghost.
+            var scenarioForSuppression = ParsekScenario.Instance;
+            ReFlySessionMarker activeMarker =
+                !object.ReferenceEquals(null, scenarioForSuppression)
+                    ? scenarioForSuppression.ActiveReFlySessionMarker
+                    : null;
+            HashSet<string> suppressedRecordingIds = null;
+            string activeReFlyTargetId = null;
+            if (activeMarker != null)
+            {
+                activeReFlyTargetId = activeMarker.ActiveReFlyRecordingId;
+                try
+                {
+                    var closure = EffectiveState.ComputeSessionSuppressedSubtree(activeMarker);
+                    if (closure != null && closure.Count > 0)
+                        suppressedRecordingIds = new HashSet<string>(closure, System.StringComparer.Ordinal);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowTreeDialog: ComputeSessionSuppressedSubtree threw {ex.GetType().Name}: " +
+                        $"{ex.Message} — falling back to leaf-only ghost-only decisions");
+                }
+            }
+
+            var decisions = BuildDefaultVesselDecisions(
+                tree, suppressedRecordingIds, activeReFlyTargetId);
             int spawnCount = 0;
             foreach (var val in decisions.Values)
                 if (val) spawnCount++;
@@ -359,10 +392,37 @@ namespace Parsek
                 ParsekLog.Info("MergeDialog",
                     $"TryCommitReFlySupersede: in-place continuation detected " +
                     $"(provisional == origin == {provisional.RecordingId}); skipping " +
-                    $"supersede merge (no self-supersede row) and finalizing continuation. " +
+                    $"journaled supersede merge but still appending supersede rows for " +
+                    $"sibling/parent recordings in the closure. " +
                     $"Tombstones from the prior Destroyed run are left as-is in v1.");
                 try
                 {
+                    // Bug fix (in-place-supersede): the subtree closure also
+                    // contains chain siblings and parent recordings beyond
+                    // the origin itself. The pre-fix path skipped
+                    // AppendRelations entirely, so a destroyed-final-state
+                    // sibling (e.g. the prior "Kerbal X Probe" Destroyed
+                    // chain segment) stayed visible after merge — its
+                    // EffectiveState.IsVisible returned true with no
+                    // supersede row pointing at it. Call AppendRelations so
+                    // every non-self entry in the closure gets a supersede
+                    // row pointing at the in-place provisional. The
+                    // newly-restored old==new self-skip inside
+                    // AppendRelations guards the trivial origin-self entry
+                    // (origin == provisional in this path), and the existing
+                    // RelationExists duplicate guard makes the call safe to
+                    // re-run on resume.
+                    if (scenario.RecordingSupersedes == null)
+                        scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+                    int relationsBefore = scenario.RecordingSupersedes.Count;
+                    SupersedeCommit.AppendRelations(marker, provisional, scenario);
+                    int relationsAfter = scenario.RecordingSupersedes.Count;
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation supersede append " +
+                        $"wrote {relationsAfter - relationsBefore} relation(s) " +
+                        $"(before={relationsBefore} after={relationsAfter}; self-link skipped " +
+                        $"by AppendRelations old==new guard)");
+
                     // FlipMergeStateAndClearTransient with preserveMarker=false
                     // flips MergeState, clears SupersedeTargetId, bumps
                     // SupersedeStateVersion, clears the ActiveReFlySessionMarker
@@ -572,6 +632,30 @@ namespace Parsek
         /// Keys are RecordingId. Pure static for testability.
         /// </summary>
         internal static Dictionary<string, bool> BuildDefaultVesselDecisions(RecordingTree tree)
+            => BuildDefaultVesselDecisions(tree, null, null);
+
+        /// <summary>
+        /// Builds default persist/ghost-only decisions for a tree, additionally
+        /// forcing every non-leaf recording listed in
+        /// <paramref name="suppressedRecordingIds"/> to ghost-only — except the
+        /// recording identified by <paramref name="activeReFlyTargetId"/>, which
+        /// is the live Re-Fly target the player is currently flying and must
+        /// stay spawnable.
+        ///
+        /// <para>
+        /// Bug fix (refly-suppressed-non-leaf): without this branch a parent
+        /// recording in the suppressed subtree (e.g. an upper stage that has
+        /// child decoupling/breakup branches) keeps <c>VesselSnapshot</c> set,
+        /// and <c>GhostPlaybackLogic.ShouldSpawnAtRecordingEnd</c> later spawns
+        /// it as a clickable real vessel alongside the playback ghost. The
+        /// only branches the leaf walk reaches are chain tips, so non-leaf
+        /// suppressed recordings would otherwise be silently retained.
+        /// </para>
+        /// </summary>
+        internal static Dictionary<string, bool> BuildDefaultVesselDecisions(
+            RecordingTree tree,
+            HashSet<string> suppressedRecordingIds,
+            string activeReFlyTargetId)
         {
             var decisions = new Dictionary<string, bool>();
             if (tree == null)
@@ -607,6 +691,60 @@ namespace Parsek
                         $"terminal={activeRec.TerminalStateValue?.ToString() ?? "null"} " +
                         $"hasSnapshot={activeRec.VesselSnapshot != null} canPersist={canPersist}");
                 }
+            }
+
+            // Re-Fly suppressed-subtree pass: for every recording whose id appears
+            // in the suppression closure, force ghost-only — even if it is a
+            // non-leaf the leaf walk above never visited. The sole exception is
+            // the live Re-Fly target itself, which must stay spawnable. Note we
+            // walk the closure ids (not tree.Recordings) because the closure is
+            // computed against committed recordings and may name records that
+            // are not in the pending tree (chain siblings, etc.); we only act
+            // when the id ALSO exists in this tree.
+            if (suppressedRecordingIds != null && suppressedRecordingIds.Count > 0)
+            {
+                int forced = 0;
+                int skippedActiveTarget = 0;
+                int alreadyGhostOnly = 0;
+                int notInTree = 0;
+                foreach (string suppressedId in suppressedRecordingIds)
+                {
+                    if (string.IsNullOrEmpty(suppressedId)) continue;
+                    if (!string.IsNullOrEmpty(activeReFlyTargetId)
+                        && string.Equals(suppressedId, activeReFlyTargetId, System.StringComparison.Ordinal))
+                    {
+                        skippedActiveTarget++;
+                        ParsekLog.Verbose("MergeDialog",
+                            $"BuildDefaultVesselDecisions: keeping active Re-Fly target spawnable " +
+                            $"id='{suppressedId}' (in suppressed subtree but is the live target)");
+                        continue;
+                    }
+                    Recording rec;
+                    if (!tree.Recordings.TryGetValue(suppressedId, out rec) || rec == null)
+                    {
+                        notInTree++;
+                        continue;
+                    }
+                    bool wasGhostOnly;
+                    if (decisions.TryGetValue(suppressedId, out wasGhostOnly) && !wasGhostOnly)
+                    {
+                        alreadyGhostOnly++;
+                        continue;
+                    }
+                    decisions[suppressedId] = false;
+                    forced++;
+                    ParsekLog.Info("MergeDialog",
+                        $"BuildDefaultVesselDecisions: forcing ghost-only on suppressed " +
+                        $"id='{suppressedId}' vessel='{rec.VesselName}' " +
+                        $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                        $"isLeaf={rec.ChildBranchPointId == null} " +
+                        $"priorDecision={(decisions.ContainsKey(suppressedId) ? "set" : "unset")}");
+                }
+                ParsekLog.Info("MergeDialog",
+                    $"BuildDefaultVesselDecisions: suppressed-subtree pass complete " +
+                    $"closureSize={suppressedRecordingIds.Count} forcedGhostOnly={forced} " +
+                    $"skippedActiveTarget={skippedActiveTarget} alreadyGhostOnly={alreadyGhostOnly} " +
+                    $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
             return decisions;

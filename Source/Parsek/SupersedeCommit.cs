@@ -150,11 +150,31 @@ namespace Parsek
 
             int added = 0;
             int skippedExisting = 0;
+            int skippedSelfLink = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
                 {
                     if (string.IsNullOrEmpty(oldId)) continue;
+                    // In-place continuation guard: when the marker's
+                    // OriginChildRecordingId == ActiveReFlyRecordingId, the
+                    // subtree closure includes the origin itself, which is
+                    // also the provisional. A row where old==new would form
+                    // a 1-node cycle that poisons EffectiveRecordingId
+                    // (`cycle detected` WARN every lookup) and pin the
+                    // recording invisible to ERS. Skip the trivial self-link
+                    // so callers (in particular the in-place-continuation
+                    // branch of MergeDialog.TryCommitReFlySupersede) can
+                    // safely invoke AppendRelations to write rows for the
+                    // sibling/parent recordings without producing the cycle.
+                    if (string.Equals(oldId, newRecordingId, StringComparison.Ordinal))
+                    {
+                        skippedSelfLink++;
+                        ParsekLog.Verbose(Tag,
+                            $"AppendRelations: skip self-link old={oldId} new={newRecordingId} " +
+                            $"(in-place continuation; origin == provisional)");
+                        continue;
+                    }
                     if (RelationExists(scenario.RecordingSupersedes, oldId, newRecordingId))
                     {
                         skippedExisting++;
@@ -179,7 +199,8 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
-                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)})");
+                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)} " +
+                $"skippedSelfLink={skippedSelfLink.ToString(ic)})");
 
             return subtree ?? new List<string>();
         }
