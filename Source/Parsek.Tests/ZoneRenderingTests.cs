@@ -190,6 +190,19 @@ namespace Parsek.Tests
                 isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(-1.0)]
+        public void ShouldForceWatchedFullFidelity_InvalidDistance_ReturnsFalse(
+            double ghostDistanceMeters)
+        {
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true,
+                ghostDistanceMeters: ghostDistanceMeters,
+                cutoffKm: 300));
+        }
+
         [Fact]
         public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {

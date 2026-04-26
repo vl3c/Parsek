@@ -7,9 +7,10 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for <see cref="RelativeAnchorResolution"/>, the pure decision
-    /// helper used by relative-frame ghost playback to decide whether the
-    /// recorded anchor pid resolves to a live vessel or whether the ghost
-    /// must be retired (hidden) for the duration of the relative section.
+    /// helper used by relative-frame ghost playback to decide whether a live
+    /// anchor is usable, whether a Re-Fly target pid must be bypassed in
+    /// favor of recorded anchor motion, or whether the ghost must be retired
+    /// for the duration of the relative section.
     ///
     /// <para>
     /// Bug B (2026-04-26): a Re-Fly rewind erased the originally recorded
@@ -89,6 +90,148 @@ namespace Parsek.Tests
                 resolver: null);
 
             Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
+        }
+
+        #endregion
+
+        #region ShouldBypassLiveAnchorForActiveReFly
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_SamePidDifferentRecording_ReturnsTrue()
+        {
+            // 2026-04-26_1332: Kerbal X recorded a relative section anchored
+            // to the booster pid. During booster Re-Fly, that same pid mapped
+            // to the live player vessel, so the upper-stage ghost became
+            // locked to the Re-Fly booster instead of replaying ground-relative
+            // recorded motion.
+            Assert.True(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 698412738u,
+                activeReFlyPid: 698412738u,
+                victimRecordingId: "upper-stage",
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: true));
+        }
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_SamePidButNotParent_ReturnsFalse()
+        {
+            // Same pid alone is too broad: a sibling/rendezvous recording can
+            // legitimately be anchored to the active vessel. Only ghosts in the
+            // active Re-Fly recording's parent chain should bypass the live
+            // anchor and reconstruct from recorded motion.
+            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 698412738u,
+                activeReFlyPid: 698412738u,
+                victimRecordingId: "sibling-stage",
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: false));
+        }
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_SamePidSameRecording_ReturnsFalse()
+        {
+            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 698412738u,
+                activeReFlyPid: 698412738u,
+                victimRecordingId: "booster",
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: true));
+        }
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_DifferentPid_ReturnsFalse()
+        {
+            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 2708531065u,
+                activeReFlyPid: 698412738u,
+                victimRecordingId: "upper-stage",
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: true));
+        }
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_MissingActivePid_ReturnsFalse()
+        {
+            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 698412738u,
+                activeReFlyPid: 0u,
+                victimRecordingId: "upper-stage",
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: true));
+        }
+
+        [Fact]
+        public void ShouldBypassLiveAnchorForActiveReFly_MatchingPidWithMissingIds_ReturnsFalse()
+        {
+            // Missing ids mean the parent-chain relationship cannot be proven.
+            // Keep the live anchor path rather than broadening the Re-Fly
+            // bypass to unrelated same-pid recordings.
+            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorPid: 698412738u,
+                activeReFlyPid: 698412738u,
+                victimRecordingId: null,
+                activeReFlyRecordingId: "booster",
+                victimIsParentOfActiveReFly: true));
+        }
+
+        #endregion
+
+        #region RecordedAnchorPointListCoversUT
+
+        [Fact]
+        public void RecordedAnchorPointListCoversUT_TargetInside_ReturnsTrue()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }
+            };
+
+            Assert.True(ParsekFlight.RecordedAnchorPointListCoversUT(points, 105.0));
+        }
+
+        [Fact]
+        public void RecordedAnchorPointListCoversUT_TargetBeforeStart_ReturnsFalse()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }
+            };
+
+            Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(points, 99.0));
+        }
+
+        [Fact]
+        public void RecordedAnchorPointListCoversUT_TargetAfterEnd_ReturnsFalse()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }
+            };
+
+            Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(points, 111.0));
+        }
+
+        [Fact]
+        public void RecordedAnchorPointListCoversUT_SinglePointRequiresSameUT()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 }
+            };
+
+            Assert.True(ParsekFlight.RecordedAnchorPointListCoversUT(points, 100.0));
+            Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(points, 100.1));
+        }
+
+        [Fact]
+        public void RecordedAnchorPointListCoversUT_NullOrEmpty_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(null, 100.0));
+            Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(
+                new List<TrajectoryPoint>(), 100.0));
         }
 
         #endregion

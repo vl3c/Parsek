@@ -48,7 +48,13 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading. The retire now persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
+- `#613` Ghosts whose recorded relative-frame anchor vessel is unsafe or unavailable now first reconstruct from the anchor's recorded ground-frame trajectory; if no recorded pose exists, they retire (hide) gracefully instead of appearing frozen at the world origin with a bogus distance reading. The Re-Fly case where another vessel's recorded anchor pid resolves to the active Re-Fly target now bypasses that live vessel, so upper-stage ghosts no longer lock to the booster being re-flown. The retire fallback still persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
+
+- Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.
+
+- Re-Fly ghost reentry FX no longer activates during hidden spawn priming at the stale KSC-surface pose; first-frame visual FX are suppressed until after the playback transform and ghost activation order are synchronized.
+
+- Breakup coalescing now drops dead-on-arrival controlled children whenever their live vessel is already gone, even if a pre-captured snapshot exists, preventing single-point `Unknown` 0s rows from being committed after Re-Fly merge.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
 
@@ -298,6 +304,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Flight playback, watch handoff, and ghost map visibility diagnostics now explain skipped or blocked playback decisions without adding per-frame spam.
+- Re-Fly relative-frame playback now falls back to the recorded anchor trajectory when a live anchor is unsafe or unavailable, including the case where another ghost's anchor pid resolves to the active Re-Fly target. This keeps other vessels' trajectories ground-relative during Re-Fly, prevents stale-transform watch cutoffs after rewind, suppresses hidden-prime reentry FX bursts, and drops dead-on-arrival controlled children that would otherwise commit `Unknown` 0s rows.
 - `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
