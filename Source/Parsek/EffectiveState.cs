@@ -232,9 +232,8 @@ namespace Parsek
                 return false;
             }
 
-            bool matchedRewindPointWithoutSlot = false;
-            string missingSlotBp = null;
-            string missingSlotRp = null;
+            int missingSlotMatches = 0;
+            List<string> missingSlotCandidates = null;
             IReadOnlyList<RecordingSupersedeRelation> supersedes = scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
@@ -258,9 +257,11 @@ namespace Parsek
                     int slotListIndex = ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
                     if (slotListIndex < 0)
                     {
-                        matchedRewindPointWithoutSlot = true;
-                        missingSlotBp = matchedBp;
-                        missingSlotRp = rp.RewindPointId;
+                        missingSlotMatches++;
+                        if (missingSlotCandidates == null)
+                            missingSlotCandidates = new List<string>();
+                        missingSlotCandidates.Add(
+                            $"{(rp.RewindPointId ?? "<no-rp>")}@{(matchedBp ?? "<none>")}");
                         continue;
                     }
 
@@ -272,12 +273,15 @@ namespace Parsek
                 }
             }
 
-            if (matchedRewindPointWithoutSlot)
+            if (missingSlotMatches > 0)
             {
+                string candidates = missingSlotCandidates != null && missingSlotCandidates.Count > 0
+                    ? string.Join(",", missingSlotCandidates.ToArray())
+                    : "<none>";
                 ParsekLog.VerboseRateLimited("UnfinishedFlights",
                     $"noMatchingRpSlot-{recId}",
                     $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRpSlot " +
-                    $"bp={missingSlotBp ?? "<none>"} rp={missingSlotRp ?? "<none>"}");
+                    $"matches={missingSlotMatches} candidates={candidates}");
                 return false;
             }
 

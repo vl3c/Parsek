@@ -298,6 +298,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsUnfinishedFlight_MultipleMatchingRpsWithoutSlot_LogsAllMisses()
+        {
+            var rec = Rec("rec_debris", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            MakeScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_parent"),
+                Rp("rp_2", "bp_1", "rec_controlled_child")
+            });
+
+            Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=noMatchingRpSlot")
+                && l.Contains("matches=2")
+                && l.Contains("rp_1@bp_1")
+                && l.Contains("rp_2@bp_1"));
+        }
+
+        [Fact]
         public void IsUnfinishedFlight_NotCommitted_False()
         {
             var rec = Rec("rec_A", MergeState.NotCommitted, TerminalState.Destroyed,

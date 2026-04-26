@@ -2721,9 +2721,15 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p == null) continue;
                 if (p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
                     yield return p.partInfo.name;
+                    continue;
+                }
                 if (!string.IsNullOrEmpty(p.partName))
+                {
                     yield return p.partName;
+                    continue;
+                }
                 if (!string.IsNullOrEmpty(p.name))
                     yield return p.name;
             }
@@ -2762,6 +2768,8 @@ namespace Parsek
             {
                 if (string.IsNullOrEmpty(partName))
                     continue;
+                // Part cfg/runtime names can carry expansion or variant suffixes,
+                // while module names below are stable C# class identifiers.
                 if (partName.IndexOf("PotatoRoid", StringComparison.OrdinalIgnoreCase) >= 0
                     || partName.IndexOf("PotatoComet", StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
