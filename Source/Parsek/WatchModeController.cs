@@ -2538,14 +2538,16 @@ namespace Parsek
             bool hasGhostVessel = ghostVessel != null;
             bool hasMapObject = hasGhostVessel && ghostVessel.mapObject != null;
             bool hasOrbitRenderer = hasGhostVessel && ghostVessel.orbitRenderer != null;
+            string stateKey = string.Format(CultureInfo.InvariantCulture,
+                "{0}|{1}|{2}|{3}",
+                string.IsNullOrEmpty(watchedRecordingId) ? "(none)" : watchedRecordingId,
+                watchedRecordingIndex,
+                ghostPid,
+                reason ?? "(none)");
             ParsekLog.VerboseOnChange(
                 "GhostMap",
-                string.Format(CultureInfo.InvariantCulture,
-                    "map-focus-restore|{0}|{1}|{2}",
-                    string.IsNullOrEmpty(watchedRecordingId) ? "(none)" : watchedRecordingId,
-                    watchedRecordingIndex,
-                    ghostPid),
-                reason ?? "(none)",
+                "map-focus-restore",
+                stateKey,
                 BuildMapFocusRestoreDecisionMessage(
                     watchedRecordingIndex,
                     ghostPid,

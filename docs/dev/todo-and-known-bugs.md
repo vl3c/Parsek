@@ -35,6 +35,9 @@ aggregate skip counters, fast-forward watch handoff reasons, and watch-camera
 infrastructure failures. The branch also added map-view/proto-vessel visibility
 reasoning for missing map objects, orbit renderers, draw-icon state, native-icon
 suppression, renderer force-enable, and watched-ghost map-focus restore blockers.
+Review follow-up: map-focus restore logging now uses one stable on-change
+identity with the watched recording/pid/reason in the state key, avoiding
+per-recording cache growth while preserving reason-change visibility.
 Remaining observability audit items stay open.
 
 ---
