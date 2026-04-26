@@ -4706,6 +4706,252 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// #615 rescue-completion guard: the production
+        /// <c>KerbalsModule.IKerbalRosterFacade.IsKerbalOnLiveVessel</c>
+        /// implementation walks <see cref="FlightGlobals.Vessels"/> and the
+        /// xUnit harness can not init that statically (the type initializer
+        /// pulls in <c>UnityEngine.Quaternion.Euler</c>). This in-game test
+        /// covers the live walk in FLIGHT scene: the active vessel's crew
+        /// must be reported as on a live vessel and a name that is not on
+        /// any vessel must be reported as not on a live vessel. Mirrors the
+        /// rescue-completion happy path inside an actual Unity runtime so
+        /// the headless xUnit guard tests are reinforced by a runtime
+        /// regression.
+        /// </summary>
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "#615 IsKerbalOnLiveVessel reports live FlightGlobals crew correctly")]
+        public void IsKerbalOnLiveVessel_LiveFlightGlobalsWalk()
+        {
+            var active = FlightGlobals.ActiveVessel;
+            if (active == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            var crew = active.GetVesselCrew();
+            if (crew == null || crew.Count == 0)
+            {
+                InGameAssert.Skip("Active vessel has no crew");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
+            // Build a production facade exactly the way KerbalsModule does
+            // and exercise IsKerbalOnLiveVessel through the interface, so
+            // any future facade-level wrapping (e.g. ghost-map filtering
+            // changes) is covered.
+            var facadeType = typeof(KerbalsModule).GetNestedType(
+                "KerbalRosterFacade",
+                System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance);
+            InGameAssert.IsNotNull(facadeType, "KerbalRosterFacade type must exist");
+            var ctor = facadeType.GetConstructor(new[] { typeof(KerbalRoster) });
+            InGameAssert.IsNotNull(ctor, "KerbalRosterFacade(KerbalRoster) ctor must exist");
+            var facade = (KerbalsModule.IKerbalRosterFacade)ctor.Invoke(new object[] { roster });
+
+            // Active vessel's first crew member must be reported on a live vessel.
+            string activeName = crew[0].name;
+            InGameAssert.IsTrue(facade.IsKerbalOnLiveVessel(activeName),
+                $"IsKerbalOnLiveVessel('{activeName}') must be true (kerbal is on active vessel)");
+
+            // A clearly-fake name must be reported as not on a live vessel.
+            InGameAssert.IsFalse(facade.IsKerbalOnLiveVessel("Definitely Not A Real Kerbal"),
+                "IsKerbalOnLiveVessel('Definitely Not A Real Kerbal') must be false");
+
+            ParsekLog.Verbose("TestRunner",
+                $"IsKerbalOnLiveVessel: live FlightGlobals walk OK for activeCrew='{activeName}'");
+        }
+
+        /// <summary>
+        /// #615 P1 review (second pass): pin the production lifecycle that
+        /// the headless xUnit suite cannot exercise. The spawn pipeline runs
+        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
+        /// (sets the rescue-placed marker) and immediately
+        /// <see cref="CrewReservationManager.UnreserveCrewInSnapshot"/> on
+        /// the same snapshot — pre-fix the unreserve cleared the marker
+        /// before the next ApplyToRoster walk could read it. This test
+        /// exercises the exact production call sites with a real KSP
+        /// roster, then asserts the marker survives the unreserve step so
+        /// the guard would observe it on the next walk. Reinforces the
+        /// xUnit
+        /// <c>RescueThenUnreserveThenApplyToRoster_GuardFiresAndStandInNotRegenerated</c>
+        /// regression which uses a roster-free seam.
+        /// </summary>
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "#615 marker survives Rescue + Unreserve and persists across walks (P1 review third pass)")]
+        public void RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives()
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember victim = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    victim = pcm;
+                    break;
+                }
+            }
+            if (victim == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal not on active vessel");
+                return;
+            }
+
+            string fakeStandIn = "P1Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            var savedVictimStatus = victim.rosterStatus;
+            ulong savedVictimMarkerPid;
+            bool victimWasRescuePlaced = CrewReservationManager.TryGetRescuePlacedVessel(
+                victim.name, out savedVictimMarkerPid);
+
+            // P1 review (fourth pass): the marker is pid-scoped. Use a
+            // synthetic pid for this in-game test because we are exercising
+            // the marker contract independent of an actual ProtoVessel.Load.
+            const ulong syntheticTestPid = 0x615F4U; // distinctive marker
+
+            try
+            {
+                // Stage the production state right before the spawn pipeline:
+                //   victim is reserved (in crewReplacements) AND Missing.
+                CrewReservationManager.ClearReplacementsInternal();
+                CrewReservationManager.SetReplacement(victim.name, fakeStandIn);
+                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                // Sanity: marker must start clean.
+                InGameAssert.IsFalse(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"Pre-test sanity: marker for '{victim.name}' must start cleared");
+
+                // Build the snapshot the recording would hand to the spawner.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", "mk1pod.v2");
+                partNode.AddValue("crew", victim.name);
+
+                // Step 1: rescue path — flips Missing->Available and
+                // collects the rescued name. P1 review (fourth pass): the
+                // helper no longer marks; the caller pid-scopes the marker
+                // after the live spawn assigns a vesselPid.
+                var rescuedNames = new List<string>();
+                VesselSpawner.RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames);
+                InGameAssert.IsTrue(rescuedNames.Contains(victim.name),
+                    $"RescueReservedMissingCrewInSnapshot must collect '{victim.name}' " +
+                    "as a rescued name (#615 P1 fourth pass — caller marks with pid)");
+                InGameAssert.AreEqual(ProtoCrewMember.RosterStatus.Available, victim.rosterStatus,
+                    $"After Rescue: '{victim.name}' must be Available");
+
+                // Caller wires the pid (in production this happens after
+                // ProtoVessel.Load; here we use a synthetic pid).
+                CrewReservationManager.MarkRescuePlaced(victim.name, syntheticTestPid);
+                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"After MarkRescuePlaced(pid): marker for '{victim.name}' must be set");
+                ulong pidObserved;
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"TryGetRescuePlacedVessel must surface the pid for '{victim.name}'");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    $"Marker pid for '{victim.name}' must equal the synthetic pid passed in");
+
+                // Step 2: unreserve path — removes the replacement from the
+                // dict via CleanUpReplacement. P1 review (second pass): this
+                // must NOT clear the rescue-placed marker. Pre-fix it did,
+                // and the next ApplyToRoster walk regenerated the stand-in.
+                CrewReservationManager.UnreserveCrewInSnapshot(snapshot);
+
+                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"After Unreserve: marker for '{victim.name}' must SURVIVE — " +
+                    "this is the P1 review second-pass invariant. Pre-fix the marker " +
+                    "was cleared here and the next ApplyToRoster walk regenerated the " +
+                    "stand-in PR #595 was meant to suppress.");
+                // Pid still set to the synthetic value (not overwritten by
+                // unreserve).
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"After Unreserve: TryGetRescuePlacedVessel still surfaces the pid");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    "Pid-scoped marker survives Unreserve unchanged");
+                InGameAssert.IsFalse(
+                    CrewReservationManager.CrewReplacements.ContainsKey(victim.name),
+                    $"After Unreserve: replacement dict entry for '{victim.name}' must be cleared");
+
+                // Step 3: P1 review (third pass) — the marker must be
+                // PERSISTENT across walks, not consumed when the
+                // ApplyToRoster guard fires. The reservation slot is rebuilt
+                // every recalc walk while slot.Chain survives, so the guard
+                // must observe the same marker on every subsequent walk for
+                // the lifetime of the rescue. RecalculateAndPatch fires from
+                // 14+ call sites per session (warp exit, save load, scene
+                // transition, KSC spending, etc.) and the previous one-shot
+                // consume design failed on the very next trigger.
+                //
+                // Pin the persistence contract: the marker must survive an
+                // arbitrary number of "guard observations" (here we just
+                // re-read IsRescuePlaced repeatedly because we cannot run
+                // ApplyToRoster against the live KerbalsModule from this
+                // in-game test without disturbing the production state).
+                for (int walk = 1; walk <= 3; walk++)
+                {
+                    InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                        $"Walk {walk}: marker for '{victim.name}' must persist " +
+                        "(P1 review third pass — guard does not consume on fire)");
+                    InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                            victim.name, out pidObserved),
+                        $"Walk {walk}: TryGetRescuePlacedVessel still surfaces the pid");
+                    InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                        $"Walk {walk}: pid-scoped marker pid must match the rescue's pid");
+                }
+
+                ParsekLog.Info("TestRunner",
+                    $"#615 P1 review fourth pass: '{victim.name}' pid-scoped marker " +
+                    $"(pid={syntheticTestPid}) survived Rescue + Unreserve and persists " +
+                    "across multiple walks (not consumed)");
+            }
+            finally
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+                victim.rosterStatus = savedVictimStatus;
+                if (victimWasRescuePlaced)
+                    CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
+                else
+                    CrewReservationManager.ClearRescuePlaced(victim.name);
+            }
+        }
+
         [InGameTest(Category = "CrewReservation",
             Description = "No replacement name appears as both a key and a value (circular chain)")]
         public void NoCircularReplacements()
@@ -11923,6 +12169,1287 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Bug613 — relative-frame retire signal (PR #594 P1)
+
+        // ===================================================================
+        // Bug #613 (PR #594 P1): the relative-frame retire branch sets
+        // state.anchorRetiredThisFrame, and the engine's per-frame pipeline
+        // gates ApplyFrameVisuals' transient events / ActivateGhostVisualsIfNeeded /
+        // TrackGhostAppearance on that flag. The xUnit suite already pins
+        // ShouldSkipPostPositionPipeline (pure predicate) and the state-flag
+        // wiring; these in-game tests pin the actual end-of-frame Unity
+        // behavior the user sees: a retired ghost ends the frame INACTIVE
+        // and does NOT log a TrackGhostAppearance line at root=(0,0,0).
+        // ===================================================================
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1: relative-frame retire branch ends UpdatePlayback frame with the ghost INACTIVE — ActivateGhostVisualsIfNeeded must not undo SetActive(false) the same frame")]
+        public void Bug613_RetiredAnchor_EndsFrameInactive_NoAppearance()
+        {
+            var state = RunBug613RelativeRetireScenario(
+                positionerSetsRetireFlag: true,
+                out var ghost,
+                out var capturedLog);
+
+            InGameAssert.IsNotNull(state.ghost,
+                "ghost GameObject must still exist after the retire frame; the fix hides it, not destroys it");
+            InGameAssert.IsTrue(ReferenceEquals(ghost, state.ghost),
+                "the same ghost GameObject instance must persist across the retire frame");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "retired ghost must end frame INACTIVE — ActivateGhostVisualsIfNeeded must not flip SetActive(true) the same frame the relative positioner set SetActive(false)");
+            InGameAssert.AreEqual(0, state.appearanceCount,
+                "TrackGhostAppearance must NOT increment appearanceCount on a retired frame: logging a root=(0,0,0) appearance for a retired ghost was the original misleading symptom");
+            // The retire-branch one-shot WARN belongs to ParsekFlight's
+            // production code path; this test drives a mock positioner that
+            // sets the flag without going through that branch, so the WARN
+            // is not expected here. The engine-side gate is what matters:
+            // appearanceCount==0 + activeSelf==false proves the gate fired.
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains(state.vesselName)
+                    && l.Contains("[GhostAppearance]")),
+                "no [GhostAppearance] line must be emitted while the retire flag is set; the engine's TrackGhostAppearance call site must be skipped");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1: deferVisibilityUntilPlaybackSync still flips to active when the relative positioner did NOT retire — fix must not break legitimate deferred activation")]
+        public void Bug613_DeferredSyncWithResolvedAnchor_StillActivates()
+        {
+            var state = RunBug613RelativeRetireScenario(
+                positionerSetsRetireFlag: false,
+                out var ghost,
+                out var capturedLog);
+
+            InGameAssert.IsTrue(ReferenceEquals(ghost, state.ghost),
+                "the ghost GameObject instance must persist across the resolved frame");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "resolved-anchor frame must end ACTIVE — the gate must NOT skip ActivateGhostVisualsIfNeeded when state.anchorRetiredThisFrame is false");
+            InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
+                "ActivateGhostVisualsIfNeeded must clear deferVisibilityUntilPlaybackSync once the gate allows the activation pipeline to run");
+            InGameAssert.IsTrue(state.appearanceCount >= 1,
+                "TrackGhostAppearance must increment appearanceCount on the resolved frame; gate must not over-suppress the appearance log line");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1: engine clears state.anchorRetiredThisFrame at the top of every per-frame render pass — a stale true from a previous frame must not leak into this frame's pipeline gate")]
+        public void Bug613_PerFrameClear_StaleFlagDoesNotLeak()
+        {
+            // Pre-set the retire flag to true; the production engine clears
+            // it BEFORE calling the positioner, so a positioner that does
+            // NOT set the flag this frame must end the frame with the gate
+            // returning false (i.e. activation pipeline runs).
+            var state = RunBug613RelativeRetireScenario(
+                positionerSetsRetireFlag: false,
+                out _,
+                out _,
+                preFrameRetireFlag: true);
+
+            InGameAssert.IsFalse(state.anchorRetiredThisFrame,
+                "engine must clear state.anchorRetiredThisFrame before the positioner runs; the positioner sets it back to true only when the anchor is unresolvable");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "stale retire flag from the previous frame must not suppress this frame's activation pipeline");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 finalize-spawn retire gate: fresh LoopEnter and OverlapPrimaryEnter spawns into an unresolved relative section must not emit RetargetToNewGhost from the hidden origin-positioned pivot")]
+        public void Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin()
+        {
+            var loop = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: true,
+                overlapPrimary: false);
+            var overlap = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: true,
+                overlapPrimary: true);
+
+            InGameAssert.AreEqual(0, loop.loopEvents.Count,
+                "LoopEnter fresh spawn must suppress RetargetToNewGhost when relative priming retired the anchor");
+            InGameAssert.AreEqual(0, overlap.overlapEvents.Count,
+                "OverlapPrimaryEnter fresh spawn must suppress RetargetToNewGhost when relative priming retired the anchor");
+            InGameAssert.AreEqual(1, loop.createdEvents.Count,
+                "LoopEnter spawn lifecycle must still fire OnGhostCreated; only the camera retarget side effect is suppressed");
+            InGameAssert.AreEqual(1, overlap.createdEvents.Count,
+                "OverlapPrimaryEnter spawn lifecycle must still fire OnGhostCreated; only the camera retarget side effect is suppressed");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.None, loop.state.pendingSpawnLifecycle,
+                "LoopEnter pending lifecycle must complete even when the retarget side effect is suppressed");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.None, overlap.state.pendingSpawnLifecycle,
+                "OverlapPrimaryEnter pending lifecycle must complete even when the retarget side effect is suppressed");
+            InGameAssert.IsTrue(loop.positioner.RelativeCalls >= 1,
+                "LoopEnter fresh-spawn priming must exercise the relative positioner so the retire flag was meaningful");
+            InGameAssert.IsTrue(overlap.positioner.RelativeCalls >= 1,
+                "OverlapPrimaryEnter fresh-spawn priming must exercise the relative positioner so the retire flag was meaningful");
+            InGameAssert.IsTrue(loop.capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")
+                    && l.Contains("anchor retired on first spawn")
+                    && l.Contains("lifecycle=LoopEnter")),
+                "LoopEnter retired fresh spawn must emit the finalize-spawn retire suppression log");
+            InGameAssert.IsTrue(overlap.capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")
+                    && l.Contains("anchor retired on first spawn")
+                    && l.Contains("lifecycle=OverlapPrimaryEnter")),
+                "OverlapPrimaryEnter retired fresh spawn must emit the finalize-spawn retire suppression log");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 finalize-spawn retire gate negative: fresh LoopEnter and OverlapPrimaryEnter spawns with a resolved relative anchor still emit RetargetToNewGhost")]
+        public void Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget()
+        {
+            var loop = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: false,
+                overlapPrimary: false);
+            var overlap = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: false,
+                overlapPrimary: true);
+
+            InGameAssert.AreEqual(1, loop.loopEvents.Count,
+                "LoopEnter resolved fresh spawn must still emit one RetargetToNewGhost event");
+            InGameAssert.AreEqual(1, overlap.overlapEvents.Count,
+                "OverlapPrimaryEnter resolved fresh spawn must still emit one RetargetToNewGhost event");
+            InGameAssert.IsTrue(loop.loopEvents[0].Action == CameraActionType.RetargetToNewGhost,
+                "LoopEnter resolved fresh spawn must emit the RetargetToNewGhost action");
+            InGameAssert.IsTrue(overlap.overlapEvents[0].Action == CameraActionType.RetargetToNewGhost,
+                "OverlapPrimaryEnter resolved fresh spawn must emit the RetargetToNewGhost action");
+            InGameAssert.IsNotNull(loop.state.cameraPivot,
+                "LoopEnter resolved fresh spawn must create the camera pivot before retargeting");
+            InGameAssert.IsNotNull(overlap.state.cameraPivot,
+                "OverlapPrimaryEnter resolved fresh spawn must create the camera pivot before retargeting");
+            InGameAssert.IsTrue(ReferenceEquals(loop.state.cameraPivot, loop.loopEvents[0].GhostPivot),
+                "LoopEnter RetargetToNewGhost must carry the spawned state's camera pivot");
+            InGameAssert.IsTrue(ReferenceEquals(overlap.state.cameraPivot, overlap.overlapEvents[0].GhostPivot),
+                "OverlapPrimaryEnter RetargetToNewGhost must carry the spawned state's camera pivot");
+            InGameAssert.AreEqual(1, loop.createdEvents.Count,
+                "LoopEnter resolved fresh spawn must still fire OnGhostCreated once");
+            InGameAssert.AreEqual(1, overlap.createdEvents.Count,
+                "OverlapPrimaryEnter resolved fresh spawn must still fire OnGhostCreated once");
+            InGameAssert.IsFalse(loop.capturedLog.Any(l =>
+                    l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")),
+                "LoopEnter resolved fresh spawn must not log retire suppression");
+            InGameAssert.IsFalse(overlap.capturedLog.Any(l =>
+                    l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")),
+                "OverlapPrimaryEnter resolved fresh spawn must not log retire suppression");
+        }
+
+        // Scenario harness: builds an engine with a mock IGhostPositioner
+        // whose InterpolateAndPositionRelative either does or does not set
+        // state.anchorRetiredThisFrame, then drives one UpdatePlayback frame.
+        private GhostPlaybackState RunBug613RelativeRetireScenario(
+            bool positionerSetsRetireFlag,
+            out GameObject ghost,
+            out List<string> capturedLog,
+            bool preFrameRetireFlag = false)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = positionerSetsRetireFlag,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            // Force "in range" so RenderInRangeGhost is taken instead of any
+            // hidden-by-zone path.
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            ghost = new GameObject(
+                positionerSetsRetireFlag
+                    ? "ParsekTestGhost_Bug613Retired"
+                    : "ParsekTestGhost_Bug613Resolved");
+            runner.TrackForCleanup(ghost);
+            // Start ACTIVE so a successful retire actually has to flip
+            // SetActive from true -> false (matches the production scene
+            // where the ghost was just spawned and therefore active).
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestGhost",
+                ghost = ghost,
+                loopCycleIndex = 0,
+                playbackIndex = 0,
+                partEventIndex = 0,
+                flagEventIndex = 0,
+                // Deferred-sync ON so the gate's resolved-path test can
+                // verify ActivateGhostVisualsIfNeeded actually flips the
+                // flag back to false.
+                deferVisibilityUntilPlaybackSync = !positionerSetsRetireFlag,
+                anchorRetiredThisFrame = preFrameRetireFlag,
+            };
+
+            engine.ghostStates[0] = state;
+
+            var traj = new Bug613RelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude));
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = traj.EndUT,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 2.5,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            capturedLog = localLog;
+            return state;
+        }
+
+        private (GhostPlaybackEngine engine,
+                 GhostPlaybackState state,
+                 Bug613RetireBranchPositioner positioner,
+                 List<CameraActionEvent> loopEvents,
+                 List<CameraActionEvent> overlapEvents,
+                 List<GhostLifecycleEvent> createdEvents,
+                 List<string> capturedLog)
+            RunBug613FreshSpawnRetargetScenario(
+                bool positionerSetsRetireFlag, bool overlapPrimary)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = positionerSetsRetireFlag,
+                SetsLoopRetireFlag = false,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            var loopEvents = new List<CameraActionEvent>();
+            var overlapEvents = new List<CameraActionEvent>();
+            var createdEvents = new List<GhostLifecycleEvent>();
+            engine.OnLoopCameraAction += e => loopEvents.Add(e);
+            engine.OnOverlapCameraAction += e => overlapEvents.Add(e);
+            engine.OnGhostCreated += e => createdEvents.Add(e);
+
+            var traj = new Bug613LoopRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                terminalDestroyed: false,
+                loopIntervalSeconds: overlapPrimary ? 2.0 : 10.0);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 2.5,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = overlapPrimary ? 2.0 : 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            GhostPlaybackState state;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out state),
+                "fresh spawn scenario must leave the spawned ghost state in the engine map");
+            InGameAssert.IsNotNull(state,
+                "fresh spawn scenario must produce a non-null ghost state");
+            InGameAssert.IsNotNull(state.ghost,
+                "fresh spawn scenario must build ghost visuals so finalize lifecycle can run");
+            runner.TrackForCleanup(state.ghost);
+
+            return (engine, state, positioner, loopEvents, overlapEvents, createdEvents, localLog);
+        }
+
+        // Mock positioner that mimics ParsekFlight's relative-frame retire
+        // branch. When SetsRetireFlag is true, InterpolateAndPositionRelative
+        // sets state.ghost.SetActive(false) AND state.anchorRetiredThisFrame=true,
+        // exactly as ParsekFlight.InterpolateAndPositionRelative /
+        // PositionGhostRelativeAt do at line ~15413 / ~15510 when
+        // FindVesselByPid returns null.
+        private sealed class Bug613RetireBranchPositioner : IGhostPositioner
+        {
+            internal bool SetsRetireFlag;
+            // PR #594 P1 round 2: loop-endpoint side-effect gates also need
+            // to mimic ParsekFlight.PositionLoopGhost's retire branch when
+            // the recorded LoopAnchor pid is unresolvable. Independent flag
+            // so tests can drive a relative-frame retire without also
+            // retiring the loop-endpoint path (and vice-versa).
+            internal bool SetsLoopRetireFlag;
+            internal int RelativeCalls;
+            internal int AbsoluteCalls;
+            internal int LoopCalls;
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            {
+                RelativeCalls++;
+                if (!SetsRetireFlag || state == null)
+                    return;
+                if (state.ghost != null && state.ghost.activeSelf)
+                    state.ghost.SetActive(false);
+                state.anchorRetiredThisFrame = true;
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) { }
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) { }
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { }
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                LoopCalls++;
+                if (!SetsLoopRetireFlag || state == null)
+                    return;
+                if (state.ghost != null && state.ghost.activeSelf)
+                    state.ghost.SetActive(false);
+                state.anchorRetiredThisFrame = true;
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
+        // ===================================================================
+        // Bug #613 (PR #594 P1 round 2): three additional side-effect bypass
+        // paths that ran with stale-transform / stale-ghostActive state when
+        // the relative anchor was unresolvable post-rewind:
+        //
+        //   1. RenderInRangeGhost -> TryHandleEarlyDestroyedDebrisCompletion
+        //      (TriggerExplosionIfDestroyed + completion-event queueing)
+        //   2. UpdateLoopingPlayback cycle-change endpoint
+        //      (TriggerExplosionIfDestroyed + ExplosionHold camera + LoopRestarted)
+        //   3. UpdateExpireAndPositionOverlaps overlap-expiry endpoint
+        //      (TriggerExplosionIfDestroyed + ExplosionHold camera + OverlapExpired)
+        //   4. HandleLoopPauseWindow loop-pause endpoint
+        //      (TriggerExplosionIfDestroyed + missing FX teardown for plumes/RCS)
+        //
+        // Each test pins both the suppression on retired anchors AND the
+        // negative case (resolvable anchor still fires the side effects).
+        // ===================================================================
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2: TryHandleEarlyDestroyedDebrisCompletion must NOT fire on a retired-anchor frame — explosionFired stays false, no completion event queues, and the suppression log line emits")]
+        public void Bug613_RetireDuringRender_DoesNotFireEarlyDestroyedCompletion()
+        {
+            var (engine, state, capturedLog) = RunBug613EarlyDebrisScenario(
+                positionerSetsRetireFlag: true);
+
+            InGameAssert.IsFalse(state.explosionFired,
+                "explosionFired must stay false on a retired frame: TriggerExplosionIfDestroyed runs at the stale (0,0,0) transform from the just-hidden ghost otherwise");
+            InGameAssert.AreEqual(0, engine.Bug613TestEarlyDestroyedCount,
+                "early-destroyed-debris dedupe set must stay empty on retired frame; otherwise a later resolvable frame would skip the legitimate completion");
+            InGameAssert.AreEqual(0, engine.Bug613TestDeferredCompletedCount,
+                "no PlaybackCompletedEvent must be queued on a retired frame — host policy would react to a stale-transform completion");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("early-completion suppressed")
+                    && l.Contains("anchor retired")),
+                "expected verbose 'early-completion suppressed: anchor retired' log line for the retired early-debris frame");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2 negative: resolvable anchor still fires the early-destroyed-debris completion (explosionFired=true, dedupe set populated, completion event queued)")]
+        public void Bug613_ResolvedAnchorFiresEarlyDestroyedCompletion()
+        {
+            var (engine, state, _) = RunBug613EarlyDebrisScenario(
+                positionerSetsRetireFlag: false);
+
+            InGameAssert.IsTrue(state.explosionFired,
+                "resolvable-anchor path must run TriggerExplosionIfDestroyed: explosionFired=true after the early-debris frame");
+            InGameAssert.AreEqual(1, engine.Bug613TestEarlyDestroyedCount,
+                "early-destroyed-debris dedupe set must contain the recording index after the resolvable frame");
+            InGameAssert.AreEqual(1, engine.Bug613TestDeferredCompletedCount,
+                "exactly one PlaybackCompletedEvent must be queued for the resolvable early-debris frame");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2: loop cycle-change endpoint side effects (explosion, ExplosionHold camera, LoopRestarted) must NOT fire when the retire flag is raised by PositionGhostAtLoopEndpoint")]
+        public void Bug613_RetireDuringLoopCycleEndpoint_NoExplosionOrCameraRestart()
+        {
+            var (cameraEvents, restartEvents, capturedLog, state) = RunBug613LoopCycleScenario(
+                positionerSetsLoopRetireFlag: true);
+
+            InGameAssert.IsFalse(state.explosionFired,
+                "explosionFired must stay false on retired loop endpoint frame");
+            InGameAssert.AreEqual(0, cameraEvents.Count,
+                "no OnLoopCameraAction with stale (0,0,0) AnchorPosition must emit on retired loop boundary");
+            InGameAssert.AreEqual(0, restartEvents.Count,
+                "no LoopRestartedEvent with stale (0,0,0) ExplosionPosition must emit on retired loop boundary");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("loop endpoint side effects suppressed")
+                    && l.Contains("anchor retired")),
+                "expected verbose 'loop endpoint side effects suppressed: anchor retired' log line for the loop cycle-change retire frame");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2 negative: resolvable LoopAnchor still emits ExplosionHold camera + LoopRestarted on cycle change")]
+        public void Bug613_ResolvedAnchorFiresLoopCycleEndpoint()
+        {
+            var (cameraEvents, restartEvents, _, _) = RunBug613LoopCycleScenario(
+                positionerSetsLoopRetireFlag: false);
+
+            InGameAssert.IsTrue(cameraEvents.Count >= 1,
+                "resolvable-anchor loop-cycle boundary must still emit OnLoopCameraAction");
+            InGameAssert.IsTrue(restartEvents.Count >= 1,
+                "resolvable-anchor loop-cycle boundary must still emit LoopRestartedEvent");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2: overlap-expiry endpoint side effects (explosion, ExplosionHold camera, OverlapExpired) must NOT fire when the retire flag is raised on the expiring overlap state")]
+        public void Bug613_RetireDuringOverlapExpiry_NoExplosionOrCamera()
+        {
+            var (cameraEvents, expiredEvents, capturedLog, ovState) = RunBug613OverlapExpiryScenario(
+                positionerSetsLoopRetireFlag: true);
+
+            InGameAssert.IsFalse(ovState.explosionFired,
+                "explosionFired must stay false on retired overlap-expiry frame");
+            InGameAssert.AreEqual(0, cameraEvents.Count,
+                "no OnOverlapCameraAction with stale (0,0,0) AnchorPosition must emit on retired overlap expiry");
+            InGameAssert.AreEqual(0, expiredEvents.Count,
+                "no OverlapExpiredEvent with stale ExplosionPosition must emit on retired overlap expiry");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("loop endpoint side effects suppressed")
+                    && l.Contains("anchor retired")),
+                "expected verbose 'loop endpoint side effects suppressed: anchor retired' log line for the overlap-expiry retire frame");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2 negative: resolvable LoopAnchor still emits OnOverlapCameraAction + OverlapExpiredEvent on overlap expiry")]
+        public void Bug613_ResolvedAnchorFiresOverlapExpiry()
+        {
+            var (cameraEvents, expiredEvents, _, _) = RunBug613OverlapExpiryScenario(
+                positionerSetsLoopRetireFlag: false);
+
+            InGameAssert.IsTrue(cameraEvents.Count >= 1,
+                "resolvable-anchor overlap expiry must still emit OnOverlapCameraAction");
+            InGameAssert.IsTrue(expiredEvents.Count >= 1,
+                "resolvable-anchor overlap expiry must still emit OverlapExpiredEvent");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2 + P3: HandleLoopPauseWindow retire branch must (a) suppress the loop-endpoint explosion and (b) call ApplyFrameVisuals(suppressVisualFx:true) for plume/RCS/reentry-FX teardown — HideAllGhostParts only mutes audio")]
+        public void Bug613_RetireDuringLoopPause_StopsEngineFx()
+        {
+            var (state, capturedLog) = RunBug613LoopPauseScenario(
+                positionerSetsLoopRetireFlag: true);
+
+            InGameAssert.IsFalse(state.explosionFired,
+                "loop-pause retire must skip TriggerExplosionIfDestroyed; otherwise explosion fires from stale (0,0,0)");
+            // ApplyFrameVisuals(suppressVisualFx:true) emits a Verbose log
+            // through GhostPlaybackLogic.StopAllEngineFx + Reset paths only
+            // when there is engine FX to stop. The reliable contract on this
+            // test path is the suppression log line. Pin both the
+            // ExplosionHold suppression AND the visible expectation that
+            // HandleLoopPauseWindow returned without re-activating the ghost.
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("loop endpoint side effects suppressed")
+                    && l.Contains("anchor retired")),
+                "expected verbose 'loop endpoint side effects suppressed: anchor retired' log line for the loop-pause retire frame");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "loop-pause retire frame must end ghost INACTIVE — ApplyFrameVisuals teardown must not flip SetActive(true)");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 PR #594 P1 round 2 negative: resolvable LoopAnchor on loop-pause endpoint still fires explosion when the recording terminated in destruction")]
+        public void Bug613_ResolvedAnchorLoopPauseFiresExplosion()
+        {
+            var (state, _) = RunBug613LoopPauseScenario(
+                positionerSetsLoopRetireFlag: false);
+
+            InGameAssert.IsTrue(state.explosionFired,
+                "resolvable-anchor loop-pause endpoint must still fire TriggerExplosionIfDestroyed when terminal=Destroyed");
+        }
+
+        // -------------------------------------------------------------
+        // Scenario harnesses
+        // -------------------------------------------------------------
+
+        private (GhostPlaybackEngine engine, GhostPlaybackState state, List<string> capturedLog)
+            RunBug613EarlyDebrisScenario(bool positionerSetsRetireFlag)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = positionerSetsRetireFlag,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject(
+                positionerSetsRetireFlag
+                    ? "ParsekTestGhost_Bug613EarlyDebris_Retired"
+                    : "ParsekTestGhost_Bug613EarlyDebris_Resolved");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestEarlyDebris",
+                ghost = ghost,
+                playbackIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            // 5-second debris recording terminating Destroyed; an early
+            // Destroyed PartEvent at 1.0s with current UT > 1.0 makes
+            // TryGetEarlyDestroyedDebrisExplosionUT return true.
+            var traj = new Bug613EarlyDebrisRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude));
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = traj.EndUT,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            // Capture the deferred completed list and dedupe set count via
+            // engine internals (same assembly).
+            var ctx = new FrameContext
+            {
+                currentUT = 2.5, // > early-debris explosion UT (1.0) but < EndUT (5.0)
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+            return (engine, state, localLog);
+        }
+
+        private (List<CameraActionEvent> cameraEvents,
+                 List<LoopRestartedEvent> restartEvents,
+                 List<string> capturedLog,
+                 GhostPlaybackState state)
+            RunBug613LoopCycleScenario(bool positionerSetsLoopRetireFlag)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = false,
+                SetsLoopRetireFlag = positionerSetsLoopRetireFlag,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject(
+                positionerSetsLoopRetireFlag
+                    ? "ParsekTestGhost_Bug613LoopCycle_Retired"
+                    : "ParsekTestGhost_Bug613LoopCycle_Resolved");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            // State pre-seeded as if a previous cycle (loopCycleIndex=0) just
+            // ended; this frame's currentUT is in cycle 1 so HasLoopCycleChanged
+            // returns true and the cycle-endpoint side-effect block runs.
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestLoopCycle",
+                ghost = ghost,
+                playbackIndex = 0,
+                loopCycleIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += e => cameraEvents.Add(e);
+            engine.OnLoopRestarted += e => restartEvents.Add(e);
+
+            // 5-second LOOPING relative-frame recording terminating Destroyed
+            // so the cycle-endpoint code computes needsExplosion and would
+            // fire the camera/restart events. LoopIntervalSeconds=5 + currentUT=6
+            // puts us in cycle index 1 (cycle change from 0).
+            var traj = new Bug613LoopRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                terminalDestroyed: true);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 6.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 5.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+            return (cameraEvents, restartEvents, localLog, state);
+        }
+
+        private (List<CameraActionEvent> cameraEvents,
+                 List<OverlapExpiredEvent> expiredEvents,
+                 List<string> capturedLog,
+                 GhostPlaybackState ovState)
+            RunBug613OverlapExpiryScenario(bool positionerSetsLoopRetireFlag)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = false,
+                SetsLoopRetireFlag = positionerSetsLoopRetireFlag,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var primaryGhost = new GameObject("ParsekTestGhost_Bug613OverlapPrimary");
+            var ovGhost = new GameObject(
+                positionerSetsLoopRetireFlag
+                    ? "ParsekTestGhost_Bug613OverlapExpiry_Retired"
+                    : "ParsekTestGhost_Bug613OverlapExpiry_Resolved");
+            runner.TrackForCleanup(primaryGhost);
+            runner.TrackForCleanup(ovGhost);
+            primaryGhost.SetActive(true);
+            ovGhost.SetActive(true);
+
+            // Primary state at current cycle (cycleIndex=2), overlap state
+            // at older cycle (cycleIndex=0) whose phase exceeds duration so
+            // UpdateExpireAndPositionOverlaps walks the expired-cycle branch.
+            var primaryState = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestOverlapPrimary",
+                ghost = primaryGhost,
+                playbackIndex = 0,
+                loopCycleIndex = 2,
+            };
+            engine.ghostStates[0] = primaryState;
+
+            var ovState = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestOverlap",
+                ghost = ovGhost,
+                playbackIndex = 0,
+                loopCycleIndex = 0,
+            };
+            engine.overlapGhosts[0] = new List<GhostPlaybackState> { ovState };
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var expiredEvents = new List<OverlapExpiredEvent>();
+            engine.OnOverlapCameraAction += e => cameraEvents.Add(e);
+            engine.OnOverlapExpired += e => expiredEvents.Add(e);
+
+            // Overlap-loop trajectory: duration=5s, interval=2s, so cycle 0's
+            // phase at currentUT=4.0s is 4.0 (less than duration, doesn't
+            // expire); push currentUT past 5s to expire cycle 0.
+            // Phase formula: phase = currentUT - (scheduleStartUT + cycle * cycleDuration)
+            // Set currentUT high enough to push the older cycle past duration.
+            var traj = new Bug613LoopRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                terminalDestroyed: true,
+                loopIntervalSeconds: 2.0);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 6.0, // > duration(5) for cycle 0 -> expires
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 2.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+            return (cameraEvents, expiredEvents, localLog, ovState);
+        }
+
+        private (GhostPlaybackState state, List<string> capturedLog)
+            RunBug613LoopPauseScenario(bool positionerSetsLoopRetireFlag)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = false,
+                SetsLoopRetireFlag = positionerSetsLoopRetireFlag,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject(
+                positionerSetsLoopRetireFlag
+                    ? "ParsekTestGhost_Bug613LoopPause_Retired"
+                    : "ParsekTestGhost_Bug613LoopPause_Resolved");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Bug613TestLoopPause",
+                ghost = ghost,
+                playbackIndex = 0,
+                loopCycleIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            // Loop interval well greater than duration so the pause window
+            // is reachable: duration=5s, interval=20s, currentUT=8s -> we are
+            // in cycle 0's pause window (loopUT > duration). HandleLoopPauseWindow
+            // is invoked from UpdateLoopingPlayback.
+            var traj = new Bug613LoopRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                terminalDestroyed: true,
+                loopIntervalSeconds: 20.0);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 8.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 20.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+            return (state, localLog);
+        }
+
+        #endregion
+    }
+
+    // Bug #613 in-game-test trajectory: a 5-second non-looping recording
+    // whose entire duration lies inside a single Relative track section so
+    // engine.RenderInRangeGhost routes the positioning call through
+    // IGhostPositioner.InterpolateAndPositionRelative regardless of which
+    // playback UT the test picks.
+    internal class Bug613RelativeTrajectory : IPlaybackTrajectory
+    {
+        internal Bug613RelativeTrajectory(
+            string bodyName, double latitude, double longitude, double altitude)
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude,
+                    longitude = longitude,
+                    altitude = altitude,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude,
+                    longitude = longitude + 0.001,
+                    altitude = altitude + 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+
+            // Single Relative section spanning the whole recording so the
+            // engine takes the InterpolateAndPositionRelative branch on
+            // every frame.
+            TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 0,
+                    endUT = 5,
+                    // Anchor pid is irrelevant here — the test's mock
+                    // positioner does NOT call FindVesselByPid; it sets
+                    // state.anchorRetiredThisFrame directly. The pid value
+                    // is just for log-line shape.
+                    anchorVesselId = 3151978247u,
+                    frames = new List<TrajectoryPoint>(Points),
+                    sampleRateHz = 1,
+                    source = TrackSectionSource.Active,
+                    boundaryDiscontinuityMeters = 0,
+                    minAltitude = float.NaN,
+                    maxAltitude = float.NaN,
+                }
+            };
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; }
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 6;
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "Bug613TestGhost";
+        public string RecordingId => "test-b613";
+        public bool LoopPlayback => false;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    /// <summary>
+    /// Bug #613 P1 round 2: relative-frame trajectory shaped as
+    /// "early-destroyed debris" so RenderInRangeGhost takes the
+    /// TryHandleEarlyDestroyedDebrisCompletion branch. Single Relative
+    /// section spans the whole recording; an early Destroyed PartEvent at
+    /// 1.0s and TerminalState.Destroyed make
+    /// GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT return true.
+    /// Both the resolvable and retired test paths use this same trajectory.
+    /// </summary>
+    internal class Bug613EarlyDebrisRelativeTrajectory : IPlaybackTrajectory
+    {
+        internal Bug613EarlyDebrisRelativeTrajectory(
+            string bodyName, double latitude, double longitude, double altitude)
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude, longitude = longitude, altitude = altitude,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude, longitude = longitude + 0.001, altitude = altitude + 10.0,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+            TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 0, endUT = 5,
+                    anchorVesselId = 3151978247u,
+                    frames = new List<TrajectoryPoint>(Points),
+                    sampleRateHz = 1,
+                    source = TrackSectionSource.Active,
+                    boundaryDiscontinuityMeters = 0,
+                    minAltitude = float.NaN, maxAltitude = float.NaN,
+                }
+            };
+            PartEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 1.0,
+                    partPersistentId = 1,
+                    partName = "earlyKaboom",
+                    eventType = PartEventType.Destroyed,
+                }
+            };
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; }
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 6;
+        public List<PartEvent> PartEvents { get; }
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "Bug613TestEarlyDebris";
+        public string RecordingId => "test-b613-earlydebris";
+        public bool LoopPlayback => false;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => TerminalState.Destroyed;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => true;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    /// <summary>
+    /// Bug #613 P1 round 2: looping trajectory whose entire duration sits in
+    /// a single Relative section. Used by the loop-cycle endpoint, overlap
+    /// expiry, and loop-pause window scenarios. terminalDestroyed=true marks
+    /// the recording as ending in destruction so the cycle-endpoint /
+    /// loop-pause branches compute needsExplosion=true (which the retire
+    /// gate must then suppress).
+    /// </summary>
+    internal class Bug613LoopRelativeTrajectory : IPlaybackTrajectory
+    {
+        private readonly bool _terminalDestroyed;
+        private readonly double _loopIntervalSeconds;
+
+        internal Bug613LoopRelativeTrajectory(
+            string bodyName, double latitude, double longitude, double altitude,
+            bool terminalDestroyed, double loopIntervalSeconds = 5.0)
+        {
+            _terminalDestroyed = terminalDestroyed;
+            _loopIntervalSeconds = loopIntervalSeconds;
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude, longitude = longitude, altitude = altitude,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude, longitude = longitude + 0.001, altitude = altitude + 10.0,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+            TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 0, endUT = 5,
+                    anchorVesselId = 3151978247u,
+                    frames = new List<TrajectoryPoint>(Points),
+                    sampleRateHz = 1,
+                    source = TrackSectionSource.Active,
+                    boundaryDiscontinuityMeters = 0,
+                    minAltitude = float.NaN, maxAltitude = float.NaN,
+                }
+            };
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; }
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 6;
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "Bug613TestLoop";
+        public string RecordingId => "test-b613-loop";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => _loopIntervalSeconds;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue =>
+            _terminalDestroyed ? TerminalState.Destroyed : (TerminalState?)null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     /// <summary>

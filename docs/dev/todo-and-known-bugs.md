@@ -489,6 +489,417 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
+3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
+entered its first relative-frame track section (`UT=199.3-214.7`,
+`anchorPid=3151978247`) at line ~17943. The very next line emitted the
+WARN `[Anchor] RELATIVE playback: anchor vessel pid=3151978247 not found
+— ghost frozen at last known position`, and the subsequent
+`[GhostAppearance]` line reported `root=(0.00,0.00,0.00)` with
+`rootRot=identity` and a render distance of `1140719m`. The recorded
+anchor pid (`3151978247`) had been the active Re-Fly probe; it was
+destroyed in the background at 10:14:23 (line ~11001
+`[BgRecorder] Background vessel destroyed`) and the rewind erased it from
+the future, so the post-rewind `FlightGlobals.Vessels` never contained
+that pid again.
+
+**PID lifecycle (verified):** `TrackSection.anchorVesselId` (uint pid) is
+captured by `FlightRecorder.ApplyRelativeOffset` at recording time
+(`Source/Parsek/FlightRecorder.cs:5566`) and persisted in the recording's
+on-disk track sections (`RecordingStore.cs:5132`,
+`TrajectorySidecarBinary.cs:631`). It is **never rewritten** after the
+recording finalizes — recordings are immutable across rewinds. After a
+Re-Fly rewind the recording sits in `RecordingStore.CommittedRecordings`
+with the original anchor pid intact, but the live `FlightGlobals.Vessels`
+no longer contains that pid (the anchor's recording-side
+`Vessel.persistentId` is gone with the destroyed-future strip).
+`FlightRecorder.FindVesselByPid(3151978247)` then returns null on every
+playback frame. The ghost-map presence path already gracefully defers in
+this case (`GhostMapPresence.TryResolveStateVectorMapPointPure` returns
+`relative-frame-anchor-unresolved`), but the in-flight ghost-positioning
+path was still using the older "freeze at last known position" branch,
+which renders a freshly-spawned ghost at `(0,0,0)`.
+
+**Fix direction:** retire (hide) the ghost during the relative section
+rather than re-resolve. Re-resolution by name was rejected: the recorded
+anchor was a transient sibling vessel (a decoupled probe) with no stable
+identifier — there is nothing to rebind to in the post-rewind scene. The
+fix in `Source/Parsek/ParsekFlight.cs` (`InterpolateAndPositionRelative`
+~line 15264, `PositionGhostRelativeAt` ~line 15400) replaces the
+freeze-in-place branch with `ghost.SetActive(false)` plus a one-shot
+per-(recordingIndex, anchorPid) WARN under the `[Anchor]` tag carrying a
+greppable `relative-anchor-retired` keyword. Hiding strictly dominates
+freezing: if the anchor reappears on a later frame the engine re-enters
+the same method and repositions; if it never reappears, the ghost stays
+gracefully ungraphable instead of marooned at world origin with bogus
+distance reports. The `LateUpdate` Relative-mode path in `ParsekFlight`
+already deactivated the ghost on null anchor, so this brings the two
+positioning entry points into alignment.
+
+**Decision helper:** new pure static `RelativeAnchorResolution` (Decide /
+DedupeKey / FormatRetiredMessage) so the resolver decision is unit
+testable with an injectable resolver delegate, mirroring the existing
+`GhostMapPresence.AnchorResolvableForTesting` pattern.
+
+**Tests:** 21 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
+covering: Decide outcomes (Resolved / Retired / pid==0 short-circuit /
+null resolver), DedupeKey uniqueness across (recIdx, pid) combos and high
+bit handling, FormatRetiredMessage greppable keyword + identifying field
+inclusion + null-vessel-name placeholder + Re-Fly root-cause mention, the
+log-assertion case that pipes the formatted message through
+`ParsekLog.Warn("Anchor", ...)` and asserts the resulting line carries
+`[WARN]`, `[Anchor]`, and `relative-anchor-retired`, and the rewind
+scenario coverage (anchor still alive in post-rewind FlightGlobals -->
+Resolved with no spurious retirement; anchor erased --> Retired with no
+freeze-path reachable). The Outcome enum has a defensive shape test that
+locks the contract to exactly two values, blocking any future "partial
+positioning" outcome. The P1-fix follow-up adds 5 cases pinning the
+`ShouldSkipPostPositionPipeline` predicate (true/false round-trip + pure
+function), the `GhostPlaybackState.anchorRetiredThisFrame` default + reset
+through `ClearLoadedVisualReferences`, and a 3-frame integration scenario
+that mirrors the production engine + positioner contract: frame 1 sets
+the flag and emits the one-shot WARN, frame 2 re-enters the retire branch
+on the same key without re-emitting the WARN, frame 3 resolves the anchor
+and the gate lets the activation pipeline run again. In-game coverage
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetiredAnchor_EndsFrameInactive_NoAppearance` /
+`Bug613_DeferredSyncWithResolvedAnchor_StillActivates` /
+`Bug613_PerFrameClear_StaleFlagDoesNotLeak`) drives a full
+`engine.UpdatePlayback` frame with a mock `IGhostPositioner` whose
+`InterpolateAndPositionRelative` mimics the production retire branch
+(`SetActive(false)` plus `state.anchorRetiredThisFrame = true`); the
+asserts pin `ghost.activeSelf == false`, `appearanceCount == 0`, and the
+absence of any `[GhostAppearance]` log line on a retired frame, plus the
+positive case where deferred-sync activation still flips the ghost active
+when the anchor is resolved.
+
+**P1 review narrative (PR #594):** The first commit retired the ghost
+correctly inside the positioner (`SetActive(false)` plus the WARN), but
+review noticed that in the same `engine.RenderInRangeGhost` frame
+`ActivateGhostVisualsIfNeeded` ran unconditionally after positioning and
+flipped the ghost back to active before the frame returned. The visible
+symptom was unchanged from the original bug B repro: a (0,0,0) ghost
+appearance for one rendered frame on every per-frame call inside the
+relative section. Two fix shapes were considered:
+
+- **Option (a):** thread an explicit out-parameter / return value
+  (`AnchorOutcome` enum) up through `InterpolateAndPositionRelative` and
+  `PositionLoopGhost` so the engine can branch directly on the decision.
+  Cleanest signal but five callsites in the engine (`RenderInRangeGhost`,
+  loop-playback main, loop-primary, loop-overlap, and the `WatchSync`
+  rebuild path) plus the loop-pause window each need to consume the new
+  shape, and the watch-sync path crosses an additional helper boundary
+  (`PositionLoadedGhostAtPlaybackUT`) that does not currently take the
+  positioner. Touches the `IGhostPositioner` interface contract.
+
+- **Option (b, shipped):** single `bool anchorRetiredThisFrame` on
+  `GhostPlaybackState`. Engine clears it before each per-frame call to
+  the positioner; positioner sets it true on the retire branch; the
+  engine's existing post-position pipeline reads it and skips the
+  visuals + activation + appearance steps. Pure predicate
+  `RelativeAnchorResolution.ShouldSkipPostPositionPipeline(bool)` named
+  the gate so the call sites are reviewable from xUnit. No
+  `IGhostPositioner` signature churn, no new event types, and the flag's
+  one-frame scope is self-documenting.
+
+The shipped fix gates six engine callsites (`RenderInRangeGhost` line
+~1035, loop-playback main line ~1457, `HandleLoopPauseWindow` line ~1865
+caught in the P1 second pass, primary-loop overlap line ~1659,
+`OverlapGhost` loop line ~1796, and the `SynchronizeLoadedGhostForWatch`
+watch-sync rebuild line ~3667). Each gate calls
+`ApplyFrameVisuals(skipPartEvents=true, suppressVisualFx=true)` to tear
+down any previously-emitting plumes/audio, then early-returns / falls
+through past `ActivateGhostVisualsIfNeeded` and `TrackGhostAppearance`.
+The retire branch in `ParsekFlight.InterpolateAndPositionRelative` and
+`PositionGhostRelativeAt` (the `PositionLoopGhost` callee) now takes an
+extra `GhostPlaybackState retireSignalState` argument that may be null in
+test fixtures that drive the method without a state object; the
+production callsites always pass the live state.
+
+**P1 review narrative (PR #594, round 2):** A second review pass caught
+that the six visibility gates above only cover
+`ActivateGhostVisualsIfNeeded` + `TrackGhostAppearance` + transient
+`ApplyFrameVisuals` events. Three additional code paths still ran
+side-effect helpers (explosion FX, completion-event queueing, loop
+camera-action / restart payloads) from the stale (0,0,0) transform of
+the just-hidden ghost when the relative anchor was unresolvable:
+
+1. `RenderInRangeGhost` falling through to
+   `TryHandleEarlyDestroyedDebrisCompletion` (line ~1070) with
+   `ghostActive` computed BEFORE positioning. On a retired frame the
+   helper still called `TriggerExplosionIfDestroyed` against the stale
+   transform, marked `explosionFired`/`completed`, and queued a
+   `PlaybackCompletedEvent` that policy handlers would react to.
+   Fix: gate the call on `!retired`; emit a one-shot
+   `early-completion suppressed: anchor retired` Verbose log when
+   skipping. If the recording was a legitimate early-debris destruction,
+   the next replay frame with a resolvable anchor handles the completion.
+
+2. `UpdateLoopingPlayback` cycle-change endpoint (line ~1296):
+   `PositionGhostAtLoopEndpoint` routes through `positioner.PositionLoop`
+   which CAN raise `state.anchorRetiredThisFrame`, but the immediately
+   following block called `TriggerExplosionIfDestroyed`, emitted
+   `OnLoopCameraAction(ExplosionHoldStart/End)` with
+   `AnchorPosition = state.ghost.transform.position`, and emitted
+   `OnLoopRestarted` with `ExplosionPosition` from the same stale
+   transform. Fix: clear the flag before `PositionGhostAtLoopEndpoint`,
+   read it back, suppress all four side effects (explosion + camera +
+   restart event + retarget event) when retired. Suppression log:
+   `loop endpoint side effects suppressed: anchor retired ghost #N
+   "vesselName" cycle=K`.
+
+3. `UpdateExpireAndPositionOverlaps` overlap-expiry endpoint (line
+   ~1723): same pattern — `PositionGhostAtLoopEndpoint` followed by
+   `TriggerExplosionIfDestroyed` + `OnOverlapCameraAction` +
+   `OnOverlapExpired`, all reading `ovState.ghost.transform.position`.
+   Fix: identical clear-then-check-flag wrap; suppress on retired.
+
+4. `HandleLoopPauseWindow` (line ~1865): the existing visibility gate
+   ran AFTER `TriggerExplosionIfDestroyed`. P3 follow-up: the retire
+   early-return only called `HideAllGhostParts` (which itself only
+   calls `MuteAllAudio`) so previously-emitting engine plumes / RCS /
+   reentry FX continued rendering at the (0,0,0) retired position. Fix:
+   gate `TriggerExplosionIfDestroyed` on `!loopPauseRetired`, and add
+   `ApplyFrameVisuals(skipPartEvents:true, suppressVisualFx:true,
+   allowTransientEffects:false)` before the early-return so the FX
+   teardown matches the contract of the other five visibility gates.
+   Suppression log: `loop endpoint side effects suppressed: anchor
+   retired ghost #N "vesselName" loop-pause`.
+
+The total surface is now **6 visibility gates** + **3 endpoint
+side-effect gates** (loop cycle endpoint, overlap expiry, loop pause)
++ **1 early-completion gate** in `RenderInRangeGhost`. In-game tests
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetireDuringRender_DoesNotFireEarlyDestroyedCompletion`,
+`Bug613_ResolvedAnchorFiresEarlyDestroyedCompletion`,
+`Bug613_RetireDuringLoopCycleEndpoint_NoExplosionOrCameraRestart`,
+`Bug613_ResolvedAnchorFiresLoopCycleEndpoint`,
+`Bug613_RetireDuringOverlapExpiry_NoExplosionOrCamera`,
+`Bug613_ResolvedAnchorFiresOverlapExpiry`,
+`Bug613_RetireDuringLoopPause_StopsEngineFx`,
+`Bug613_ResolvedAnchorLoopPauseFiresExplosion`) extend the existing
+`Bug613_*` mock-positioner harness with a `SetsLoopRetireFlag` knob and
+two new test trajectories (`Bug613EarlyDebrisRelativeTrajectory` for
+the early-debris path, `Bug613LoopRelativeTrajectory` for the three
+loop-endpoint paths). Each retire test asserts `explosionFired==false`,
+no event-list emissions, and the suppression log line; each negative
+test asserts the same side effects DO fire when the anchor resolves.
+
+**P1 review follow-up (finalize-spawn retarget):** PR #594's gates
+covered continuing playback, loop endpoints, overlap expiry, loop pause,
+and early-completion side effects, but `FinalizePendingSpawnLifecycle`
+still ran immediately after `PrimeLoadedGhostForPlaybackUT`. On a fresh
+loop or overlap-primary spawn whose first priming pass landed inside a
+Relative section with an unresolvable anchor, the priming positioner set
+`state.anchorRetiredThisFrame = true`, hid the ghost, and left its pivot
+under the just-built origin-positioned hierarchy. The pending lifecycle
+then cleared normally and emitted `OnLoopCameraAction` /
+`OnOverlapCameraAction(RetargetToNewGhost)` with
+`GhostPivot = state.cameraPivot`. Watch mode could anchor at world origin
+for one frame before the next per-frame gate suppressed continuing
+playback. Fix: `FinalizePendingSpawnLifecycle` now leaves
+`OnGhostCreated`, pending-lifecycle cleanup, flag visibility, and range
+entry logging intact, but suppresses only the `RetargetToNewGhost`
+camera side effect when `state.anchorRetiredThisFrame` is true. It emits
+the greppable Verbose line `finalize-spawn retire: suppressing
+RetargetToNewGhost (anchor retired on first spawn) ghost #N
+"vesselName"` with the lifecycle and cycle context. In-game regressions
+`Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin` and
+`Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget` drive both
+`LoopEnter` and `OverlapPrimaryEnter` fresh-spawn paths through the
+mock relative positioner, asserting that retired anchors keep the state
+machine and `OnGhostCreated` path complete without camera retargeting,
+while resolved anchors still emit exactly one retarget with the spawned
+state's `cameraPivot`.
+
+**Status:** Open until merged.
+
+---
+
+## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
+after the load-window pending-tree fix shipped, the user re-flew the booster
+again and a `Ghost: Kerbal X` ProtoVessel was still created — this time for
+the **root** recording (`c9df8d86b79b4f6b91c049696b5cc8e2`), an ancestor two
+hops up the parent chain from the active Re-Fly target
+(`89eff8431cb843b783e5dbe693ed30f2`). The direct parent
+(`1d6d2116543245249c9ca7f26dd361f7`) was correctly suppressed at log line
+~14640 (`reason=refly-relative-anchor=active relationship=parent`). The root
+got `reason=not-suppressed-not-parent-of-refly-target` at log line ~14211
+and the bogus state-vector ghost was created at log line ~14212 with
+`sma=2 ecc=1.000000`.
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:976-1093`):** the BFS walk in
+`IsRecordingInParentChainOfActiveReFly` only followed
+`Recording.ParentBranchPointId` links. The user's tree topology was:
+`c9df8d86 (root, ChainIndex=0)` -> [optimizer split] ->
+`1d6d2116 (mid, ChainIndex=1)` -> [Breakup BP `f1c7b08f`] ->
+`89eff8431 (leaf)`. The root -> mid edge is an **optimizer chain split**
+(`RecordingStore.RunOptimizationSplitPass` at `RecordingStore.cs:2016-2049`):
+the second half (`mid`) shares the root's `ChainId` + monotonically
+incremented `ChainIndex`, but does NOT receive a `ParentBranchPointId`.
+The comment at `RecordingStore.cs:2041-2046` is explicit: *"The chain
+linkage (shared ChainId) connects it to subsequent segments. Code that
+walks from a BranchPoint to the chain tip must follow ChainId, not just
+ChildRecordingIds."* The reverse walk (used here) had the same bug — it
+must follow `ChainId` predecessors, not just `ParentBranchPointId`.
+
+The structured `walkTrace` in the failed log line confirms the BFS
+terminated at mid: `walkTrace=(exhausted-without-victim
+activeId=89eff843 treeId=50e9197d victim=c9df8d86 visitedBPs=1
+parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
+parents=[1d6d2116])`. One BP visited, one parent recording reached
+(mid), then exhausted — never traversed the chain link from mid to root.
+
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #593):** the BFS now
+walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
+`ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
+reaches, including the active recording itself (so a mid-chain active
+seeds the chain-predecessor leg too). New helper
+`GhostMapPresence.TryFindChainPredecessor(tree, rec)` encapsulates the
+chain-predecessor lookup: returns null for standalone recordings,
+`ChainIndex == 0`, and missing predecessors; scoped per-tree and
+per-`ChainBranch` so legacy / future cross-tree clones cannot leak.
+
+The `walkTrace` gains a `chainHops` counter that increments on every
+chain-predecessor enqueue (active-seed + every fan-out hop) plus a
+`chainHopsViaAncestors` counter for the fan-out subset. A future
+regression of the same shape will surface as `chainHops=0` on a
+topology that should have chain links — visible in `KSP.log` without
+re-reading source. The previous trace string `active-has-no-parent-bp`
+was renamed to `active-has-no-parent` because the bail condition is
+now "neither BP-parent nor chain-predecessor", not BP-only.
+
+**Tests:** 14 new cases in `Bug614GhostMapAncestorChainTests` covering
+the user's exact 3-recording chain shape (`SuppressesRoot_…`,
+`SuppressesMid_…`), sibling-branch negatives
+(`DoesNotSuppressSibling_…`, `DoesNotSuppressUnrelatedTreeRecording`),
+multi-hop chain depth (`SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments`),
+mid-chain active recording (`SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent`),
+true-root bail behaviour, chain cycles
+(`HandlesChainCycleGracefully_VisitedSetCapsTheWalk`), the
+`TryFindChainPredecessor` helper edge cases (standalone recording,
+`ChainIndex == 0`, `ChainBranch` scoping, missing predecessor), and the
+`chainHops=` walkTrace counter contract on both success and failure
+paths. The end-to-end production-gate test
+`EndToEnd_SuppressesRoot_ProductionGate_UserShape` drives
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
+exact production tree shape and asserts both the suppress decision and
+the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
+
+---
+
+## ~~612. Boring-tail trim never fires for stable orbits because terminal-shape match used exact float equality~~
+
+**Source:** user reported the orbital "boring tail" trim mechanism never trims
+in practice. Logs from `logs/2026-04-26_1025_3bugs-refly/KSP.log` confirmed
+that neither the success log (`TrimBoringTail: trimmed ...`) nor the existing
+divergence skip log fired at all for orbital-terminal recordings, even when
+the recording clearly ended in a long stable coast.
+
+**Root cause:** `RecordingOptimizer.OrbitShapeMatchesTerminal` compared the
+tail's `OrbitSegment` parameters (SMA, eccentricity, inclination, LAN, argP)
+against the recording's `TerminalOrbit*` fields with exact `!=` equality.
+Numerical drift across the boring tail from rails / pack-unpack / conic
+prediction is unavoidable on real recordings, so the byte-for-byte match
+rejected on the first parameter. The same failure mode bit the surface-state
+path before its tolerances landed (`#356` follow-up). Two compounding
+problems made this hard to diagnose: the existing `TailMatchesTerminalOrbit`
+skip log only fired when the predicate was actually called, but the player
+was reporting "no trim happens" with no log line either way — and
+`TrimBoringTail`'s six entry guards (leaf / duration / track-sections /
+last-section-not-boring / lastInteresting-NaN-too-few-points / buffer-not-met)
+all early-returned silently, so we could not tell which guard rejected.
+
+**Fix:** `OrbitShapeMatchesTerminal` now uses `Math.Abs(delta) > eps` checks
+sized to absorb stable-orbit jitter while still catching real maneuvers.
+Body name remains exact equality.
+
+- `TailOrbitSmaAbsoluteEpsilonMeters = 10.0`,
+  `TailOrbitSmaRelativeEpsilon = 1e-3`. SMA uses
+  `max(absolute, relative * |terminal SMA|)` so the check scales from a
+  700 km LKO (relEps -> ~700 m) to a 13 Mm Mun encounter (~13 km) without
+  losing sensitivity to small absolute changes. A 1 m/s circularization
+  burn at LKO shifts SMA by ~tens of metres, well above 10 m.
+- `TailOrbitEccentricityEpsilon = 1e-3` absolute. A real burn shifts
+  eccentricity by `>= 1e-3`; rails jitter is closer to `1e-5..1e-4`.
+- `TailOrbitAngleEpsilonDegrees = 0.01` absolute (inclination, LAN, argP).
+  Stable-orbit prograde precession over a 15-minute coast stays under
+  `0.01 deg`; a real plane-change burn is hundreds of times larger.
+
+Each `OrbitShapeMatchesTerminal` rejection now logs which field diverged
+and the actual delta (Verbose, `[Optimizer]` tag), so future tolerance
+tuning has structured data instead of "trim mysteriously didn't fire".
+
+`TrimBoringTail`'s entry guards now each emit a structured one-line skip
+reason (Verbose, `[Optimizer]` tag): `not-leaf`, `too-short`,
+`no-track-sections`, `last-section-not-boring`, `all-boring-too-few-points`,
+`buffer-not-met`, `terminal-mismatch`, `no-points-past-trim-ut`,
+`keep-count-too-low`, plus a `rec-null-or-too-few-points` guard at entry.
+Each line carries the recording id and the relevant numeric values so the
+rejection branch is auditable from `KSP.log` alone.
+
+**Tests:** `RecordingOptimizerTests.cs`:
+- `TrimBoringTail_StableOrbitWithRailsJitter_StillTrims` constructs a
+  jittered tail (SMA shifted by 3.5 m, ecc by 5e-4, angles by 0.005 deg)
+  and asserts the trim now succeeds.
+- `TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim` uses an
+  eccentricity delta of 0.05 (50x epsilon) and asserts the trim still
+  rejects.
+- `TrimBoringTail_NotLeaf_LogsSkipReason`, `_TooShort_LogsSkipReason`, and
+  `_TerminalMismatch_LogsSkipReasonWithDelta` capture log output via
+  `ParsekLog.TestSinkForTesting` and assert the corresponding skip-reason
+  string fires.
+
+Two pre-existing tests had constructed deltas chosen to break exact
+equality (`eccentricity = 0.01001` and `semiMajorAxis = 1200000.5`), well
+below the new tolerances; they were updated to use deltas above the
+epsilons (`eccentricity = 0.05`, `semiMajorAxis = 1300000.0`) so they
+continue to pin the guard-rejects-real-changes contract.
+
+**Wraparound follow-up (P2 review on PR #589):** the first-pass angle
+checks used raw `Math.Abs(seg.angle - rec.terminal.angle)` for
+inclination, LAN, and argument of periapsis. LAN and argP routinely cross
+the 0/360 boundary on a stable orbit; e.g. `terminal LAN = 359.997` vs
+`segment LAN = 0.002` is a real wrapped delta of `0.005 deg` (within
+epsilon), but raw `Abs(a - b) = 359.995` would have triggered a false
+mismatch and the trim would have stayed broken even after the epsilon
+fix. Inclination stays in `[0, 180]` and never hits the wrap branch, but
+uses the same helper for symmetry / centralized math.
+
+The fix reuses `TrajectoryMath.AngularDeltaDegrees(a, b)` (the existing
+`Math.Abs(a - b) % 360, > 180 ? 360 - delta : delta` helper used by
+`TrajectoryMath.OrbitsAreEquivalent`); promoted from `private` to
+`internal static` so `RecordingOptimizer` can call it. The helper's
+contract is now documented (inputs in any range; result in `[0, 180]`)
+and pinned by `TrajectoryMathTests.cs` covering simple deltas, zero
+delta, the wraparound short-path case, the half-turn boundary,
+inclination-range inputs, out-of-range inputs (small negatives,
+`> 360`), and the always-non-negative result invariant.
+
+The LAN / argP / inc divergence log lines now report
+`<field> wrapped delta <value>deg` so the log no longer lies about what
+the comparison saw (a tail at LAN = 0.002 vs terminal LAN = 359.997 logs
+a wrapped delta of `0.005`, not `359.995`).
+
+Wraparound regressions in `RecordingOptimizerTests.cs`:
+
+- `TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims` (terminal
+  `LAN = 359.997` vs segment `LAN = 0.002`, wrapped delta `0.005`) — trim
+  succeeds.
+- `TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims` (terminal
+  `argP = 0.001` vs segment `argP = 359.998`, wrapped delta `0.003`) —
+  trim succeeds.
+- `TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim` (terminal
+  `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
+  rejected, AND the divergence log line carries `LAN wrapped delta` (so
+  the wrap fix is observable from `KSP.log` alone).
+
+---
+
 ## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the
@@ -2380,6 +2791,74 @@ Missing.
 
 **Status:** CLOSED 2026-04-26 (PR #(this)). Cross-reference `#608`,
 which still describes the orphan-placement-deferred preamble.
+
+---
+
+## ~~615. Re-Fly post-spawn churns crew stand-ins after rescue restored the originals — `Recreated stand-in` re-fires per recalc walk and the next ghost spawn's `Crew dedup` WARN catches the doubled-original~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. The same Jeb / Bill / Bob slot churns through generate -> rescue+remove -> recreate -> rescue+remove on every ghost spawn after the in-place Re-Fly:
+
+- Lines 13883-13886 — initial stand-ins generated for the three reservation slots: `Erilan`, `Debgas`, `Rodbro`.
+- Lines 14404-14407 — orphan placement deferred for the same three (no matching part with free seat in the active booster vessel) as expected post-#608.
+- Lines 15374-15386 — first ghost spawn for the capsule recording: `Spawn-block carve-out applied (#608/#609)` rescues the three Reserved+Missing originals to `Available`, snapshot loads them onto the spawned vessel, then `Removed replacement '...' (was unused)` removes each historical stand-in from the roster.
+- Lines 16101-16109 — recalculation walk runs after commit, rebuilds the reservations from the recording's `KerbalAssignment` actions (still in ELS), `EnsureChainDepth` re-uses the persisted `slot.Chain[0]` names, and `ApplyToRoster` step 1 sees `slot.Chain[i]` not in the roster (just removed) and fires `Recreated stand-in 'Erilan Kerman'` -> `Debgas` -> `Rodbro`. The replacement dictionary is repopulated in step 3 of the same call.
+- Lines 18766-18769 — second ghost spawn for a sibling recording: same rescue+remove cycle, then `Crew dedup: 'Jebediah Kerman' already on a vessel in the scene — removed from spawn snapshot` WARN fires because the snapshot still carries Jeb but the active scene already has him on the first spawned vessel.
+
+The `Crew dedup` WARN is defense-in-depth — it correctly prevents the original from being placed on two vessels — but it should not be exercised in the happy path. The root cause is the redundant `ApplyToRoster` recreate, which mints a brand-new ProtoCrewMember with the historical stand-in's name immediately after the spawn-side `UnreserveCrewInSnapshot` deleted it.
+
+**Lifecycle:** the reservation derives from the recording's `KerbalAssignment` (Aboard / Recovered) action and is rebuilt every recalculation walk. The slot chain (`KerbalsModule.KerbalSlot.Chain`) is module-level state that persists across walks via `LoadSlots`, so the historical stand-in name survives. After the rescue places the original on the spawned vessel, the slot's "active occupant" is conceptually the original — but the chain still names the stand-in and the recreate-if-missing path runs unconditionally.
+
+**Fix:** Added a rescue-completion guard at `KerbalsModule.ApplyToRoster` step 1. **P1 review revisions** (after the initial commit, then a second pass, then a third pass after a deeper user review):
+
+The guard's predicate combines TWO signals — the rescue-specific marker set by `CrewReservationManager.MarkRescuePlaced` from the `VesselSpawner.RescueReservedMissingCrewInSnapshot` path (#608/#609) AND a live-vessel check on the same name. The "person being replaced at depth `i`" is `slot.OwnerName` at depth 0 and `slot.Chain[i-1]` at deeper levels. The first review iteration used only the live-vessel check, but the reviewer pointed out a fresh reservation where the kerbal sits on the **active player vessel** without ever passing through the rescue path would have hit the guard, the create path would have been skipped, the chain entry would have stayed null, step 3's `SetReplacement` would have emitted no mapping, and `SwapReservedCrewInFlight` would have had nothing to swap with — silent regression on every legitimate fresh launch. The combined predicate is rescue-specific:
+
+- "on a live vessel" alone fires for fresh reservations on the active player vessel — wrong.
+- "rescue-placed marker" alone fires after the rescued vessel was destroyed (kerbal back to Missing) — wrong.
+- Combined fires only when the rescue path actually placed this kerbal AND they are still on a loaded non-ghost vessel — exactly the bug-repro happy path.
+
+**P1 review (second pass):** the first revision installed `CleanUpReplacement` as the per-name marker-clearing site so a future fresh reservation of the same name would not see a stale signal. That broke the production lifecycle: both spawn paths (`VesselSpawner.RespawnVessel` and `VesselSpawner.SpawnAtPosition`) call `RescueReservedMissingCrewInSnapshot(spawnNode)` (sets the marker) and IMMEDIATELY follow with `CrewReservationManager.UnreserveCrewInSnapshot(spawnNode)` on the SAME snapshot, which loops every reserved kerbal in the snapshot through `CleanUpReplacement` — the marker was wiped before the next `ApplyToRoster` walk could read it. The guard read `IsRescuePlaced=false`, fell through to the recreate path, and the original churning the user reported was preserved (the defense-in-depth `Crew dedup` WARN at the downstream ghost spawn was the only thing keeping the kerbal off two vessels). The first-pass xUnit tests passed because they called `MarkRescuePlaced` directly and never exercised the `Rescue -> Unreserve -> ApplyToRoster` sequence — false green.
+
+The second-pass fix decoupled the marker lifecycle from the per-name unreserve and one-shot consumed the marker on guard fire (via a new `CrewReservationManager.ConsumeRescuePlaced` API).
+
+**P1 review (third pass):** the second-pass one-shot-consume design was also broken. The reservation slot is rebuilt on every `LedgerOrchestrator.RecalculateAndPatch` walk while the historical chain entry survives in `slot.Chain`. `RecalculateAndPatch` is invoked from 14+ call sites — every recording commit, KSC spending event (`OnKscSpending`, `OnVesselRolloutSpending`), vessel recovery (`OnVesselRecoveryFunds`), warp exit (`ParsekFlight.cs:6366`, `Warp exit detected — recalculating ledger`), scene transition (`ParsekScenario.cs:4301/4340/4394`), and save load. The merge-tail walk consumed the marker on first fire; the very next trigger saw `IsRescuePlaced=false`, took the legitimate "live-but-no-marker" branch, regenerated the stand-in, and the original lines 16106-16109 symptom returned. The second-pass tests only called `ApplyToRoster` once and missed this regression — the false-confidence test pattern.
+
+The third-pass fix makes the marker PERSISTENT across `ApplyToRoster` walks:
+
+- `CleanUpReplacement` does NOT clear the marker (unchanged from second pass — the marker survives the spawn pipeline's `UnreserveCrewInSnapshot` step).
+- The `ApplyToRoster` guard does NOT consume the marker on fire. Every recalc walk for the lifetime of the rescue observes the same marker and skips the stand-in. The `ConsumeRescuePlaced` API was removed (no remaining callers).
+- Bulk lifecycle paths (`LoadCrewReplacements`, `RestoreReplacements`, `ClearReplacements`, `ResetReplacementsForTesting`) are the only in-process clear sites — they wipe the marker set on session / rewind / wipe-all boundaries.
+
+Within a session the marker accumulates harmlessly: the third-pass combined predicate's second clause required `IsKerbalOnLiveVessel`, so a stale-true marker for a kerbal who was no longer on a vessel fell through to the legitimate-recreate path. (No per-vessel-destruction clear hook is implemented — would need a `GameEvents.onVesselDestroy` subscription with a per-vessel kerbal walk.)
+
+**P1 review (fourth pass):** the third-pass design failed on a stronger stale-marker scenario. The marker was scoped only by kerbal name and only cleared by bulk lifecycle paths. After a rescue placed Jeb on an early Re-Fly, the rescued vessel could be destroyed / recovered while the marker stayed set; later, a NEW unrelated reservation for Jeb (e.g. fresh contract / mission) could be created, and Jeb might happen to be on the active player vessel during this fresh reservation. The third-pass predicate `IsRescuePlaced(name) AND IsKerbalOnLiveVessel(name)` would then evaluate (true, true), the guard would fire, stand-in generation would be skipped, and `SwapReservedCrewInFlight` would have no stand-in to swap — recreating the original P1 failure mode (live-but-no-rescue treated as rescue, fresh reservation broken silently). The third-pass `MultipleApplyToRosterPasses_StaleMarker_VesselDestroyed_NextPassRecreatesStandIn` regression only covered the no-live-vessel case; it did NOT cover stale marker plus unrelated live vessel.
+
+The fourth-pass fix scopes the marker to the vessel pid where the rescue placed the kerbal:
+
+- The marker is now `Dictionary<string, ulong>` (kerbal name -> rescued vessel persistentId) on `CrewReservationManager`.
+- `MarkRescuePlaced(name, vesselPid)` is the only mark API; the rescue spawn paths in `VesselSpawner.RespawnVessel` and `VesselSpawner.SpawnAtPosition` collect the rescued names through a new overload `RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` and call `MarkRescuePlaced(name, pv.vesselRef.persistentId)` AFTER `ProtoVessel.Load` assigns the runtime pid (the snapshot's `persistentId` field is zeroed by `RegenerateVesselIdentity` before load, so the new pid is only available post-load).
+- `TryGetRescuePlacedVessel(name, out vesselPid)` is the new accessor the guard uses.
+- `IKerbalRosterFacade.IsKerbalOnVesselWithPid(name, pid)` is a new interface method whose production implementation walks `FlightGlobals.Vessels`, matches `vessel.persistentId == pid`, skips ghost-map vessels, and checks the named kerbal's `GetVesselCrew()`. The legacy `IsKerbalOnLiveVessel` is retained for diagnostic logging only (the declined-branch `legitimate fresh reservation` and `marker without live vessel` lines).
+- The `ApplyToRoster` guard predicate is now `if (TryGetRescuePlacedVessel(replacedName, out rescuedVesselPid) AND roster.IsKerbalOnVesselWithPid(replacedName, rescuedVesselPid))`. If the kerbal moved off the rescued vessel, `IsKerbalOnVesselWithPid` returns false; the guard declines; the legitimate-recreate path runs.
+
+Re-marking the same kerbal with a different pid OVERWRITES the prior pid (a later rescue supersedes the earlier one). The marker stays persistent within a session and is cleared only by the bulk lifecycle paths (`LoadCrewReplacements`, `RestoreReplacements`, `ClearReplacements`, `ResetReplacementsForTesting`). Stale entries with a now-invalid pid simply never match a live vessel — the predicate naturally returns false and the legitimate-recreate path runs. No per-vessel-destruction invalidation hook is needed.
+
+When the guard fires, the chain entry stays in the slot as historical metadata so a future rewind / re-fly that re-reserves the original deterministically reuses the same stand-in name. Logging:
+
+- `Marked rescue-placed: '<name>' vesselPid=<N>` (Verbose) at the spawn-side mark site, including the pid.
+- `Re-marked rescue-placed: '<name>' vesselPid=<N> (superseding prior pid=<M>)` (Verbose) when a later rescue replaces an earlier pid for the same kerbal.
+- `Rescue-completion guard:` (Verbose) per skipped depth, with `rescuePlacedPid=<N>` `onRescuedVessel=true` and the `marker persistent — not consumed on fire; pid-scoped` payload.
+- `Rescue-completion guard declined:` (Verbose) when the kerbal is on a live vessel but not rescue-placed — diagnoses the legitimate fresh reservation case.
+- `Stand-in recreate: rescue marker stale (kerbal '<name>' moved off rescued vessel pid=<N>)` (Info) — fourth-pass NEW log, fires on the bug-repro of this round (kerbal on a different live vessel from where the rescue placed them).
+- `Stand-in recreate:` (Verbose) pins the legitimate-recreate fall-through with `rescuePlaced=<bool> onLiveVessel=<bool> onRescuedVessel=<bool> rescuedVesselPid=<N>` so the decision is auditable.
+- `Rescue-completion guard fired: skipped N stand-in create/recreate(s)` (Info) once per `ApplyToRoster` walk summary.
+- `Rescue-completion guard summary: fired=N (marker persistent — preserved across walks; pid-scoped) declinedLiveButNoMarker=X declinedMarkerButNotLive=Y declinedMarkerStalePid=Z` (Info) — fourth-pass aggregate visibility, with the new pid-stale bucket.
+- `Cleared rescue-placed marker: '<name>' vesselPid=<N> (bulk lifecycle)` (Verbose).
+
+The production `KerbalRosterFacade.IsKerbalOnLiveVessel` walks `FlightGlobals.Vessels` (skipping ghost-map ProtoVessels) and catches `TypeInitializationException` so headless xUnit tests calling `ApplyToRoster(KerbalRoster)` still work; the new `IsKerbalOnVesselWithPid` overload uses the same defensive try/catch.
+
+**Files:** `Source/Parsek/CrewReservationManager.cs` (rescue-placed marker map keyed by name -> pid + `MarkRescuePlaced(name, pid)` / `IsRescuePlaced` / `TryGetRescuePlacedVessel` / `ClearRescuePlaced` API; `CleanUpReplacement` does not clear the marker; `SeedReplacementForTesting` + `CleanUpReplacementForTesting` seams), `Source/Parsek/VesselSpawner.cs` (`RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` overload collects names; both `RespawnVessel` and `SpawnAtPosition` call `MarkRescuePlaced(name, pv.vesselRef.persistentId)` AFTER `ProtoVessel.Load`), `Source/Parsek/KerbalsModule.cs` (interface extension `IsKerbalOnVesselWithPid` + facade implementation + `ApplyToRoster` step 1 pid-scoped predicate, persistent marker — guard fires on every walk, fourth-pass summary log with `declinedMarkerStalePid`), `Source/Parsek.Tests/KerbalLoadDiagnosticsTests.cs` (`FakeRoster` interface conformance with no-match `IsKerbalOnVesselWithPid`), `Source/Parsek.Tests/RescueCompletionGuardTests.cs` (xUnit cases including the fourth-pass pid-scoping regressions `StaleNameMarker_KerbalOnUnrelatedActiveVessel_GuardDeclines_StandInGenerated`, `MarkerScopedByPid_KerbalOnDifferentVessel_GuardDeclines`, `MarkerScopedByPid_KerbalOnRescuedVessel_GuardFires`; lifecycle pins `MarkRescuePlaced_RemarkDifferentPidOverwrites`, `RescuePlacedMarker_BulkClearWipesPidEntries`; existing tests updated to use the pid-scoped fixture `GuardFakeRoster.MarkOnVessel(name, pid)` + the constants `RescuedVesselPid` / `UnrelatedVesselPid`), `Source/Parsek/InGameTests/RuntimeTests.cs` (in-game `RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives` updated for the fourth-pass pid-scoping contract: uses the new `RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames)` overload, calls `MarkRescuePlaced(name, syntheticTestPid)`, and asserts pid-scoping survives across walks). The defense-in-depth `Crew dedup` WARN at `VesselSpawner.cs:2335` is preserved.
+
+**Status:** CLOSED. Fixed for v0.9.0.
 
 ---
 

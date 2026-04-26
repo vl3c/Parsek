@@ -2976,7 +2976,10 @@ namespace Parsek.Tests
                 bodyName = "Kerbin",
                 inclination = 3.5,
                 eccentricity = 0.2,
-                semiMajorAxis = 1200000.5,
+                // Delta = 100 km, well above the SMA epsilon (max(10m, 1e-3 * 1.2Mm) = 1200m).
+                // A real circularization burn at 1.2 Mm shifts SMA by tens of km, so this
+                // is a realistic "tail still maneuvering" scenario the guard must reject.
+                semiMajorAxis = 1300000.0,
                 longitudeOfAscendingNode = 200.0,
                 argumentOfPeriapsis = 75.0
             });
@@ -3005,7 +3008,11 @@ namespace Parsek.Tests
                 endUT = 220,
                 bodyName = "Kerbin",
                 inclination = 1.25,
-                eccentricity = 0.01001,
+                // Eccentricity delta = 0.04, above the absolute epsilon (1e-3). A coast
+                // segment whose eccentricity drifted by 0.04 is genuinely a different
+                // orbit (the recorded terminal SubOrbital is not yet stable); the guard
+                // must keep this recording un-trimmed.
+                eccentricity = 0.05,
                 semiMajorAxis = 800000.0,
                 longitudeOfAscendingNode = 120.0,
                 argumentOfPeriapsis = 45.0
@@ -3174,6 +3181,301 @@ namespace Parsek.Tests
             // keepCount would be 0 (< 2), so returns false
             Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(10, rec.Points.Count); // untouched
+        }
+
+        // Regression #612: a stable on-rails orbit accumulates jitter from rails /
+        // pack-unpack / conic prediction during the boring tail. The previous exact
+        // float-equality check on SMA / ecc / inc / LAN / argP rejected the trim on
+        // every real recording. With epsilon comparisons the trim now succeeds for
+        // jitter inside tolerance and still rejects deltas above tolerance.
+        [Fact]
+        public void TrimBoringTail_StableOrbitWithRailsJitter_StillTrims()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 120.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            // Tail OrbitSegment matches the terminal shape with realistic stable-orbit
+            // jitter: SMA shifted by a few metres, eccentricity by 5e-4, angles by
+            // ~0.005 deg. All within the new epsilons (10 m / 1e-3 / 0.01 deg).
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.255,
+                eccentricity = 0.0105,
+                semiMajorAxis = 800003.5,
+                longitudeOfAscendingNode = 120.005,
+                argumentOfPeriapsis = 45.005,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                $"Expected jittered stable orbit to pass epsilon check, got endUT={rec.EndUT}");
+            Assert.True(rec.EndUT <= 140);
+        }
+
+        // Regression #612 negative case: a real maneuver shifts SMA / ecc / angles
+        // by amounts well above the epsilons, and the guard must still reject the trim.
+        [Fact]
+        public void TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 120.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            // Eccentricity delta = 0.05 (50x epsilon) — represents a real circularization
+            // burn the recorder hasn't finalized yet. Trim must be skipped.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.06,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(220, rec.EndUT);
+        }
+
+        // Regression #612 follow-up (wraparound). LAN and argP are angular and
+        // routinely cross the 0/360 boundary on a stable orbit. Raw Math.Abs(a-b)
+        // produced a ~360 deg false mismatch; the OrbitShapeMatchesTerminal helper
+        // now uses TrajectoryMath.AngularDeltaDegrees so a tail at LAN=0.002 still
+        // matches a terminal at LAN=359.997 (true delta 0.005, well under the
+        // 0.01 deg epsilon). Companion test below verifies the helper still rejects
+        // a real 1 deg cross-boundary delta.
+        [Fact]
+        public void TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 359.997;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.01,
+                semiMajorAxis = 800000.0,
+                // True wrapped delta = 0.005 deg, below the 0.01 deg angle epsilon.
+                // Raw |a-b| = 359.995 would have rejected the trim before the fix.
+                longitudeOfAscendingNode = 0.002,
+                argumentOfPeriapsis = 45.0,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                $"Expected wraparound LAN to pass shortest-angle check, got endUT={rec.EndUT}");
+            Assert.True(rec.EndUT <= 140);
+        }
+
+        [Fact]
+        public void TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 120.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 0.001;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.01,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                // True wrapped delta = 0.003 deg, below epsilon. Raw |a-b| = 359.997.
+                argumentOfPeriapsis = 359.998,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                $"Expected wraparound argP to pass shortest-angle check, got endUT={rec.EndUT}");
+            Assert.True(rec.EndUT <= 140);
+        }
+
+        [Fact]
+        public void TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.RecordingId = "lan-cross-boundary";
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 359.5;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.01,
+                semiMajorAxis = 800000.0,
+                // True wrapped delta = 1.0 deg, well above the 0.01 deg epsilon —
+                // the guard must reject this even though both ends sit near the
+                // 0/360 boundary. Pins the wraparound helper against false-pass.
+                longitudeOfAscendingNode = 0.5,
+                argumentOfPeriapsis = 45.0,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(220, rec.EndUT);
+            // The divergence log line now reports the wrapped delta, not the raw
+            // Abs(a-b) (which would have been 359.0).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("OrbitShapeMatchesTerminal")
+                && l.Contains("LAN wrapped delta")
+                && l.Contains("lan-cross-boundary"));
+        }
+
+        // Regression #612: TrimBoringTail's entry guards used to silently return
+        // false; the visible-from-KSP.log skip-reason logging now records WHICH
+        // guard rejected.
+        [Fact]
+        public void TrimBoringTail_NotLeaf_LogsSkipReason()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Two-segment chain — rec1 is mid-chain (has a successor), so IsLeafRecording
+            // returns false and TrimBoringTail must skip with reason "not-leaf".
+            var rec1 = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec1.RecordingId = "trim-not-leaf-rec1";
+            rec1.ChainId = "chain-trim-test";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            var rec2 = new Recording
+            {
+                RecordingId = "trim-not-leaf-rec2",
+                ChainId = "chain-trim-test",
+                ChainIndex = 1,
+                ChainBranch = 0,
+            };
+            rec2.Points.Add(new TrajectoryPoint { ut = 17650 });
+            rec2.Points.Add(new TrajectoryPoint { ut = 17700 });
+            var recordings = new List<Recording> { rec1, rec2 };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec1, recordings));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (not-leaf)")
+                && l.Contains("trim-not-leaf-rec1"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_TooShort_LogsSkipReason()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // 25s recording — under the 30s minimum, must skip with "too-short".
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-too-short";
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (too-short)")
+                && l.Contains("trim-too-short"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_TerminalMismatch_LogsSkipReasonWithDelta()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.RecordingId = "trim-terminal-mismatch";
+            rec.VesselName = "TerminalMismatchProbe";
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 120.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.06, // delta 0.05, well above 1e-3 epsilon
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            // The TrimBoringTail "terminal-mismatch" skip reason fires AND the
+            // OrbitShapeMatchesTerminal helper records which field diverged.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (terminal-mismatch)")
+                && l.Contains("trim-terminal-mismatch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("OrbitShapeMatchesTerminal")
+                && l.Contains("ecc delta"));
         }
 
         #endregion
