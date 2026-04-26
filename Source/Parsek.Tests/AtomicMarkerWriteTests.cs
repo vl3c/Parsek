@@ -569,6 +569,8 @@ namespace Parsek.Tests
             Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
             // Origin's TreeId is reused on the marker.
             Assert.Equal("tree_origin", marker.TreeId);
+            Assert.Equal("sess_inplace", origin.CreatingSessionId);
+            Assert.Equal(rp.RewindPointId, origin.ProvisionalForRpId);
 
             // INFO log advertises the in-place continuation diagnosis so a
             // future regression that loses the detection is diagnosable.
@@ -686,6 +688,8 @@ namespace Parsek.Tests
                 TreeId = "tree_origin",
                 MergeState = MergeState.Immutable,
                 VesselPersistentId = kOriginPid,
+                CreatingSessionId = "prior_session",
+                ProvisionalForRpId = "prior_rp",
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
             origin.PreReFlyAnchorSessionId = "prior_session";
@@ -727,6 +731,8 @@ namespace Parsek.Tests
             Assert.Equal("prior_session", storedOrigin.PreReFlyAnchorSessionId);
             Assert.Single(storedOrigin.PreReFlyAnchorPoints);
             Assert.Equal(12.0, storedOrigin.PreReFlyAnchorPoints[0].ut);
+            Assert.Equal("prior_session", storedOrigin.CreatingSessionId);
+            Assert.Equal("prior_rp", storedOrigin.ProvisionalForRpId);
         }
     }
 }

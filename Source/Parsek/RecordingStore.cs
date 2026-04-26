@@ -2026,6 +2026,9 @@ namespace Parsek
                 second.PreLaunchReputation = original.PreLaunchReputation;
                 second.RecordingGroups = original.RecordingGroups != null
                     ? new List<string>(original.RecordingGroups) : null;
+                second.CreatingSessionId = original.CreatingSessionId;
+                second.ProvisionalForRpId = original.ProvisionalForRpId;
+                second.SupersedeTargetId = original.SupersedeTargetId;
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
@@ -2033,10 +2036,12 @@ namespace Parsek
                 if (second.Points != null && second.Points.Count > 0)
                     second.SegmentBodyName = second.Points[0].bodyName;
 
-                // BranchPoint linkage: ChildBranchPointId moves to last half.
-                // This is safe because ChildBranchPointId is always set at recording
-                // termination (CreateSplitBranch sets it at branchUT), so any optimizer
-                // environment split is at an internal boundary before branchUT.
+                // BranchPoint linkage: ChildBranchPointId moves to the half whose
+                // time range owns the branch point. Older code always moved it to
+                // the second half, assuming every optimizer split precedes branchUT.
+                // Re-Fly atmo/exo splits can happen after a staging branch; moving
+                // that branch would make a BP at UT 116 point at a segment starting
+                // around UT 170 and corrupt parent-chain topology.
                 //
                 // NOTE: The parent BranchPoint's ChildRecordingIds still references
                 // original.RecordingId (now the first chain segment). This is correct —
@@ -2044,12 +2049,25 @@ namespace Parsek
                 // (shared ChainId) connects it to subsequent segments. Code that walks
                 // from a BranchPoint to the chain tip must follow ChainId, not just
                 // ChildRecordingIds.
-                second.ChildBranchPointId = original.ChildBranchPointId;
-                original.ChildBranchPointId = null;
+                string movedChildBranchPointId = null;
+                bool childBranchPointMovesToSecond = ShouldMoveChildBranchPointToSplitSecondHalf(
+                    original.TreeId,
+                    original.ChildBranchPointId,
+                    second.StartUT);
+                if (childBranchPointMovesToSecond)
+                {
+                    movedChildBranchPointId = original.ChildBranchPointId;
+                    second.ChildBranchPointId = original.ChildBranchPointId;
+                    original.ChildBranchPointId = null;
+                }
+                else
+                {
+                    second.ChildBranchPointId = null;
+                }
                 // Do NOT set second.ParentRecordingId — that field is for EVA linkage only
 
                 // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
-                if (!string.IsNullOrEmpty(second.ChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
+                if (!string.IsNullOrEmpty(movedChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
                 {
                     for (int t = 0; t < committedTrees.Count; t++)
                     {
@@ -2059,7 +2077,7 @@ namespace Parsek
                         {
                             for (int b = 0; b < tree.BranchPoints.Count; b++)
                             {
-                                if (tree.BranchPoints[b].Id == second.ChildBranchPointId
+                                if (tree.BranchPoints[b].Id == movedChildBranchPointId
                                     && tree.BranchPoints[b].ParentRecordingIds != null)
                                 {
                                     var parentIds = tree.BranchPoints[b].ParentRecordingIds;
@@ -2069,7 +2087,7 @@ namespace Parsek
                                         {
                                             parentIds[p] = second.RecordingId;
                                             ParsekLog.Verbose("RecordingStore",
-                                                $"Split: updated BranchPoint '{second.ChildBranchPointId}' " +
+                                                $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
                                                 $"ParentRecordingIds: {original.RecordingId} → {second.RecordingId}");
                                             break;
                                         }
@@ -2120,6 +2138,37 @@ namespace Parsek
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
             return splitCount;
+        }
+
+        internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(
+            string treeId,
+            string childBranchPointId,
+            double secondStartUT)
+        {
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(childBranchPointId))
+                return false;
+            if (double.IsNaN(secondStartUT) || double.IsInfinity(secondStartUT))
+                return false;
+
+            const double eps = 0.0001;
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                var tree = committedTrees[t];
+                if (tree == null || !string.Equals(tree.Id, treeId, StringComparison.Ordinal))
+                    continue;
+                if (tree.BranchPoints == null)
+                    return false;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    var bp = tree.BranchPoints[b];
+                    if (bp == null || !string.Equals(bp.Id, childBranchPointId, StringComparison.Ordinal))
+                        continue;
+                    return bp.UT >= secondStartUT - eps;
+                }
+                return false;
+            }
+
+            return false;
         }
 
         private static void TrimBoringTailsForOptimization(List<Recording> recordings)

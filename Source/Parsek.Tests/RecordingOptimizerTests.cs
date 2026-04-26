@@ -1651,6 +1651,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RunOptimizationPass_SplitKeepsBranchPointOnFirstHalfWhenBranchUTPrecedesSplit()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(100, 170, 240,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "upper_parent";
+            rec.TreeId = "tree_bp_early";
+            rec.ChildBranchPointId = "bp_early";
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_early",
+                UT = 116.711,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "upper_parent" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree_bp_early",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                {
+                    { "upper_parent", rec }
+                }
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal("bp_early", recordings[0].ChildBranchPointId);
+            Assert.Null(recordings[1].ChildBranchPointId);
+            Assert.Contains("upper_parent", bp.ParentRecordingIds);
+            Assert.DoesNotContain(recordings[1].RecordingId, bp.ParentRecordingIds);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void RunOptimizationPass_SingleEnvNotSplit()
         {
             RecordingStore.SuppressLogging = true;

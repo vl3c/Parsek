@@ -811,10 +811,14 @@ namespace Parsek.Tests
             head.ChainId = "chain_a";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             var tip = Rec("rec_tip", "tree_1");
             tip.ChainId = "chain_a";
             tip.ChainBranch = 0;
             tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.TerminalStateValue = TerminalState.Destroyed;
 
             var bp_split = Bp("bp_split", BranchPointType.EVA,
@@ -884,6 +888,8 @@ namespace Parsek.Tests
             head.ChainId = "chain_a";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             // Head has Points (it's still half a trajectory) but no terminal
             // — that's the post-optimizer-split state SplitAtSection leaves.
             head.Points.Add(new TrajectoryPoint { ut = 0.0 });
@@ -898,6 +904,8 @@ namespace Parsek.Tests
             tip.ChainId = "chain_a";
             tip.ChainBranch = 0;
             tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
             tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
 
@@ -1194,6 +1202,8 @@ namespace Parsek.Tests
             head.ChainId = "chain_inplace";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             head.Points.Add(new TrajectoryPoint { ut = 0.0 });
             head.Points.Add(new TrajectoryPoint { ut = 1.0 });
 
@@ -1207,6 +1217,8 @@ namespace Parsek.Tests
             tip.ChainId = "chain_inplace";
             tip.ChainBranch = 0;
             tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
             tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
 
@@ -1451,20 +1463,38 @@ namespace Parsek.Tests
             head.ChainId = "chain_3seg";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             head.Points.Add(new TrajectoryPoint { ut = 0.0 });
             head.Points.Add(new TrajectoryPoint { ut = 1.0 });
 
-            // MIDDLE: chainIndex=1, also no terminal, has Points.
+            // STALE OLD EXO: same chain identity from the original flight,
+            // but no CreatingSessionId. This is the fresh-log regression:
+            // it must be superseded by the new tip, not protected as part
+            // of the in-place replacement flight.
+            var staleOldExo = Rec("rec_3seg_stale_old_exo", "tree_3seg",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleOldExo.ChainId = "chain_3seg";
+            staleOldExo.ChainBranch = 0;
+            staleOldExo.ChainIndex = 1;
+            staleOldExo.Points.Add(new TrajectoryPoint { ut = 1.2 });
+            staleOldExo.Points.Add(new TrajectoryPoint { ut = 1.5 });
+
+            // MIDDLE: new session-owned chain segment, chainIndex=2,
+            // also no terminal, has Points.
             var middle = Rec("rec_3seg_middle", "tree_3seg",
                 state: MergeState.Immutable,
                 terminal: null);
             middle.ChainId = "chain_3seg";
             middle.ChainBranch = 0;
-            middle.ChainIndex = 1;
+            middle.ChainIndex = 2;
+            middle.CreatingSessionId = "sess_1";
+            middle.ProvisionalForRpId = "rp_1";
             middle.Points.Add(new TrajectoryPoint { ut = 1.0 });
             middle.Points.Add(new TrajectoryPoint { ut = 2.0 });
 
-            // TIP: chainIndex=2, carries the terminal payload + Points.
+            // TIP: chainIndex=3, carries the terminal payload + Points.
             // ChildBranchPointId moves to the TIP after the optimizer cascade
             // (RecordingStore.cs:2018-2019), so the BP-walk runs from here.
             var tip = Rec("rec_3seg_tip", "tree_3seg",
@@ -1473,7 +1503,9 @@ namespace Parsek.Tests
                 terminal: TerminalState.Destroyed);
             tip.ChainId = "chain_3seg";
             tip.ChainBranch = 0;
-            tip.ChainIndex = 2;
+            tip.ChainIndex = 3;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
             tip.Points.Add(new TrajectoryPoint { ut = 3.0 });
 
@@ -1494,7 +1526,7 @@ namespace Parsek.Tests
                 children: new List<string> { "rec_3seg_old_sib" });
 
             InstallTree("tree_3seg",
-                new List<Recording> { head, middle, tip, oldSibling },
+                new List<Recording> { head, staleOldExo, middle, tip, oldSibling },
                 new List<BranchPoint> { bpParent, bpChild });
 
             var marker = Marker(originId: "rec_3seg_head", provisionalId: "rec_3seg_head",
@@ -1515,6 +1547,8 @@ namespace Parsek.Tests
             // 1) Prior-attempt sibling gets a row pointing at the TIP.
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_3seg_old_sib" && r.NewRecordingId == "rec_3seg_tip");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_stale_old_exo" && r.NewRecordingId == "rec_3seg_tip");
 
             // 2) NO row from any chain member to any other chain member.
             //    This is the regression: with the previous skip-set-of-just-HEAD
@@ -1543,13 +1577,14 @@ namespace Parsek.Tests
                 && l.Contains("rec_3seg_head")
                 && l.Contains("rec_3seg_middle")
                 && l.Contains("rec_3seg_tip")
+                && !l.Contains("rec_3seg_stale_old_exo")
                 && l.Contains("size=3"));
 
-            // 5) AppendRelations summary: 1 row written, 1 self-link
+            // 5) AppendRelations summary: 2 rows written, 1 self-link
             //    skipped (the TIP), 2 extra-self-link skips (HEAD + MIDDLE).
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("Added 1 supersede relations")
+                && l.Contains("Added 2 supersede relations")
                 && l.Contains("skippedSelfLink=1")
                 && l.Contains("skippedExtraSelfLink=2"));
 
@@ -1576,8 +1611,44 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("in-place continuation supersede append")
-                && l.Contains("wrote 1 relation")
+                && l.Contains("wrote 2 relation")
                 && l.Contains("full chain (3 member(s))"));
+        }
+
+        [Fact]
+        public void ResolveSessionOwnedChainTerminalRecording_IgnoresHigherIndexStaleTail()
+        {
+            var head = Rec("rec_target_head", "tree_target",
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_target";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_target";
+
+            var sessionTip = Rec("rec_target_session_tip", "tree_target",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            sessionTip.ChainId = "chain_target";
+            sessionTip.ChainBranch = 0;
+            sessionTip.ChainIndex = 2;
+            sessionTip.CreatingSessionId = "sess_target";
+
+            var staleHigherTail = Rec("rec_target_stale_tail", "tree_target",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleHigherTail.ChainId = "chain_target";
+            staleHigherTail.ChainBranch = 0;
+            staleHigherTail.ChainIndex = 9;
+
+            InstallTree("tree_target",
+                new List<Recording> { head, sessionTip, staleHigherTail },
+                new List<BranchPoint>());
+
+            Recording resolved = MergeDialog.ResolveSessionOwnedChainTerminalRecording(
+                head, "sess_target");
+
+            Assert.Same(sessionTip, resolved);
         }
 
         /// <summary>
@@ -1603,6 +1674,8 @@ namespace Parsek.Tests
             head.ChainId = "chain_shared";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             head.Points.Add(new TrajectoryPoint { ut = 0.0 });
 
             var tip = Rec("rec_diffbr_tip", "tree_diffbr",
@@ -1611,6 +1684,8 @@ namespace Parsek.Tests
             tip.ChainId = "chain_shared";
             tip.ChainBranch = 0; // same branch as head -> in chain skip set
             tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
 
             // Prior-attempt sibling: same tree, same ChainId, but DIFFERENT

@@ -443,6 +443,12 @@ namespace Parsek
                         scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
                     Recording supersedeTargetRec =
                         EffectiveState.ResolveChainTerminalRecording(provisional);
+                    Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
+                        provisional, marker.SessionId);
+                    if (sessionOwnedTip != null)
+                    {
+                        supersedeTargetRec = sessionOwnedTip;
+                    }
                     bool resolvedToDifferentTip = supersedeTargetRec != null
                         && !object.ReferenceEquals(supersedeTargetRec, provisional)
                         && !string.Equals(supersedeTargetRec.RecordingId,
@@ -468,36 +474,14 @@ namespace Parsek
                             $"or head already carries terminal)");
                     }
 
-                    // Chain-skip set (review follow-up #2): the closure-walk
-                    // helper EnqueueChainSiblings (EffectiveState.cs:704) pulls
-                    // EVERY recording sharing TreeId+ChainId+ChainBranch with
-                    // any closure member into the suppressed subtree. For a
-                    // 3+-segment in-place chain (HEAD -> MIDDLE -> TIP, or
-                    // any chain that expands to >=3 members via the optimizer
-                    // cascade), my prior fix only added HEAD to the
-                    // extraSelfSkipRecordingIds set: AppendRelations would
-                    // then write a row old=MIDDLE new=TIP and silently
-                    // collapse MIDDLE in ERS via EffectiveRecordingId
-                    // redirect, even though MIDDLE is part of the SAME new
-                    // in-place flight. None of HEAD/MIDDLE/TIP should be
-                    // superseded by another member of the same chain.
-                    //
-                    // Build the skip set from the full chain membership using
-                    // the same TreeId+ChainId+ChainBranch predicate
-                    // EnqueueChainSiblings uses (line 722-724), reading from
-                    // RecordingStore.CommittedRecordings — the SAME source
-                    // ComputeSessionSuppressedSubtreeInternal iterates at
-                    // EffectiveState.cs:550-557 to populate `recById`. Same
-                    // scope means the skip set covers exactly the closure
-                    // entries that came from chain expansion. (RecordingStore
-                    // raw read here is covered by MergeDialog.cs's existing
-                    // Phase-8 ERS-exempt allowlist entry.) Fall back to a
-                    // single-element set when the provisional has no
-                    // ChainId (lone-origin in-place case) — the only id is
-                    // the provisional's own RecordingId, which equals the
-                    // resolved tip and is already filtered by the trivial
-                    // old==new self-link guard inside AppendRelations, so
-                    // nothing changes for that case.
+                    // Chain-skip set: protect only the in-place continuation
+                    // segments created by this Re-Fly session. A same
+                    // TreeId+ChainId+ChainBranch match alone is too broad:
+                    // original optimizer tails from the pre-Re-Fly flight can
+                    // share that identity and still need supersede rows to the
+                    // new chain tip. The in-place origin is tagged at
+                    // AtomicMarkerWrite; optimizer-created split children copy
+                    // CreatingSessionId, so session id is the ownership marker.
                     var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
                     chainSkipSet.Add(provisional.RecordingId);
                     if (supersedeTargetRec != null
@@ -516,8 +500,16 @@ namespace Parsek
                                 var cand = committedSource[i];
                                 if (cand == null) continue;
                                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
-                                // Match EnqueueChainSiblings' exact predicate:
-                                // same TreeId + ChainId + ChainBranch.
+                                if (!string.Equals(
+                                        cand.CreatingSessionId,
+                                        marker.SessionId,
+                                        System.StringComparison.Ordinal))
+                                {
+                                    continue;
+                                }
+                                // Match EnqueueChainSiblings' chain predicate
+                                // after proving this candidate belongs to the
+                                // current Re-Fly session.
                                 if (!string.Equals(cand.TreeId,
                                     provisional.TreeId, System.StringComparison.Ordinal))
                                     continue;
@@ -562,11 +554,23 @@ namespace Parsek
                     // (and bumps again), and logs the End reason=merged line.
                     // That covers all the in-memory scenario mutations that a
                     // normal RunMerge does around AppendRelations + tombstones.
-                    // Also clear CreatingSessionId / ProvisionalForRpId on the
-                    // continuation recording so it no longer looks like a
-                    // session-scoped zombie to the load-time sweep.
-                    provisional.CreatingSessionId = null;
-                    provisional.ProvisionalForRpId = null;
+                    // Also clear CreatingSessionId / ProvisionalForRpId on every
+                    // session-owned continuation segment so split children no
+                    // longer look like session-scoped zombies to load-time sweep.
+                    var committedForTransientClear = RecordingStore.CommittedRecordings;
+                    if (committedForTransientClear != null)
+                    {
+                        for (int i = 0; i < committedForTransientClear.Count; i++)
+                        {
+                            var cand = committedForTransientClear[i];
+                            if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                                continue;
+                            if (!chainSkipSet.Contains(cand.RecordingId))
+                                continue;
+                            cand.CreatingSessionId = null;
+                            cand.ProvisionalForRpId = null;
+                        }
+                    }
                     SupersedeCommit.FlipMergeStateAndClearTransient(
                         marker, provisional, scenario, preserveMarker: false);
 
@@ -883,6 +887,43 @@ namespace Parsek
             ApplyActiveReFlyParentChainDefaults(tree, decisions, activeReFlyTargetId);
 
             return decisions;
+        }
+
+        internal static Recording ResolveSessionOwnedChainTerminalRecording(
+            Recording provisional,
+            string sessionId)
+        {
+            if (provisional == null || string.IsNullOrEmpty(sessionId))
+                return provisional;
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return provisional;
+            }
+
+            Recording best = null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var cand = committed[i];
+                    if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                        continue;
+                    if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
+                        continue;
+                    if (cand.ChainBranch != provisional.ChainBranch)
+                        continue;
+                    if (best == null || cand.ChainIndex > best.ChainIndex)
+                        best = cand;
+                }
+            }
+
+            return best ?? provisional;
         }
 
         private static void ApplyActiveReFlyParentChainDefaults(
