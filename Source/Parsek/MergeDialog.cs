@@ -880,7 +880,218 @@ namespace Parsek
                     $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
+            ApplyActiveReFlyParentChainDefaults(tree, decisions, activeReFlyTargetId);
+
             return decisions;
+        }
+
+        private static void ApplyActiveReFlyParentChainDefaults(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return;
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return;
+
+            int forced = 0;
+            int alreadyGhostOnly = 0;
+            int missing = 0;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId)) continue;
+
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                {
+                    missing++;
+                    continue;
+                }
+
+                bool priorDecision;
+                bool hadPriorDecision = decisions.TryGetValue(tipId, out priorDecision);
+                if (hadPriorDecision && !priorDecision)
+                {
+                    alreadyGhostOnly++;
+                    continue;
+                }
+
+                decisions[tipId] = false;
+                forced++;
+                ParsekLog.Info("MergeDialog",
+                    $"BuildDefaultVesselDecisions: defaulting active Re-Fly parent-chain " +
+                    $"terminal tip to ghost-only id='{tipId}' vessel='{rec.VesselName}' " +
+                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                    $"hasSnapshot={rec.VesselSnapshot != null} " +
+                    $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                    $"activeTarget='{activeReFlyTargetId}'");
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
+                $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
+                $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
+                $"activeTarget='{activeReFlyTargetId}'");
+        }
+
+        internal static HashSet<string> CollectActiveReFlyParentChainTerminalTipIds(
+            RecordingTree tree,
+            string activeReFlyTargetId)
+        {
+            var result = new HashSet<string>(System.StringComparer.Ordinal);
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return result;
+
+            Recording activeRec;
+            if (!tree.Recordings.TryGetValue(activeReFlyTargetId, out activeRec) || activeRec == null)
+                return result;
+
+            HashSet<string> activeChainIds = CollectSameChainRecordingIds(tree, activeRec);
+            var parentBranchPointIds = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (string activeChainId in activeChainIds)
+            {
+                Recording chainMember;
+                if (string.IsNullOrEmpty(activeChainId)
+                    || !tree.Recordings.TryGetValue(activeChainId, out chainMember)
+                    || chainMember == null)
+                    continue;
+                if (!string.IsNullOrEmpty(chainMember.ParentBranchPointId))
+                    parentBranchPointIds.Add(chainMember.ParentBranchPointId);
+            }
+
+            foreach (string parentBpId in parentBranchPointIds)
+            {
+                BranchPoint bp = FindBranchPoint(tree, parentBpId);
+                if (bp == null)
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: parent bp '{parentBpId}' missing " +
+                        $"for activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
+                if (bp.ParentRecordingIds == null || bp.ParentRecordingIds.Count != 1)
+                {
+                    int parentCount = bp.ParentRecordingIds != null ? bp.ParentRecordingIds.Count : 0;
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip bp={bp.Id} " +
+                        $"parentCount={parentCount} activeTarget='{activeReFlyTargetId}' " +
+                        "(not a single-parent old-future branch)");
+                    continue;
+                }
+
+                string parentId = bp.ParentRecordingIds[0];
+                if (string.IsNullOrEmpty(parentId) || activeChainIds.Contains(parentId))
+                    continue;
+
+                Recording parentRec;
+                if (!tree.Recordings.TryGetValue(parentId, out parentRec) || parentRec == null)
+                    continue;
+
+                Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(parentRec, tree);
+                if (terminalRec == null || string.IsNullOrEmpty(terminalRec.RecordingId))
+                    continue;
+
+                if (activeChainIds.Contains(terminalRec.RecordingId)
+                    || string.Equals(terminalRec.RecordingId, activeReFlyTargetId,
+                        System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (terminalRec.VesselPersistentId != 0u
+                    && activeRec.VesselPersistentId != 0u
+                    && terminalRec.VesselPersistentId == activeRec.VesselPersistentId)
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip parent terminal " +
+                        $"id='{terminalRec.RecordingId}' because it shares vessel pid " +
+                        $"{terminalRec.VesselPersistentId} with activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
+                if (!IsTerminalLinkedToParentBranch(bp, parentRec, terminalRec))
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip parent terminal " +
+                        $"id='{terminalRec.RecordingId}' for bp={bp.Id}; terminal is not linked " +
+                        "to the active target's parent branch");
+                    continue;
+                }
+
+                result.Add(terminalRec.RecordingId);
+            }
+
+            return result;
+        }
+
+        private static HashSet<string> CollectSameChainRecordingIds(
+            RecordingTree tree,
+            Recording rec)
+        {
+            var result = new HashSet<string>(System.StringComparer.Ordinal);
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return result;
+
+            result.Add(rec.RecordingId);
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(rec.ChainId))
+                return result;
+
+            foreach (var cand in tree.Recordings.Values)
+            {
+                if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.ChainId, rec.ChainId, System.StringComparison.Ordinal)) continue;
+                if (cand.ChainBranch != rec.ChainBranch) continue;
+                if (!string.IsNullOrEmpty(rec.TreeId)
+                    && !string.Equals(cand.TreeId, rec.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                result.Add(cand.RecordingId);
+            }
+
+            return result;
+        }
+
+        private static bool IsTerminalLinkedToParentBranch(
+            BranchPoint bp,
+            Recording parentRec,
+            Recording terminalRec)
+        {
+            if (bp == null || parentRec == null || terminalRec == null)
+                return false;
+            if (object.ReferenceEquals(parentRec, terminalRec))
+                return true;
+            if (string.Equals(parentRec.ChildBranchPointId, bp.Id, System.StringComparison.Ordinal))
+                return true;
+            if (string.Equals(terminalRec.ChildBranchPointId, bp.Id, System.StringComparison.Ordinal))
+                return true;
+            if (bp.ParentRecordingIds != null)
+            {
+                for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                {
+                    if (string.Equals(bp.ParentRecordingIds[i], terminalRec.RecordingId,
+                        System.StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static BranchPoint FindBranchPoint(RecordingTree tree, string branchPointId)
+        {
+            if (tree == null || tree.BranchPoints == null || string.IsNullOrEmpty(branchPointId))
+                return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, branchPointId, System.StringComparison.Ordinal))
+                    return bp;
+            }
+            return null;
         }
 
         /// <summary>
