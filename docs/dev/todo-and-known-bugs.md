@@ -485,6 +485,116 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## ~~612. Boring-tail trim never fires for stable orbits because terminal-shape match used exact float equality~~
+
+**Source:** user reported the orbital "boring tail" trim mechanism never trims
+in practice. Logs from `logs/2026-04-26_1025_3bugs-refly/KSP.log` confirmed
+that neither the success log (`TrimBoringTail: trimmed ...`) nor the existing
+divergence skip log fired at all for orbital-terminal recordings, even when
+the recording clearly ended in a long stable coast.
+
+**Root cause:** `RecordingOptimizer.OrbitShapeMatchesTerminal` compared the
+tail's `OrbitSegment` parameters (SMA, eccentricity, inclination, LAN, argP)
+against the recording's `TerminalOrbit*` fields with exact `!=` equality.
+Numerical drift across the boring tail from rails / pack-unpack / conic
+prediction is unavoidable on real recordings, so the byte-for-byte match
+rejected on the first parameter. The same failure mode bit the surface-state
+path before its tolerances landed (`#356` follow-up). Two compounding
+problems made this hard to diagnose: the existing `TailMatchesTerminalOrbit`
+skip log only fired when the predicate was actually called, but the player
+was reporting "no trim happens" with no log line either way — and
+`TrimBoringTail`'s six entry guards (leaf / duration / track-sections /
+last-section-not-boring / lastInteresting-NaN-too-few-points / buffer-not-met)
+all early-returned silently, so we could not tell which guard rejected.
+
+**Fix:** `OrbitShapeMatchesTerminal` now uses `Math.Abs(delta) > eps` checks
+sized to absorb stable-orbit jitter while still catching real maneuvers.
+Body name remains exact equality.
+
+- `TailOrbitSmaAbsoluteEpsilonMeters = 10.0`,
+  `TailOrbitSmaRelativeEpsilon = 1e-3`. SMA uses
+  `max(absolute, relative * |terminal SMA|)` so the check scales from a
+  700 km LKO (relEps -> ~700 m) to a 13 Mm Mun encounter (~13 km) without
+  losing sensitivity to small absolute changes. A 1 m/s circularization
+  burn at LKO shifts SMA by ~tens of metres, well above 10 m.
+- `TailOrbitEccentricityEpsilon = 1e-3` absolute. A real burn shifts
+  eccentricity by `>= 1e-3`; rails jitter is closer to `1e-5..1e-4`.
+- `TailOrbitAngleEpsilonDegrees = 0.01` absolute (inclination, LAN, argP).
+  Stable-orbit prograde precession over a 15-minute coast stays under
+  `0.01 deg`; a real plane-change burn is hundreds of times larger.
+
+Each `OrbitShapeMatchesTerminal` rejection now logs which field diverged
+and the actual delta (Verbose, `[Optimizer]` tag), so future tolerance
+tuning has structured data instead of "trim mysteriously didn't fire".
+
+`TrimBoringTail`'s entry guards now each emit a structured one-line skip
+reason (Verbose, `[Optimizer]` tag): `not-leaf`, `too-short`,
+`no-track-sections`, `last-section-not-boring`, `all-boring-too-few-points`,
+`buffer-not-met`, `terminal-mismatch`, `no-points-past-trim-ut`,
+`keep-count-too-low`, plus a `rec-null-or-too-few-points` guard at entry.
+Each line carries the recording id and the relevant numeric values so the
+rejection branch is auditable from `KSP.log` alone.
+
+**Tests:** `RecordingOptimizerTests.cs`:
+- `TrimBoringTail_StableOrbitWithRailsJitter_StillTrims` constructs a
+  jittered tail (SMA shifted by 3.5 m, ecc by 5e-4, angles by 0.005 deg)
+  and asserts the trim now succeeds.
+- `TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim` uses an
+  eccentricity delta of 0.05 (50x epsilon) and asserts the trim still
+  rejects.
+- `TrimBoringTail_NotLeaf_LogsSkipReason`, `_TooShort_LogsSkipReason`, and
+  `_TerminalMismatch_LogsSkipReasonWithDelta` capture log output via
+  `ParsekLog.TestSinkForTesting` and assert the corresponding skip-reason
+  string fires.
+
+Two pre-existing tests had constructed deltas chosen to break exact
+equality (`eccentricity = 0.01001` and `semiMajorAxis = 1200000.5`), well
+below the new tolerances; they were updated to use deltas above the
+epsilons (`eccentricity = 0.05`, `semiMajorAxis = 1300000.0`) so they
+continue to pin the guard-rejects-real-changes contract.
+
+**Wraparound follow-up (P2 review on PR #589):** the first-pass angle
+checks used raw `Math.Abs(seg.angle - rec.terminal.angle)` for
+inclination, LAN, and argument of periapsis. LAN and argP routinely cross
+the 0/360 boundary on a stable orbit; e.g. `terminal LAN = 359.997` vs
+`segment LAN = 0.002` is a real wrapped delta of `0.005 deg` (within
+epsilon), but raw `Abs(a - b) = 359.995` would have triggered a false
+mismatch and the trim would have stayed broken even after the epsilon
+fix. Inclination stays in `[0, 180]` and never hits the wrap branch, but
+uses the same helper for symmetry / centralized math.
+
+The fix reuses `TrajectoryMath.AngularDeltaDegrees(a, b)` (the existing
+`Math.Abs(a - b) % 360, > 180 ? 360 - delta : delta` helper used by
+`TrajectoryMath.OrbitsAreEquivalent`); promoted from `private` to
+`internal static` so `RecordingOptimizer` can call it. The helper's
+contract is now documented (inputs in any range; result in `[0, 180]`)
+and pinned by `TrajectoryMathTests.cs` covering simple deltas, zero
+delta, the wraparound short-path case, the half-turn boundary,
+inclination-range inputs, out-of-range inputs (small negatives,
+`> 360`), and the always-non-negative result invariant.
+
+The LAN / argP / inc divergence log lines now report
+`<field> wrapped delta <value>deg` so the log no longer lies about what
+the comparison saw (a tail at LAN = 0.002 vs terminal LAN = 359.997 logs
+a wrapped delta of `0.005`, not `359.995`).
+
+Wraparound regressions in `RecordingOptimizerTests.cs`:
+
+- `TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims` (terminal
+  `LAN = 359.997` vs segment `LAN = 0.002`, wrapped delta `0.005`) — trim
+  succeeds.
+- `TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims` (terminal
+  `argP = 0.001` vs segment `argP = 359.998`, wrapped delta `0.003`) —
+  trim succeeds.
+- `TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim` (terminal
+  `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
+  rejected, AND the divergence log line carries `LAN wrapped delta` (so
+  the wrap fix is observable from `KSP.log` alone).
+
+**Status:** Open until merged.
+
+---
+
 ## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the
