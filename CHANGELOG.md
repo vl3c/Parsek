@@ -50,6 +50,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- KSC ghost playback now honors v6 RELATIVE track sections, keeping rendezvous/docking ghosts attached to their anchor instead of drawing them underground.
+
 - `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading. The retire now persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.

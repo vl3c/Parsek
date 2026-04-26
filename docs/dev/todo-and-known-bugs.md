@@ -299,6 +299,40 @@ already pins this case.
 
 ---
 
+## ~~615. KSC ghost playback interpreted v6 RELATIVE offsets as lat/lon/alt~~
+
+**Source:** PR #594 review follow-up. This is a separate latent playback bug
+from `#613` / the RelativeAnchorResolution retire work: it affects the Space
+Center visual ghost path even when no anchor-retire suppression is involved.
+
+**Diagnosis (2026-04-26):** `ParsekKSC.InterpolateAndPositionKsc` accepted the
+flat `Recording.Points` list and called `body.GetWorldSurfacePosition` on
+`TrajectoryPoint.latitude` / `longitude` / `altitude` without first resolving
+the covering `TrackSection.referenceFrame`. For format-v6 `ReferenceFrame.Relative`
+sections those fields are anchor-local Cartesian metres, not geographic
+coordinates, so KSC ghosts could be drawn deep underground while the flight
+playback path resolved the same data correctly through the anchor vessel.
+
+**Fix:** `InterpolateAndPositionKsc` now takes the full `Recording`, selects the
+active `TrackSection` (using section-local frames when available), and routes
+RELATIVE sections through `TrajectoryMath.ResolveRelativePlaybackPosition` /
+`ResolveRelativePlaybackRotation` using `FlightRecorder.FindVesselByPid`, matching
+flight-scene playback. If the anchor is not resolvable before the ghost has a
+valid pose, the KSC ghost stays hidden; after a valid pose, it freezes at its
+last known transform with a WARN / Verbose diagnostic instead of reinterpreting
+dx/dy/dz as lat/lon/alt. Destroyed-recording explosion FX may still use that
+last valid frozen pose, but never an unpositioned default transform. Absolute,
+OrbitalCheckpoint, and no-section playback continue through the body surface
+lookup path. `KscGhostPlaybackTests` pins resolvable relative playback,
+unresolved-anchor hide/freeze semantics, cache reset across frame sources,
+frozen-pose explosion eligibility, and the unchanged absolute/checkpoint/no-section
+paths. `SceneAndPatch.ParsekKscRelativePlaybackUsesLiveAnchor` adds a live KSP
+runtime canary for the production KSC surface/anchor lookup path.
+
+**Status:** CLOSED 2026-04-26. Fixed on `fix/ksc-relative-frame-dispatch`.
+
+---
+
 ## ~~610. Quickload-resume tail trim destroys other vessels' continued recordings during Re-Fly load~~
 
 **Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. Same
