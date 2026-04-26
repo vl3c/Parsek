@@ -1203,28 +1203,107 @@ namespace Parsek
             return sawTailOrbit;
         }
 
+        // Tolerances for "tail still matches terminal orbit" checks. Stable on-rails
+        // orbits accumulate small numerical drift from rails/pack-unpack/conic
+        // prediction across the boring tail, so the captured tail OrbitSegment params
+        // very rarely match the recorded TerminalOrbit* fields byte-for-byte. Exact
+        // equality made this guard reject in practice on every real recording — the
+        // same failure mode that used to bite the surface-state path before its
+        // tolerances landed (#356 follow-up). The values below are sized to absorb
+        // normal stable-orbit jitter while still catching real maneuvers: a 1 m/s
+        // burn at low Kerbin orbit shifts SMA by ~tens of metres and eccentricity by
+        // >1e-3, which is well above these thresholds.
+        //
+        // SMA uses max(absolute, relative * SMA) so the same tolerance scales from
+        // a 700 km LKO (relEps -> ~700 m) to a 13 Mm Mun encounter (relEps -> ~13 km)
+        // without losing sensitivity to small absolute changes.
+        internal const double TailOrbitSmaAbsoluteEpsilonMeters = 10.0;
+        internal const double TailOrbitSmaRelativeEpsilon = 1e-3;
+        internal const double TailOrbitEccentricityEpsilon = 1e-3;
+        internal const double TailOrbitAngleEpsilonDegrees = 0.01;
+
         private static bool OrbitShapeMatchesTerminal(Recording rec, OrbitSegment seg)
         {
             if (string.IsNullOrEmpty(seg.bodyName) || seg.semiMajorAxis <= 0.0)
                 return false;
 
+            // Body name still uses exact equality — different body = different orbit
+            // by definition, no jitter possible.
             if (seg.bodyName != rec.TerminalOrbitBody)
                 return false;
 
-            if (seg.semiMajorAxis != rec.TerminalOrbitSemiMajorAxis)
+            double smaEps = System.Math.Max(
+                TailOrbitSmaAbsoluteEpsilonMeters,
+                TailOrbitSmaRelativeEpsilon * System.Math.Abs(rec.TerminalOrbitSemiMajorAxis));
+            double smaDelta = System.Math.Abs(seg.semiMajorAxis - rec.TerminalOrbitSemiMajorAxis);
+            if (smaDelta > smaEps)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
+                    $"sma delta {smaDelta.ToString("R", CultureInfo.InvariantCulture)}m " +
+                    $"> eps {smaEps.ToString("R", CultureInfo.InvariantCulture)}m " +
+                    $"(seg.sma={seg.semiMajorAxis.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal.sma={rec.TerminalOrbitSemiMajorAxis.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
+            }
 
-            if (seg.eccentricity != rec.TerminalOrbitEccentricity)
+            double eccDelta = System.Math.Abs(seg.eccentricity - rec.TerminalOrbitEccentricity);
+            if (eccDelta > TailOrbitEccentricityEpsilon)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
+                    $"ecc delta {eccDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"> eps {TailOrbitEccentricityEpsilon.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(seg.ecc={seg.eccentricity.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal.ecc={rec.TerminalOrbitEccentricity.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
+            }
 
-            if (seg.inclination != rec.TerminalOrbitInclination)
+            // Inclination, LAN, and argP are all angular values that can wrap across
+            // the 0/360 boundary (LAN/argP routinely; inclination stays in [0,180]
+            // and never hits the wrap branch but uses the same helper for symmetry).
+            // Raw Math.Abs(a - b) on a stable orbit at LAN ~= 360 vs ~= 0 produces a
+            // false ~360 deg mismatch, which masked the trim again. TrajectoryMath's
+            // existing AngularDeltaDegrees returns the shortest signed-magnitude
+            // distance and is the centralized math for all angle deltas.
+            double incDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.inclination, rec.TerminalOrbitInclination);
+            if (incDelta > TailOrbitAngleEpsilonDegrees)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
+                    $"inc wrapped delta {incDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"(seg.inc={seg.inclination.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal.inc={rec.TerminalOrbitInclination.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
+            }
 
-            if (seg.longitudeOfAscendingNode != rec.TerminalOrbitLAN)
+            double lanDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.longitudeOfAscendingNode, rec.TerminalOrbitLAN);
+            if (lanDelta > TailOrbitAngleEpsilonDegrees)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
+                    $"LAN wrapped delta {lanDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"(seg.LAN={seg.longitudeOfAscendingNode.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal.LAN={rec.TerminalOrbitLAN.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
+            }
 
-            if (seg.argumentOfPeriapsis != rec.TerminalOrbitArgumentOfPeriapsis)
+            double argpDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.argumentOfPeriapsis, rec.TerminalOrbitArgumentOfPeriapsis);
+            if (argpDelta > TailOrbitAngleEpsilonDegrees)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
+                    $"argP wrapped delta {argpDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"(seg.argP={seg.argumentOfPeriapsis.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal.argP={rec.TerminalOrbitArgumentOfPeriapsis.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
+            }
 
             return true;
         }
@@ -1424,21 +1503,55 @@ namespace Parsek
         internal static bool TrimBoringTail(Recording rec, List<Recording> allRecordings,
             double bufferSeconds = DefaultTailBufferSeconds)
         {
-            if (rec == null || rec.Points.Count < 2) return false;
+            if (rec == null || rec.Points.Count < 2)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (rec-null-or-too-few-points) " +
+                    $"id='{rec?.RecordingId ?? "(null)"}' pointCount={(rec?.Points?.Count ?? 0)}");
+                return false;
+            }
 
             // Only trim leaf recordings
-            if (!IsLeafRecording(rec, allRecordings)) return false;
+            if (!IsLeafRecording(rec, allRecordings))
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (not-leaf) " +
+                    $"id='{rec.RecordingId}' chainId='{rec.ChainId ?? "(null)"}' " +
+                    $"chainIndex={rec.ChainIndex} childBranchPointId='{rec.ChildBranchPointId ?? "(null)"}'");
+                return false;
+            }
 
             // Recording must be long enough to warrant trimming
             double duration = rec.EndUT - rec.StartUT;
-            if (duration <= MinDurationForTrimSeconds) return false;
+            if (duration <= MinDurationForTrimSeconds)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (too-short) " +
+                    $"id='{rec.RecordingId}' " +
+                    $"duration={duration.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                    $"<= min={MinDurationForTrimSeconds.ToString("F1", CultureInfo.InvariantCulture)}s");
+                return false;
+            }
 
             // Must have TrackSections to detect boring tails
-            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return false;
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (no-track-sections) " +
+                    $"id='{rec.RecordingId}' trackSections={(rec.TrackSections?.Count ?? -1)}");
+                return false;
+            }
 
             // Last section must be boring
             var lastSection = rec.TrackSections[rec.TrackSections.Count - 1];
-            if (!GhostPlaybackLogic.IsBoringEnvironment(lastSection.environment)) return false;
+            if (!GhostPlaybackLogic.IsBoringEnvironment(lastSection.environment))
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (last-section-not-boring) " +
+                    $"id='{rec.RecordingId}' lastEnv={lastSection.environment} " +
+                    $"sectionCount={rec.TrackSections.Count}");
+                return false;
+            }
 
             double lastInterestingUT = FindLastInterestingUT(rec);
             if (double.IsNaN(lastInterestingUT))
@@ -1449,17 +1562,33 @@ namespace Parsek
                 // so the ghost finishes quickly and the real vessel spawns promptly.
                 // Use the second point's UT as reference to guarantee at least 2 points
                 // survive for valid interpolation (the trim logic requires keepCount >= 2).
-                if (rec.Points.Count < 3) return false; // too few to trim meaningfully
+                if (rec.Points.Count < 3)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (all-boring-too-few-points) " +
+                        $"id='{rec.RecordingId}' pointCount={rec.Points.Count}");
+                    return false; // too few to trim meaningfully
+                }
                 lastInterestingUT = rec.Points[1].ut;
             }
 
             double trimUT = lastInterestingUT + bufferSeconds;
-            if (trimUT >= rec.EndUT) return false; // boring tail is shorter than buffer
+            if (trimUT >= rec.EndUT)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (buffer-not-met) " +
+                    $"id='{rec.RecordingId}' " +
+                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $">= endUT={rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"(lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"buffer={bufferSeconds.ToString("F1", CultureInfo.InvariantCulture)}s)");
+                return false; // boring tail is shorter than buffer
+            }
 
             if (!TailPreservesTerminalSpawnState(rec, trimUT))
             {
                 ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped '{rec.VesselName}' ({rec.RecordingId}) " +
+                    $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
                     $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
                     $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
                 return false;
@@ -1479,9 +1608,24 @@ namespace Parsek
                 }
             }
             // No points past trimUT — nothing to trim
-            if (keepCount == 0) return false;
+            if (keepCount == 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (no-points-past-trim-ut) " +
+                    $"id='{rec.RecordingId}' " +
+                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"pointCount={rec.Points.Count}");
+                return false;
+            }
             // Must keep at least 2 points for valid interpolation
-            if (keepCount < 2) return false;
+            if (keepCount < 2)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped (keep-count-too-low) " +
+                    $"id='{rec.RecordingId}' keepCount={keepCount} " +
+                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)}");
+                return false;
+            }
             rec.Points.RemoveRange(keepCount, rec.Points.Count - keepCount);
 
             // Trim TrackSections — remove trailing sections past trimUT, shorten spanning section
