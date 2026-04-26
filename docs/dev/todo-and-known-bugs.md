@@ -2031,15 +2031,15 @@ in the snapshot if the guard had let them through.
   (`total=N strictlyDead=N missingNotReserved=N reservedMissing=N alive=N [name: classification, …]`)
   instead of a flat name list, so future regressions can be diagnosed
   from the abandon line alone.
-- New `[Verbose][Spawner] Spawn-block carve-out applied (#608)` log
+- New `[Verbose][Spawner] Spawn-block carve-out applied (#608/#609)` log
   fires whenever the carve-out turns a previously-abandoned scenario
   into a successful spawn — playtest logs make the recovery visible.
 
-Regression coverage: `Bug608Tests.cs` (xUnit — pure pieces:
+Regression coverage: `Bug609Tests.cs` (xUnit — pure pieces:
 `ClassifySnapshotCrew` degraded path,
 `FormatSpawnableClassificationSummary` shape, post-carve-out
 `ShouldBlockSpawnForDeadCrew` decisions); in-game test
-`Bug608_ReservedMissingCrewIsSpawnableAndRescued` in
+`Bug609_ReservedMissingCrewIsSpawnableAndRescued` in
 `InGameTests/RuntimeTests.cs` exercises the live-roster path
 (reservation registration → rosterStatus = Missing → classification +
 spawn-block check + rescue, with full rollback).
