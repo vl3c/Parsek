@@ -1408,6 +1408,310 @@ namespace Parsek.Tests
                 && l.Contains("skippedExtraSelfLink=0"));
         }
 
+        // ---------- Multi-segment chain skip set (review follow-up #2) ----
+        // Reviewer flagged that the prior fix only added the HEAD id to
+        // extraSelfSkipRecordingIds. For a 3+-segment in-place chain
+        // (HEAD -> MIDDLE -> TIP), AppendRelations would write a row
+        // old=MIDDLE new=TIP and silently collapse MIDDLE in ERS via
+        // EffectiveRecordingId redirect, even though MIDDLE is part of the
+        // SAME new in-place flight. The fix builds the skip set from the
+        // full chain membership (TreeId + ChainId + ChainBranch matches
+        // from RecordingStore.CommittedRecordings — the same scope
+        // EffectiveState.ComputeSessionSuppressedSubtreeInternal +
+        // EnqueueChainSiblings use) so no in-place chain segment ends up
+        // with a row pointing at another member.
+
+        /// <summary>
+        /// HEAD -> MIDDLE -> TIP in-place chain (three segments) plus a
+        /// prior-attempt sibling under a child BP. The prior-attempt sibling
+        /// must still get a supersede row pointing at the resolved tip;
+        /// none of HEAD/MIDDLE/TIP must end up with a row pointing at
+        /// another chain member.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember()
+        {
+            const string kBpParent = "bp_p_3seg";
+            const string kBpChild = "bp_c_3seg";
+            // HEAD: in-place provisional, no terminal post-split, has Points,
+            // chainIndex=0.
+            var head = Rec("rec_3seg_head", "tree_3seg",
+                parentBranchPointId: kBpParent,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_3seg";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // MIDDLE: chainIndex=1, also no terminal, has Points.
+            var middle = Rec("rec_3seg_middle", "tree_3seg",
+                state: MergeState.Immutable,
+                terminal: null);
+            middle.ChainId = "chain_3seg";
+            middle.ChainBranch = 0;
+            middle.ChainIndex = 1;
+            middle.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            middle.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            // TIP: chainIndex=2, carries the terminal payload + Points.
+            // ChildBranchPointId moves to the TIP after the optimizer cascade
+            // (RecordingStore.cs:2018-2019), so the BP-walk runs from here.
+            var tip = Rec("rec_3seg_tip", "tree_3seg",
+                childBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_3seg";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 2;
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            // Prior-attempt sibling under bp_child — the row we need written
+            // for the original Bug 2 fix to actually land. NOT a chain member
+            // (different ChainId) so it must NOT be in the chain skip set.
+            var oldSibling = Rec("rec_3seg_old_sib", "tree_3seg",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            oldSibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_3seg_head" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_3seg_tip" },
+                children: new List<string> { "rec_3seg_old_sib" });
+
+            InstallTree("tree_3seg",
+                new List<Recording> { head, middle, tip, oldSibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            var marker = Marker(originId: "rec_3seg_head", provisionalId: "rec_3seg_head",
+                treeId: "tree_3seg");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // 1) Prior-attempt sibling gets a row pointing at the TIP.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_old_sib" && r.NewRecordingId == "rec_3seg_tip");
+
+            // 2) NO row from any chain member to any other chain member.
+            //    This is the regression: with the previous skip-set-of-just-HEAD
+            //    code, MIDDLE -> TIP would be written and silently collapse
+            //    MIDDLE in ERS.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_middle");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_tip");
+
+            // 3) Marker cleared, MergeState forced to Immutable on the head.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+
+            // 4) chain-skip-set: log line audits the membership decision.
+            //    Members are unordered in HashSet<string> enumeration, so
+            //    assert presence by substring matches rather than exact order.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=chain_3seg")
+                && l.Contains("chainBranch=0")
+                && l.Contains("treeId=tree_3seg")
+                && l.Contains("rec_3seg_head")
+                && l.Contains("rec_3seg_middle")
+                && l.Contains("rec_3seg_tip")
+                && l.Contains("size=3"));
+
+            // 5) AppendRelations summary: 1 row written, 1 self-link
+            //    skipped (the TIP), 2 extra-self-link skips (HEAD + MIDDLE).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 1 supersede relations")
+                && l.Contains("skippedSelfLink=1")
+                && l.Contains("skippedExtraSelfLink=2"));
+
+            // 6) Per-skip Verbose lines fire for HEAD and MIDDLE (extra-self)
+            //    and for TIP (self-link guard).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_3seg_head")
+                && l.Contains("new=rec_3seg_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_3seg_middle")
+                && l.Contains("new=rec_3seg_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_3seg_tip")
+                && l.Contains("new=rec_3seg_tip"));
+
+            // 7) MergeDialog summary log says "full chain (3 member(s))" so
+            //    the count is auditable from the high-level summary too.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 1 relation")
+                && l.Contains("full chain (3 member(s))"));
+        }
+
+        /// <summary>
+        /// Same ChainId, DIFFERENT ChainBranch: a prior-attempt sibling that
+        /// happens to share ChainId with the in-place chain but lives on a
+        /// different ChainBranch is NOT a current chain member. It must
+        /// still get a supersede row when it sits in the closure (e.g. a
+        /// child of the parent BP of the in-place head). The chain-skip-set
+        /// predicate matches EnqueueChainSiblings' TreeId+ChainId+ChainBranch
+        /// triple, so different ChainBranch ids are correctly excluded from
+        /// the skip set.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_SameChainIdDifferentBranch_StillSuperseded()
+        {
+            const string kBpParent = "bp_p_diffbr";
+            const string kBpChild = "bp_c_diffbr";
+            var head = Rec("rec_diffbr_head", "tree_diffbr",
+                parentBranchPointId: kBpParent,
+                childBranchPointId: kBpChild,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_shared";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            var tip = Rec("rec_diffbr_tip", "tree_diffbr",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Landed);
+            tip.ChainId = "chain_shared";
+            tip.ChainBranch = 0; // same branch as head -> in chain skip set
+            tip.ChainIndex = 1;
+            tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // Prior-attempt sibling: same tree, same ChainId, but DIFFERENT
+            // ChainBranch. Lives under bp_child as a BP descendant so it
+            // enters the closure via the BP walk, not chain expansion.
+            // Closure walk WILL include it but the chain-skip-set predicate
+            // will NOT (mismatched ChainBranch).
+            var sibling = Rec("rec_diffbr_old_sib", "tree_diffbr",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            sibling.ChainId = "chain_shared";
+            sibling.ChainBranch = 99; // distinct branch
+            sibling.ChainIndex = 0;
+            sibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_diffbr_head" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_diffbr_head" },
+                children: new List<string> { "rec_diffbr_old_sib" });
+
+            InstallTree("tree_diffbr",
+                new List<Recording> { head, tip, sibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            var marker = Marker(originId: "rec_diffbr_head", provisionalId: "rec_diffbr_head",
+                treeId: "tree_diffbr");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Prior-attempt sibling on the OTHER chain branch IS superseded.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_old_sib" && r.NewRecordingId == "rec_diffbr_tip");
+            // Neither chain member of the in-place flight is superseded.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_tip");
+
+            // Skip set has size 2 (head + tip only). The same-ChainId-but-
+            // different-ChainBranch sibling is NOT in the set.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=chain_shared")
+                && l.Contains("chainBranch=0")
+                && l.Contains("size=2"));
+        }
+
+        /// <summary>
+        /// Lone-origin in-place (no chain split, no ChainId set): the
+        /// chain-skip-set degenerates to a single-element set with just the
+        /// provisional's own RecordingId. AppendRelations' old==new
+        /// self-link guard catches the trivial origin entry, and the empty
+        /// closure produces no rows. Pin the new chain-skip-set log line so
+        /// the lone-origin case is auditable too. Mirrors
+        /// <c>InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly</c>'s
+        /// fixture but adds the new log assertion.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_NoChain_ChainSkipSetLogsSizeOne()
+        {
+            var origin = Rec("rec_no_chain_origin", "tree_nc",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: null);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            // ChainId left null -> degenerate fallback path in the chain-skip-set logic.
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_nc");
+            var tree = new RecordingTree
+            {
+                Id = "tree_nc",
+                TreeName = "tree_nc",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_no_chain_origin",
+                provisionalId: "rec_no_chain_origin", treeId: "tree_nc");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+
+            // No supersede rows (lone origin: only candidate is self-link).
+            Assert.Empty(scenario.RecordingSupersedes);
+
+            // chain-skip-set log fires with size=1 and chainId=<none>.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=<none>")
+                && l.Contains("rec_no_chain_origin")
+                && l.Contains("size=1"));
+        }
+
         [Fact]
         public void ValidateSupersedeTarget_ReasonStrings()
         {

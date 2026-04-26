@@ -467,19 +467,94 @@ namespace Parsek
                             $"unchanged from head={provisional.RecordingId} (no chain split, " +
                             $"or head already carries terminal)");
                     }
+
+                    // Chain-skip set (review follow-up #2): the closure-walk
+                    // helper EnqueueChainSiblings (EffectiveState.cs:704) pulls
+                    // EVERY recording sharing TreeId+ChainId+ChainBranch with
+                    // any closure member into the suppressed subtree. For a
+                    // 3+-segment in-place chain (HEAD -> MIDDLE -> TIP, or
+                    // any chain that expands to >=3 members via the optimizer
+                    // cascade), my prior fix only added HEAD to the
+                    // extraSelfSkipRecordingIds set: AppendRelations would
+                    // then write a row old=MIDDLE new=TIP and silently
+                    // collapse MIDDLE in ERS via EffectiveRecordingId
+                    // redirect, even though MIDDLE is part of the SAME new
+                    // in-place flight. None of HEAD/MIDDLE/TIP should be
+                    // superseded by another member of the same chain.
+                    //
+                    // Build the skip set from the full chain membership using
+                    // the same TreeId+ChainId+ChainBranch predicate
+                    // EnqueueChainSiblings uses (line 722-724), reading from
+                    // RecordingStore.CommittedRecordings — the SAME source
+                    // ComputeSessionSuppressedSubtreeInternal iterates at
+                    // EffectiveState.cs:550-557 to populate `recById`. Same
+                    // scope means the skip set covers exactly the closure
+                    // entries that came from chain expansion. (RecordingStore
+                    // raw read here is covered by MergeDialog.cs's existing
+                    // Phase-8 ERS-exempt allowlist entry.) Fall back to a
+                    // single-element set when the provisional has no
+                    // ChainId (lone-origin in-place case) — the only id is
+                    // the provisional's own RecordingId, which equals the
+                    // resolved tip and is already filtered by the trivial
+                    // old==new self-link guard inside AppendRelations, so
+                    // nothing changes for that case.
+                    var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
+                    chainSkipSet.Add(provisional.RecordingId);
+                    if (supersedeTargetRec != null
+                        && !string.IsNullOrEmpty(supersedeTargetRec.RecordingId))
+                    {
+                        chainSkipSet.Add(supersedeTargetRec.RecordingId);
+                    }
+                    if (!string.IsNullOrEmpty(provisional.ChainId)
+                        && !string.IsNullOrEmpty(provisional.TreeId))
+                    {
+                        var committedSource = RecordingStore.CommittedRecordings;
+                        if (committedSource != null)
+                        {
+                            for (int i = 0; i < committedSource.Count; i++)
+                            {
+                                var cand = committedSource[i];
+                                if (cand == null) continue;
+                                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                                // Match EnqueueChainSiblings' exact predicate:
+                                // same TreeId + ChainId + ChainBranch.
+                                if (!string.Equals(cand.TreeId,
+                                    provisional.TreeId, System.StringComparison.Ordinal))
+                                    continue;
+                                if (!string.Equals(cand.ChainId,
+                                    provisional.ChainId, System.StringComparison.Ordinal))
+                                    continue;
+                                if (cand.ChainBranch != provisional.ChainBranch) continue;
+                                chainSkipSet.Add(cand.RecordingId);
+                            }
+                        }
+                    }
+                    // Verbose audit line so the chain-skip-set decision is
+                    // reconstructable from KSP.log alone.
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    string chainSkipMembers = string.Join(",", chainSkipSet);
+                    ParsekLog.Verbose("MergeDialog",
+                        $"TryCommitReFlySupersede: chain-skip-set: " +
+                        $"chainId={provisional.ChainId ?? "<none>"} " +
+                        $"chainBranch={provisional.ChainBranch.ToString(ic)} " +
+                        $"treeId={provisional.TreeId ?? "<none>"} " +
+                        $"members=[{chainSkipMembers}] " +
+                        $"head={provisional.RecordingId} " +
+                        $"tip={(supersedeTargetRec != null ? supersedeTargetRec.RecordingId : "<none>")} " +
+                        $"size={chainSkipSet.Count.ToString(ic)}");
+
                     int relationsBefore = scenario.RecordingSupersedes.Count;
                     SupersedeCommit.AppendRelations(
                         marker, supersedeTargetRec, scenario,
-                        extraSelfSkipRecordingIds: resolvedToDifferentTip
-                            ? new[] { provisional.RecordingId }
-                            : null);
+                        extraSelfSkipRecordingIds: chainSkipSet);
                     int relationsAfter = scenario.RecordingSupersedes.Count;
                     ParsekLog.Info("MergeDialog",
                         $"TryCommitReFlySupersede: in-place continuation supersede append " +
                         $"wrote {relationsAfter - relationsBefore} relation(s) " +
                         $"(before={relationsBefore} after={relationsAfter}; self-link skipped " +
-                        $"by AppendRelations old==new guard; head also skipped via extra-self-skip " +
-                        $"set when chain tip differed from head)");
+                        $"by AppendRelations old==new guard; full chain " +
+                        $"({chainSkipSet.Count} member(s)) skipped via extra-self-skip set so " +
+                        $"no in-place chain segment is collapsed under another via supersede)");
 
                     // FlipMergeStateAndClearTransient with preserveMarker=false
                     // flips MergeState, clears SupersedeTargetId, bumps
