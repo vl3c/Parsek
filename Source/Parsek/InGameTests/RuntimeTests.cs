@@ -5213,6 +5213,142 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #608: spawner-side carve-out — reserved+Missing crew is rescued and not classified as dead")]
+        public void Bug608_ReservedMissingCrewIsSpawnableAndRescued()
+        {
+            // End-to-end integration test for the bug #608 spawner-side fix.
+            // Scenario: a kerbal is reserved by a recording AND currently
+            // Missing in the roster (the post-Re-Fly-strip state). The spawner
+            // must:
+            //   1. NOT count the kerbal as dead in the all-crew-dead block check
+            //      (BuildDeadCrewSet's reservation carve-out)
+            //   2. Rescue the kerbal back to Available before snapshot load
+            //      (RescueReservedMissingCrewInSnapshot)
+            //
+            // Pre-fix code abandoned the spawn permanently and the recording
+            // was stuck VesselSpawned=true SpawnAbandoned=true forever.
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find an Available Crew kerbal not currently on the active vessel
+            // — we'll temporarily flip them to Missing, register a fake
+            // reservation, then exercise the spawner-side decision + rescue.
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember victim = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    victim = pcm;
+                    break;
+                }
+            }
+            if (victim == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            string fakeStandIn = "Bug608Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            var savedVictimStatus = victim.rosterStatus;
+
+            try
+            {
+                // Test isolation: clear all real reservations so the dead-set
+                // build sees only our fake entry. Restored in finally.
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Stage the bug scenario:
+                //   victim (Available) → Missing
+                //   crewReplacements: { victim → fakeStandIn }
+                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                CrewReservationManager.SetReplacement(victim.name, fakeStandIn);
+
+                // Build the snapshot the recording would hand to the spawner.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", "mk1pod.v2");
+                partNode.AddValue("crew", victim.name);
+
+                // (1) Spawner-side classification: victim must classify as
+                // ReservedMissingRescuable, NOT MissingNotReserved.
+                var classified = VesselSpawner.ClassifySnapshotCrew(
+                    new List<string> { victim.name });
+                InGameAssert.AreEqual(1, classified.Count,
+                    $"Expected 1 classification entry, got {classified.Count}");
+                InGameAssert.AreEqual(
+                    VesselSpawner.SpawnableClassification.ReservedMissingRescuable,
+                    classified[0].Value,
+                    $"Reserved+Missing crew '{victim.name}' should classify as " +
+                    $"ReservedMissingRescuable, got {classified[0].Value}");
+
+                // (2) Spawn-block check: must NOT block (carve-out applies).
+                List<string> snapshotCrew;
+                bool blocked = VesselSpawner.ShouldBlockSpawnForDeadCrewInSnapshot(
+                    snapshot, out snapshotCrew);
+                InGameAssert.IsFalse(blocked,
+                    $"ShouldBlockSpawnForDeadCrewInSnapshot must allow spawn for " +
+                    $"reserved+Missing crew (#608 carve-out) — got blocked=true");
+                InGameAssert.AreEqual(1, snapshotCrew.Count,
+                    $"snapshotCrew should contain {victim.name}, got count={snapshotCrew.Count}");
+
+                // (3) Rescue helper: must flip victim from Missing to Available.
+                VesselSpawner.RescueReservedMissingCrewInSnapshot(snapshot);
+                InGameAssert.AreEqual(
+                    ProtoCrewMember.RosterStatus.Available, victim.rosterStatus,
+                    $"RescueReservedMissingCrewInSnapshot must rescue '{victim.name}' " +
+                    $"to Available, got {victim.rosterStatus}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug608 end-to-end: '{victim.name}' classified as " +
+                    $"ReservedMissingRescuable, spawn not blocked, rescued to Available");
+            }
+            finally
+            {
+                // Restore: replacement dict + victim's original roster status.
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+                victim.rosterStatus = savedVictimStatus;
+
+                InGameAssert.AreEqual(savedReplacements.Count,
+                    CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, " +
+                    $"actual={CrewReservationManager.CrewReplacements.Count})");
+                InGameAssert.AreEqual(savedVictimStatus, victim.rosterStatus,
+                    $"Rollback failed: '{victim.name}' rosterStatus not restored");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
             Description = "Bug #578: PlaceOrphanedReplacements logs wrong-active-vessel no-match diagnostics without using an unrelated free seat")]
         public void Bug578_OrphanPlacement_NoMatchingPart_LogsDeferredReason()
         {
