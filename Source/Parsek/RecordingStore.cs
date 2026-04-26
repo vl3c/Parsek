@@ -2147,6 +2147,10 @@ namespace Parsek
             string childBranchPointId,
             double secondStartUT)
         {
+            // Optimizer-only helper: RunOptimizationPass operates on committed
+            // trees, so this intentionally does not inspect PendingTree. If a
+            // future pending-tree split path appears, add an explicit tree
+            // parameter rather than broadening this committed-tree contract.
             if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(childBranchPointId))
                 return false;
             if (double.IsNaN(secondStartUT) || double.IsInfinity(secondStartUT))

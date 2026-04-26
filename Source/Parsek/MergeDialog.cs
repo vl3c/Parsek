@@ -931,6 +931,10 @@ namespace Parsek
             Dictionary<string, bool> decisions,
             string activeReFlyTargetId)
         {
+            // This runs only while BuildDefaultVesselDecisions is constructing
+            // the dialog's initial defaults. It is allowed to flip a freshly
+            // inferred spawnable parent-chain tip to ghost-only; there is no
+            // user-edited decision state yet.
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return;
 

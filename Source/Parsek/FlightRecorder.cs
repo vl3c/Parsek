@@ -6034,6 +6034,11 @@ namespace Parsek
             if (activeRec.RecordingFormatVersion < RecordingStore.PredictedOrbitSegmentFormatVersion)
                 return;
 
+            // Upgrading an already-open v6 recording does not synthesize
+            // absoluteFrames for relative samples captured before this point.
+            // Those legacy sections deliberately fall back to the pre-ReFly
+            // frozen anchor trajectory path; only new v7 samples append
+            // absolute shadow frames.
             int previousVersion = activeRec.RecordingFormatVersion;
             activeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             ParsekLog.Info("Recorder",

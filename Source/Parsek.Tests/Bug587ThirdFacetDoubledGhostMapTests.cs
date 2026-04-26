@@ -882,6 +882,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComposeSearchTreesForReFlySuppression_SameInputs_ReturnsStableComposedView()
+        {
+            var committed = new List<RecordingTree>
+            {
+                new RecordingTree { Id = "tree-committed" },
+            };
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var first = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+            var second = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.Equal(first.Count, second.Count);
+            Assert.Equal(2, second.Count);
+            Assert.Same(committed[0], second[0]);
+            Assert.Same(pending, second[1]);
+        }
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_SameListMutated_InvalidatesCachedView()
+        {
+            var original = new RecordingTree { Id = "tree-original" };
+            var replacement = new RecordingTree { Id = "tree-replacement" };
+            var committed = new List<RecordingTree> { original };
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var first = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+            committed[0] = replacement;
+
+            var second = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.NotSame(first, second);
+            Assert.Equal(2, second.Count);
+            Assert.Same(replacement, second[0]);
+            Assert.Same(pending, second[1]);
+        }
+
+        [Fact]
         public void Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree()
         {
             // #611 P1 review follow-up: the user-visible bug is the

@@ -76,6 +76,27 @@ namespace Parsek
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         private static long ghostTargetRequestSequence;
+        private static ReFlySuppressionSearchTreeCache cachedReFlySuppressionSearchTrees;
+
+        private sealed class ReFlySuppressionSearchTreeCache
+        {
+            internal readonly IReadOnlyList<RecordingTree> CommittedTrees;
+            internal readonly RecordingTree PendingTree;
+            internal readonly RecordingTree[] CommittedSnapshot;
+            internal readonly IReadOnlyList<RecordingTree> ComposedTrees;
+
+            internal ReFlySuppressionSearchTreeCache(
+                IReadOnlyList<RecordingTree> committedTrees,
+                RecordingTree pendingTree,
+                RecordingTree[] committedSnapshot,
+                IReadOnlyList<RecordingTree> composedTrees)
+            {
+                CommittedTrees = committedTrees;
+                PendingTree = pendingTree;
+                CommittedSnapshot = committedSnapshot;
+                ComposedTrees = composedTrees;
+            }
+        }
 
         // -----------------------------------------------------------------
         // Observability (#582 follow-up): every create/position/update/destroy
@@ -1449,12 +1470,27 @@ namespace Parsek
         {
             int committedCount = committedTrees?.Count ?? 0;
             bool hasPending = pendingTree != null;
-            if (!hasPending) return committedTrees ?? Array.Empty<RecordingTree>();
+            if (!hasPending)
+            {
+                ClearCachedReFlySuppressionSearchTrees();
+                return committedTrees ?? Array.Empty<RecordingTree>();
+            }
+
+            if (TryGetCachedReFlySuppressionSearchTrees(
+                    committedTrees,
+                    committedCount,
+                    pendingTree,
+                    out IReadOnlyList<RecordingTree> cached))
+            {
+                return cached;
+            }
 
             var result = new List<RecordingTree>(committedCount + 1);
+            var snapshot = new RecordingTree[committedCount];
             for (int i = 0; i < committedCount; i++)
             {
                 RecordingTree t = committedTrees[i];
+                snapshot[i] = t;
                 if (t == null) continue;
                 if (string.Equals(t.Id, pendingTree.Id, StringComparison.Ordinal))
                 {
@@ -1471,7 +1507,49 @@ namespace Parsek
                 result.Add(t);
             }
             result.Add(pendingTree);
+            cachedReFlySuppressionSearchTrees = new ReFlySuppressionSearchTreeCache(
+                committedTrees,
+                pendingTree,
+                snapshot,
+                result);
             return result;
+        }
+
+        private static void ClearCachedReFlySuppressionSearchTrees()
+        {
+            cachedReFlySuppressionSearchTrees = null;
+        }
+
+        private static bool TryGetCachedReFlySuppressionSearchTrees(
+            IReadOnlyList<RecordingTree> committedTrees,
+            int committedCount,
+            RecordingTree pendingTree,
+            out IReadOnlyList<RecordingTree> cached)
+        {
+            cached = null;
+            ReFlySuppressionSearchTreeCache cache = cachedReFlySuppressionSearchTrees;
+            if (cache == null
+                || cache.ComposedTrees == null
+                || !ReferenceEquals(cache.CommittedTrees, committedTrees)
+                || !ReferenceEquals(cache.PendingTree, pendingTree)
+                || cache.CommittedSnapshot == null
+                || cache.CommittedSnapshot.Length != committedCount)
+            {
+                return false;
+            }
+
+            // RecordingStore keeps the list instance stable while mutating its
+            // contents in a few load/merge paths. Validate the source refs so
+            // the cache removes hot-path allocations without serving stale tree
+            // entries after same-count replacement.
+            for (int i = 0; i < committedCount; i++)
+            {
+                if (!ReferenceEquals(cache.CommittedSnapshot[i], committedTrees[i]))
+                    return false;
+            }
+
+            cached = cache.ComposedTrees;
+            return true;
         }
 
         private static double GetCurrentUTSafe()
@@ -6247,6 +6325,7 @@ namespace Parsek
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
+            ClearCachedReFlySuppressionSearchTrees();
             lastKnownByRecordingIndex.Clear();
             lastKnownByChainPid.Clear();
             lifecycleCreatedThisTick = 0;
@@ -6272,6 +6351,7 @@ namespace Parsek
         internal static void ResetBetweenTestRuns(string reason)
         {
             ghostTargetRequestSequence = 0;
+            ClearCachedReFlySuppressionSearchTrees();
 
             int pidCount = ghostMapVesselPids.Count;
             int suppressedIconCount = ghostsWithSuppressedIcon.Count;
