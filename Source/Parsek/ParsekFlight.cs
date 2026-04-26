@@ -13106,6 +13106,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
+            ClearGhostSkipReasonLogState();
         }
 
         /// <summary>

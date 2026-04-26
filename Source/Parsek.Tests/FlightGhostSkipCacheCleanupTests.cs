@@ -51,6 +51,26 @@ namespace Parsek.Tests
             Assert.Equal(2, CountGhostSkipLines("rec-cache-b"));
         }
 
+        [Fact]
+        public void DestroyAllTimelineGhosts_AllowsPerRecordingSkipReasonsToReEmit()
+        {
+            ParsekFlight host = CreateFlightHostForDestroyAllTimelineGhosts(
+                new HashSet<string> { "rec-cache-a" });
+
+            LogNoRenderableData("rec-cache-a", 0);
+            LogNoRenderableData("rec-cache-a", 0);
+
+            Assert.Equal(1, CountGhostSkipLines("rec-cache-a"));
+
+            host.DestroyAllTimelineGhosts();
+
+            Assert.Empty(GetActiveGhostSkipReasonIdentities(host));
+
+            LogNoRenderableData("rec-cache-a", 0);
+
+            Assert.Equal(2, CountGhostSkipLines("rec-cache-a"));
+        }
+
         private void LogNoRenderableData(string recordingId, int index)
         {
             ParsekFlight.LogGhostSkipReasonChangeForTesting(
@@ -78,6 +98,22 @@ namespace Parsek.Tests
             return host;
         }
 
+        private static ParsekFlight CreateFlightHostForDestroyAllTimelineGhosts(
+            HashSet<string> identities)
+        {
+            ParsekFlight host = CreateFlightHostWithGhostSkipState(identities);
+            SetPrivateField(host, "engine", new GhostPlaybackEngine(null));
+            SetPrivateFieldFromDefaultConstructor(host, "orbitCache");
+            SetPrivateFieldFromDefaultConstructor(host, "loggedOrbitSegments");
+            SetPrivateFieldFromDefaultConstructor(host, "loggedOrbitRotationSegments");
+            SetPrivateFieldFromDefaultConstructor(host, "nearbySpawnCandidates");
+            SetPrivateFieldFromDefaultConstructor(host, "proximityVelocitySamples");
+            SetPrivateFieldFromDefaultConstructor(host, "notifiedSpawnRecordingIds");
+            SetPrivateFieldFromDefaultConstructor(host, "loggedRelativeStart");
+            SetPrivateFieldFromDefaultConstructor(host, "loggedAnchorNotFound");
+            return host;
+        }
+
         private static HashSet<string> GetActiveGhostSkipReasonIdentities(ParsekFlight host)
         {
             FieldInfo field = GetActiveGhostSkipReasonIdentitiesField();
@@ -99,6 +135,26 @@ namespace Parsek.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(field);
             return field;
+        }
+
+        private static void SetPrivateField(ParsekFlight host, string fieldName, object value)
+        {
+            FieldInfo field = typeof(ParsekFlight).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(host, value);
+        }
+
+        private static void SetPrivateFieldFromDefaultConstructor(
+            ParsekFlight host,
+            string fieldName)
+        {
+            FieldInfo field = typeof(ParsekFlight).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(host, Activator.CreateInstance(field.FieldType));
         }
     }
 }
