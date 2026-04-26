@@ -3223,7 +3223,7 @@ namespace Parsek
 
             QueueOrEmitGhostCreated(index, traj, state, flags);
 
-            bool suppressRetarget = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
             string vesselName = traj?.VesselName ?? state.vesselName ?? "(unknown)";
 
@@ -3233,7 +3233,7 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
                         $"Ghost ENTERED range: #{index} \"{vesselName}\" at UT {playbackUT:F1} " +
                         $"(loop cycle={state.loopCycleIndex})");
-                    if (suppressRetarget)
+                    if (retired)
                     {
                         ParsekLog.Verbose("Engine",
                             $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=LoopEnter cycle={state.loopCycleIndex}");
@@ -3254,7 +3254,7 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
                         $"Ghost ENTERED range: #{index} \"{vesselName}\" cycle={state.loopCycleIndex} " +
                         $"at UT {playbackUT:F1} (overlap)");
-                    if (suppressRetarget)
+                    if (retired)
                     {
                         ParsekLog.Verbose("Engine",
                             $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=OverlapPrimaryEnter cycle={state.loopCycleIndex}");
