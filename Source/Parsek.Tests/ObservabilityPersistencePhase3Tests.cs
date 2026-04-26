@@ -417,6 +417,36 @@ namespace Parsek.Tests
             Assert.Contains("reason='Rewind point is marked corrupted'", slotLines[1]);
         }
 
+        // Regression: production log 2026-04-26_1025 showed 1389 identical
+        // slot-ok emits over 6 seconds for the same rp/slot. The existing
+        // 2-call test was insufficient. Drive 200 consecutive calls and
+        // assert at most one emit fires.
+        [Fact]
+        public void RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk()
+        {
+            string quicksavePath = WriteQuicksave("GAME\n{\n  FLIGHTSTATE\n  {\n  }\n}\n");
+            var slot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_spam_repro",
+                QuicksaveFilename = "Parsek/RewindPoints/rp_spam_repro.sfs",
+                ChildSlots = new List<ChildSlot> { slot }
+            };
+            RewindInvoker.ResolveAbsoluteQuicksavePathOverrideForTesting = _ => quicksavePath;
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+
+            for (int i = 0; i < 200; i++)
+            {
+                Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+            }
+
+            Assert.Single(LogLinesContaining("CanInvokeSlot:"));
+        }
+
         private string WriteQuicksave(string contents)
         {
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + ".sfs");

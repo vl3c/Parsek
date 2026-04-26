@@ -97,6 +97,24 @@ save/load exception context, sidecar/path severity expansion, rewind
 `CanInvoke` reason-change logging, playback-engine frame skip counters, and
 Phase 6 retained in-game log-package validation still need separate passes.
 
+Post-merge spam fix (2026-04-26, `fix/rewindui-canInvokeSlot-spam`): the
+2026-04-26_1025 playtest log showed 1389 identical `[RewindUI] CanInvokeSlot:
+slot-ok` lines in 6 seconds for a single rp/slot — the existing
+`ParsekLog.VerboseOnChange` gate did not suppress the repeats from the OnGUI
+draw loop, while the matching `[Rewind] CanInvoke:` site (same code path,
+same dictionary) suppressed correctly. The xUnit 200-call repro passes, so
+the failure is Unity-runtime-specific. `LogRewindSlotCanInvokeDecision` now
+tracks the last-emitted decision stateKey in a file-local
+`Dictionary<string,string>` and only calls `ParsekLog.Verbose` when it
+changes — mirroring the `lastCanInvoke` pattern already used by
+`DrawUnfinishedFlightRewindButton` ~300 lines above. Existing
+`ClearRewindSlotCanInvokeLogState` callers (LoadTimeSweep, RewindPointAuthor,
+RewindPointReaper, TreeDiscardPurge, RecordingsTableUI window-close,
+ParsekScenario.OnLoad) clear the new dict alongside the original
+`ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix` call. Regression test:
+`RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk` drives
+200 consecutive calls and asserts a single emit.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
