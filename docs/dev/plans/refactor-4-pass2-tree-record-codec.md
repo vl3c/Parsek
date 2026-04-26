@@ -167,8 +167,9 @@ that should be a separate follow-up proposal and PR.
   after PR A review.
 - PR C: optional branch-point codec extraction, only after PR B review and a
   separate approval.
-- PR D: if PR B review confirms the wrapper exit criteria above, migrate
-  direct raw-record serialization callers and tests to `RecordingTreeRecordCodec`.
+- PR D: if PR B review confirms the wrapper exit criteria above, migrate only
+  selected callers and tests that explicitly want raw record serialization to
+  `RecordingTreeRecordCodec`.
 - Post-Pass 2 cleanup: consider manifest wrapper deletion only after the
   tree-record codec and any approved caller migration are accepted.
 
