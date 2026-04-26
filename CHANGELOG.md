@@ -44,6 +44,7 @@ All notable changes to Parsek are documented here.
 - `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
 - `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
+- Runtime observability now adds compact recorder, map, Tracking Station, post-switch, game-action, and in-game test summaries without repeating stable no-op decisions.
 
 ### Bug Fixes
 

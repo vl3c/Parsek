@@ -59,6 +59,25 @@ identity with the watched recording/pid/reason in the state key, avoiding
 per-recording cache growth while preserving reason-change visibility.
 Remaining observability audit items stay open.
 
+Runtime-gaps branch progress (2026-04-26): Phase 4/5 recorder and
+game-visible runtime decisions are now covered for the high-priority gaps:
+background recorder attach/clear and drift warnings, active-to-background
+missing-vessel/finalizer diagnostics, post-switch auto-record no-trigger and
+manifest-delta summaries, EVA/boarding split skips, ParsekUI map-marker skip
+summaries, Tracking Station atmospheric-marker skip summaries, ghost orbit-line
+suppression decisions, game-action converter skip-by-type summaries, event
+reject logs, kerbal recalculation counters, Real Spawn Control auto-close
+reasons, and test-runner scene-eligibility skip aggregation.
+Review follow-up: post-switch manifest logging preserves trigger-priority
+short-circuiting, marking lower-priority delta families as `skipped` instead of
+diffing every manifest category on each 0.25s evaluation tick; the background
+state-drift throttle now has a backwards-UT rollback test.
+
+Remaining observability follow-up after runtime-gaps: the earlier P1/P2
+save/load exception context, sidecar/path severity expansion, rewind
+`CanInvoke` reason-change logging, playback-engine frame skip counters, and
+Phase 6 retained in-game log-package validation still need separate passes.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups

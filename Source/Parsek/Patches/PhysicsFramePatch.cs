@@ -33,6 +33,7 @@ namespace Parsek.Patches
         /// for non-active vessels in the tree.
         /// </summary>
         internal static BackgroundRecorder BackgroundRecorderInstance;
+        private static BackgroundRecorder lastObservedBackgroundRecorder;
 
         private static readonly Stopwatch recordingStopwatch = new Stopwatch();
 
@@ -58,6 +59,15 @@ namespace Parsek.Patches
                 else
                     ParsekLog.Info("PhysicsPatch", "Gloops recorder attached");
                 lastObservedGloopsRecorder = GloopsRecorderInstance;
+            }
+
+            if (BackgroundRecorderInstance != lastObservedBackgroundRecorder)
+            {
+                if (BackgroundRecorderInstance == null)
+                    ParsekLog.Info("PhysicsPatch", "Background recorder cleared");
+                else
+                    ParsekLog.Info("PhysicsPatch", "Background recorder attached");
+                lastObservedBackgroundRecorder = BackgroundRecorderInstance;
             }
 
             if (ActiveRecorder == null

@@ -43,6 +43,7 @@ namespace Parsek
             int outOfRange = 0;
             int converted = 0;
             int sequence = 1;
+            var skippedByType = new Dictionary<GameStateEventType, int>();
 
             for (int i = 0; i < events.Count; i++)
             {
@@ -57,6 +58,7 @@ namespace Parsek
                 if (!EventMatchesRecordingScope(evt, recordingId))
                 {
                     skipped++;
+                    IncrementEventTypeCount(skippedByType, evt.eventType);
                     continue;
                 }
 
@@ -70,14 +72,66 @@ namespace Parsek
                 else
                 {
                     skipped++;
+                    IncrementEventTypeCount(skippedByType, evt.eventType);
                 }
             }
 
             ParsekLog.Info(Tag,
-                $"ConvertEvents: converted={converted}, skipped={skipped}, outOfRange={outOfRange}, " +
-                $"total={events.Count}, recordingId={recordingId ?? "(none)"}");
+                FormatConvertEventsSummary(
+                    converted,
+                    skipped,
+                    outOfRange,
+                    events.Count,
+                    recordingId,
+                    skippedByType));
 
             return result;
+        }
+
+        internal static string FormatConvertEventsSummary(
+            int converted,
+            int skipped,
+            int outOfRange,
+            int total,
+            string recordingId,
+            IDictionary<GameStateEventType, int> skippedByType)
+        {
+            return string.Format(IC,
+                "ConvertEvents: converted={0}, skipped={1}, outOfRange={2}, total={3}, recordingId={4}, skippedByType={5}",
+                converted,
+                skipped,
+                outOfRange,
+                total,
+                recordingId ?? "(none)",
+                FormatEventTypeCounts(skippedByType));
+        }
+
+        internal static string FormatEventTypeCounts(IDictionary<GameStateEventType, int> counts)
+        {
+            if (counts == null || counts.Count == 0)
+                return "(none)";
+
+            var keys = new List<GameStateEventType>(counts.Keys);
+            keys.Sort((left, right) => string.CompareOrdinal(left.ToString(), right.ToString()));
+            var parts = new List<string>(keys.Count);
+            foreach (var key in keys)
+            {
+                int count = counts[key];
+                if (count <= 0)
+                    continue;
+                parts.Add(key + ":" + count.ToString(IC));
+            }
+
+            return parts.Count == 0 ? "(none)" : string.Join(",", parts);
+        }
+
+        private static void IncrementEventTypeCount(
+            IDictionary<GameStateEventType, int> counts,
+            GameStateEventType eventType)
+        {
+            int current;
+            counts.TryGetValue(eventType, out current);
+            counts[eventType] = current + 1;
         }
 
         // Mirrored in LedgerOrchestrator.EventMatchesRecordingScope; keep the two in sync.

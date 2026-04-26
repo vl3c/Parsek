@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -72,6 +73,44 @@ namespace Parsek
             public List<string> Chain = new List<string>(); // stand-in names, ordered by depth
         }
 
+        internal static string FormatPrePassSummary(
+            int examined,
+            int cached,
+            int nullRecordings,
+            int missingRecordingIds,
+            int rawCrewRecordings,
+            int rawCrewMembers,
+            int loopingChains)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "PrePass summary: examined={0} cached={1} nullRecordings={2} missingIds={3} rawCrewRecordings={4} rawCrewMembers={5} loopingChains={6}",
+                examined,
+                cached,
+                nullRecordings,
+                missingRecordingIds,
+                rawCrewRecordings,
+                rawCrewMembers,
+                loopingChains);
+        }
+
+        internal static string FormatPostWalkSummary(
+            int reservationCount,
+            int permanentReservations,
+            int temporaryReservations,
+            int slotCount,
+            int retiredCount,
+            int slotsCreated)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "PostWalk summary: reservations={0} permanent={1} temporary={2} slots={3} retired={4} slotsCreated={5}",
+                reservationCount,
+                permanentReservations,
+                temporaryReservations,
+                slotCount,
+                retiredCount,
+                slotsCreated);
+        }
+
         // Read-only access for tests
         internal IReadOnlyDictionary<string, KerbalReservation> Reservations => reservations;
         internal IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
@@ -118,10 +157,25 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null) return;
 
+            int examined = 0;
+            int nullRecordings = 0;
+            int missingRecordingIds = 0;
+            int rawCrewRecordings = 0;
+            int rawCrewMembers = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
+                examined++;
                 var rec = recordings[i];
-                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (rec == null)
+                {
+                    nullRecordings++;
+                    continue;
+                }
+                if (string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    missingRecordingIds++;
+                    continue;
+                }
 
                 bool isLoop = rec.LoopPlayback;
                 bool isChain = rec.IsChainRecording;
@@ -137,7 +191,11 @@ namespace Parsek
 
                 var rawCrew = ExtractRawCrewFromRecording(rec);
                 if (rawCrew.Count > 0)
+                {
                     rawRecordingCrew[rec.RecordingId] = new HashSet<string>(rawCrew);
+                    rawCrewRecordings++;
+                    rawCrewMembers += rawCrew.Count;
+                }
 
                 // Identify chains that contain a looping segment
                 if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
@@ -145,8 +203,14 @@ namespace Parsek
             }
 
             ParsekLog.Verbose(Tag,
-                $"PrePass: cached {recordingMeta.Count} recording metadata entries, " +
-                $"{loopingChainIds.Count} looping chains");
+                FormatPrePassSummary(
+                    examined,
+                    recordingMeta.Count,
+                    nullRecordings,
+                    missingRecordingIds,
+                    rawCrewRecordings,
+                    rawCrewMembers,
+                    loopingChainIds.Count));
         }
 
         /// <summary>
@@ -238,16 +302,21 @@ namespace Parsek
                 slot.OwnerPermanentlyGone = false;
 
             // 1. Build/update chains for temporary reservations
+            int permanentReservations = 0;
+            int temporaryReservations = 0;
+            int slotsCreated = 0;
             foreach (var kvp in reservations)
             {
                 if (kvp.Value.IsPermanent)
                 {
+                    permanentReservations++;
                     // Permanent: slot exits chain system. Mark owner as gone.
                     KerbalSlot permanentSlot;
                     if (slots.TryGetValue(kvp.Key, out permanentSlot))
                         permanentSlot.OwnerPermanentlyGone = true;
                     continue;
                 }
+                temporaryReservations++;
 
                 // Ensure slot exists
                 KerbalSlot slot;
@@ -259,6 +328,7 @@ namespace Parsek
                         OwnerTrait = FindTraitForKerbal(kvp.Key),
                     };
                     slots[kvp.Key] = slot;
+                    slotsCreated++;
                     ParsekLog.Verbose(Tag,
                         $"Created slot for '{kvp.Key}' (trait={slot.OwnerTrait})");
                 }
@@ -272,8 +342,13 @@ namespace Parsek
 
             // 3. Log summary
             ParsekLog.Info(Tag,
-                $"Recalculation complete: {reservations.Count} reservations, " +
-                $"{slots.Count} slots, {retiredKerbals.Count} retired");
+                FormatPostWalkSummary(
+                    reservations.Count,
+                    permanentReservations,
+                    temporaryReservations,
+                    slots.Count,
+                    retiredKerbals.Count,
+                    slotsCreated));
         }
 
         // ────────────────────────────────────────────────────────

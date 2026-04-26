@@ -74,6 +74,8 @@ namespace Parsek
 
         // Interval for updating ExplicitEndUT on background recordings
         private const double ExplicitEndUpdateInterval = 30.0;
+        private const double BackgroundStateDriftCheckInterval = 5.0;
+        private double lastBackgroundStateDriftCheckUT = double.MinValue;
 
         // Debris TTL: stop recording debris after this many seconds
         internal const double DebrisTTLSeconds = 60.0;
@@ -235,6 +237,76 @@ namespace Parsek
         }
 
         #endregion
+
+        internal struct BackgroundStateDriftSummary
+        {
+            public int BackgroundMapCount;
+            public int MissingRecording;
+            public int MissingTrackingState;
+            public int LoadedWithoutLoadedState;
+            public int PackedWithoutOnRailsState;
+            public int PackedButLoadedState;
+            public int LoadedButOnRailsState;
+
+            public bool HasDrift =>
+                MissingRecording > 0
+                || MissingTrackingState > 0
+                || LoadedWithoutLoadedState > 0
+                || PackedWithoutOnRailsState > 0
+                || PackedButLoadedState > 0
+                || LoadedButOnRailsState > 0;
+
+            internal string BuildStateKey()
+            {
+                return string.Format(CultureInfo.InvariantCulture,
+                    "map={0}|missingRec={1}|missingState={2}|loadedNoState={3}|packedNoRails={4}|packedLoadedState={5}|loadedRailsState={6}",
+                    BackgroundMapCount,
+                    MissingRecording,
+                    MissingTrackingState,
+                    LoadedWithoutLoadedState,
+                    PackedWithoutOnRailsState,
+                    PackedButLoadedState,
+                    LoadedButOnRailsState);
+            }
+        }
+
+        internal static string FormatBackgroundStateDriftSummary(
+            BackgroundStateDriftSummary summary,
+            string reason)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Background map/state drift: reason={0} map={1} missingRecording={2} missingTrackingState={3} loadedWithoutLoadedState={4} packedWithoutOnRailsState={5} packedButLoadedState={6} loadedButOnRailsState={7}",
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                summary.BackgroundMapCount,
+                summary.MissingRecording,
+                summary.MissingTrackingState,
+                summary.LoadedWithoutLoadedState,
+                summary.PackedWithoutOnRailsState,
+                summary.PackedButLoadedState,
+                summary.LoadedButOnRailsState);
+        }
+
+        internal static string FormatBackgroundVesselStateDrift(
+            uint vesselPid,
+            string recordingId,
+            string reason,
+            bool vesselLoaded,
+            bool vesselPacked,
+            bool hasLoadedState,
+            bool hasOnRailsState,
+            bool hasRecording)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Background vessel state drift: pid={0} recId={1} reason={2} vesselLoaded={3} vesselPacked={4} hasLoadedState={5} hasOnRailsState={6} hasRecording={7}",
+                vesselPid,
+                string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                vesselLoaded,
+                vesselPacked,
+                hasLoadedState,
+                hasOnRailsState,
+                hasRecording);
+        }
 
         #region GameEvent Subscriptions
 
@@ -1140,6 +1212,125 @@ namespace Parsek
 
         #endregion
 
+        private void WarnBackgroundVesselStateDrift(
+            uint vesselPid,
+            string recordingId,
+            string reason,
+            Vessel vessel,
+            bool hasLoadedState,
+            bool hasOnRailsState,
+            bool hasRecording)
+        {
+            bool vesselLoaded = vessel != null && vessel.loaded;
+            bool vesselPacked = vessel != null && vessel.packed;
+            ParsekLog.WarnRateLimited("BgRecorder",
+                $"bg-state-drift-{vesselPid}-{reason}",
+                FormatBackgroundVesselStateDrift(
+                    vesselPid,
+                    recordingId,
+                    reason,
+                    vesselLoaded,
+                    vesselPacked,
+                    hasLoadedState,
+                    hasOnRailsState,
+                    hasRecording),
+                10.0);
+        }
+
+        private void WarnIfBackgroundStateDrift(double currentUT, string reason)
+        {
+            if (tree == null || tree.BackgroundMap == null)
+                return;
+
+            if (!ShouldRunBackgroundStateDriftCheck(
+                    lastBackgroundStateDriftCheckUT,
+                    currentUT,
+                    out lastBackgroundStateDriftCheckUT))
+                return;
+
+            var summary = BuildBackgroundStateDriftSummary();
+            if (!summary.HasDrift)
+                return;
+
+            ParsekLog.WarnRateLimited("BgRecorder",
+                "background-map-state-drift",
+                FormatBackgroundStateDriftSummary(summary, reason),
+                10.0);
+        }
+
+        internal void WarnIfBackgroundStateDriftForTesting(double currentUT, string reason)
+        {
+            WarnIfBackgroundStateDrift(currentUT, reason);
+        }
+
+        internal double LastBackgroundStateDriftCheckUTForTesting =>
+            lastBackgroundStateDriftCheckUT;
+
+        internal static bool ShouldRunBackgroundStateDriftCheck(
+            double lastCheckUT,
+            double currentUT,
+            out double nextLastCheckUT)
+        {
+            nextLastCheckUT = lastCheckUT;
+            if (lastCheckUT != double.MinValue)
+            {
+                if (currentUT < lastCheckUT)
+                {
+                    nextLastCheckUT = double.MinValue;
+                }
+                else if (currentUT - lastCheckUT < BackgroundStateDriftCheckInterval)
+                {
+                    return false;
+                }
+            }
+
+            nextLastCheckUT = currentUT;
+            return true;
+        }
+
+        private BackgroundStateDriftSummary BuildBackgroundStateDriftSummary()
+        {
+            var summary = new BackgroundStateDriftSummary();
+            if (tree == null || tree.BackgroundMap == null)
+                return summary;
+
+            summary.BackgroundMapCount = tree.BackgroundMap.Count;
+            foreach (var kvp in tree.BackgroundMap)
+            {
+                uint pid = kvp.Key;
+                string recordingId = kvp.Value;
+
+                bool hasRecording = tree.Recordings != null
+                    && !string.IsNullOrEmpty(recordingId)
+                    && tree.Recordings.ContainsKey(recordingId);
+                if (!hasRecording)
+                    summary.MissingRecording++;
+
+                bool hasLoadedState = loadedStates.ContainsKey(pid);
+                bool hasOnRailsState = onRailsStates.ContainsKey(pid);
+                if (!hasLoadedState && !hasOnRailsState)
+                    summary.MissingTrackingState++;
+
+                Vessel vessel = vesselFinderOverride != null
+                    ? vesselFinderOverride(pid)
+                    : FlightRecorder.FindVesselByPid(pid);
+                if (vessel == null)
+                    continue;
+
+                bool loadedPhysics = vessel.loaded && !vessel.packed;
+                if (loadedPhysics && !hasLoadedState)
+                    summary.LoadedWithoutLoadedState++;
+                if (!loadedPhysics && !hasOnRailsState)
+                    summary.PackedWithoutOnRailsState++;
+                if (!loadedPhysics && hasLoadedState)
+                    summary.PackedButLoadedState++;
+                if (loadedPhysics && hasOnRailsState)
+                    summary.LoadedButOnRailsState++;
+            }
+
+            return summary;
+        }
+
         #region Public API
 
         /// <summary>
@@ -1149,6 +1340,7 @@ namespace Parsek
         public void UpdateOnRails(double currentUT)
         {
             if (tree == null) return;
+            WarnIfBackgroundStateDrift(currentUT, "UpdateOnRails");
 
             // Dictionary is not modified during this loop, safe to iterate directly
             foreach (var kvp in onRailsStates)
@@ -1186,12 +1378,55 @@ namespace Parsek
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(pid, out recordingId)) return;
 
+            bool hasLoadedState = loadedStates.ContainsKey(pid);
+            bool hasOnRailsState = onRailsStates.ContainsKey(pid);
+            bool hasRecording = tree.Recordings != null
+                && !string.IsNullOrEmpty(recordingId)
+                && tree.Recordings.ContainsKey(recordingId);
+            if (!hasRecording)
+            {
+                WarnBackgroundVesselStateDrift(
+                    pid,
+                    recordingId,
+                    "missing-recording",
+                    bgVessel,
+                    hasLoadedState,
+                    hasOnRailsState,
+                    hasRecording);
+                return;
+            }
+
             // Only process loaded/physics vessels (not packed)
-            if (bgVessel.packed) return;
+            if (bgVessel.packed)
+            {
+                if (!hasOnRailsState)
+                {
+                    WarnBackgroundVesselStateDrift(
+                        pid,
+                        recordingId,
+                        "packed-without-on-rails-state",
+                        bgVessel,
+                        hasLoadedState,
+                        hasOnRailsState,
+                        hasRecording);
+                }
+                return;
+            }
 
             // Look up the loaded state (created by OnBackgroundVesselGoOffRails)
             BackgroundVesselState state;
-            if (!loadedStates.TryGetValue(pid, out state)) return;
+            if (!loadedStates.TryGetValue(pid, out state))
+            {
+                WarnBackgroundVesselStateDrift(
+                    pid,
+                    recordingId,
+                    "loaded-without-loaded-state",
+                    bgVessel,
+                    hasLoadedState,
+                    hasOnRailsState,
+                    hasRecording);
+                return;
+            }
 
             // Get the tree recording
             Recording treeRec;
