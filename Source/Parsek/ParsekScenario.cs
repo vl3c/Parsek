@@ -2655,6 +2655,58 @@ namespace Parsek
             return mutated;
         }
 
+        /// <summary>
+        /// Bug #610: scope of the quickload-resume tail trim. Tree-wide is correct
+        /// for F9 quickload — the world rewound, every recording's post-cutoff data
+        /// is stale and future-only recordings never existed at the resume UT.
+        /// Re-Fly is different: the splice has already restored post-RP recordings
+        /// that represent OTHER vessels' continued timelines and the re-flown
+        /// vessel's destroyed-fork; tree-wide trimming would clip and prune them.
+        /// Only the in-place continuation target (the active rec) needs its tail
+        /// trimmed so the recorder can append fresh post-cutoff data without
+        /// colliding with the pre-cutoff timeline.
+        /// </summary>
+        internal enum QuickloadTrimScope
+        {
+            TreeWide = 0,
+            ActiveRecOnly = 1,
+        }
+
+        /// <summary>
+        /// Picks the trim scope based on whether an active Re-Fly session pins
+        /// this tree. Pure function so the decision is unit-testable. The
+        /// <paramref name="reason"/> string is appended to the resume-prep log
+        /// line so the chosen branch is auditable from KSP.log alone (#610).
+        /// </summary>
+        internal static QuickloadTrimScope ChooseQuickloadTrimScope(
+            string treeId,
+            ReFlySessionMarker marker,
+            out string reason)
+        {
+            if (marker == null)
+            {
+                reason = "no-active-refly-marker";
+                return QuickloadTrimScope.TreeWide;
+            }
+            if (string.IsNullOrEmpty(marker.TreeId))
+            {
+                reason = $"refly-marker-has-no-treeid sess={marker.SessionId ?? "<no-id>"}";
+                return QuickloadTrimScope.TreeWide;
+            }
+            if (string.IsNullOrEmpty(treeId))
+            {
+                reason = $"resume-tree-has-no-id markerTree={marker.TreeId}";
+                return QuickloadTrimScope.TreeWide;
+            }
+            if (!string.Equals(marker.TreeId, treeId, StringComparison.Ordinal))
+            {
+                reason = $"refly-marker-tree-mismatch markerTree={marker.TreeId} resumeTree={treeId} sess={marker.SessionId ?? "<no-id>"}";
+                return QuickloadTrimScope.TreeWide;
+            }
+            reason = $"refly-active sess={marker.SessionId ?? "<no-id>"} markerTree={marker.TreeId} originRec={marker.OriginChildRecordingId ?? "<null>"}";
+            return QuickloadTrimScope.ActiveRecOnly;
+        }
+
         private static HashSet<string> CollectFutureOnlyRecordingIds(RecordingTree tree, double cutoffUT)
         {
             HashSet<string> futureOnlyIds = null;

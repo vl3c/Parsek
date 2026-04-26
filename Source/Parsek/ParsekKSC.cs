@@ -1454,9 +1454,10 @@ namespace Parsek
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnAbandoned = true;
+                    var classified = VesselSpawner.ClassifySnapshotCrew(snapshotCrew);
                     ParsekLog.Warn("KSCSpawn",
-                        $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": all {snapshotCrew.Count} crew " +
-                        $"are dead/missing — [{string.Join(", ", snapshotCrew)}]");
+                        $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": no spawnable crew — " +
+                        VesselSpawner.FormatSpawnableClassificationSummary(classified));
                     return;
                 }
 

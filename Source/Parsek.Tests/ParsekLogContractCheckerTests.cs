@@ -45,6 +45,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MalformedParsekLineInLatestSession_ReportsFmt001()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3004",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek] legacy unstructured line",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "FMT-001" && v.LineNumber == 3);
+        }
+
+        [Fact]
+        public void InvalidLevelInLatestSession_ReportsFmt002()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3005",
+                "[LOG] [Parsek][TRACE][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "FMT-002" && v.LineNumber == 2);
+        }
+
+        [Fact]
+        public void WarnPayloadWithRedundantWarningPrefix_ReportsWrn001()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3006",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][WARN][TimeJump] WARNING: vessel is in atmosphere",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "WRN-001" && v.LineNumber == 3);
+        }
+
+        [Fact]
+        public void MalformedLineBeforeLatestSession_IsIgnored()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek] old legacy unstructured line",
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3007",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.DoesNotContain(violations, v => v.Code == "FMT-001");
+        }
+
+        [Fact]
         public void MissingRecordingStop_ReportsRec003()
         {
             var entries = ParsekKspLogParser.ParseLines(new[]
