@@ -50,6 +50,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording finalizer no longer classifies an orbit as `Orbiting` when its periapsis is inside the body's atmosphere. A grazing low-Kerbin orbit (Pe ≈ 36 km) used to be locked in as a stable orbit at scene exit even though the trajectory will deorbit within a couple of orbits via drag; the recording now finalizes as `SubOrbital` so the ballistic-tail extrapolator can carry it to the actual destruction point.
+
+- Recording-with-no-crew bug after re-launch: when a player relaunched a vessel whose original crew was still aboard a previous mission (forcing stand-in substitution in the editor), the FLIGHT-scene roster sweep deleted the just-substituted stand-ins before recording started, leaving the seats empty in the persisted vessel snapshot and the new recording's crew permanently empty. The displaced-unused branch now retains stand-ins that are currently seated on a live vessel.
+
 - Tracking Station ghost-detail panel now matches the rest of the Parsek window family (opaque dark style, consistent title font / padding) and no longer flickers; the always-disabled stock `Fly` / `Delete` / `Recover` buttons are gone, leaving `Materialize` on its own row with a clear hint of what it does.
 - Custom ghost map icons, ghost labels, and Parsek windows now hide while the Esc / pause overlay is open in flight, KSC, and Tracking Station, so they no longer punch through the pause menu.
 

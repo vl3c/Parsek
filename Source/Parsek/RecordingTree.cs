@@ -1601,28 +1601,57 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: is the orbit a stable bound orbit whose periapsis clears
+        /// the body's atmosphere (or surface, if the body has no atmosphere)?
+        /// Atmospheric grazers — orbits whose periapsis radius lies inside
+        /// <paramref name="atmosphereDepth"/> — are excluded because they decay
+        /// to destruction within a few orbits via drag. Strict inequality at the
+        /// atmosphere top mirrors KSP's drag boundary.
+        /// </summary>
+        internal static bool IsBoundOrbitAboveAtmosphere(
+            double eccentricity,
+            double periapsisRadius,
+            double bodyRadius,
+            bool bodyHasAtmosphere,
+            double atmosphereDepth)
+        {
+            if (eccentricity >= 1.0)
+                return false;
+            double minSafePeR = bodyRadius + (bodyHasAtmosphere ? atmosphereDepth : 0.0);
+            return periapsisRadius > minSafePeR;
+        }
+
+        /// <summary>
         /// Assigns terminal state based on vessel situation, with orbit-aware override.
         /// KSP reports SUB_ORBITAL for off-rails physics vessels even when they have a
         /// bound (elliptical) orbit above the surface. This overload checks the vessel's
-        /// actual orbit to correct the classification.
+        /// actual orbit to correct the classification — but only for orbits that clear
+        /// the atmosphere top, since glancing-pe orbits inside atmosphere will decay.
         /// </summary>
         internal static TerminalState DetermineTerminalState(int situation, Vessel vessel)
         {
             TerminalState baseState = DetermineTerminalState(situation);
 
             // Override SUB_ORBITAL to Orbiting when the vessel actually has a bound orbit
-            // above the body surface. KSP reports SUB_ORBITAL for off-rails vessels near
-            // a body (e.g., Mun orbit) even when eccentricity < 1 and periapsis is above
-            // the surface.
-            if (situation == 16 && vessel?.orbit != null
-                && vessel.orbit.eccentricity < 1.0
-                && vessel.orbit.PeR > vessel.orbit.referenceBody.Radius)
+            // above the body's atmosphere top (or surface for atmosphereless bodies).
+            // KSP reports SUB_ORBITAL for off-rails vessels near a body (e.g., Mun orbit)
+            // even when eccentricity < 1 and periapsis is above the surface.
+            if (situation == 16 && vessel?.orbit != null && vessel.orbit.referenceBody != null)
             {
-                ParsekLog.Info("RecordingTree",
-                    $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting — vessel has bound orbit " +
-                    $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
-                    $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
-                return TerminalState.Orbiting;
+                var body = vessel.orbit.referenceBody;
+                bool bodyHasAtmosphere = body.atmosphere;
+                double atmosphereDepth = bodyHasAtmosphere ? body.atmosphereDepth : 0.0;
+                if (IsBoundOrbitAboveAtmosphere(
+                        vessel.orbit.eccentricity, vessel.orbit.PeR,
+                        body.Radius, bodyHasAtmosphere, atmosphereDepth))
+                {
+                    ParsekLog.Info("RecordingTree",
+                        $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting — vessel has bound orbit " +
+                        $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
+                        $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                        $"bodyHasAtmosphere={bodyHasAtmosphere})");
+                    return TerminalState.Orbiting;
+                }
             }
 
             return baseState;
