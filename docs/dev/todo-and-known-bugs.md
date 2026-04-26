@@ -756,6 +756,243 @@ state's `cameraPivot`.
 
 ---
 
+## 616. Re-Fly load creates a clickable GhostMap ProtoVessel for the upper-stage ghost before the relative section begins
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
+This is the user's "real/clickable upper-stage duplicate" report after
+choosing Fly for the booster Re-Fly, but the duplicate is not a terminal
+spawned vessel. It is the lightweight GhostMap / ProtoVessel presence used
+for map targeting and marker interaction.
+
+**Evidence:** recording `#0` / `854fdf7703a3416d8750da7bba9a26af`
+created a `Ghost: Kerbal X` ProtoVessel at `15:12:55.943`:
+
+- `KSP.log:14873`:
+  `create-state-vector-not-suppressed-during-refly ... branch=no-section ...
+  reason=not-suppressed-not-relative-frame`
+- `KSP.log:14874`:
+  `Created ghost vessel 'Ghost: Kerbal X' ghostPid=3652013656 ...`
+- `KSP.log:15103`, `15116`, `15129`, `15150`, `15263`, `15746`,
+  `15905`, `15929`, `15944`, and `15961` then update the same
+  `ghostPid=3652013656` through `update-state-vector ... branch=Relative
+  ... anchorPid=3314061462`, with `localOffset` growing from roughly
+  `13.2m` to `52.7m`.
+
+That is the visible/clickable duplicate tracking the live booster/probe at a
+recorded relative offset. The native orbit icon is suppressed (`KSP.log:14879`
+shows `drawIcons=NONE iconSuppressed=True`), but the GhostMap vessel still
+exists and Parsek's custom map-marker/UI path can still present an interactive
+ghost marker.
+
+**Cause:** PR #601's active-Re-Fly relative-anchor suppression is only checked
+when `GhostMapPresence.CreateGhostVesselFromStateVectors` creates a new
+ProtoVessel. In this repro, the create attempt for `#0` runs at UT `126.6`,
+before the state-vector resolver has entered a relative section, so
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` rejects suppression with
+`not-suppressed-not-relative-frame`. A few seconds later the already-created
+ProtoVessel transitions into a relative section anchored to the active Re-Fly
+target; `GhostMapPresence.UpdateGhostOrbitFromStateVectors` updates its orbit
+without re-running the active-Re-Fly suppression gate.
+
+**Relevant code:** `Source/Parsek/GhostMapPresence.cs`:
+`CreateGhostVesselFromStateVectors` runs
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` before loading the
+ProtoVessel, but `UpdateGhostOrbitFromStateVectors` resolves the same
+state-vector branch and immediately calls `orbit.UpdateFromStateVectors`
+without the matching gate.
+
+**Fix direction:** add a defense on both surfaces:
+
+- Preferred create-time guard: if an active in-place Re-Fly marker is live,
+  the victim recording is in the active target's parent/ancestor chain, and
+  any upcoming relative section in the recording would use the active target
+  as the anchor, defer or suppress GhostMap creation before the bad section is
+  reached.
+- Required update-time guard: before `UpdateGhostOrbitFromStateVectors` applies
+  a `branch=Relative` update, run the same parent-chain + active-anchor
+  predicate and remove/defer the existing GhostMap vessel when it flips true.
+  This is the safety net for already-created ProtoVessels and for any future
+  create-time lookahead miss.
+
+Tests should cover: create allowed in an absolute prefix but update suppressed
+on later relative section; create suppressed when already in the bad relative
+section; unrelated/docking relative anchors remain allowed; pending-tree search
+continues to work for in-place Re-Fly load windows.
+
+**Status:** Open.
+
+---
+
+## 617. Re-Fly upper-stage live playback still takes the relative-anchor retire path instead of the PR #601 bypass
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
+This is the relative-anchor lock / pop-out observed for the post-178s
+upper-stage tail recording `e77d90b616b94fe58d4c9f68f6448d35`.
+
+**Evidence:** at `KSP.log:16055-16069`, recording `#1` / `e77d90...`
+starts a relative playback section anchored to the active booster/probe:
+
+- `KSP.log:16055`: `RELATIVE playback started ... anchorPid=3314061462`
+- `KSP.log:16056`: relative offset `|offset|=55.77m ... source=recorded`
+- `KSP.log:16058`: `Ghost #1 "Kerbal X" spawned`
+- `KSP.log:16060`: `[Anchor] relative-anchor-retired:
+  callsite=InterpolateAndPositionRelative ... anchorPid=3314061462`
+- `KSP.log:16068`: the GhostMap create path for the same recording is
+  correctly suppressed with
+  `reason=refly-relative-anchor=active relationship=parent`
+- `KSP.log:16069`: a `GhostAppearance` still records the playback ghost in
+  `activeFrame=Relative` with `anchorPid=3314061462`
+
+This proves the parent-chain / active-anchor predicate is sound: GhostMap sees
+the bad relationship and suppresses it. The live playback positioner callsite
+does not use that same bypass and instead enters the retire/hide path.
+
+**Cause:** PR #601 wired the new relative-anchor suppression/resolution behavior
+into GhostMap `create-state-vector` and the broader Flight relative playback
+dispatch, but missed the concrete `ParsekFlight.InterpolateAndPositionRelative`
+/ `PositionGhostRelativeAt` anchor-retire callsite. That method still resolves
+through `TryResolveRelativeAnchorPose`, then hides the ghost and emits
+`relative-anchor-retired` when it cannot use the anchor. For the in-place
+Re-Fly case, the anchor pid is not an unrelated missing vessel: it is the
+active Re-Fly target, and the victim recording is an upper-stage parent-chain
+recording. The same case should bypass live-active anchoring and use the
+recorded anchor pose/fallback policy consistently with the GhostMap decision.
+
+**Relevant code:** `Source/Parsek/ParsekFlight.cs`:
+`IGhostPositioner.InterpolateAndPositionRelative` delegates into
+`InterpolateAndPositionRelative`, whose unresolved-anchor branch emits the
+`RelativeAnchorResolution.FormatRetiredMessage(... "InterpolateAndPositionRelative")`
+warning. `GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
+already has the active-marker, pending-tree search, and parent-chain predicate
+needed to classify this as the bad Re-Fly relationship.
+
+**Fix direction:** share the PR #601 active-Re-Fly parent-chain decision with
+the live relative positioner. For this specific in-place Re-Fly relationship,
+do not lock the visual ghost to the live booster/probe and do not produce a
+stale appearance from the retired branch. Either reconstruct from the recorded
+anchor pose when available or suppress the visual/marker for the session, but
+the behavior must be consistent across GhostMap create/update and live
+playback. Regression coverage should assert that the `InterpolateAndPositionRelative`
+callsite does not emit `relative-anchor-retired` for a parent-chain victim
+anchored to the active Re-Fly target while unrelated relative-anchor recordings
+retain the existing retire behavior.
+
+**Status:** Open.
+
+---
+
+## 618. Re-Fly merge cleanup only covers the active probe chain; optimizer-created upper-stage chain tips survive the merge
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This is the
+"old booster recordings are not cleared correctly after merge" report and is
+independent of the PR #601 relative-anchor wiring bugs.
+
+**Evidence:** the original post-merge optimizer split the root upper-stage
+recording:
+
+- `KSP.log:13526`: `SplitAtSection: split
+  854fdf7703a3416d8750da7bba9a26af at UT=178.0`
+- `KSP.log:13527`: branch point parent updated from `854fdf...` to
+  `e77d90b616b94fe58d4c9f68f6448d35`
+- `KSP.log:13529`: split recorded as `'atmo' [8..178] + 'exo' [178..16743]`
+
+During the later in-place Re-Fly merge, supersede/cleanup only considered the
+probe chain:
+
+- `KSP.log:18876`: in-place continuation branch starts for
+  `b5c29201864344b7af4db82f6cc1897d`
+- `KSP.log:18877`: target resolves from probe-chain head `b5c292...` to tip
+  `7e0f795600c34137a763017caefd3da4`
+- `KSP.log:18878`: `chain-skip-set` contains only
+  `[b5c292...,7e0f795...,672978...,934879...]`
+- `KSP.log:18881`: `Added 0 supersede relations for subtree rooted at
+  b5c292...`
+
+The upper-stage chain `c36da010...` (`854fdf...` + `e77d90...`) is never named
+in the merge supersede set. After merge, `KSP.log:21382` and `21392` still
+resolve the root and the `e77d90...` tip as not-crashed/orbiting, and the
+timeline includes `Spawn #10 'Kerbal X'` from `e77d90...` at `KSP.log:21405`.
+
+**Cause:** the in-place merge/supersede flow starts from the active Re-Fly
+origin (`b5c292...`) and expands that recording's chain siblings. That is
+correct for cleaning the prior probe attempt, but it does not also cover the
+parent upper-stage chain that was split by the optimizer and remains attached
+to the branch point as the ancestor of the active Re-Fly target. The merge
+dialog and supersede code also mix topology leaf-ness with chain-terminal
+semantics: `BuildDefaultVesselDecisions` can log `854fdf...` as a leaf even
+though the effective terminal chain tip is `e77d90...`.
+
+**Relevant code:** `MergeDialog.TryCommitReFlySupersede` builds the full-chain
+skip set from the provisional's own `TreeId + ChainId + ChainBranch`, then
+passes that target to `SupersedeCommit.AppendRelations`. That deliberately
+avoids collapsing members of the same in-place flight, but it does not add the
+ancestor/parent upper-stage chain as a cleanup candidate. `RecordingStore.RunOptimizationPass`
+can create new chain tips before `TryCommitReFlySupersede` runs, so merge
+decisions made before or without chain-tip awareness leave those new tips
+visible/spawnable.
+
+**Fix direction:** teach the re-fly merge cleanup to include ancestor chains
+that are logically superseded by the in-place Re-Fly, not just the active
+target's own chain. The expansion should walk from the active origin through
+the parent branch-point topology and chain-predecessor/tip links, then apply
+the right action per relationship: keep the active in-place chain visible as
+the new flight, but ghost-only or supersede stale parent-chain terminal tips
+that represent the old future being replaced. `BuildDefaultVesselDecisions`
+should use effective chain terminal records when deciding spawnability, so an
+optimizer-created tip like `e77d90...` cannot evade the ghost-only decision
+through a head/tip mismatch.
+
+Regression coverage should model the exact tree: root upper-stage head
+`854fdf...`, optimizer tip `e77d90...`, branch point to active probe
+`b5c292...`, and probe chain tips `672978...` / `7e0f795...` /
+`934879...`. Expected outcome: the active probe chain remains the new in-place
+flight; stale upper-stage parent-chain tips do not stay as visible/spawnable
+recordings after the merge.
+
+**Status:** Open.
+
+---
+
+## 619. Postmerge Re-Fly log follow-ups: pre-pose ReentryFx, unresolved-distance formatting, and delayed phantom cleanup
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. These are
+secondary findings from the same investigation; they are not the main Bug A/B/C
+root causes but should be tracked so they are not mistaken for fixed behavior.
+
+**Aero / Reentry FX pre-pose:** `KSP.log:14573` shows the initial
+`recording-start-snapshot` build path, and `KSP.log:14862` activates reentry
+FX for ghost `#0 "Kerbal X"` at `alt=0m` before the playback pose has settled.
+The existing `suppressVisualFx` fixes cover priming/reposition paths such as
+`PrimeLoadedGhostForPlaybackUT`, but this snapshot-spawn path still lets
+`UpdateReentryFx` lazily build and activate FX at the hidden surface prime
+pose. Fix direction: carry the same hidden-prime / not-yet-positioned visual-FX
+suppression into the recording-start-snapshot spawn path.
+
+**Unresolved relative distance log:** `KSP.log:16071` logs a zone transition
+with `dist=179769313486232...m`, which is `double.MaxValue` formatted as a
+literal distance. `ParsekFlight.ResolveUnresolvedRelativeSectionDistanceFallback`
+intentionally returns `double.MaxValue` for unresolved relative sections, but
+the zone-transition log should render that state as `unresolved` rather than a
+physically meaningful distance.
+
+**Phantom orbiting cleanup is late:** after the re-fly merge, a phantom
+orbiting `Kerbal X` survived into the next rewind staging save. `KSP.log:19138`
+strips one `Kerbal X` by name, and `KSP.log:19217` strips an orphaned orbiting
+`Kerbal X` from `flightState`. That cleanup path works as a later quickload /
+rewind defense, but merge-time cleanup should not rely on a subsequent rewind
+to remove the artifact. This is likely downstream of item 618's stale
+upper-stage chain-tip survival.
+
+**Landed probe spawn stability:** later playback of `#9 "Kerbal X Probe"`
+spawns a landed vessel with no `PART` subnodes in the collision bounds path
+(`KSP.log:21349`), then KSP removes it for a NaN orbit at `KSP.log:21374` and
+Parsek queues a respawn at `KSP.log:21375-21378`. This may be separate from
+Re-Fly cleanup, but it is suspicious enough to keep with the same repro log.
+
+**Status:** Open.
+
+---
+
 ## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
