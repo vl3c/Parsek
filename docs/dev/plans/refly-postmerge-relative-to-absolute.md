@@ -367,42 +367,86 @@ The helper:
   recording stays in its pre-promotion shape forever, which is
   identical to the current world. No regression.)
 
-- **Placeholder path via the orchestrator.** Add a new
-  `MergeJournal.Phases.RelativePromotion` between `RpReap` and
-  `Durable2Done`. `RunMerge` invokes the helper after `RpReap`
-  advances and before the existing `Durable2Done` advance — so the
-  helper's in-memory section flips and flat-list rewrites ride the
-  existing `durable2` save (`MergeJournalOrchestrator.cs:248`) onto
-  disk in one atomic step. No new durable save is added; no extra
-  I/O cost. Also extend `MergeJournalOrchestrator.Phase` (the
-  `internal enum Phase` test-injection seam at
-  `MergeJournalOrchestrator.cs:74`) with a new
-  `RelativePromotion` value, and call `MaybeInject(Phase.RelativePromotion)`
-  immediately after the helper returns in `RunMerge`. Tests use
-  `InjectExceptionAtForTesting = Phase.RelativePromotion` to
-  simulate a crash *inside* the new step (vs. before / after).
+- **Placeholder path via the orchestrator.** The existing post-
+  `Durable1Done` sequence is `RpReap → MarkerCleared → Durable2Done`
+  (`MergeJournalOrchestrator.cs:235-249`); `MarkerCleared` is the
+  step that nulls `ParsekScenario.ActiveReFlySessionMarker` and
+  must NOT be retired or replaced. The new phase slots **between
+  `RpReap` and `MarkerCleared`**, giving final sequence
+  `Durable1Done → RpReap → RelativePromotion → MarkerCleared →
+  Durable2Done`. `RunMerge` invokes the helper between the existing
+  RpReap work and the existing marker-clear step, so the helper has
+  the marker available (it needs `marker.SessionId`,
+  `ActiveReFlyRecordingId`, and the active target's vessel pid).
+  The helper's in-memory section flips and flat-list rewrites ride
+  the existing `durable2` save (`MergeJournalOrchestrator.cs:248`)
+  onto disk in one atomic step. No new durable save is added; no
+  extra I/O cost.
 
-  **Crash recovery.** Because `RelativePromotion` is post-Durable1
-  but pre-Durable2 (in the existing `Durable1Done`-to-`Durable2Done`
-  in-memory window), a crash anywhere in this window means:
-  - On disk: journal phase is `Durable1Done` (or `RpReap` if it
-    advanced), and sidecars hold the **pre-promotion shape**
-    (RELATIVE sections with anchor-local frames + shadow frames).
+  Also extend three things that come with a new phase:
+  1. `MergeJournal.Phases.RelativePromotion` — the persisted phase
+     string in `MergeJournal.cs:62-73`, plus `IsPostDurablePhase`
+     must include it (line 95-102).
+  2. `MergeJournalOrchestrator.Phase.RelativePromotion` — the
+     in-memory test-injection enum at `MergeJournalOrchestrator.cs:74`.
+  3. `MaybeInject(Phase.RelativePromotion)` immediately after the
+     helper returns in `RunMerge`. Tests use `FaultInjectionPoint
+     = Phase.RelativePromotion` (the live test seam at
+     `MergeJournalOrchestrator.cs:95`) to simulate a crash *inside*
+     the new step (vs. before / after).
+
+  **Crash recovery.** A crash anywhere in the post-Durable1 /
+  pre-Durable2 window means:
+  - On disk: journal phase is `Durable1Done` (the last phase that
+    had a durable save; `RpReap`, `RelativePromotion`, and
+    `MarkerCleared` advances are in-memory only). Sidecars hold
+    the pre-promotion shape. The active marker is **still alive on
+    disk** because `ParsekScenario`'s last save was at durable1,
+    before MarkerCleared nulled it.
   - On reload: `RecordingStore` repopulates from sidecars to the
-    pre-promotion in-memory state. `MergeJournalOrchestrator.RunFinisher`
-    detects a post-Durable1 phase and walks forward through
-    `CompleteFromPostDurable`. The new `RelativePromotion` step
-    re-invokes the helper, which finds the parent-chain RELATIVE
-    sections in memory (rebuilt from disk) and promotes them again.
-    `Durable2Done` advance + `durable2` save then land the
-    promotion. The redrive is therefore not a no-op — it does the
-    real work the original run lost. This is the same contract the
-    rest of the post-Durable1 phases use (RpReap is also redriven
-    on reload). Alternative: fold it into `RpReap`'s body without a
-    new phase. We pick the explicit phase because (a) journal phases
-    are cheap, (b) the redrive contract is obvious from the
-    orchestrator code, (c) it gives us a log-grep landmark
-    consistent with the in-place branch.
+    pre-promotion in-memory state. `ActiveReFlySessionMarker`
+    deserializes back to its alive form. `RunFinisher` detects a
+    post-Durable1 phase and walks forward through
+    `CompleteFromPostDurable`.
+
+  **Critical finisher-side change.** The existing finisher pattern
+  (`CompleteFromPostDurable`, `MergeJournalOrchestrator.cs:355-393`)
+  only walks phase markers forward — it does NOT re-execute the
+  work for `RpReap` or `MarkerCleared`. That works for those phases
+  because their work is either idempotent state mutation
+  (`MarkerCleared` nulls a field) or one-shot cleanup that the
+  reaper handles separately (`RpReap`'s RP file deletion). The
+  promotion helper is different: its work is load-bearing on the
+  in-memory state captured by the eventual `durable2` save. If the
+  finisher just sets `phase=RelativePromotion` without calling the
+  helper, the next `durable2` write will persist pre-promotion
+  sidecars — defeating the entire purpose.
+
+  Therefore `CompleteFromPostDurable` MUST invoke the helper when
+  walking from `Durable1Done` (or `RpReap`) past
+  `RelativePromotion`. The finisher reads
+  `scenario.ActiveReFlySessionMarker` (still alive on disk per
+  above), resolves the tree from `journal.TreeId` via the inline
+  `CommittedTrees` scan, looks up the active target recording from
+  `tree.Recordings[marker.ActiveReFlyRecordingId]`, and calls
+  `SupersedeCommit.PromoteParentChainRelativeToAbsolute`. The
+  helper is idempotent so a second invocation on already-promoted
+  data is a structured "nothing to promote" log line and zero
+  mutation. Then the finisher advances through `MarkerCleared`
+  (which nulls the marker — the marker is no longer needed because
+  promotion just used it) and `Durable2Done` (which fires a
+  `finisher-durable2` save), landing the promoted sidecars on disk.
+
+  This is a deliberate deviation from the no-op finisher pattern
+  for the existing intermediate phases; document the deviation in
+  the orchestrator code comment so a future refactor doesn't
+  silently drop the helper invocation. Alternative considered:
+  fold the helper into `RpReap`'s body (no new phase), but then
+  the test seam is `Phase.RpReap` for both the existing RP work
+  and the new promotion — harder to debug regressions in one vs
+  the other. The explicit phase wins on (a) clear log-grep landmark,
+  (b) targeted fault injection, (c) the redrive contract being
+  obvious from the orchestrator code.
 
 #### Why not unify the two paths instead?
 
@@ -566,71 +610,102 @@ data transformation).
 
 ### `MergeJournalOrchestratorTests` additions
 
-1. **`RelativePromotion` phase fires between `RpReap` and `Durable2Done`
-   (placeholder path).** Placeholder Re-Fly merge (NOT in-place) with
-   parent-chain recordings to promote. Assert journal advances
-   `RpReap` → `RelativePromotion` → `Durable2Done`, the helper logs
-   the structured promotion summary, and the `durable2` save fires
-   AFTER the in-memory promotion landed (so the on-disk sidecars
-   carry the promoted shape).
+1. **`RelativePromotion` phase fires between `RpReap` and
+   `MarkerCleared` (placeholder path).** Placeholder Re-Fly merge
+   (NOT in-place) with parent-chain recordings to promote. Assert
+   journal advances
+   `Durable1Done → RpReap → RelativePromotion → MarkerCleared →
+   Durable2Done`, the helper logs the structured promotion summary
+   between the `RpReap` and `MarkerCleared` log landmarks, and the
+   `durable2` save fires AFTER the in-memory promotion landed (so
+   the on-disk sidecars carry the promoted shape). The
+   `MarkerCleared` step still runs and still nulls
+   `ParsekScenario.ActiveReFlySessionMarker` — assert the marker
+   is null after `RunMerge` returns. This pins that the new phase
+   does NOT skip or replace `MarkerCleared`.
 
 2. **Crash INSIDE `RelativePromotion` redrives the pass on reload.**
-   Inject `InjectExceptionAtForTesting = Phase.RelativePromotion`
-   so `MaybeInject` throws AFTER the helper has run (or partially
-   run) but BEFORE the next `AdvancePhase(Durable2Done)` /
-   `durable2` save lands. Equivalent variant: throw from inside
-   the helper itself by setting a hook on the
-   `RecordingOptimizer.RunReFlyParentChainAbsolutePromotionPass`
-   side. Both must produce the same recovery behavior, so include
-   one test for each variant (drives both the "advance happened
-   but durable save didn't" and "advance didn't happen because
-   helper threw" paths through the same finisher).
+   Use the existing `FaultInjectionPoint = Phase.RelativePromotion`
+   seam (live name at `MergeJournalOrchestrator.cs:95`) so
+   `MaybeInject` throws AFTER the helper has run but BEFORE the
+   next `AdvancePhase(MarkerCleared)`. Equivalent variant: throw
+   from inside the helper itself via a hook on
+   `RecordingOptimizer.RunReFlyParentChainAbsolutePromotionPass`.
+   Both must produce the same recovery behavior, so include one
+   test for each variant (drives both the "advance happened but
+   helper completed" and "advance didn't happen because helper
+   threw" paths through the same finisher).
 
    Expected on-disk persisted state right after the crash:
-   - Journal phase = **`Durable1Done`** (the last phase that had a
-     durable save; `RpReap` and `RelativePromotion` advances are
-     in-memory only and lost when the process dies before
-     `durable2`).
-   - Sidecars = pre-promotion shape (the helper's section flips
-     never hit disk because `MarkFilesDirty` writes happen only on
-     the next save and `durable2` never fired).
+   - Journal phase = **`Durable1Done`** — the last phase that had
+     a durable save. `RpReap` / `RelativePromotion` advances are
+     in-memory only.
+   - `ParsekScenario.ActiveReFlySessionMarker` = **alive** (last
+     persisted at the durable1 save, before MarkerCleared would
+     null it).
+   - Sidecars = pre-promotion shape.
 
-   Reload: `RecordingStore` repopulates from sidecars to RELATIVE,
-   `RunFinisher` sees `Durable1Done` and routes to
-   `CompleteFromPostDurable`, which walks forward through
-   `RpReap` → `RelativePromotion` (helper finds RELATIVE sections
-   in memory, promotes them) → `Durable2Done` (advance + durable2
-   save). Final on-disk state is the promoted shape. Assert the
-   helper's INFO line reports `promoted > 0` on the redrive (NOT
-   "nothing to promote") and the persisted journal phase
-   transitioned `Durable1Done` → `cleared` after the redrive.
+   Reload: `RecordingStore` repopulates from sidecars to RELATIVE.
+   `ActiveReFlySessionMarker` deserializes back alive. `RunFinisher`
+   sees `Durable1Done` and routes to `CompleteFromPostDurable`,
+   which walks forward through `RpReap` → `RelativePromotion`
+   (**finisher invokes the helper using the still-alive marker
+   and `journal.TreeId`**, not just an AdvancePhase no-op — see
+   the "Critical finisher-side change" note in the plan body) →
+   `MarkerCleared` → `Durable2Done` (`finisher-durable2` save).
+   Final on-disk state: promoted sidecars, journal cleared, marker
+   null. Assert the helper's INFO line reports `promoted > 0` on
+   the redrive (NOT "nothing to promote") because the
+   rebuilt-from-sidecar state still carried the unpromoted RELATIVE
+   sections.
 
-3. **Crash AFTER `RelativePromotion` MaybeInject (between helper
-   completion and `Durable2Done` save).** Inject `Phase.RpReap`
-   AFTER the AdvancePhase but BEFORE `MaybeInject(Phase.RelativePromotion)`,
-   OR equivalently use the `DurableSaveForTesting` seam to throw
-   on the `durable2` save attempt. This pins the in-between
-   crash window: the helper has finished its in-memory work but
-   no durable save has captured it. Persisted journal phase on
-   disk = `Durable1Done`. Same redrive contract as #2 — the
-   helper re-runs because the freshly-loaded sidecars are
-   pre-promotion.
+3. **Crash AFTER helper completes but BEFORE `durable2` save.**
+   This pins the post-promotion / pre-Durable2 window. Two
+   distinct injection points exercise different orchestrator
+   branches:
 
-   This test exists separately from #2 because the orchestrator
-   code paths between "helper threw" and "save threw" differ
-   (different catch blocks, different log lines), and we want
-   each path explicitly pinned. Without this test, a future
-   refactor that moves the helper's invocation could regress one
-   path while passing #2.
+   3a. `FaultInjectionPoint = Phase.MarkerCleared`. Fires after
+      the helper ran AND after `MarkerCleared` advance + marker
+      null in memory, but BEFORE `AdvancePhase(Durable2Done) /
+      durable2` save. On disk: phase=`Durable1Done`, marker still
+      alive (last save was durable1 before in-memory marker null).
+      Reload runs the finisher; helper re-executes (idempotent —
+      but the sidecars are pre-promotion because durable2 never
+      fired, so it does real work again). Final state = promoted.
 
-4. **Idempotency on a clean second redrive.** Run the pass once,
-   crash AFTER `Durable2Done` save lands, reload. The sidecars
-   already hold the promoted shape, so `RecordingStore` rebuilds
-   in-memory to ABSOLUTE. The redrive of `RelativePromotion`
-   finds no RELATIVE sections matching the filter and logs
-   `nothing to promote` — the audit landmark. Final state matches
-   the no-crash path. This is the only scenario where the redrive
-   reports zero promotions.
+   3b. `DurableSaveForTesting = label => throw` for `label ==
+      "durable2"`. Fires inside the durable2 save call itself.
+      In-memory state at moment of throw: phase has been advanced
+      to `Durable2Done`, marker is null, sections are promoted.
+      But none of that is on disk — the save itself failed. On
+      disk: phase=`Durable1Done`, marker alive, sidecars
+      pre-promotion. Reload behaves identically to 3a; the
+      redrive runs the helper again and the `finisher-durable2`
+      save lands the promoted shape.
+
+   These are NOT duplicates of #2: the orchestrator's catch and
+   log paths between "helper threw" (#2 helper-throw variant),
+   "MaybeInject(MarkerCleared) threw" (3a), and "DurableSave
+   threw" (3b) all differ, and a future refactor that moves the
+   helper invocation could regress one path while passing the
+   others. Test 3 is intentionally NOT injecting at `Phase.RpReap`
+   — that fires before the helper runs and is already covered by
+   the "fall-through" semantics of test 2's helper-throw variant.
+
+4. **Reload from `Durable2Done` does NOT redrive promotion.** Run
+   `RunMerge` end-to-end successfully through `durable2` save,
+   then crash before the journal-clear / `durable3` save. On disk:
+   journal phase = `Durable2Done`, sidecars are already promoted,
+   marker is cleared (durable2 captured the post-MarkerCleared
+   state). Reload: `RunFinisher` sees `Durable2Done`. The existing
+   `CompleteFromPostDurable` does NOT walk earlier post-Durable1
+   phases from `Durable2Done` — assert the finisher only runs the
+   final clear / journal cleanup and returns. Specifically assert
+   `RecordingOptimizer.RunReFlyParentChainAbsolutePromotionPass`
+   is **never invoked** on this reload path (use a test-side hook
+   counter to detect a phantom call). The helper's idempotency on
+   already-promoted data is covered by optimizer-pass test 5
+   (direct second-run), so we don't double-cover it here.
 
 ### `MergeDialogTests` / in-place branch wiring
 
