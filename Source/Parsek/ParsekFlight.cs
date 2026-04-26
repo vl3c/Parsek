@@ -15892,6 +15892,9 @@ namespace Parsek
                 for (int i = 0; i < trajectory.TrackSections.Count; i++)
                 {
                     TrackSection section = trajectory.TrackSections[i];
+                    // Do not bridge through an intervening non-RELATIVE section:
+                    // that means the frame changed, so returning the original
+                    // under-sampled shadow list is safer than mixing anchors.
                     if (section.referenceFrame != ReferenceFrame.Relative
                         || section.absoluteFrames == null
                         || section.absoluteFrames.Count == 0)
