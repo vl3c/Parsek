@@ -677,6 +677,7 @@ namespace Parsek
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
         private TrajectoryPlaybackFlags[] cachedFlags;
+        private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
 
         #endregion
 
@@ -12158,6 +12159,223 @@ namespace Parsek
             }
         }
 
+        internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            if (!hasRenderableData)
+                return GhostPlaybackSkipReason.NoRenderableData;
+            if (!playbackEnabled)
+                return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (externalVesselSuppressed)
+                return GhostPlaybackSkipReason.ExternalVesselSuppressed;
+            return GhostPlaybackSkipReason.None;
+        }
+
+        private static string BuildGhostSkipReasonIdentity(int index, string recordingId)
+        {
+            return !string.IsNullOrEmpty(recordingId)
+                ? recordingId
+                : "idx-" + index.ToString(CultureInfo.InvariantCulture);
+        }
+
+        internal static string BuildGhostSkipReasonMessage(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7}",
+                index,
+                string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
+                vesselName ?? "?",
+                reason != GhostPlaybackSkipReason.None,
+                reason.ToLogToken(),
+                hasRenderableData,
+                playbackEnabled,
+                externalVesselSuppressed);
+        }
+
+        private static void LogGhostSkipReasonChangeCore(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
+            ParsekLog.VerboseOnChange(
+                "Flight",
+                identity,
+                reason.ToLogToken(),
+                BuildGhostSkipReasonMessage(
+                    index,
+                    recordingId,
+                    vesselName,
+                    reason,
+                    hasRenderableData,
+                    playbackEnabled,
+                    externalVesselSuppressed));
+        }
+
+        internal static void LogGhostSkipReasonChangeForTesting(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            LogGhostSkipReasonChangeCore(
+                index,
+                recordingId,
+                vesselName,
+                reason,
+                hasRenderableData,
+                playbackEnabled,
+                externalVesselSuppressed);
+        }
+
+        private void LogGhostSkipReasonChangeIfNeeded(
+            int index,
+            Recording rec,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool externalVesselSuppressed)
+        {
+            string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
+            bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
+            if (reason == GhostPlaybackSkipReason.None && !hasLoggedActiveSkip)
+                return;
+
+            LogGhostSkipReasonChangeCore(
+                index,
+                rec?.RecordingId,
+                rec?.VesselName,
+                reason,
+                hasRenderableData,
+                rec?.PlaybackEnabled ?? false,
+                externalVesselSuppressed);
+
+            if (reason == GhostPlaybackSkipReason.None)
+                activeGhostSkipReasonLogIdentities.Remove(identity);
+            else
+                activeGhostSkipReasonLogIdentities.Add(identity);
+        }
+
+        internal struct FastForwardWatchHandoffDecision
+        {
+            public bool canEnterWatch;
+            public bool warn;
+            public int index;
+            public bool recordingExists;
+            public bool playbackEnabled;
+            public bool activeGhost;
+            public GhostPlaybackSkipReason skipReason;
+            public string reason;
+            public string recordingId;
+            public string vesselName;
+        }
+
+        internal static FastForwardWatchHandoffDecision ClassifyFastForwardWatchHandoff(
+            string pendingRecordingId,
+            IReadOnlyList<Recording> committed,
+            TrajectoryPlaybackFlags[] flags,
+            Func<int, bool> hasActiveGhost)
+        {
+            var stale = new FastForwardWatchHandoffDecision
+            {
+                canEnterWatch = false,
+                warn = false,
+                index = -1,
+                recordingExists = false,
+                playbackEnabled = false,
+                activeGhost = false,
+                skipReason = GhostPlaybackSkipReason.None,
+                reason = "stale-recording-id",
+                recordingId = pendingRecordingId,
+                vesselName = "?"
+            };
+
+            if (string.IsNullOrEmpty(pendingRecordingId) || committed == null)
+                return stale;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null || rec.RecordingId != pendingRecordingId)
+                    continue;
+
+                bool activeGhost = hasActiveGhost != null && hasActiveGhost(i);
+                GhostPlaybackSkipReason skipReason = flags != null && i < flags.Length
+                    ? flags[i].skipReason
+                    : ResolveGhostPlaybackSkipReason(
+                        GhostPlaybackEngine.HasRenderableGhostData(rec),
+                        rec.PlaybackEnabled,
+                        externalVesselSuppressed: false);
+                string reason = activeGhost
+                    ? "active-ghost"
+                    : (skipReason != GhostPlaybackSkipReason.None
+                        ? skipReason.ToLogToken()
+                        : "active-ghost-missing");
+                return new FastForwardWatchHandoffDecision
+                {
+                    canEnterWatch = activeGhost,
+                    warn = !activeGhost,
+                    index = i,
+                    recordingExists = true,
+                    playbackEnabled = rec.PlaybackEnabled,
+                    activeGhost = activeGhost,
+                    skipReason = skipReason,
+                    reason = reason,
+                    recordingId = rec.RecordingId,
+                    vesselName = rec.VesselName
+                };
+            }
+
+            return stale;
+        }
+
+        internal static string BuildFastForwardWatchHandoffMessage(
+            FastForwardWatchHandoffDecision decision,
+            double currentUT)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Deferred FF watch handoff {0}: id={1} index={2} vessel=\"{3}\" " +
+                "committedExists={4} playbackEnabled={5} currentUT={6:F1} activeGhost={7} " +
+                "skipReason={8} reason={9}",
+                decision.canEnterWatch ? "ready" : "failed",
+                string.IsNullOrEmpty(decision.recordingId) ? "(none)" : decision.recordingId,
+                decision.index,
+                decision.vesselName ?? "?",
+                decision.recordingExists,
+                decision.playbackEnabled,
+                currentUT,
+                decision.activeGhost,
+                decision.skipReason.ToLogToken(),
+                decision.reason ?? "(none)");
+        }
+
+        private static void LogFastForwardWatchHandoff(
+            FastForwardWatchHandoffDecision decision,
+            double currentUT)
+        {
+            string message = BuildFastForwardWatchHandoffMessage(decision, currentUT);
+            if (decision.warn)
+                ParsekLog.Warn("CameraFollow", message);
+            else
+                ParsekLog.Verbose("CameraFollow", message);
+        }
+
         /// <summary>
         /// Pre-computes policy flags for all committed recordings. Called once per frame
         /// before the engine's update loop. Eliminates per-recording RecordingStore queries
@@ -12178,6 +12396,16 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
+                    hasData,
+                    rec.PlaybackEnabled,
+                    externalVesselSuppressed);
+                LogGhostSkipReasonChangeIfNeeded(
+                    i,
+                    rec,
+                    skipReason,
+                    hasData,
+                    externalVesselSuppressed);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -12215,7 +12443,18 @@ namespace Parsek
 
                 flags[i] = new TrajectoryPlaybackFlags
                 {
-                    skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
+                    skipGhost = skipReason != GhostPlaybackSkipReason.None,
+                    skipReason = skipReason,
+                    skipReasonDetail = skipReason == GhostPlaybackSkipReason.None
+                        ? null
+                        : BuildGhostSkipReasonMessage(
+                            i,
+                            rec.RecordingId,
+                            rec.VesselName,
+                            skipReason,
+                            hasData,
+                            rec.PlaybackEnabled,
+                            externalVesselSuppressed),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -12293,14 +12532,31 @@ namespace Parsek
             {
                 string ffId = pendingWatchAfterFFId;
                 pendingWatchAfterFFId = null;
-                for (int fi = 0; fi < committed.Count; fi++)
+                FastForwardWatchHandoffDecision handoff =
+                    ClassifyFastForwardWatchHandoff(
+                        ffId,
+                        committed,
+                        flags,
+                        idx => watchMode.HasActiveGhost(idx));
+                if (handoff.canEnterWatch)
                 {
-                    if (committed[fi].RecordingId == ffId && watchMode.HasActiveGhost(fi))
+                    watchMode.EnterWatchMode(handoff.index);
+                    if (watchMode.IsWatchingGhost && watchMode.WatchedRecordingIndex == handoff.index)
                     {
-                        watchMode.EnterWatchMode(fi);
-                        ParsekLog.Info("CameraFollow", $"Deferred FF watch entered: #{fi}");
-                        break;
+                        ParsekLog.Info("CameraFollow",
+                            $"Deferred FF watch entered: #{handoff.index}");
                     }
+                    else
+                    {
+                        handoff.canEnterWatch = false;
+                        handoff.warn = true;
+                        handoff.reason = "enter-watch-refused";
+                        LogFastForwardWatchHandoff(handoff, currentUT);
+                    }
+                }
+                else
+                {
+                    LogFastForwardWatchHandoff(handoff, currentUT);
                 }
             }
 

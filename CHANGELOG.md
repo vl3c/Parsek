@@ -277,6 +277,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Flight playback, watch handoff, and ghost map visibility diagnostics now explain skipped or blocked playback decisions without adding per-frame spam.
 - `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
@@ -303,6 +304,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added focused coverage for the new playback visibility diagnostics.
 - `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.
