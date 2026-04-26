@@ -30,6 +30,7 @@ namespace Parsek
         private const string Tag = "MapMarker";
         private const int IconSize = 20;
         private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
+        private const float UnpinnedMarkerAlpha = 0.8f;
 
         // VesselType -> sprite index in MapNode.iconSprites, taken from the
         // decompiled KSP.UI.Screens.Mapview.MapNode icon-index lookup.
@@ -166,25 +167,9 @@ namespace Parsek
 
             Rect iconRect = new Rect(x - IconSize / 2f, y - IconSize / 2f, IconSize, IconSize);
 
-            // Draw the icon.
-            Color prevColor = GUI.color;
-            VesselIconEntry entry;
-            if (vesselIconEntries != null
-                && vesselIconEntries.TryGetValue(vtype, out entry)
-                && entry.Atlas != null)
-            {
-                GUI.color = Color.white;
-                GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
-            }
-            else if (fallbackDiamond != null)
-            {
-                GUI.color = color;
-                GUI.DrawTexture(iconRect, fallbackDiamond);
-            }
-            GUI.color = prevColor;
-
             // Label hover + sticky click toggle. Left click only so non-left
-            // clicks still reach KSP's stock handlers.
+            // clicks still reach KSP's stock handlers. This runs before icon
+            // draw so a newly-pinned marker reaches full opacity immediately.
             bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
             bool mouseOver = false;
 
@@ -207,9 +192,26 @@ namespace Parsek
                 }
             }
 
+            // Draw the icon.
+            Color prevColor = GUI.color;
+            VesselIconEntry entry;
+            if (vesselIconEntries != null
+                && vesselIconEntries.TryGetValue(vtype, out entry)
+                && entry.Atlas != null)
+            {
+                GUI.color = WithMarkerOpacity(Color.white, sticky);
+                GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
+            }
+            else if (fallbackDiamond != null)
+            {
+                GUI.color = WithMarkerOpacity(color, sticky);
+                GUI.DrawTexture(iconRect, fallbackDiamond);
+            }
+            GUI.color = prevColor;
+
             if (ShouldDrawLabel(sticky, mouseOver))
             {
-                labelStyle.normal.textColor = GetLabelColor();
+                labelStyle.normal.textColor = WithMarkerOpacity(GetLabelColor(), sticky);
                 GUI.Label(
                     new Rect(x - 75, y + IconSize / 2 + 2, 150, 20),
                     "Ghost: " + (label ?? "(unknown)"),
@@ -224,6 +226,17 @@ namespace Parsek
         /// and so tests can pin the hover/pin contract.
         /// </summary>
         internal static bool ShouldDrawLabel(bool sticky, bool hover) => sticky || hover;
+
+        /// <summary>
+        /// Replaces the source alpha with the marker alpha: unpinned hover
+        /// markers render muted, while pinned markers and labels render fully
+        /// opaque. RGB values are deliberately preserved.
+        /// </summary>
+        internal static Color WithMarkerOpacity(Color color, bool sticky)
+        {
+            color.a = sticky ? 1f : UnpinnedMarkerAlpha;
+            return color;
+        }
 
         /// <summary>
         /// Pure: is this event a label-toggle click (MouseDown + left button)?
