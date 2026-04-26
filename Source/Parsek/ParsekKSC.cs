@@ -2024,9 +2024,19 @@ namespace Parsek
                         spawnSnapshot,
                         rec,
                         spawnUT,
-                        $"KSC spawn #{recIdx} ({rec.VesselName})");
+                        $"KSC spawn #{recIdx} ({rec.VesselName})",
+                        out string materializationRejectionReason);
                     if (validatedSpawnSnapshot == null)
                     {
+                        if (!string.IsNullOrEmpty(materializationRejectionReason))
+                        {
+                            VesselSpawner.AbandonSpawnForInvalidMaterialization(
+                                rec,
+                                $"KSC spawn #{recIdx} ({rec.VesselName})",
+                                materializationRejectionReason);
+                            return;
+                        }
+
                         ParsekLog.Warn("KSCSpawn",
                             $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — spawn snapshot validation failed");
                         return;
