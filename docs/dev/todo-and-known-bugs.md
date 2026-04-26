@@ -106,6 +106,31 @@ for finalizer refresh identity isolation, Diagnostics missing-sidecar path
 warning scopes, `ComputePlaybackFlags` ghost-skip emit/suppress behavior,
 `OnSave` exception context/RecState, and unsupported snapshot probe logging.
 
+Post-merge spam fix (2026-04-26, `fix/rewindui-canInvokeSlot-spam`): the
+2026-04-26_1025 playtest log showed 1389 identical `[RewindUI] CanInvokeSlot:
+slot-ok` lines in 6 seconds for a single rp/slot — the existing
+`ParsekLog.VerboseOnChange` gate did not suppress the repeats from the OnGUI
+draw loop, while the matching `[Rewind] CanInvoke:` site (same code path,
+same dictionary) suppressed correctly. The xUnit 200-call repro passes, so
+the failure is Unity-runtime-specific. `LogRewindSlotCanInvokeDecision` now
+tracks the last-emitted decision stateKey in a file-local
+`Dictionary<string,string>` and only calls `ParsekLog.Verbose` when it
+changes — mirroring the `lastCanInvoke` pattern already used by
+`DrawUnfinishedFlightRewindButton` ~300 lines above. Existing
+`ClearRewindSlotCanInvokeLogState` callers (LoadTimeSweep, RewindPointAuthor,
+RewindPointReaper, TreeDiscardPurge, ParsekScenario.OnLoad) clear the new
+dict alongside the original `ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix`
+call. Review follow-up: removed the per-OnGUI-pass clear that
+`RecordingsTableUI.DrawIfOpen` was firing while the Recordings window was
+closed — it wiped the cache before TimelineWindowUI's Fly button could
+reuse it, re-spamming `slot-ok` whenever Timeline was open without
+Recordings. Regression tests:
+`RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk` drives
+200 calls and asserts a single emit;
+`RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose`
+drives 200 Timeline-style calls after a single close-transition clear and
+asserts only 2 emits total.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
