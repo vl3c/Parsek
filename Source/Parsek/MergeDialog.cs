@@ -55,7 +55,40 @@ namespace Parsek
                 return;
             }
 
-            var decisions = BuildDefaultVesselDecisions(tree);
+            // Bug fix (refly-suppressed-non-leaf): when a Re-Fly session is
+            // active, gather the session-suppressed subtree closure so
+            // BuildDefaultVesselDecisions can force ghost-only on every
+            // non-leaf recording inside it (parents + chain siblings of the
+            // origin). Without this, GetAllLeaves() returns only chain tips,
+            // and parent recordings keep their VesselSnapshot — later
+            // GhostPlaybackLogic.ShouldSpawnAtRecordingEnd happily spawns
+            // them as real vessels alongside the playback ghost.
+            var scenarioForSuppression = ParsekScenario.Instance;
+            ReFlySessionMarker activeMarker =
+                !object.ReferenceEquals(null, scenarioForSuppression)
+                    ? scenarioForSuppression.ActiveReFlySessionMarker
+                    : null;
+            HashSet<string> suppressedRecordingIds = null;
+            string activeReFlyTargetId = null;
+            if (activeMarker != null)
+            {
+                activeReFlyTargetId = activeMarker.ActiveReFlyRecordingId;
+                try
+                {
+                    var closure = EffectiveState.ComputeSessionSuppressedSubtree(activeMarker);
+                    if (closure != null && closure.Count > 0)
+                        suppressedRecordingIds = new HashSet<string>(closure, System.StringComparer.Ordinal);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowTreeDialog: ComputeSessionSuppressedSubtree threw {ex.GetType().Name}: " +
+                        $"{ex.Message} — falling back to leaf-only ghost-only decisions");
+                }
+            }
+
+            var decisions = BuildDefaultVesselDecisions(
+                tree, suppressedRecordingIds, activeReFlyTargetId);
             int spawnCount = 0;
             foreach (var val in decisions.Values)
                 if (val) spawnCount++;
@@ -359,10 +392,170 @@ namespace Parsek
                 ParsekLog.Info("MergeDialog",
                     $"TryCommitReFlySupersede: in-place continuation detected " +
                     $"(provisional == origin == {provisional.RecordingId}); skipping " +
-                    $"supersede merge (no self-supersede row) and finalizing continuation. " +
+                    $"journaled supersede merge but still appending supersede rows for " +
+                    $"sibling/parent recordings in the closure. " +
                     $"Tombstones from the prior Destroyed run are left as-is in v1.");
                 try
                 {
+                    // Bug fix (in-place-supersede): the subtree closure also
+                    // contains chain siblings and parent recordings beyond
+                    // the origin itself. The pre-fix path skipped
+                    // AppendRelations entirely, so a destroyed-final-state
+                    // sibling (e.g. the prior "Kerbal X Probe" Destroyed
+                    // chain segment) stayed visible after merge — its
+                    // EffectiveState.IsVisible returned true with no
+                    // supersede row pointing at it. Call AppendRelations so
+                    // every non-self entry in the closure gets a supersede
+                    // row pointing at the in-place provisional. The
+                    // newly-restored old==new self-skip inside
+                    // AppendRelations guards the trivial origin-self entry,
+                    // and the existing RelationExists duplicate guard makes
+                    // the call safe to re-run on resume.
+                    //
+                    // Optimizer-split chain-tip resolve (review follow-up):
+                    // MergeCommit ran RecordingStore.RunOptimizationPass()
+                    // BEFORE we get here. If the in-place continuation
+                    // crossed an environment boundary (atmo↔exo), the
+                    // optimizer split the head into HEAD + TIP, MOVING
+                    // VesselSnapshot + TerminalStateValue from HEAD to TIP
+                    // (RecordingOptimizer.SplitAtSection lines 513-514 and
+                    // 536-537). HEAD now has TerminalStateValue == null,
+                    // which fails ValidateSupersedeTarget's `null TerminalState`
+                    // clause inside AppendRelations: throws in DEBUG, returns
+                    // an empty subtree in RELEASE. Either way the sibling
+                    // supersede rows the in-place fix needs are NOT written.
+                    //
+                    // Resolve the chain tip via the existing helper used by
+                    // EffectiveState.IsUnfinishedFlight for the same reason
+                    // (it walks ChainId+ChainBranch+TreeId to the recording
+                    // with the largest ChainIndex). Pass the resolved tip to
+                    // AppendRelations: validation passes against the tip's
+                    // terminal state, the row's `new` side becomes the
+                    // tip's id, and the closure entries for HEAD and TIP
+                    // are both filtered by the `old==new`-aware
+                    // self-skip-by-id check below (we explicitly add HEAD
+                    // to the skip set so HEAD is not redirected to TIP via
+                    // ERS even if newRecordingId != HEAD.id). For
+                    // non-split chains ResolveChainTerminalRecording
+                    // returns the input unchanged, preserving the prior
+                    // behaviour for un-split in-place merges.
+                    if (scenario.RecordingSupersedes == null)
+                        scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+                    Recording supersedeTargetRec =
+                        EffectiveState.ResolveChainTerminalRecording(provisional);
+                    bool resolvedToDifferentTip = supersedeTargetRec != null
+                        && !object.ReferenceEquals(supersedeTargetRec, provisional)
+                        && !string.Equals(supersedeTargetRec.RecordingId,
+                            provisional.RecordingId, System.StringComparison.Ordinal);
+                    if (resolvedToDifferentTip)
+                    {
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolved " +
+                            $"chain tip for supersede target: head={provisional.RecordingId} " +
+                            $"-> tip={supersedeTargetRec.RecordingId} " +
+                            $"chainId={supersedeTargetRec.ChainId ?? "<none>"} " +
+                            $"chainIndex={supersedeTargetRec.ChainIndex} " +
+                            $"tipTerminal={supersedeTargetRec.TerminalStateValue?.ToString() ?? "null"} " +
+                            $"(post-RunOptimizationPass split moved terminal payload to tip; " +
+                            $"validating + row-targeting the tip so AppendRelations does not " +
+                            $"refuse the head's null-terminal invariant)");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation supersede target " +
+                            $"unchanged from head={provisional.RecordingId} (no chain split, " +
+                            $"or head already carries terminal)");
+                    }
+
+                    // Chain-skip set (review follow-up #2): the closure-walk
+                    // helper EnqueueChainSiblings (EffectiveState.cs:704) pulls
+                    // EVERY recording sharing TreeId+ChainId+ChainBranch with
+                    // any closure member into the suppressed subtree. For a
+                    // 3+-segment in-place chain (HEAD -> MIDDLE -> TIP, or
+                    // any chain that expands to >=3 members via the optimizer
+                    // cascade), my prior fix only added HEAD to the
+                    // extraSelfSkipRecordingIds set: AppendRelations would
+                    // then write a row old=MIDDLE new=TIP and silently
+                    // collapse MIDDLE in ERS via EffectiveRecordingId
+                    // redirect, even though MIDDLE is part of the SAME new
+                    // in-place flight. None of HEAD/MIDDLE/TIP should be
+                    // superseded by another member of the same chain.
+                    //
+                    // Build the skip set from the full chain membership using
+                    // the same TreeId+ChainId+ChainBranch predicate
+                    // EnqueueChainSiblings uses (line 722-724), reading from
+                    // RecordingStore.CommittedRecordings — the SAME source
+                    // ComputeSessionSuppressedSubtreeInternal iterates at
+                    // EffectiveState.cs:550-557 to populate `recById`. Same
+                    // scope means the skip set covers exactly the closure
+                    // entries that came from chain expansion. (RecordingStore
+                    // raw read here is covered by MergeDialog.cs's existing
+                    // Phase-8 ERS-exempt allowlist entry.) Fall back to a
+                    // single-element set when the provisional has no
+                    // ChainId (lone-origin in-place case) — the only id is
+                    // the provisional's own RecordingId, which equals the
+                    // resolved tip and is already filtered by the trivial
+                    // old==new self-link guard inside AppendRelations, so
+                    // nothing changes for that case.
+                    var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
+                    chainSkipSet.Add(provisional.RecordingId);
+                    if (supersedeTargetRec != null
+                        && !string.IsNullOrEmpty(supersedeTargetRec.RecordingId))
+                    {
+                        chainSkipSet.Add(supersedeTargetRec.RecordingId);
+                    }
+                    if (!string.IsNullOrEmpty(provisional.ChainId)
+                        && !string.IsNullOrEmpty(provisional.TreeId))
+                    {
+                        var committedSource = RecordingStore.CommittedRecordings;
+                        if (committedSource != null)
+                        {
+                            for (int i = 0; i < committedSource.Count; i++)
+                            {
+                                var cand = committedSource[i];
+                                if (cand == null) continue;
+                                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                                // Match EnqueueChainSiblings' exact predicate:
+                                // same TreeId + ChainId + ChainBranch.
+                                if (!string.Equals(cand.TreeId,
+                                    provisional.TreeId, System.StringComparison.Ordinal))
+                                    continue;
+                                if (!string.Equals(cand.ChainId,
+                                    provisional.ChainId, System.StringComparison.Ordinal))
+                                    continue;
+                                if (cand.ChainBranch != provisional.ChainBranch) continue;
+                                chainSkipSet.Add(cand.RecordingId);
+                            }
+                        }
+                    }
+                    // Verbose audit line so the chain-skip-set decision is
+                    // reconstructable from KSP.log alone.
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    string chainSkipMembers = string.Join(",", chainSkipSet);
+                    ParsekLog.Verbose("MergeDialog",
+                        $"TryCommitReFlySupersede: chain-skip-set: " +
+                        $"chainId={provisional.ChainId ?? "<none>"} " +
+                        $"chainBranch={provisional.ChainBranch.ToString(ic)} " +
+                        $"treeId={provisional.TreeId ?? "<none>"} " +
+                        $"members=[{chainSkipMembers}] " +
+                        $"head={provisional.RecordingId} " +
+                        $"tip={(supersedeTargetRec != null ? supersedeTargetRec.RecordingId : "<none>")} " +
+                        $"size={chainSkipSet.Count.ToString(ic)}");
+
+                    int relationsBefore = scenario.RecordingSupersedes.Count;
+                    SupersedeCommit.AppendRelations(
+                        marker, supersedeTargetRec, scenario,
+                        extraSelfSkipRecordingIds: chainSkipSet);
+                    int relationsAfter = scenario.RecordingSupersedes.Count;
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation supersede append " +
+                        $"wrote {relationsAfter - relationsBefore} relation(s) " +
+                        $"(before={relationsBefore} after={relationsAfter}; self-link skipped " +
+                        $"by AppendRelations old==new guard; full chain " +
+                        $"({chainSkipSet.Count} member(s)) skipped via extra-self-skip set so " +
+                        $"no in-place chain segment is collapsed under another via supersede)");
+
                     // FlipMergeStateAndClearTransient with preserveMarker=false
                     // flips MergeState, clears SupersedeTargetId, bumps
                     // SupersedeStateVersion, clears the ActiveReFlySessionMarker
@@ -572,6 +765,30 @@ namespace Parsek
         /// Keys are RecordingId. Pure static for testability.
         /// </summary>
         internal static Dictionary<string, bool> BuildDefaultVesselDecisions(RecordingTree tree)
+            => BuildDefaultVesselDecisions(tree, null, null);
+
+        /// <summary>
+        /// Builds default persist/ghost-only decisions for a tree, additionally
+        /// forcing every non-leaf recording listed in
+        /// <paramref name="suppressedRecordingIds"/> to ghost-only — except the
+        /// recording identified by <paramref name="activeReFlyTargetId"/>, which
+        /// is the live Re-Fly target the player is currently flying and must
+        /// stay spawnable.
+        ///
+        /// <para>
+        /// Bug fix (refly-suppressed-non-leaf): without this branch a parent
+        /// recording in the suppressed subtree (e.g. an upper stage that has
+        /// child decoupling/breakup branches) keeps <c>VesselSnapshot</c> set,
+        /// and <c>GhostPlaybackLogic.ShouldSpawnAtRecordingEnd</c> later spawns
+        /// it as a clickable real vessel alongside the playback ghost. The
+        /// only branches the leaf walk reaches are chain tips, so non-leaf
+        /// suppressed recordings would otherwise be silently retained.
+        /// </para>
+        /// </summary>
+        internal static Dictionary<string, bool> BuildDefaultVesselDecisions(
+            RecordingTree tree,
+            HashSet<string> suppressedRecordingIds,
+            string activeReFlyTargetId)
         {
             var decisions = new Dictionary<string, bool>();
             if (tree == null)
@@ -607,6 +824,60 @@ namespace Parsek
                         $"terminal={activeRec.TerminalStateValue?.ToString() ?? "null"} " +
                         $"hasSnapshot={activeRec.VesselSnapshot != null} canPersist={canPersist}");
                 }
+            }
+
+            // Re-Fly suppressed-subtree pass: for every recording whose id appears
+            // in the suppression closure, force ghost-only — even if it is a
+            // non-leaf the leaf walk above never visited. The sole exception is
+            // the live Re-Fly target itself, which must stay spawnable. Note we
+            // walk the closure ids (not tree.Recordings) because the closure is
+            // computed against committed recordings and may name records that
+            // are not in the pending tree (chain siblings, etc.); we only act
+            // when the id ALSO exists in this tree.
+            if (suppressedRecordingIds != null && suppressedRecordingIds.Count > 0)
+            {
+                int forced = 0;
+                int skippedActiveTarget = 0;
+                int alreadyGhostOnly = 0;
+                int notInTree = 0;
+                foreach (string suppressedId in suppressedRecordingIds)
+                {
+                    if (string.IsNullOrEmpty(suppressedId)) continue;
+                    if (!string.IsNullOrEmpty(activeReFlyTargetId)
+                        && string.Equals(suppressedId, activeReFlyTargetId, System.StringComparison.Ordinal))
+                    {
+                        skippedActiveTarget++;
+                        ParsekLog.Verbose("MergeDialog",
+                            $"BuildDefaultVesselDecisions: keeping active Re-Fly target spawnable " +
+                            $"id='{suppressedId}' (in suppressed subtree but is the live target)");
+                        continue;
+                    }
+                    Recording rec;
+                    if (!tree.Recordings.TryGetValue(suppressedId, out rec) || rec == null)
+                    {
+                        notInTree++;
+                        continue;
+                    }
+                    bool wasGhostOnly;
+                    if (decisions.TryGetValue(suppressedId, out wasGhostOnly) && !wasGhostOnly)
+                    {
+                        alreadyGhostOnly++;
+                        continue;
+                    }
+                    decisions[suppressedId] = false;
+                    forced++;
+                    ParsekLog.Info("MergeDialog",
+                        $"BuildDefaultVesselDecisions: forcing ghost-only on suppressed " +
+                        $"id='{suppressedId}' vessel='{rec.VesselName}' " +
+                        $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                        $"isLeaf={rec.ChildBranchPointId == null} " +
+                        $"priorDecision={(decisions.ContainsKey(suppressedId) ? "set" : "unset")}");
+                }
+                ParsekLog.Info("MergeDialog",
+                    $"BuildDefaultVesselDecisions: suppressed-subtree pass complete " +
+                    $"closureSize={suppressedRecordingIds.Count} forcedGhostOnly={forced} " +
+                    $"skippedActiveTarget={skippedActiveTarget} alreadyGhostOnly={alreadyGhostOnly} " +
+                    $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
             return decisions;
