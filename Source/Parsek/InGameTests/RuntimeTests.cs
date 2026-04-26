@@ -12004,6 +12004,86 @@ namespace Parsek.InGameTests
                 "stale retire flag from the previous frame must not suppress this frame's activation pipeline");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 finalize-spawn retire gate: fresh LoopEnter and OverlapPrimaryEnter spawns into an unresolved relative section must not emit RetargetToNewGhost from the hidden origin-positioned pivot")]
+        public void Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin()
+        {
+            var loop = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: true,
+                overlapPrimary: false);
+            var overlap = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: true,
+                overlapPrimary: true);
+
+            InGameAssert.AreEqual(0, loop.loopEvents.Count,
+                "LoopEnter fresh spawn must suppress RetargetToNewGhost when relative priming retired the anchor");
+            InGameAssert.AreEqual(0, overlap.overlapEvents.Count,
+                "OverlapPrimaryEnter fresh spawn must suppress RetargetToNewGhost when relative priming retired the anchor");
+            InGameAssert.AreEqual(1, loop.createdEvents.Count,
+                "LoopEnter spawn lifecycle must still fire OnGhostCreated; only the camera retarget side effect is suppressed");
+            InGameAssert.AreEqual(1, overlap.createdEvents.Count,
+                "OverlapPrimaryEnter spawn lifecycle must still fire OnGhostCreated; only the camera retarget side effect is suppressed");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.None, loop.state.pendingSpawnLifecycle,
+                "LoopEnter pending lifecycle must complete even when the retarget side effect is suppressed");
+            InGameAssert.AreEqual(PendingSpawnLifecycle.None, overlap.state.pendingSpawnLifecycle,
+                "OverlapPrimaryEnter pending lifecycle must complete even when the retarget side effect is suppressed");
+            InGameAssert.IsTrue(loop.positioner.RelativeCalls >= 1,
+                "LoopEnter fresh-spawn priming must exercise the relative positioner so the retire flag was meaningful");
+            InGameAssert.IsTrue(overlap.positioner.RelativeCalls >= 1,
+                "OverlapPrimaryEnter fresh-spawn priming must exercise the relative positioner so the retire flag was meaningful");
+            InGameAssert.IsTrue(loop.capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")
+                    && l.Contains("anchor retired on first spawn")
+                    && l.Contains("lifecycle=LoopEnter")),
+                "LoopEnter retired fresh spawn must emit the finalize-spawn retire suppression log");
+            InGameAssert.IsTrue(overlap.capturedLog.Any(l =>
+                    l.Contains("[Engine]")
+                    && l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")
+                    && l.Contains("anchor retired on first spawn")
+                    && l.Contains("lifecycle=OverlapPrimaryEnter")),
+                "OverlapPrimaryEnter retired fresh spawn must emit the finalize-spawn retire suppression log");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#613 finalize-spawn retire gate negative: fresh LoopEnter and OverlapPrimaryEnter spawns with a resolved relative anchor still emit RetargetToNewGhost")]
+        public void Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget()
+        {
+            var loop = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: false,
+                overlapPrimary: false);
+            var overlap = RunBug613FreshSpawnRetargetScenario(
+                positionerSetsRetireFlag: false,
+                overlapPrimary: true);
+
+            InGameAssert.AreEqual(1, loop.loopEvents.Count,
+                "LoopEnter resolved fresh spawn must still emit one RetargetToNewGhost event");
+            InGameAssert.AreEqual(1, overlap.overlapEvents.Count,
+                "OverlapPrimaryEnter resolved fresh spawn must still emit one RetargetToNewGhost event");
+            InGameAssert.IsTrue(loop.loopEvents[0].Action == CameraActionType.RetargetToNewGhost,
+                "LoopEnter resolved fresh spawn must emit the RetargetToNewGhost action");
+            InGameAssert.IsTrue(overlap.overlapEvents[0].Action == CameraActionType.RetargetToNewGhost,
+                "OverlapPrimaryEnter resolved fresh spawn must emit the RetargetToNewGhost action");
+            InGameAssert.IsNotNull(loop.state.cameraPivot,
+                "LoopEnter resolved fresh spawn must create the camera pivot before retargeting");
+            InGameAssert.IsNotNull(overlap.state.cameraPivot,
+                "OverlapPrimaryEnter resolved fresh spawn must create the camera pivot before retargeting");
+            InGameAssert.IsTrue(ReferenceEquals(loop.state.cameraPivot, loop.loopEvents[0].GhostPivot),
+                "LoopEnter RetargetToNewGhost must carry the spawned state's camera pivot");
+            InGameAssert.IsTrue(ReferenceEquals(overlap.state.cameraPivot, overlap.overlapEvents[0].GhostPivot),
+                "OverlapPrimaryEnter RetargetToNewGhost must carry the spawned state's camera pivot");
+            InGameAssert.AreEqual(1, loop.createdEvents.Count,
+                "LoopEnter resolved fresh spawn must still fire OnGhostCreated once");
+            InGameAssert.AreEqual(1, overlap.createdEvents.Count,
+                "OverlapPrimaryEnter resolved fresh spawn must still fire OnGhostCreated once");
+            InGameAssert.IsFalse(loop.capturedLog.Any(l =>
+                    l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")),
+                "LoopEnter resolved fresh spawn must not log retire suppression");
+            InGameAssert.IsFalse(overlap.capturedLog.Any(l =>
+                    l.Contains("finalize-spawn retire: suppressing RetargetToNewGhost")),
+                "OverlapPrimaryEnter resolved fresh spawn must not log retire suppression");
+        }
+
         // Scenario harness: builds an engine with a mock IGhostPositioner
         // whose InterpolateAndPositionRelative either does or does not set
         // state.anchorRetiredThisFrame, then drives one UpdatePlayback frame.
@@ -12110,6 +12190,104 @@ namespace Parsek.InGameTests
 
             capturedLog = localLog;
             return state;
+        }
+
+        private (GhostPlaybackEngine engine,
+                 GhostPlaybackState state,
+                 Bug613RetireBranchPositioner positioner,
+                 List<CameraActionEvent> loopEvents,
+                 List<CameraActionEvent> overlapEvents,
+                 List<GhostLifecycleEvent> createdEvents,
+                 List<string> capturedLog)
+            RunBug613FreshSpawnRetargetScenario(
+                bool positionerSetsRetireFlag, bool overlapPrimary)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new Bug613RetireBranchPositioner
+            {
+                SetsRetireFlag = positionerSetsRetireFlag,
+                SetsLoopRetireFlag = false,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            var loopEvents = new List<CameraActionEvent>();
+            var overlapEvents = new List<CameraActionEvent>();
+            var createdEvents = new List<GhostLifecycleEvent>();
+            engine.OnLoopCameraAction += e => loopEvents.Add(e);
+            engine.OnOverlapCameraAction += e => overlapEvents.Add(e);
+            engine.OnGhostCreated += e => createdEvents.Add(e);
+
+            var traj = new Bug613LoopRelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                terminalDestroyed: false,
+                loopIntervalSeconds: overlapPrimary ? 2.0 : 10.0);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 2.5,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = overlapPrimary ? 2.0 : 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestObserverForTesting = line =>
+            {
+                localLog.Add(line);
+                priorObserver?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            GhostPlaybackState state;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out state),
+                "fresh spawn scenario must leave the spawned ghost state in the engine map");
+            InGameAssert.IsNotNull(state,
+                "fresh spawn scenario must produce a non-null ghost state");
+            InGameAssert.IsNotNull(state.ghost,
+                "fresh spawn scenario must build ghost visuals so finalize lifecycle can run");
+            runner.TrackForCleanup(state.ghost);
+
+            return (engine, state, positioner, loopEvents, overlapEvents, createdEvents, localLog);
         }
 
         // Mock positioner that mimics ParsekFlight's relative-frame retire

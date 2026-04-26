@@ -3223,12 +3223,22 @@ namespace Parsek
 
             QueueOrEmitGhostCreated(index, traj, state, flags);
 
+            bool suppressRetarget = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            string vesselName = traj?.VesselName ?? state.vesselName ?? "(unknown)";
+
             switch (lifecycle)
             {
                 case PendingSpawnLifecycle.LoopEnter:
                     ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
-                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {playbackUT:F1} " +
+                        $"Ghost ENTERED range: #{index} \"{vesselName}\" at UT {playbackUT:F1} " +
                         $"(loop cycle={state.loopCycleIndex})");
+                    if (suppressRetarget)
+                    {
+                        ParsekLog.Verbose("Engine",
+                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=LoopEnter cycle={state.loopCycleIndex}");
+                        break;
+                    }
                     OnLoopCameraAction?.Invoke(new CameraActionEvent
                     {
                         Index = index,
@@ -3242,8 +3252,14 @@ namespace Parsek
 
                 case PendingSpawnLifecycle.OverlapPrimaryEnter:
                     ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
-                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={state.loopCycleIndex} " +
+                        $"Ghost ENTERED range: #{index} \"{vesselName}\" cycle={state.loopCycleIndex} " +
                         $"at UT {playbackUT:F1} (overlap)");
+                    if (suppressRetarget)
+                    {
+                        ParsekLog.Verbose("Engine",
+                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=OverlapPrimaryEnter cycle={state.loopCycleIndex}");
+                        break;
+                    }
                     OnOverlapCameraAction?.Invoke(new CameraActionEvent
                     {
                         Index = index,
@@ -3738,6 +3754,7 @@ namespace Parsek
 
             state.playbackIndex = 0;
             state.partEventIndex = 0;
+            state.anchorRetiredThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
                 skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
