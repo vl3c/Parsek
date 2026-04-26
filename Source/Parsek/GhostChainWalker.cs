@@ -501,8 +501,11 @@ namespace Parsek
 
                     pidsToMerge.Add(tipVesselPid);
 
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic,
+                            "cross-tree-link|{0}|{1}", originPid, tipVesselPid),
+                        stateKey: chain.TipRecordingId ?? "null",
+                        message: string.Format(ic,
                             "Cross-tree link: vessel={0} → merged with chain for vessel={1}, new tip={2}",
                             originPid, tipVesselPid, chain.TipRecordingId));
 
@@ -518,8 +521,11 @@ namespace Parsek
 
             if (pidsToMerge.Count > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "MergeCrossTreeLinks: absorbed {0} chain(s)", pidsToMerge.Count));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "cross-tree-merge-summary",
+                    stateKey: pidsToMerge.Count.ToString(ic),
+                    message: string.Format(ic,
+                        "MergeCrossTreeLinks: absorbed {0} chain(s)", pidsToMerge.Count));
             }
         }
 

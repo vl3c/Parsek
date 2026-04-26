@@ -898,6 +898,56 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Regression: a chain that spans two trees via PID-based linking
+        /// (CrossTree_TwoLinks_ChainsExtend shape) hits the cross-tree merge
+        /// path on every ComputeAllGhostChains call. The "Cross-tree link"
+        /// per-merge line and the "MergeCrossTreeLinks: absorbed N chain(s)"
+        /// summary must coalesce; otherwise a selected ghost whose chain spans
+        /// trees re-emits both lines per frame.
+        /// </summary>
+        [Fact]
+        public void RepeatedCalls_CrossTreeLinkedChain_DoNotRespamMergeLines()
+        {
+            // Tree1: R1 docks to S(100), resulting vessel keeps PID 100.
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock1");
+            var dock1 = MakeBranchPoint("bp-dock1", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+            var tree1 = MakeTree("tree-1", new[] { r1, r1Leaf },
+                new[] { dock1 });
+
+            // Tree2: R2 docks to the same vessel (PID 100).
+            var r2 = MakeRecording("R2", 60, 1200, 1260, childBpId: "bp-dock2");
+            var r2Leaf = MakeRecording("R2-leaf", 100, 1260, 1320,
+                parentBpId: "bp-dock2");
+            var dock2 = MakeBranchPoint("bp-dock2", BranchPointType.Dock,
+                1260, 100, new[] { "R2" }, new[] { "R2-leaf" });
+            var tree2 = MakeTree("tree-2", new[] { r2, r2Leaf },
+                new[] { dock2 });
+
+            var trees = new List<RecordingTree> { tree1, tree2 };
+
+            GhostChainWalker.ComputeAllGhostChains(trees, 900);
+            logLines.Clear();
+
+            for (int i = 0; i < 8; i++)
+                GhostChainWalker.ComputeAllGhostChains(trees, 900);
+
+            int respam = 0;
+            foreach (var l in logLines)
+            {
+                if (!l.Contains("[ChainWalker]")) continue;
+                if (l.Contains("Cross-tree link:") && l.Contains("merged with chain"))
+                    respam++;
+                else if (l.Contains("MergeCrossTreeLinks: absorbed"))
+                    respam++;
+            }
+
+            Assert.Equal(0, respam);
+        }
+
+        /// <summary>
         /// Regression: when multiple branch points claim the same vessel PID in
         /// the same tree, the per-claim VerboseOnChange identity must scope to
         /// the individual claim (bp.Id / rec.RecordingId), not just the

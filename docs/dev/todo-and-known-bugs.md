@@ -3056,6 +3056,11 @@ were found:
   state `(tipId, terminalState)`.
 - `Chain built` — identity `chain|<pid>`,
   state `(links, tip, spawnUT, terminated)`.
+- `Cross-tree link: vessel=… → merged with chain for vessel=…` —
+  identity `cross-tree-link|<originPid>|<tipVesselPid>`,
+  state `chain.TipRecordingId`.
+- `MergeCrossTreeLinks: absorbed N chain(s)` — identity
+  `cross-tree-merge-summary`, state `N`.
 - Mutually-exclusive summary lines (`No committed trees`,
   `No claims found in N committed trees`,
   `Found claims for N vessel(s) across N committed trees`) all share
@@ -3087,6 +3092,10 @@ flips rather than per-frame stable repeats. Regression coverage:
 - `GhostChainWalkerTests.RepeatedCalls_MultipleClaimsSamePidSameTree_DoNotRespam`
   — two Dock BPs claiming the same PID in the same tree; pins the
   identity-disambiguation against the bp.Id-in-identity choice.
+- `GhostChainWalkerTests.RepeatedCalls_CrossTreeLinkedChain_DoNotRespamMergeLines`
+  — two trees both claim PID 100 (the `CrossTree_TwoLinks_ChainsExtend`
+  shape); pins the cross-tree merge path against per-frame re-emission
+  of the merge line and the absorbed-N summary.
 - `ChainSaveLoadTests.DeterministicReDerivation_StableInput_ReturnsIdenticalChains`
   — flipped from log-count assertion to chain-result equivalence so
   the determinism guarantee survives the coalescing change.
