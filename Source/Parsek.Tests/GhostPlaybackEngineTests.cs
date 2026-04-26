@@ -2179,6 +2179,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HiddenPrimeVisualPolicy_SuppressesFxAndTransientEvents()
+        {
+            var policy = GhostPlaybackEngine.HiddenPrimeVisualPolicy();
+
+            Assert.False(policy.skipPartEvents);
+            Assert.True(policy.suppressVisualFx);
+            Assert.False(policy.allowTransientEffects);
+        }
+
+        [Fact]
+        public void ShouldSuppressLazyReentryUntilPlaybackSync_BlocksPendingBuildBeforeFirstSyncedFrame()
+        {
+            var state = new GhostPlaybackState
+            {
+                reentryFxPendingBuild = true,
+                reentryFxInfo = null,
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldSuppressLazyReentryUntilPlaybackSync(state));
+        }
+
+        [Theory]
+        [InlineData(false, true, 0, false)]
+        [InlineData(true, false, 0, false)]
+        [InlineData(true, true, 1, false)]
+        public void ShouldSuppressLazyReentryUntilPlaybackSync_AllowsAfterSyncOrWhenNotPending(
+            bool pendingBuild,
+            bool deferredVisibility,
+            int appearanceCount,
+            bool expected)
+        {
+            var state = new GhostPlaybackState
+            {
+                reentryFxPendingBuild = pendingBuild,
+                reentryFxInfo = null,
+                deferVisibilityUntilPlaybackSync = deferredVisibility,
+                appearanceCount = appearanceCount
+            };
+
+            Assert.Equal(expected,
+                GhostPlaybackEngine.ShouldSuppressLazyReentryUntilPlaybackSync(state));
+        }
+
+        [Theory]
+        [InlineData(842.4, "842m")]
+        [InlineData(double.MaxValue, "unresolved")]
+        [InlineData(double.NaN, "unresolved")]
+        [InlineData(double.PositiveInfinity, "unresolved")]
+        [InlineData(-1.0, "unresolved")]
+        public void FormatPlaybackDistanceForLog_FormatsFiniteAndUnresolved(
+            double distanceMeters, string expected)
+        {
+            Assert.Equal(expected,
+                GhostPlaybackEngine.FormatPlaybackDistanceForLog(distanceMeters));
+        }
+
+        [Fact]
         public void ClearTrackedEnginePowerForPart_ClearsTrackedCurrentPower()
         {
             var info = new EngineGhostInfo
