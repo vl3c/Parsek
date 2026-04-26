@@ -36,6 +36,7 @@ namespace Parsek
         // One-time log tracking (avoids repeating the same log every frame)
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
+        private HashSet<long> loggedKscRelativeAnchorNotFound = new HashSet<long>();
 
         // #443: Non-spamming cadence-adjustment log — one INFO per
         // (recording index, userPeriod, effectiveCadence, duration) tuple.
@@ -79,6 +80,75 @@ namespace Parsek
             internal double PlaybackEndUT { get; }
             internal string RecordingId { get; }
         }
+
+        internal struct KscAnchorFrame
+        {
+            internal KscAnchorFrame(Vector3d worldPos, Quaternion worldRot)
+            {
+                WorldPos = worldPos;
+                WorldRot = worldRot;
+            }
+
+            internal Vector3d WorldPos;
+            internal Quaternion WorldRot;
+        }
+
+        internal struct KscPoseResolution
+        {
+            internal bool Resolved;
+            internal Vector3d WorldPos;
+            internal Quaternion WorldRot;
+            internal string Branch;
+            internal string FailureReason;
+            internal uint AnchorPid;
+
+            internal static KscPoseResolution Success(
+                Vector3d worldPos,
+                Quaternion worldRot,
+                string branch,
+                uint anchorPid)
+            {
+                return new KscPoseResolution
+                {
+                    Resolved = true,
+                    WorldPos = worldPos,
+                    WorldRot = worldRot,
+                    Branch = branch,
+                    FailureReason = null,
+                    AnchorPid = anchorPid
+                };
+            }
+
+            internal static KscPoseResolution Failure(
+                string branch,
+                string failureReason,
+                uint anchorPid)
+            {
+                return new KscPoseResolution
+                {
+                    Resolved = false,
+                    WorldPos = Vector3d.zero,
+                    WorldRot = Quaternion.identity,
+                    Branch = branch,
+                    FailureReason = failureReason,
+                    AnchorPid = anchorPid
+                };
+            }
+        }
+
+        internal delegate bool KscSurfaceLookup(
+            string bodyName,
+            double latitude,
+            double longitude,
+            double altitude,
+            out Vector3d worldPos,
+            out Quaternion bodyWorldRot);
+
+        internal delegate bool KscAnchorLookup(
+            uint anchorVesselId,
+            out KscAnchorFrame anchorFrame);
+
+        internal const int KscFlatPointFrameSourceKey = 0;
 
         private static int CompareAutoLoopQueueCandidates(AutoLoopQueueCandidate a, AutoLoopQueueCandidate b)
         {
@@ -563,8 +633,9 @@ namespace Parsek
                 if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
                 {
                     long oldCycle = state.loopCycleIndex;
-                    PositionGhostAtLoopEndpoint(recIdx, rec, state);
-                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                    bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, state);
+                    if (ShouldTriggerKscExplosionAtCurrentPose(state, endpointPositioned, recIdx, rec, "cycle-change")
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                             rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
                     {
                         TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -599,32 +670,40 @@ namespace Parsek
                             $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown after warp-down");
                 }
 
-                InterpolateAndPositionKsc(
-                    state.ghost, rec.Points,
-                    ref state.playbackIndex, targetUT);
+                bool positioned = InterpolateAndPositionKsc(
+                    state, rec,
+                    ref state.playbackIndex,
+                    ref state.kscPlaybackFrameSourceKey,
+                    targetUT);
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
-                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost)))
+                bool canRunRuntimeEvents = positioned && ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost));
+                if (canRunRuntimeEvents)
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
                     GhostPlaybackLogic.ApplyFlagEvents(state, rec, targetUT);
                 }
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(state);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+                if (positioned)
+                {
+                    if (suppressVisualFx)
+                        GhostPlaybackLogic.StopAllRcsEmissions(state);
+                    else
+                        GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+                }
 
                 bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, targetUT);
 
-                if (!state.explosionFired && shouldTriggerExplosion)
+                if (ShouldTriggerKscExplosionAtCurrentPose(state, positioned, recIdx, rec, "single-update")
+                    && !state.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
             }
             else if (ghostActive)
             {
                 if (inPauseWindow)
                 {
-                    PositionGhostAtLoopEndpoint(recIdx, rec, state);
-                    if (!state.explosionFired
+                    bool positioned = PositionGhostAtLoopEndpoint(recIdx, rec, state);
+                    if (ShouldTriggerKscExplosionAtCurrentPose(state, positioned, recIdx, rec, "pause-window")
+                        && !state.explosionFired
                         && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                             rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
                     {
@@ -640,7 +719,9 @@ namespace Parsek
                 }
                 else
                 {
-                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, state);
+                    if (ShouldTriggerKscExplosionAtCurrentPose(state, endpointPositioned, recIdx, rec, "timeline-complete"))
+                        TriggerExplosionIfDestroyed(state, rec, recIdx);
                     // Spawn real vessel when ghost timeline completes (bug #99)
                     TrySpawnAtRecordingEnd(recIdx, rec);
                     ParsekLog.Verbose("KSCGhost",
@@ -766,22 +847,29 @@ namespace Parsek
             {
                 double loopUT = primaryLoopUT;
 
-                InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
-                    ref primaryState.playbackIndex, loopUT);
+                bool primaryPositioned = InterpolateAndPositionKsc(primaryState, rec,
+                    ref primaryState.playbackIndex,
+                    ref primaryState.kscPlaybackFrameSourceKey,
+                    loopUT);
 
-                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(primaryState.ghost)))
+                bool canRunPrimaryEvents = primaryPositioned && ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(primaryState.ghost));
+                if (canRunPrimaryEvents)
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                     GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
                 }
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
+                if (primaryPositioned)
+                {
+                    if (suppressVisualFx)
+                        GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
+                    else
+                        GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
+                }
 
                 bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, loopUT);
 
-                if (!primaryState.explosionFired && shouldTriggerExplosion)
+                if (ShouldTriggerKscExplosionAtCurrentPose(primaryState, primaryPositioned, recIdx, rec, "overlap-primary")
+                    && !primaryState.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
             }
 
@@ -801,8 +889,9 @@ namespace Parsek
                 if (phase > duration)
                 {
                     // Cycle expired — position at end, explode, destroy
-                    PositionGhostAtLoopEndpoint(recIdx, rec, ovState);
-                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                    bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, ovState);
+                    if (ShouldTriggerKscExplosionAtCurrentPose(ovState, endpointPositioned, recIdx, rec, "overlap-expired")
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                             rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
                     {
                         TriggerExplosionIfDestroyed(ovState, rec, recIdx);
@@ -817,20 +906,27 @@ namespace Parsek
                 if (phase < 0) phase = 0;
                 double loopUT = playbackStartUT + phase;
 
-                InterpolateAndPositionKsc(ovState.ghost, rec.Points,
-                    ref ovState.playbackIndex, loopUT);
+                bool positioned = InterpolateAndPositionKsc(ovState, rec,
+                    ref ovState.playbackIndex,
+                    ref ovState.kscPlaybackFrameSourceKey,
+                    loopUT);
 
-                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(ovState.ghost)))
+                bool canRunOverlapEvents = positioned && ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(ovState.ghost));
+                if (canRunOverlapEvents)
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                     GhostPlaybackLogic.ApplyFlagEvents(ovState, rec, loopUT);
                 }
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
+                if (positioned)
+                {
+                    if (suppressVisualFx)
+                        GhostPlaybackLogic.StopAllRcsEmissions(ovState);
+                    else
+                        GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
+                }
 
-                if (!ovState.explosionFired
+                if (ShouldTriggerKscExplosionAtCurrentPose(ovState, positioned, recIdx, rec, "overlap-update")
+                    && !ovState.explosionFired
                     && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT)
                     && loopUT >= earlyExplosionUT)
                 {
@@ -839,13 +935,18 @@ namespace Parsek
             }
         }
 
-        void PositionGhostAtLoopEndpoint(int recIdx, Recording rec, GhostPlaybackState state)
+        bool PositionGhostAtLoopEndpoint(int recIdx, Recording rec, GhostPlaybackState state)
         {
             if (state?.ghost == null || rec?.Points == null || rec.Points.Count == 0)
-                return;
+                return false;
 
             double endpointUT = GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec);
-            InterpolateAndPositionKsc(state.ghost, rec.Points, ref state.playbackIndex, endpointUT);
+            return InterpolateAndPositionKsc(
+                state,
+                rec,
+                ref state.playbackIndex,
+                ref state.kscPlaybackFrameSourceKey,
+                endpointUT);
         }
 
         /// <summary>
@@ -923,10 +1024,14 @@ namespace Parsek
                 // cameraPivot intentionally null — RecalculateCameraPivot no-ops
                 // reentryFxInfo intentionally null — RebuildReentryMeshes no-ops
                 playbackIndex = 0,
+                kscPlaybackFrameSourceKey = KscFlatPointFrameSourceKey,
                 partEventIndex = 0,
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot),
-                logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot)
+                logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot),
+                deferVisibilityUntilPlaybackSync = true
             };
+            if (ghost != null)
+                ghost.SetActive(false);
 
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
 
@@ -951,97 +1056,504 @@ namespace Parsek
         /// <summary>
         /// Position a ghost by interpolating between trajectory points.
         /// Simplified version — no FloatingOrigin GhostPosEntry registration
-        /// (positions are recomputed from lat/lon/alt each frame, so origin
-        /// shifts are handled automatically).
+        /// (positions are recomputed from the active reference frame each frame,
+        /// so origin shifts are handled automatically).
         /// Stops positioning when the trajectory leaves Kerbin.
         /// </summary>
-        internal void InterpolateAndPositionKsc(
-            GameObject ghost, List<TrajectoryPoint> points,
-            ref int cachedIndex, double targetUT)
+        internal bool InterpolateAndPositionKsc(
+            GhostPlaybackState state, Recording rec,
+            ref int cachedIndex,
+            ref int cachedFrameSourceKey,
+            double targetUT)
         {
-            TrajectoryPoint before, after;
-            float t;
-            bool hasSegment = TrajectoryMath.InterpolatePoints(
-                points, ref cachedIndex, targetUT, out before, out after, out t);
-
-            if (!hasSegment)
+            GameObject ghost = state != null ? state.ghost : null;
+            KscPoseResolution pose;
+            if (!TryInterpolateKscPlaybackPose(
+                    rec,
+                    ref cachedIndex,
+                    ref cachedFrameSourceKey,
+                    targetUT,
+                    TryLookupKscSurfacePose,
+                    TryLookupKscAnchorFrame,
+                    out pose))
             {
-                // Either empty list or before recording start
-                if (points == null || points.Count == 0)
+                if (pose.FailureReason == "relative-anchor-unresolved")
                 {
-                    ghost.SetActive(false);
-                    return;
+                    bool hideUntilFirstPose = ShouldHideKscRelativeAnchorUnresolvedGhost(state);
+                    if (hideUntilFirstPose && ghost != null)
+                        ghost.SetActive(false);
+
+                    long key = ((long)pose.AnchorPid << 32) ^ (uint)(rec?.RecordingId?.GetHashCode() ?? 0);
+                    if (loggedKscRelativeAnchorNotFound.Add(key))
+                    {
+                        ParsekLog.Warn("KSCGhost",
+                            $"RELATIVE KSC playback: anchor vessel pid={pose.AnchorPid} not found; " +
+                            (hideUntilFirstPose
+                                ? "ghost hidden until first valid anchor pose"
+                                : "ghost frozen at last known position"));
+                    }
+                    return false;
                 }
-                PositionGhostAtPoint(ghost, before);
-                return;
+
+                if (ghost != null)
+                    ghost.SetActive(false);
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-pose-unresolved",
+                    $"KSC ghost positioning skipped: branch={pose.Branch ?? "unknown"} " +
+                    $"reason={pose.FailureReason ?? "unknown"} targetUT={targetUT:F2}");
+                return false;
             }
 
-            // Degenerate segment (t == 0 from zero-duration segment)
-            if (t == 0f && before.ut == after.ut)
-            {
-                PositionGhostAtPoint(ghost, before);
-                return;
-            }
+            if (ghost == null)
+                return false;
 
-            // Stop positioning when trajectory leaves Kerbin
-            if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
-            {
-                ghost.SetActive(false);
-                return;
-            }
-
-            CelestialBody bodyBefore = LookupBody(before.bodyName);
-            CelestialBody bodyAfter = LookupBody(after.bodyName);
-            if (bodyBefore == null || bodyAfter == null)
-            {
-                ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
-                    $"Body not found: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
-                ghost.SetActive(false);
-                return;
-            }
+            ghost.transform.position = pose.WorldPos;
+            ghost.transform.rotation = pose.WorldRot;
+            if (state != null)
+                state.deferVisibilityUntilPlaybackSync = false;
             if (!ghost.activeSelf) ghost.SetActive(true);
+            return true;
+        }
 
-            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, after.altitude);
+        internal static bool ShouldHideKscRelativeAnchorUnresolvedGhost(GhostPlaybackState state)
+        {
+            return state == null || state.deferVisibilityUntilPlaybackSync;
+        }
 
-            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
-            Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
-            interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
+        internal static bool HasKscValidPose(GhostPlaybackState state)
+        {
+            return state?.ghost != null && !state.deferVisibilityUntilPlaybackSync;
+        }
 
-            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) ||
-                double.IsNaN(interpolatedPos.z))
+        private static bool ShouldTriggerKscExplosionAtCurrentPose(
+            GhostPlaybackState state,
+            bool positioned,
+            int recIdx,
+            Recording rec,
+            string context)
+        {
+            bool hasValidPose = HasKscValidPose(state);
+            if (!ShouldTriggerKscExplosionAtCurrentPoseForTesting(positioned, hasValidPose))
+                return false;
+
+            if (!positioned)
             {
-                interpolatedPos = posBefore;
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-explosion-frozen-pose-{recIdx}-{context}",
+                    $"KSC explosion using last valid ghost pose: recording={rec?.DebugName ?? "null"} " +
+                    $"context={context}");
             }
+            return true;
+        }
 
-            ghost.transform.position = interpolatedPos;
-            ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
+        internal static bool ShouldTriggerKscExplosionAtCurrentPoseForTesting(
+            bool positioned,
+            bool hasValidPose)
+        {
+            return positioned || hasValidPose;
         }
 
         /// <summary>
-        /// Position ghost at a single trajectory point (no interpolation).
+        /// Interpolates the KSC playback pose and dispatches the point payload
+        /// through the originating TrackSection reference frame.
         /// </summary>
-        void PositionGhostAtPoint(GameObject ghost, TrajectoryPoint point)
+        internal static bool TryInterpolateKscPlaybackPose(
+            Recording rec,
+            ref int cachedIndex,
+            ref int cachedFrameSourceKey,
+            double targetUT,
+            KscSurfaceLookup surfaceLookup,
+            KscAnchorLookup anchorLookup,
+            out KscPoseResolution pose)
+        {
+            pose = KscPoseResolution.Failure("none", "recording-null", 0);
+            if (rec == null)
+            {
+                ParsekLog.Verbose("KSCGhost",
+                    $"KSC pose interpolation skipped: recording=null targetUT={targetUT:F2}");
+                return false;
+            }
+
+            int targetSectionIndex = FindKscTrackSectionIndex(rec, targetUT);
+            TrackSection? targetSection = GetKscTrackSection(rec, targetSectionIndex);
+            bool usingSectionFrames;
+            List<TrajectoryPoint> frames = SelectKscInterpolationFrames(
+                rec, targetSection, out usingSectionFrames);
+            if (frames == null || frames.Count == 0)
+            {
+                pose = KscPoseResolution.Failure(
+                    targetSection.HasValue ? targetSection.Value.referenceFrame.ToString() : "no-section",
+                    "no-points",
+                    targetSection.HasValue ? targetSection.Value.anchorVesselId : 0);
+                ParsekLog.Verbose("KSCGhost",
+                    $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
+                    $"targetUT={targetUT:F2} sections={rec.TrackSections?.Count ?? 0}");
+                return false;
+            }
+
+            int frameSourceKey = usingSectionFrames
+                ? targetSectionIndex + 1
+                : KscFlatPointFrameSourceKey;
+            if (cachedFrameSourceKey != frameSourceKey)
+            {
+                cachedIndex = 0;
+                cachedFrameSourceKey = frameSourceKey;
+            }
+
+            int interpolationIndex = cachedIndex;
+            TrajectoryPoint before, after;
+            float t;
+            bool hasSegment = TrajectoryMath.InterpolatePoints(
+                frames, ref interpolationIndex, targetUT, out before, out after, out t);
+            cachedIndex = interpolationIndex;
+
+            if (!hasSegment)
+            {
+                if (frames.Count == 0)
+                {
+                    pose = KscPoseResolution.Failure("none", "no-points", 0);
+                    return false;
+                }
+
+                TrackSection? pointSection = targetSection ?? FindKscTrackSection(rec, before.ut);
+                return TryResolveKscPointPose(
+                    rec,
+                    before,
+                    pointSection,
+                    surfaceLookup,
+                    anchorLookup,
+                    out pose);
+            }
+
+            if (t == 0f && before.ut == after.ut)
+            {
+                TrackSection? pointSection = targetSection ?? FindKscTrackSection(rec, before.ut);
+                return TryResolveKscPointPose(
+                    rec,
+                    before,
+                    pointSection,
+                    surfaceLookup,
+                    anchorLookup,
+                    out pose);
+            }
+
+            TrackSection? section = targetSection ?? FindKscTrackSection(rec, before.ut);
+            return TryResolveKscSegmentPose(
+                rec,
+                before,
+                after,
+                t,
+                section,
+                surfaceLookup,
+                anchorLookup,
+                out pose);
+        }
+
+        private static List<TrajectoryPoint> SelectKscInterpolationFrames(
+            Recording rec,
+            TrackSection? targetSection,
+            out bool usingSectionFrames)
+        {
+            usingSectionFrames = false;
+            if (targetSection.HasValue
+                && targetSection.Value.frames != null
+                && targetSection.Value.frames.Count > 0)
+            {
+                usingSectionFrames = true;
+                return targetSection.Value.frames;
+            }
+
+            return rec?.Points;
+        }
+
+        private static TrackSection? FindKscTrackSection(Recording rec, double targetUT)
+        {
+            return GetKscTrackSection(rec, FindKscTrackSectionIndex(rec, targetUT));
+        }
+
+        private static TrackSection? GetKscTrackSection(Recording rec, int sectionIdx)
+        {
+            if (rec?.TrackSections == null || sectionIdx < 0 || sectionIdx >= rec.TrackSections.Count)
+                return null;
+
+            return rec.TrackSections[sectionIdx];
+        }
+
+        private static int FindKscTrackSectionIndex(Recording rec, double targetUT)
+        {
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return -1;
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, targetUT);
+            if (sectionIdx < 0 || sectionIdx >= rec.TrackSections.Count)
+                return -1;
+
+            return sectionIdx;
+        }
+
+        private static bool TryResolveKscPointPose(
+            Recording rec,
+            TrajectoryPoint point,
+            TrackSection? section,
+            KscSurfaceLookup surfaceLookup,
+            KscAnchorLookup anchorLookup,
+            out KscPoseResolution pose)
         {
             if (point.bodyName != "Kerbin")
             {
-                ghost.SetActive(false);
-                return;
+                pose = KscPoseResolution.Failure(
+                    DescribeKscBranch(section),
+                    "non-kerbin",
+                    section.HasValue ? section.Value.anchorVesselId : 0);
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-point-non-kerbin",
+                    $"KSC point skipped: body={point.bodyName ?? "null"} ut={point.ut:F2}");
+                return false;
             }
 
-            CelestialBody body = LookupBody(point.bodyName);
-            if (body == null) return;
+            ReferenceFrame frame = section.HasValue
+                ? section.Value.referenceFrame
+                : ReferenceFrame.Absolute;
+            if (frame == ReferenceFrame.Relative)
+            {
+                Quaternion storedRot = TrajectoryMath.SanitizeQuaternion(point.rotation);
+                return TryResolveKscRelativePose(
+                    rec,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    storedRot,
+                    section.Value.anchorVesselId,
+                    anchorLookup,
+                    out pose);
+            }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(
-                point.latitude, point.longitude, point.altitude);
+            Vector3d worldPos;
+            Quaternion bodyWorldRot;
+            if (!surfaceLookup(
+                    point.bodyName,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    out worldPos,
+                    out bodyWorldRot))
+            {
+                pose = KscPoseResolution.Failure("absolute", "body-not-found", 0);
+                ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
+                    $"Body not found: {point.bodyName ?? "null"}");
+                return false;
+            }
 
-            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
-            ghost.transform.position = worldPos;
-            ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
+            Quaternion worldRot = TrajectoryMath.PureMultiply(
+                bodyWorldRot,
+                TrajectoryMath.SanitizeQuaternion(point.rotation));
+            pose = KscPoseResolution.Success(worldPos, worldRot, DescribeKscBranch(section), 0);
+            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
+                $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
+                $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
+                2.0);
+            return true;
+        }
 
-            if (!ghost.activeSelf) ghost.SetActive(true);
+        private static bool TryResolveKscSegmentPose(
+            Recording rec,
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            float t,
+            TrackSection? section,
+            KscSurfaceLookup surfaceLookup,
+            KscAnchorLookup anchorLookup,
+            out KscPoseResolution pose)
+        {
+            if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
+            {
+                pose = KscPoseResolution.Failure(
+                    DescribeKscBranch(section),
+                    "non-kerbin",
+                    section.HasValue ? section.Value.anchorVesselId : 0);
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-segment-non-kerbin",
+                    $"KSC segment skipped: beforeBody={before.bodyName ?? "null"} " +
+                    $"afterBody={after.bodyName ?? "null"} targetUT={before.ut + (after.ut - before.ut) * t:F2}");
+                return false;
+            }
+
+            ReferenceFrame frame = section.HasValue
+                ? section.Value.referenceFrame
+                : ReferenceFrame.Absolute;
+            if (frame == ReferenceFrame.Relative)
+            {
+                double dx = before.latitude + (after.latitude - before.latitude) * t;
+                double dy = before.longitude + (after.longitude - before.longitude) * t;
+                double dz = before.altitude + (after.altitude - before.altitude) * t;
+                Quaternion storedRot = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
+                return TryResolveKscRelativePose(
+                    rec,
+                    dx,
+                    dy,
+                    dz,
+                    storedRot,
+                    section.Value.anchorVesselId,
+                    anchorLookup,
+                    out pose);
+            }
+
+            Vector3d posBefore;
+            Vector3d posAfter;
+            Quaternion bodyRotBefore;
+            Quaternion bodyRotAfter;
+            if (!surfaceLookup(
+                    before.bodyName,
+                    before.latitude,
+                    before.longitude,
+                    before.altitude,
+                    out posBefore,
+                    out bodyRotBefore)
+                || !surfaceLookup(
+                    after.bodyName,
+                    after.latitude,
+                    after.longitude,
+                    after.altitude,
+                    out posAfter,
+                    out bodyRotAfter))
+            {
+                pose = KscPoseResolution.Failure("absolute", "body-not-found", 0);
+                ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
+                    $"Body not found: before={before.bodyName ?? "null"} after={after.bodyName ?? "null"}");
+                return false;
+            }
+
+            Vector3d interpolatedPos = new Vector3d(
+                posBefore.x + (posAfter.x - posBefore.x) * t,
+                posBefore.y + (posAfter.y - posBefore.y) * t,
+                posBefore.z + (posAfter.z - posBefore.z) * t);
+            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) ||
+                double.IsNaN(interpolatedPos.z))
+            {
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-pos-nan-fallback",
+                    $"KSC interpolation produced NaN; using before point at ut={before.ut:F2}");
+                interpolatedPos = posBefore;
+            }
+
+            Quaternion interpolatedRot = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
+            Quaternion worldRot = TrajectoryMath.PureMultiply(bodyRotBefore, interpolatedRot);
+            pose = KscPoseResolution.Success(
+                interpolatedPos,
+                worldRot,
+                DescribeKscBranch(section),
+                0);
+            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
+                $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
+                $"targetUT={before.ut + (after.ut - before.ut) * t:F2} branch={pose.Branch}",
+                2.0);
+            return true;
+        }
+
+        private static bool TryResolveKscRelativePose(
+            Recording rec,
+            double dx,
+            double dy,
+            double dz,
+            Quaternion storedRot,
+            uint anchorVesselId,
+            KscAnchorLookup anchorLookup,
+            out KscPoseResolution pose)
+        {
+            if (anchorVesselId == 0 || anchorLookup == null)
+            {
+                pose = KscPoseResolution.Failure(
+                    "relative",
+                    "relative-anchor-unresolved",
+                    anchorVesselId);
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
+                    $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
+                    $"anchorPid={anchorVesselId} reason=no-anchor-lookup");
+                return false;
+            }
+
+            KscAnchorFrame anchor;
+            if (!anchorLookup(anchorVesselId, out anchor))
+            {
+                pose = KscPoseResolution.Failure(
+                    "relative",
+                    "relative-anchor-unresolved",
+                    anchorVesselId);
+                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
+                    $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
+                    $"anchorPid={anchorVesselId} reason=anchor-not-found");
+                return false;
+            }
+
+            Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchor.WorldPos,
+                anchor.WorldRot,
+                dx,
+                dy,
+                dz,
+                rec.RecordingFormatVersion);
+            if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
+            {
+                ParsekLog.Warn("KSCGhost",
+                    $"RELATIVE KSC playback produced NaN position; using anchor position " +
+                    $"recording={rec.DebugName} anchorPid={anchorVesselId}");
+                worldPos = anchor.WorldPos;
+            }
+
+            Quaternion worldRot = TrajectoryMath.ResolveRelativePlaybackRotation(
+                anchor.WorldRot,
+                storedRot);
+            pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorVesselId);
+            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-position",
+                $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
+                $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
+                $"anchorPid={anchorVesselId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
+                2.0);
+            return true;
+        }
+
+        private static string DescribeKscBranch(TrackSection? section)
+        {
+            if (!section.HasValue)
+                return "no-section";
+            return section.Value.referenceFrame == ReferenceFrame.Absolute
+                ? "absolute"
+                : section.Value.referenceFrame == ReferenceFrame.Relative
+                    ? "relative"
+                    : "orbital-checkpoint";
+        }
+
+        internal bool TryLookupKscSurfacePose(
+            string bodyName,
+            double latitude,
+            double longitude,
+            double altitude,
+            out Vector3d worldPos,
+            out Quaternion bodyWorldRot)
+        {
+            worldPos = Vector3d.zero;
+            bodyWorldRot = Quaternion.identity;
+            CelestialBody body = LookupBody(bodyName);
+            if (body == null)
+                return false;
+
+            worldPos = body.GetWorldSurfacePosition(latitude, longitude, altitude);
+            bodyWorldRot = body.bodyTransform != null
+                ? body.bodyTransform.rotation
+                : Quaternion.identity;
+            return true;
+        }
+
+        internal bool TryLookupKscAnchorFrame(uint anchorVesselId, out KscAnchorFrame anchorFrame)
+        {
+            anchorFrame = default(KscAnchorFrame);
+            if (anchorVesselId == 0)
+                return false;
+
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null)
+                return false;
+
+            anchorFrame = new KscAnchorFrame(
+                anchor.GetWorldPos3D(),
+                anchor.transform != null ? anchor.transform.rotation : Quaternion.identity);
+            return true;
         }
 
         /// <summary>
@@ -1601,6 +2113,7 @@ namespace Parsek
                 ParsekLog.Info("KSCGhost", $"Destroyed {primaryCount} primary + {overlapCount} overlap KSC ghosts");
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
+            loggedKscRelativeAnchorNotFound.Clear();
             kscSpawnAttempted.Clear();
             loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
 

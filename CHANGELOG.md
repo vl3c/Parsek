@@ -48,6 +48,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- KSC ghost playback now honors v6 RELATIVE track sections, keeping rendezvous/docking ghosts attached to their anchor instead of drawing them underground.
+
 - Re-Fly slot precondition log no longer spams `KSP.log` with thousands of identical `slot-ok` lines per session; the on-change gate now uses a per-call-site decision cache that reliably suppresses repeats from the OnGUI draw loop.
 
 - `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances, angular fields (LAN, argument of periapsis, inclination) use a shortest-angle delta so a tail that crosses the 0/360 boundary still matches, and each `TrimBoringTail` skip reports which guard rejected.

@@ -16,6 +16,7 @@ namespace Parsek
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;
+        public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
