@@ -1011,15 +1011,45 @@ data transformation).
    **5b — handcrafted sidecar-write-failure case (helper does
    real work on reload).** This requires a test fixture that
    manufactures the unusual "Phase=RelativePromotion + sidecars
-   still RELATIVE" disk state — it can't arise from a clean
-   `OnSave` (which always writes sidecars first). Either:
-   - Inject a `SaveTreeRecordingsForTesting` hook that throws or
-     no-ops, then call `OnSave` (only the journal block lands on
-     disk; sidecars stay pre-promotion).
-   - Or directly construct the on-disk save folder with
-     pre-promotion `.prec` sidecars and a `MERGE_JOURNAL` node
-     stamped `Phase=RelativePromotion`, plus a marker still
-     alive, then call the load path.
+   still RELATIVE" disk state. Two viable approaches; pick
+   whichever the test author finds clearer:
+
+   - **Lower-level sidecar-fail hook.** `SaveTreeRecordings`
+     (`ParsekScenario.cs:578-605`) calls
+     `RecordingStore.SaveRecordingFiles(rec)` per dirty
+     recording inside its loop and treats a `false` return as a
+     soft failure — logs a `WARNING: File write failed for tree
+     recording '{name}'` and continues; `tree.Save(treeNode)`
+     still serializes the `RECORDING_TREE` metadata into the
+     scenario node, and `OnSave` keeps going to write
+     `MERGE_JOURNAL`. Add a test seam at the
+     `SaveRecordingFiles` level (e.g. an
+     `internal static Func<Recording, bool>
+     SaveRecordingFilesForTesting` hook scoped per recording id)
+     so the test can return `false` for the parent-chain
+     recording specifically. Result on disk: pre-promotion
+     `.prec` (skipped this save), correct `RECORDING_TREE`
+     metadata, `MERGE_JOURNAL` with `Phase=RelativePromotion`,
+     marker still alive (the marker-null block hasn't run in
+     memory yet at this point in `RunMerge`).
+     Do NOT throw from a `SaveTreeRecordingsForTesting`-style
+     wrapper hook: `SaveTreeRecordings` does not catch, so an
+     exception would propagate up and abort `OnSave` BEFORE the
+     `MERGE_JOURNAL` is written, defeating the fixture.
+     Similarly, do NOT make a `SaveTreeRecordings`-level hook
+     a no-op: that skips `tree.Save(treeNode)` and the loaded
+     tree on reload would be missing its `RECORDING_TREE`
+     metadata, breaking the test setup unrelatedly.
+   - **Manual on-disk fixture.** Bypass `OnSave` entirely:
+     write pre-promotion `.prec` files for the parent-chain
+     recordings into the test save folder, write a
+     `persistent.sfs` carrying a `MERGE_JOURNAL` node stamped
+     `Phase=RelativePromotion` and a `ParsekScenario`
+     `ActiveReFlySessionMarker` block carrying the matching
+     `SessionId` / `ActiveReFlyRecordingId`, then call the load
+     path that triggers `RunFinisher`. This is the most direct
+     way to reach the recovery state but requires more fixture
+     plumbing than the hook-based variant.
 
    On reload:
    - `journal.Phase == RelativePromotion`.
