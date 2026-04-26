@@ -242,6 +242,7 @@ namespace Parsek
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
+        internal const int PostSwitchManifestDeltaSkipped = -1;
         private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
         internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
@@ -5099,13 +5100,20 @@ namespace Parsek
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "crew={0}|resource={1}|inventory={2}|partState={3}|crewChanged={4}|resourceChanged={5}|partStateChanged={6}",
-                crewDeltaKeys,
-                resourceDeltaKeys,
-                inventoryDeltaKeys,
-                partStateTokenDelta,
+                FormatPostSwitchManifestDeltaCount(crewDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(resourceDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(inventoryDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(partStateTokenDelta),
                 crewChanged ? 1 : 0,
                 resourceChanged ? 1 : 0,
                 partStateChanged ? 1 : 0);
+        }
+
+        private static string FormatPostSwitchManifestDeltaCount(int count)
+        {
+            return count == PostSwitchManifestDeltaSkipped
+                ? "skipped"
+                : count.ToString(CultureInfo.InvariantCulture);
         }
 
         internal static string FormatPostSwitchAutoRecordDecisionSummary(
@@ -5362,10 +5370,10 @@ namespace Parsek
                 crewChanged,
                 resourceChanged,
                 partStateChanged,
-                crewDeltaKeys,
-                resourceDeltaKeys,
-                inventoryDeltaKeys,
-                partStateTokenDelta,
+                FormatPostSwitchManifestDeltaCount(crewDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(resourceDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(inventoryDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(partStateTokenDelta),
                 nextEvaluationUt);
         }
 
@@ -5922,22 +5930,44 @@ namespace Parsek
             if (evaluateManifestDiff)
             {
                 ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
-                var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
-                var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
                 var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
-                var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
                 var crewDelta = CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew);
-                var resourceDelta = ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources);
-                var inventoryDelta = InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory);
                 int crewDeltaKeys = CountMeaningfulCrewDelta(crewDelta);
-                int resourceDeltaKeys = CountMeaningfulResourceDelta(resourceDelta);
-                int inventoryDeltaKeys = CountMeaningfulInventoryDelta(inventoryDelta);
-                int partStateTokenDelta = CountPartStateTokenDelta(
-                    state.BaselinePartStateTokens,
-                    currentPartStateTokens);
+                int resourceDeltaKeys = PostSwitchManifestDeltaSkipped;
+                int inventoryDeltaKeys = PostSwitchManifestDeltaSkipped;
+                int partStateTokenDelta = PostSwitchManifestDeltaSkipped;
                 crewChanged = crewDeltaKeys > 0;
-                resourceChanged = resourceDeltaKeys > 0;
-                partStateChanged = partStateTokenDelta > 0 || inventoryDeltaKeys > 0;
+                if (!crewChanged)
+                {
+                    var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                    var resourceDelta = ResourceManifest.ComputeResourceDelta(
+                        state.BaselineResources,
+                        currentResources);
+                    resourceDeltaKeys = CountMeaningfulResourceDelta(resourceDelta);
+                    resourceChanged = resourceDeltaKeys > 0;
+                }
+
+                if (!crewChanged && !resourceChanged)
+                {
+                    var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
+                    partStateTokenDelta = CountPartStateTokenDelta(
+                        state.BaselinePartStateTokens,
+                        currentPartStateTokens);
+                    if (partStateTokenDelta > 0)
+                    {
+                        partStateChanged = true;
+                    }
+                    else
+                    {
+                        var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                        var inventoryDelta = InventoryManifest.ComputeInventoryDelta(
+                            state.BaselineInventory,
+                            currentInventory);
+                        inventoryDeltaKeys = CountMeaningfulInventoryDelta(inventoryDelta);
+                        partStateChanged = inventoryDeltaKeys > 0;
+                    }
+                }
+
                 state.NextManifestEvaluationUt =
                     currentUT + PostSwitchManifestEvaluationIntervalSeconds;
                 ParsekLog.VerboseOnChange("Flight",

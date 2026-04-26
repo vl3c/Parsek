@@ -11,12 +11,14 @@ namespace Parsek.Tests
     {
         public RuntimeGapObservabilityTests()
         {
+            ParsekLog.ResetTestOverrides();
             GhostMapPresence.ResetForTesting();
         }
 
         public void Dispose()
         {
             GhostMapPresence.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         [Fact]
@@ -50,6 +52,38 @@ namespace Parsek.Tests
             Assert.Contains("pid=42", vessel);
             Assert.Contains("recId=rec-bg", vessel);
             Assert.Contains("reason=missing-recording", vessel);
+        }
+
+        [Fact]
+        public void BackgroundStateDriftCheck_BackwardsUtResetsThrottle()
+        {
+            var logLines = new List<string>();
+            double logClock = 0.0;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.ClockOverrideForTesting = () => logClock;
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-drift",
+                RootRecordingId = "rec-root"
+            };
+            tree.BackgroundMap[42] = "missing-rec";
+            var recorder = new BackgroundRecorder(tree);
+
+            recorder.WarnIfBackgroundStateDriftForTesting(100.0, "first");
+            Assert.Equal(100.0, recorder.LastBackgroundStateDriftCheckUTForTesting);
+
+            recorder.WarnIfBackgroundStateDriftForTesting(101.0, "throttled");
+            Assert.Equal(100.0, recorder.LastBackgroundStateDriftCheckUTForTesting);
+
+            logClock = 11.0;
+            recorder.WarnIfBackgroundStateDriftForTesting(96.0, "rollback");
+
+            Assert.Equal(96.0, recorder.LastBackgroundStateDriftCheckUTForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]") &&
+                l.Contains("Background map/state drift") &&
+                l.Contains("reason=rollback"));
         }
 
         [Fact]
@@ -130,6 +164,34 @@ namespace Parsek.Tests
             Assert.Contains("resourceDeltaKeys=2", manifest);
             Assert.Contains("inventoryDeltaKeys=3", manifest);
             Assert.Contains("partStateTokenDelta=4", manifest);
+        }
+
+        [Fact]
+        public void PostSwitchManifestDeltaSummary_ReportsSkippedDiffs()
+        {
+            string stateKey = ParsekFlight.BuildPostSwitchManifestDeltaStateKey(
+                crewDeltaKeys: 1,
+                resourceDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                inventoryDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                partStateTokenDelta: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                crewChanged: true,
+                resourceChanged: false,
+                partStateChanged: false);
+            string manifest = ParsekFlight.FormatPostSwitchManifestDeltaSummary(
+                vesselPid: 42,
+                crewDeltaKeys: 1,
+                resourceDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                inventoryDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                partStateTokenDelta: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                crewChanged: true,
+                resourceChanged: false,
+                partStateChanged: false,
+                nextEvaluationUt: 22.0);
+
+            Assert.Contains("resource=skipped", stateKey);
+            Assert.Contains("inventory=skipped", stateKey);
+            Assert.Contains("resourceDeltaKeys=skipped", manifest);
+            Assert.Contains("inventoryDeltaKeys=skipped", manifest);
         }
 
         [Fact]

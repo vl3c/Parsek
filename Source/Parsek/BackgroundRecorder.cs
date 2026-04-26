@@ -1242,18 +1242,11 @@ namespace Parsek
             if (tree == null || tree.BackgroundMap == null)
                 return;
 
-            if (lastBackgroundStateDriftCheckUT != double.MinValue)
-            {
-                if (currentUT < lastBackgroundStateDriftCheckUT)
-                {
-                    lastBackgroundStateDriftCheckUT = double.MinValue;
-                }
-                else if (currentUT - lastBackgroundStateDriftCheckUT < BackgroundStateDriftCheckInterval)
-                {
-                    return;
-                }
-            }
-            lastBackgroundStateDriftCheckUT = currentUT;
+            if (!ShouldRunBackgroundStateDriftCheck(
+                    lastBackgroundStateDriftCheckUT,
+                    currentUT,
+                    out lastBackgroundStateDriftCheckUT))
+                return;
 
             var summary = BuildBackgroundStateDriftSummary();
             if (!summary.HasDrift)
@@ -1263,6 +1256,36 @@ namespace Parsek
                 "background-map-state-drift",
                 FormatBackgroundStateDriftSummary(summary, reason),
                 10.0);
+        }
+
+        internal void WarnIfBackgroundStateDriftForTesting(double currentUT, string reason)
+        {
+            WarnIfBackgroundStateDrift(currentUT, reason);
+        }
+
+        internal double LastBackgroundStateDriftCheckUTForTesting =>
+            lastBackgroundStateDriftCheckUT;
+
+        internal static bool ShouldRunBackgroundStateDriftCheck(
+            double lastCheckUT,
+            double currentUT,
+            out double nextLastCheckUT)
+        {
+            nextLastCheckUT = lastCheckUT;
+            if (lastCheckUT != double.MinValue)
+            {
+                if (currentUT < lastCheckUT)
+                {
+                    nextLastCheckUT = double.MinValue;
+                }
+                else if (currentUT - lastCheckUT < BackgroundStateDriftCheckInterval)
+                {
+                    return false;
+                }
+            }
+
+            nextLastCheckUT = currentUT;
+            return true;
         }
 
         private BackgroundStateDriftSummary BuildBackgroundStateDriftSummary()

@@ -38,6 +38,10 @@ summaries, Tracking Station atmospheric-marker skip summaries, ghost orbit-line
 suppression decisions, game-action converter skip-by-type summaries, event
 reject logs, kerbal recalculation counters, Real Spawn Control auto-close
 reasons, and test-runner scene-eligibility skip aggregation.
+Review follow-up: post-switch manifest logging preserves trigger-priority
+short-circuiting, marking lower-priority delta families as `skipped` instead of
+diffing every manifest category on each 0.25s evaluation tick; the background
+state-drift throttle now has a backwards-UT rollback test.
 
 Remaining observability follow-up after runtime-gaps: the earlier P1/P2
 save/load exception context, sidecar/path severity expansion, rewind
