@@ -248,7 +248,7 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             PerformBetweenRunCleanup("run-all");
-            var eligible = PrepareBatchExecution(allTests.Where(t => IsEligibleForScene(t)));
+            var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(allTests));
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
@@ -263,7 +263,7 @@ namespace Parsek.InGameTests
             preservedBatchFlightBaselineReason = null;
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
-                allTests.Where(t => IsEligibleForScene(t)));
+                FilterSceneEligibleBatchCandidates(allTests));
             eligible = PrepareBatchFlightRestoreExecution(eligible);
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
@@ -273,8 +273,8 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             PerformBetweenRunCleanup("run-category:" + (category ?? "(null)"));
-            var eligible = PrepareBatchExecution(allTests
-                .Where(t => t.Category == category && IsEligibleForScene(t)));
+            var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(
+                allTests.Where(t => t.Category == category)));
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
@@ -288,8 +288,8 @@ namespace Parsek.InGameTests
             preserveBatchFlightBaselineArtifacts = false;
             preservedBatchFlightBaselineReason = null;
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
-            var eligible = PrepareBatchExecutionIncludingFlightRestore(allTests
-                .Where(t => t.Category == category && IsEligibleForScene(t)));
+            var eligible = PrepareBatchExecutionIncludingFlightRestore(
+                FilterSceneEligibleBatchCandidates(allTests.Where(t => t.Category == category)));
             eligible = PrepareBatchFlightRestoreExecution(eligible);
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
@@ -489,6 +489,84 @@ namespace Parsek.InGameTests
         {
             if (test.RequiredScene == InGameTestAttribute.AnyScene) return true;
             return test.RequiredScene == HighLogic.LoadedScene;
+        }
+
+        internal static string FormatSceneEligibilitySkipSummary(
+            int skipped,
+            GameScenes currentScene,
+            IDictionary<GameScenes, int> skippedByRequiredScene)
+        {
+            var parts = new List<string>();
+            if (skippedByRequiredScene != null)
+            {
+                foreach (var kvp in skippedByRequiredScene.OrderBy(kvp => kvp.Key.ToString()))
+                    parts.Add(kvp.Key + ":" + kvp.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            string byScene = parts.Count > 0 ? string.Join(",", parts) : "(none)";
+            return string.Format(CultureInfo.InvariantCulture,
+                "Scene eligibility skip summary: skipped={0} currentScene={1} byRequiredScene={2}",
+                skipped,
+                currentScene,
+                byScene);
+        }
+
+        internal List<InGameTestInfo> FilterSceneEligibleBatchCandidates(
+            IEnumerable<InGameTestInfo> tests)
+        {
+            int skipped;
+            Dictionary<GameScenes, int> skippedByRequiredScene;
+            var eligible = FilterSceneEligibleBatchCandidates(
+                tests,
+                HighLogic.LoadedScene,
+                out skipped,
+                out skippedByRequiredScene);
+            if (skipped > 0)
+            {
+                ParsekLog.Info(Tag,
+                    FormatSceneEligibilitySkipSummary(
+                        skipped,
+                        HighLogic.LoadedScene,
+                        skippedByRequiredScene));
+            }
+
+            return eligible;
+        }
+
+        internal static List<InGameTestInfo> FilterSceneEligibleBatchCandidates(
+            IEnumerable<InGameTestInfo> tests,
+            GameScenes currentScene,
+            out int skipped,
+            out Dictionary<GameScenes, int> skippedByRequiredScene)
+        {
+            skipped = 0;
+            skippedByRequiredScene = new Dictionary<GameScenes, int>();
+            var eligible = new List<InGameTestInfo>();
+            if (tests == null)
+                return eligible;
+
+            foreach (var test in tests)
+            {
+                if (test == null)
+                    continue;
+
+                if (test.RequiredScene == InGameTestAttribute.AnyScene
+                    || test.RequiredScene == currentScene)
+                {
+                    eligible.Add(test);
+                    continue;
+                }
+
+                test.Status = TestStatus.Skipped;
+                test.ErrorMessage = $"Requires {test.RequiredScene} scene";
+                test.DurationMs = 0f;
+                skipped++;
+                int count;
+                skippedByRequiredScene.TryGetValue(test.RequiredScene, out count);
+                skippedByRequiredScene[test.RequiredScene] = count + 1;
+            }
+
+            return eligible;
         }
 
         internal static List<InGameTestInfo> OrderForBatchExecution(IEnumerable<InGameTestInfo> tests)
@@ -737,6 +815,8 @@ namespace Parsek.InGameTests
         {
             isRunning = true;
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
+            int sceneEligibilitySkipped = 0;
+            var sceneEligibilitySkipsByRequiredScene = new Dictionary<GameScenes, int>();
 
             foreach (var test in tests)
             {
@@ -755,6 +835,12 @@ namespace Parsek.InGameTests
                 {
                     test.Status = TestStatus.Skipped;
                     test.ErrorMessage = $"Requires {test.RequiredScene} scene";
+                    sceneEligibilitySkipped++;
+                    int count;
+                    sceneEligibilitySkipsByRequiredScene.TryGetValue(test.RequiredScene, out count);
+                    sceneEligibilitySkipsByRequiredScene[test.RequiredScene] = count + 1;
+                    ParsekLog.Verbose(Tag,
+                        $"Scene eligibility skipped: {test.Name} requires={test.RequiredScene} current={HighLogic.LoadedScene}");
                     RecountResults();
                     continue;
                 }
@@ -781,6 +867,14 @@ namespace Parsek.InGameTests
             preserveBatchFlightBaselineArtifacts = false;
             preservedBatchFlightBaselineReason = null;
             activeTestCoroutine = null;
+            if (sceneEligibilitySkipped > 0)
+            {
+                ParsekLog.Info(Tag,
+                    FormatSceneEligibilitySkipSummary(
+                        sceneEligibilitySkipped,
+                        HighLogic.LoadedScene,
+                        sceneEligibilitySkipsByRequiredScene));
+            }
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
                 $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {considered})");

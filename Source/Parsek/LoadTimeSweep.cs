@@ -506,6 +506,7 @@ namespace Parsek
 
                 RewindPointReaper.TryDeleteQuicksaveFile(rp);
                 scenario.RewindPoints.RemoveAt(i);
+                RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
                 RewindPointReaper.ClearBranchPointBackref(rp);
                 ParsekLog.Info(RewindTag,
                     $"Purged session-prov rp={rp.RewindPointId ?? "<no-id>"} " +

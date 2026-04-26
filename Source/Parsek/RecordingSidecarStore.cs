@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace Parsek
@@ -14,12 +15,17 @@ namespace Parsek
         {
             if (rec == null)
             {
-                Log("[Parsek] WARNING: SaveRecordingFiles called with null recording");
+                if (!RecordingStore.SuppressLogging)
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles called with null recording saveFolder='{SafeSaveFolderForSidecarLog()}'");
                 return false;
             }
             if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
             {
-                Log($"[Parsek] WARNING: SaveRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
+                if (!RecordingStore.SuppressLogging)
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles rejected invalid recording id '{rec.RecordingId}' " +
+                        $"saveFolder='{SafeSaveFolderForSidecarLog()}'");
                 return false;
             }
 
@@ -28,7 +34,10 @@ namespace Parsek
                 string dir = RecordingPaths.EnsureRecordingsDirectory();
                 if (dir == null)
                 {
-                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve recordings directory for {rec.RecordingId}");
+                    if (!RecordingStore.SuppressLogging)
+                        ParsekLog.Warn("RecordingStore",
+                            $"SaveRecordingFiles could not resolve recordings directory " +
+                            $"{FormatSidecarContext(rec)}");
                     return false;
                 }
 
@@ -37,7 +46,10 @@ namespace Parsek
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(precPath))
                 {
-                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve trajectory path for {rec.RecordingId}");
+                    if (!RecordingStore.SuppressLogging)
+                        ParsekLog.Warn("RecordingStore",
+                            $"SaveRecordingFiles could not resolve trajectory path " +
+                            $"{FormatSidecarContext(rec)} fileKind=trajectory");
                     return false;
                 }
 
@@ -46,7 +58,10 @@ namespace Parsek
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(vesselPath))
                 {
-                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve vessel snapshot path for {rec.RecordingId}");
+                    if (!RecordingStore.SuppressLogging)
+                        ParsekLog.Warn("RecordingStore",
+                            $"SaveRecordingFiles could not resolve vessel snapshot path " +
+                            $"{FormatSidecarContext(rec)} fileKind=vessel");
                     return false;
                 }
                 // Bug #278 follow-up (PR #177, defense-in-depth): do NOT delete an
@@ -71,7 +86,10 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] Failed to save recording files for {rec.RecordingId}: {ex.Message}");
+                if (!RecordingStore.SuppressLogging)
+                    ParsekLog.Error("RecordingStore",
+                        $"SaveRecordingFiles failed before staging {FormatSidecarContext(rec)} " +
+                        $"ex={FormatExceptionForSidecarLog(ex)}");
                 return false;
             }
         }
@@ -113,6 +131,30 @@ namespace Parsek
             ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
                 rec, precPath, vesselPath, ghostPath, RecordingStore.GetExpectedGhostSnapshotMode(rec));
             return !summary.Failed;
+        }
+
+        internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
+        {
+            if (rec == null) return false;
+            if (!rec.SidecarLoadFailed) return false;
+
+            int pointCount = rec.Points?.Count ?? 0;
+            int orbitSegCount = rec.OrbitSegments?.Count ?? 0;
+            int trackSectionCount = rec.TrackSections?.Count ?? 0;
+            int partEventCount = rec.PartEvents?.Count ?? 0;
+            int flagEventCount = rec.FlagEvents?.Count ?? 0;
+            int segmentEventCount = rec.SegmentEvents?.Count ?? 0;
+            bool hasVessel = rec.VesselSnapshot != null;
+            bool hasGhost = rec.GhostVisualSnapshot != null;
+
+            return pointCount == 0
+                && orbitSegCount == 0
+                && trackSectionCount == 0
+                && partEventCount == 0
+                && flagEventCount == 0
+                && segmentEventCount == 0
+                && !hasVessel
+                && !hasGhost;
         }
 
         private static void ReconcileReadableSidecarMirrorsForRecordingSet(
@@ -187,6 +229,30 @@ namespace Parsek
         private static bool SaveRecordingFilesToPathsInternal(
             Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch)
         {
+            // Bug #585 follow-up: do NOT clobber a stale-sidecar .prec with empty
+            // in-memory state. See ShouldSkipSaveToPreserveStaleSidecar for the
+            // full rationale. The recording stays FilesDirty so future saves
+            // continue to no-op (avoiding a silent stale-state-write race if the
+            // hydration ever recovers later in the session). The on-disk .prec
+            // and snapshots are preserved untouched, including the existing
+            // SidecarEpoch — they remain authoritative until either the recorder
+            // rebinds (TryRestoreActiveTreeNode salvage path clears the flag) or
+            // the user invokes a destructive recording-deletion path.
+            if (ShouldSkipSaveToPreserveStaleSidecar(rec))
+            {
+                if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles: skipping write for {rec.RecordingId} " +
+                        $"(SidecarLoadFailed=True reason='{rec.SidecarLoadFailureReason ?? "<none>"}' " +
+                        $"in-memory state empty) — preserving on-disk .prec to avoid data loss " +
+                        $"(bug #585 follow-up: empty-state save would clobber stale-sidecar .prec)");
+                }
+                // Leave FilesDirty unchanged so subsequent OnSave passes will
+                // re-evaluate and skip again until the flag is cleared.
+                return true;
+            }
+
             int originalSidecarEpoch = rec.SidecarEpoch;
             GhostSnapshotMode originalGhostSnapshotMode = rec.GhostSnapshotMode;
             GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
@@ -220,7 +286,14 @@ namespace Parsek
                 {
                     if (string.IsNullOrEmpty(ghostPath))
                     {
-                        Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
+                        if (!RecordingStore.SuppressLogging)
+                        {
+                            ParsekLog.Warn("RecordingStore",
+                                $"SaveRecordingFiles could not resolve ghost snapshot path " +
+                                $"{FormatSidecarContext(rec, ghostSnapshotMode)} fileKind=ghost " +
+                                $"trajectoryPath='{FormatPathForSidecarLog(precPath)}' " +
+                                $"vesselPath='{FormatPathForSidecarLog(vesselPath)}'");
+                        }
                     }
                     else
                     {
@@ -276,12 +349,22 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                SidecarFileCommitBatch.CleanupStagedArtifacts(changes);
+                SidecarFileCommitBatch.CleanupStagedArtifacts(changes, () => RecordingStore.SuppressLogging);
                 // Keep .sfs metadata authoritative if the sidecar write set did not
                 // complete after an OnSave-triggered epoch bump.
                 rec.SidecarEpoch = originalSidecarEpoch;
                 rec.GhostSnapshotMode = originalGhostSnapshotMode;
-                Log($"[Parsek] Failed to save recording files for {rec.RecordingId}: {ex.Message}");
+                string failureContext = FormatSidecarContext(rec, rec.GhostSnapshotMode);
+                if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Error("RecordingStore",
+                        $"SaveRecordingFiles failed: {failureContext} " +
+                        $"incrementEpoch={incrementEpoch} stagedFiles={changes.Count} " +
+                        $"trajectoryPath='{FormatPathForSidecarLog(precPath)}' " +
+                        $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
+                        $"ghostPath='{FormatPathForSidecarLog(ghostPath)}' " +
+                        $"ex={FormatExceptionForSidecarLog(ex)}");
+                }
                 return false;
             }
         }
@@ -398,7 +481,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                SidecarFileCommitBatch.CleanupStagedArtifacts(changes);
+                SidecarFileCommitBatch.CleanupStagedArtifacts(changes, () => RecordingStore.SuppressLogging);
                 InvalidateReadableMirrorFinalFiles(changes);
                 summary.Failed = true;
                 summary.FailureReason = ex.Message;
@@ -422,6 +505,49 @@ namespace Parsek
 
             var settings = ParsekSettings.Current;
             return settings == null || settings.writeReadableSidecarMirrors;
+        }
+
+        private static string FormatSidecarContext(Recording rec)
+        {
+            return FormatSidecarContext(
+                rec,
+                rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
+        }
+
+        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "id={0} saveFolder='{1}' epoch={2} ghostSnapshotMode={3}",
+                rec == null || string.IsNullOrEmpty(rec.RecordingId) ? "<null>" : rec.RecordingId,
+                SafeSaveFolderForSidecarLog(),
+                rec != null ? rec.SidecarEpoch : 0,
+                ghostSnapshotMode);
+        }
+
+        private static string FormatPathForSidecarLog(string path)
+        {
+            return string.IsNullOrEmpty(path) ? "<null>" : path;
+        }
+
+        private static string FormatExceptionForSidecarLog(Exception ex)
+        {
+            if (ex == null)
+                return "<none>";
+
+            return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
+        }
+
+        private static string SafeSaveFolderForSidecarLog()
+        {
+            try
+            {
+                return string.IsNullOrEmpty(HighLogic.SaveFolder) ? "<null>" : HighLogic.SaveFolder;
+            }
+            catch (Exception ex)
+            {
+                return "<error:" + ex.GetType().Name + ">";
+            }
         }
 
         private static void WriteReadableTrajectoryMirror(string path, Recording rec, int sidecarEpoch)

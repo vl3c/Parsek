@@ -45,6 +45,7 @@ namespace Parsek
         // in tests to record each checkpoint; the invoker calls it at key
         // points during the §6.3 step 4 phase 1+2 critical section.
         internal static Action<string> CheckpointHookForTesting;
+        internal static Func<RewindPoint, string> ResolveAbsoluteQuicksavePathOverrideForTesting;
 
         /// <summary>
         /// Returns <c>true</c> if the Rewind button for <paramref name="rp"/>
@@ -61,6 +62,13 @@ namespace Parsek
         /// the .sfs every frame.
         /// </summary>
         internal static bool CanInvoke(RewindPoint rp, out string reason)
+        {
+            bool canInvoke = EvaluateCanInvoke(rp, out reason);
+            LogCanInvokeDecision(rp, canInvoke, reason);
+            return canInvoke;
+        }
+
+        private static bool EvaluateCanInvoke(RewindPoint rp, out string reason)
         {
             if (rp == null)
             {
@@ -127,6 +135,75 @@ namespace Parsek
 
             reason = null;
             return true;
+        }
+
+        private static void LogCanInvokeDecision(RewindPoint rp, bool canInvoke, string reason)
+        {
+            string rpId = GetRewindPointIdForLog(rp);
+            string normalizedReason = string.IsNullOrEmpty(reason) ? "<none>" : reason;
+            string identity = "CanInvoke|" + rpId;
+            string stateKey = canInvoke ? "enabled" : "disabled|" + normalizedReason;
+            string quicksave = rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename)
+                ? "<none>"
+                : rp.QuicksaveFilename;
+            string absoluteQuicksave = null;
+            if (rp != null && !string.IsNullOrEmpty(rp.QuicksaveFilename))
+            {
+                try { absoluteQuicksave = ResolveAbsoluteQuicksavePath(rp); }
+                catch (Exception ex) { absoluteQuicksave = "<resolve-error:" + ex.GetType().Name + ">"; }
+            }
+
+            ParsekLog.VerboseOnChange(
+                InvokeTag,
+                identity,
+                stateKey,
+                canInvoke
+                    ? $"CanInvoke: enabled rp={rpId} scene={SafeLoadedSceneForCanInvokeLog()} " +
+                      $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}'"
+                    : $"CanInvoke: disabled rp={rpId} reason='{normalizedReason}' " +
+                      $"scene={SafeLoadedSceneForCanInvokeLog()} corrupted={FormatNullableBool(rp?.Corrupted)} " +
+                      $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}' " +
+                      $"pendingInvoke={RewindInvokeContext.Pending} activeSession={FormatActiveSessionForCanInvokeLog()}");
+        }
+
+        private static string GetRewindPointIdForLog(RewindPoint rp)
+        {
+            if (rp == null)
+                return "<null>";
+            return string.IsNullOrEmpty(rp.RewindPointId) ? "<no-id>" : rp.RewindPointId;
+        }
+
+        private static string FormatCanInvokePath(string path)
+        {
+            return string.IsNullOrEmpty(path) ? "<none>" : path;
+        }
+
+        private static string FormatNullableBool(bool? value)
+        {
+            return value.HasValue ? value.Value.ToString() : "<null>";
+        }
+
+        private static string SafeLoadedSceneForCanInvokeLog()
+        {
+            try { return HighLogic.LoadedScene.ToString(); }
+            catch (Exception ex) { return "<scene-error:" + ex.GetType().Name + ">"; }
+        }
+
+        private static string FormatActiveSessionForCanInvokeLog()
+        {
+            try
+            {
+                var scenario = ParsekScenario.Instance;
+                if (object.ReferenceEquals(null, scenario) || scenario.ActiveReFlySessionMarker == null)
+                    return "none";
+
+                string sessionId = scenario.ActiveReFlySessionMarker.SessionId;
+                return string.IsNullOrEmpty(sessionId) ? "<no-session>" : sessionId;
+            }
+            catch (Exception ex)
+            {
+                return "<session-error:" + ex.GetType().Name + ">";
+            }
         }
 
         /// <summary>
@@ -883,6 +960,8 @@ namespace Parsek
         {
             if (rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename))
                 return null;
+            if (ResolveAbsoluteQuicksavePathOverrideForTesting != null)
+                return ResolveAbsoluteQuicksavePathOverrideForTesting(rp);
             return RecordingPaths.ResolveSaveScopedPath(rp.QuicksaveFilename);
         }
 
@@ -962,7 +1041,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAloneNames"/>
+        /// After a successful Strip, cross-reference <see cref="PostLoadStripResult.LeftAlonePidNames"/>
         /// against the committed-recording vessel names in the scenario's
         /// trees. A match means the player has a pre-existing quicksave
         /// vessel sharing a name with a recording in the active tree — they
@@ -970,25 +1049,262 @@ namespace Parsek
         /// for a second ghost. WARN-log + ScreenMessage so the situation is
         /// diagnosable without reading KSP.log.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Three playtest-driven bug fixes are layered into this helper:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description>
+        /// <see cref="PostLoadStripper.FindTreeNameCollisions"/> dedupes by
+        /// name, so 3 actual <c>Kerbal X Debris</c> instances were summarized
+        /// as <c>Strip left 1 pre-existing vessel(s)</c> — wrong instance
+        /// count. Fixed by reporting vessel-instance and unique-name counts
+        /// separately.
+        /// </description></item>
+        /// <item><description>
+        /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/> runs
+        /// before this WARN and may have killed every colliding vessel via
+        /// <see cref="Vessel.Die"/>; the WARN still emitted because it read
+        /// the original pre-kill <c>LeftAloneNames</c> list, falsely
+        /// reporting collisions that no longer exist. Fixed by re-checking
+        /// pid liveness against <see cref="FlightGlobals.Vessels"/> before
+        /// counting.
+        /// </description></item>
+        /// <item><description>
+        /// PR #577 P2 review: a name-only re-survey of <c>FlightGlobals.Vessels</c>
+        /// counts EVERY live vessel whose name lands in the colliding set —
+        /// including the actively re-flown vessel (<c>SelectedPid</c>),
+        /// any vessel the strip just killed but whose death event hasn't
+        /// drained from the list, and ghost ProtoVessels created by
+        /// <see cref="GhostMapPresence"/>. Any of those producing a name
+        /// collision would re-introduce the misleading WARN this very fix
+        /// is trying to suppress. Fixed by scoping the resurvey to the
+        /// (pid, name) pairs the stripper actually left alone, and
+        /// belt-and-suspenders excluding <c>SelectedPid</c>,
+        /// <c>StrippedPids</c>, and any pid that
+        /// <see cref="GhostMapPresence.IsGhostMapVessel(uint)"/> reports.
+        /// </description></item>
+        /// </list>
+        /// </remarks>
         internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
         {
-            if (stripResult.LeftAloneNames == null || stripResult.LeftAloneNames.Count == 0)
+            if (stripResult.LeftAlonePidNames == null || stripResult.LeftAlonePidNames.Count == 0)
                 return;
 
+            // Project to names for the tree-collision intersection. This is
+            // still a name-keyed match against committed recordings — the
+            // pid scope only constrains the live-survey step downstream.
             IEnumerable<string> treeNames = EnumerateCommittedVesselNames();
             var collisions = PostLoadStripper.FindTreeNameCollisions(
-                stripResult.LeftAloneNames, treeNames);
+                ProjectLeftAloneNames(stripResult.LeftAlonePidNames), treeNames);
             if (collisions == null || collisions.Count == 0)
                 return;
 
-            string joined = string.Join(", ", collisions.ToArray());
+            // PR #577 P2 review: do NOT walk the full live FlightGlobals list
+            // when counting survivors. Instead, take the (pid, name) pairs
+            // the stripper deliberately left alone (the only set that can
+            // legitimately produce a "Strip left N" survivor) and
+            // belt-and-suspenders strip out the active re-fly vessel,
+            // freshly-stripped pids, and any GhostMap ProtoVessel pid.
+            var collisionSet = new HashSet<string>(collisions, StringComparer.Ordinal);
+            HashSet<uint> liveVesselPids = SnapshotLiveVesselPids();
+            var survey = SurveyLiveLeftAloneCollisions(
+                stripResult.LeftAlonePidNames,
+                collisionSet,
+                liveVesselPids,
+                stripResult.SelectedPid,
+                stripResult.StrippedPids,
+                static pid => GhostMapPresence.IsGhostMapVessel(pid));
+            EmitStripLeftAloneWarn(collisions, survey);
+        }
+
+        /// <summary>
+        /// Pure helper: emit the strip-left-alone diagnostic and the matching
+        /// player toast based on a live-vessel survey result. Split out so
+        /// unit tests can exercise the message format without
+        /// <see cref="FlightGlobals"/> wiring.
+        /// </summary>
+        internal static void EmitStripLeftAloneWarn(
+            List<string> collidingNames,
+            LeftAloneSurveyResult survey)
+        {
+            if (collidingNames == null || collidingNames.Count == 0)
+                return;
+            int liveVesselCount = survey.LiveCollidingVesselCount;
+            if (liveVesselCount <= 0)
+            {
+                // Post-supplement kill drained every match (or every
+                // surviving leftAlone pid was excluded as the active re-fly
+                // vessel / freshly stripped / a ghost ProtoVessel). Verbose
+                // is the right tier for a "nothing to warn about"
+                // diagnostic — keeps a trail without pretending there is
+                // an issue.
+                ParsekLog.Verbose(InvokeTag,
+                    $"Strip left no live pre-existing vessel(s) whose name matches a tree recording " +
+                    $"(post-supplement kill drained the colliding set): collidingNames={collidingNames.Count} " +
+                    $"[{string.Join(", ", collidingNames.ToArray())}] " +
+                    $"(leftAlonePidsAlive={survey.LeftAlonePidsAliveCount} " +
+                    $"excludedSelected={survey.ExcludedSelectedCount} " +
+                    $"excludedStripped={survey.ExcludedStrippedCount} " +
+                    $"excludedGhostMap={survey.ExcludedGhostMapCount})");
+                return;
+            }
+
+            var stillPresentNames = survey.StillPresentNames ?? new List<string>();
+            string joinedLiveNames = string.Join(", ", stillPresentNames.ToArray());
             ParsekLog.Warn(InvokeTag,
-                $"Strip left {collisions.Count} pre-existing vessel(s) whose name matches a " +
-                $"tree recording: [{joined}] — not related to the re-fly, will appear as " +
-                $"second Kerbal X-shaped object in scene");
+                $"Strip left vessels={liveVesselCount} collidingNames={stillPresentNames.Count} " +
+                $"(leftAlonePidsAlive={survey.LeftAlonePidsAliveCount} " +
+                $"excludedSelected={survey.ExcludedSelectedCount} " +
+                $"excludedStripped={survey.ExcludedStrippedCount} " +
+                $"excludedGhostMap={survey.ExcludedGhostMapCount}) " +
+                $"pre-existing vessel(s) whose name matches a tree recording: [{joinedLiveNames}] — not " +
+                $"related to the re-fly, will appear as second Kerbal X-shaped object in scene");
             ShowUserError(
-                $"Heads up: pre-existing vessel(s) [{joined}] share a name with your re-fly " +
+                $"Heads up: pre-existing vessel(s) [{joinedLiveNames}] share a name with your re-fly " +
                 $"tree. Any second Kerbal X in scene is NOT a Parsek ghost — it predates the rewind.");
+        }
+
+        /// <summary>
+        /// Result of <see cref="SurveyLiveLeftAloneCollisions"/>: the
+        /// post-supplement, defense-filtered survivor count plus exclusion
+        /// counters that ride along into the structured log.
+        /// </summary>
+        internal struct LeftAloneSurveyResult
+        {
+            /// <summary>Total leftAlone vessel instances still alive AND in the colliding-name set.</summary>
+            public int LiveCollidingVesselCount;
+
+            /// <summary>Distinct names that still have at least one live colliding instance.</summary>
+            public List<string> StillPresentNames;
+
+            /// <summary>Count of leftAlone pids still in <see cref="FlightGlobals.Vessels"/> after defensive exclusions.</summary>
+            public int LeftAlonePidsAliveCount;
+
+            /// <summary>Count of leftAlone entries excluded because they matched <see cref="PostLoadStripResult.SelectedPid"/>.</summary>
+            public int ExcludedSelectedCount;
+
+            /// <summary>Count of leftAlone entries excluded because they matched <see cref="PostLoadStripResult.StrippedPids"/>.</summary>
+            public int ExcludedStrippedCount;
+
+            /// <summary>Count of leftAlone entries excluded because <see cref="GhostMapPresence.IsGhostMapVessel(uint)"/> returned true.</summary>
+            public int ExcludedGhostMapCount;
+        }
+
+        /// <summary>
+        /// Pure helper: walk the leftAlone (pid, name) pairs from
+        /// <see cref="PostLoadStripResult.LeftAlonePidNames"/>, drop entries
+        /// matching the selected/stripped/ghost-map exclusion sets, then
+        /// intersect the survivors with the colliding-name set against the
+        /// live-pid snapshot. Yields the per-name instance count and the
+        /// exclusion counters used in the WARN's structured payload.
+        /// </summary>
+        /// <param name="leftAlonePidNames">The (pid, name) pairs the stripper left alone.</param>
+        /// <param name="collisionNames">Names that match a committed-recording in the re-fly tree.</param>
+        /// <param name="liveVesselPids">Pids currently in <c>FlightGlobals.Vessels</c>.</param>
+        /// <param name="selectedPid">PR #577 P2 defense: the actively re-flown vessel pid is never a "leftover".</param>
+        /// <param name="strippedPids">PR #577 P2 defense: pids the stripper just killed (death may lag the live list by a frame).</param>
+        /// <param name="isGhostMapVessel">PR #577 P2 defense: GhostMap ProtoVessel pid predicate (delegate-injected for unit tests).</param>
+        internal static LeftAloneSurveyResult SurveyLiveLeftAloneCollisions(
+            IReadOnlyList<(uint pid, string name)> leftAlonePidNames,
+            HashSet<string> collisionNames,
+            HashSet<uint> liveVesselPids,
+            uint selectedPid,
+            IList<uint> strippedPids,
+            Func<uint, bool> isGhostMapVessel)
+        {
+            var result = new LeftAloneSurveyResult
+            {
+                LiveCollidingVesselCount = 0,
+                StillPresentNames = new List<string>(),
+                LeftAlonePidsAliveCount = 0,
+                ExcludedSelectedCount = 0,
+                ExcludedStrippedCount = 0,
+                ExcludedGhostMapCount = 0,
+            };
+            if (leftAlonePidNames == null || leftAlonePidNames.Count == 0)
+                return result;
+
+            HashSet<uint> strippedSet = null;
+            if (strippedPids != null && strippedPids.Count > 0)
+            {
+                strippedSet = new HashSet<uint>();
+                for (int i = 0; i < strippedPids.Count; i++) strippedSet.Add(strippedPids[i]);
+            }
+
+            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < leftAlonePidNames.Count; i++)
+            {
+                var (pid, name) = leftAlonePidNames[i];
+                if (pid == 0u) continue;
+                if (string.IsNullOrEmpty(name)) continue;
+
+                // Defensive exclusions (PR #577 P2 review). All three are
+                // belt-and-suspenders: the stripper does not put any of these
+                // pids into LeftAlonePidNames in the first place. But if a
+                // future code path leaks one in — e.g. selected slot match
+                // ambiguity, or strip ordering with a delayed Die() — these
+                // explicit filters keep the WARN honest.
+                if (selectedPid != 0u && pid == selectedPid)
+                {
+                    result.ExcludedSelectedCount++;
+                    continue;
+                }
+                if (strippedSet != null && strippedSet.Contains(pid))
+                {
+                    result.ExcludedStrippedCount++;
+                    continue;
+                }
+                if (isGhostMapVessel != null && isGhostMapVessel(pid))
+                {
+                    result.ExcludedGhostMapCount++;
+                    continue;
+                }
+
+                // Liveness check: is this leftAlone pid still in the live
+                // vessel list? StripPreExistingDebrisForInPlaceContinuation
+                // may have killed it between Strip and this WARN.
+                if (liveVesselPids == null || !liveVesselPids.Contains(pid))
+                    continue;
+
+                result.LeftAlonePidsAliveCount++;
+
+                if (collisionNames == null || !collisionNames.Contains(name))
+                    continue;
+
+                result.LiveCollidingVesselCount++;
+                if (seenNames.Add(name)) result.StillPresentNames.Add(name);
+            }
+            return result;
+        }
+
+        private static IEnumerable<string> ProjectLeftAloneNames(
+            IList<(uint pid, string name)> leftAlonePidNames)
+        {
+            if (leftAlonePidNames == null) yield break;
+            for (int i = 0; i < leftAlonePidNames.Count; i++)
+            {
+                string n = leftAlonePidNames[i].name;
+                if (!string.IsNullOrEmpty(n)) yield return n;
+            }
+        }
+
+        private static HashSet<uint> SnapshotLiveVesselPids()
+        {
+            var pids = new HashSet<uint>();
+            IList<Vessel> liveVessels;
+            try { liveVessels = FlightGlobals.Vessels; }
+            catch { liveVessels = null; }
+            if (liveVessels == null) return pids;
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                var v = liveVessels[i];
+                if (v == null) continue;
+                uint pid = 0u;
+                try { pid = v.persistentId; } catch { /* defensive */ }
+                if (pid != 0u) pids.Add(pid);
+            }
+            return pids;
         }
 
         private static IEnumerable<string> EnumerateCommittedVesselNames()
@@ -1042,11 +1358,24 @@ namespace Parsek
         /// <param name="trees">Committed trees from <c>RecordingStore.CommittedTrees</c>.</param>
         /// <param name="leftAlonePids">Pids of left-alone vessels with their names.</param>
         /// <param name="protectedPids">Pids that must NOT be killed (selected vessel + marker active).</param>
+        /// <param name="sessionSuppressedRecordingIds">Recording ids in the
+        /// session-suppressed subtree (typically
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>'s
+        /// result for the live marker). Bug #587 follow-up: the original
+        /// fix only killed leftovers matching <c>Destroyed</c>-terminal
+        /// recordings, but the 2026-04-25 playtest captured a non-Destroyed
+        /// pre-existing vessel in the supersede subtree (a phantom that
+        /// would be replaced by the re-fly's new tail) being kept alive in
+        /// scene. Names of recordings in the suppressed subtree are now
+        /// also kill-eligible. Pass <c>null</c> in tests when only the
+        /// Destroyed-terminal predicate is exercised — backwards-compatible
+        /// with the original signature.</param>
         internal static List<uint> ResolveInPlaceContinuationDebrisToKill(
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<(uint pid, string vesselName)> leftAlonePids,
-            HashSet<uint> protectedPids)
+            HashSet<uint> protectedPids,
+            IReadOnlyCollection<string> sessionSuppressedRecordingIds = null)
         {
             var kill = new List<uint>();
             if (marker == null) return kill;
@@ -1075,16 +1404,58 @@ namespace Parsek
             }
             if (markerTree == null) return kill;
 
-            // Build the Destroyed-terminal name set.
-            var destroyedNames = new HashSet<string>(StringComparer.Ordinal);
+            // Hoist the suppressed-subtree input into a local HashSet for O(1)
+            // membership checks. EffectiveState.ComputeSessionSuppressedSubtree
+            // returns a defensive HashSet copy; tests pass a HashSet or array.
+            // The local rebuild also handles the IReadOnlyCollection-without-
+            // Contains-method case at no measurable cost (subtree size is
+            // typically <10 ids).
+            HashSet<string> suppressedSet = null;
+            if (sessionSuppressedRecordingIds != null && sessionSuppressedRecordingIds.Count > 0)
+            {
+                suppressedSet = new HashSet<string>(sessionSuppressedRecordingIds, StringComparer.Ordinal);
+            }
+
+            // Build the kill-eligible name set: Destroyed-terminal recordings
+            // (the original #587 predicate) PLUS any recording in the
+            // session-suppressed subtree (#587 follow-up). Suppressed-subtree
+            // recordings are being superseded by the in-place continuation —
+            // any pre-existing vessel matching one of their names is a phantom
+            // from the old timeline that the re-fly is overwriting, and would
+            // produce the "second Kerbal X-shaped object" the user sees.
+            //
+            // CRITICAL: never add the active Re-Fly target's vessel name to
+            // the kill set. The active recording is itself the head of the
+            // suppressed subtree, so it would otherwise be picked up by the
+            // suppressed-subtree predicate. The protected-pids check below
+            // already shields the LIVE vessel, but a duplicate-name vessel
+            // (rare but possible) would still slip through if the name made
+            // it into the eligible set. Drop the active rec early.
+            var killEligibleNames = new HashSet<string>(StringComparer.Ordinal);
+            int destroyedTerminalNames = 0;
+            int suppressedSubtreeNames = 0;
             foreach (var rec in markerTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                if (rec.TerminalStateValue != TerminalState.Destroyed) continue;
                 if (string.IsNullOrEmpty(rec.VesselName)) continue;
-                destroyedNames.Add(rec.VesselName);
+                if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                        StringComparison.Ordinal))
+                    continue; // never kill by the active Re-Fly target's name
+
+                bool destroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
+                bool inSuppressedSubtree = suppressedSet != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && suppressedSet.Contains(rec.RecordingId);
+
+                if (!destroyedTerminal && !inSuppressedSubtree) continue;
+
+                if (killEligibleNames.Add(rec.VesselName))
+                {
+                    if (destroyedTerminal) destroyedTerminalNames++;
+                    if (inSuppressedSubtree) suppressedSubtreeNames++;
+                }
             }
-            if (destroyedNames.Count == 0) return kill;
+            if (killEligibleNames.Count == 0) return kill;
 
             for (int i = 0; i < leftAlonePids.Count; i++)
             {
@@ -1092,9 +1463,19 @@ namespace Parsek
                 if (pid == 0u) continue;
                 if (string.IsNullOrEmpty(name)) continue;
                 if (protectedPids != null && protectedPids.Contains(pid)) continue;
-                if (!destroyedNames.Contains(name)) continue;
+                if (!killEligibleNames.Contains(name)) continue;
                 kill.Add(pid);
             }
+
+            if (kill.Count > 0 && !ParsekLog.SuppressLogging)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"ResolveInPlaceContinuationDebrisToKill: matched {kill.Count} pid(s) " +
+                    $"against {killEligibleNames.Count} kill-eligible name(s) " +
+                    $"(destroyedTerminal={destroyedTerminalNames} suppressedSubtree={suppressedSubtreeNames}) " +
+                    $"in tree '{markerTree.Id}'");
+            }
+
             return kill;
         }
 
@@ -1208,11 +1589,31 @@ namespace Parsek
                 }
             }
 
+            // Bug #587 follow-up: also broaden the kill set to recording names in
+            // the session-suppressed subtree (recordings being superseded by this
+            // in-place continuation). The original predicate only killed
+            // Destroyed-terminal name matches; the 2026-04-25 playtest caught a
+            // non-Destroyed pre-existing vessel surviving the strip and showing up
+            // as a clickable "doubled" copy of the booster's upper stage. The
+            // suppressed-subtree closure is the authoritative scope of "this
+            // re-fly is overwriting these recordings", so any matching real
+            // vessel from the old timeline is phantom and should be cleaned up.
+            IReadOnlyCollection<string> suppressedSubtree;
+            try { suppressedSubtree = EffectiveState.ComputeSessionSuppressedSubtree(marker); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"StripPreExistingDebrisForInPlaceContinuation: ComputeSessionSuppressedSubtree threw " +
+                    $"({ex.GetType().Name}: {ex.Message}) — falling back to Destroyed-terminal-only kill set");
+                suppressedSubtree = null;
+            }
+
             var kill = ResolveInPlaceContinuationDebrisToKill(
                 marker,
                 RecordingStore.CommittedTrees,
                 leftAlonePidNames,
-                protectedPids);
+                protectedPids,
+                suppressedSubtree);
             if (kill.Count == 0) return;
 
             // Bug #587 follow-up (PR #558 P2 review): snapshot the targets

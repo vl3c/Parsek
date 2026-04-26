@@ -89,6 +89,7 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
+            string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
 
             // Snapshot of eligible RPs + matching indices so we don't mutate
             // while iterating.
@@ -98,6 +99,14 @@ namespace Parsek
             {
                 var rp = rps[i];
                 if (rp == null) continue;
+                if (!string.IsNullOrEmpty(markerRewindPointId)
+                    && string.Equals(rp.RewindPointId, markerRewindPointId, StringComparison.Ordinal))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"ReapOrphanedRPs: keeping marker rp={rp.RewindPointId ?? "<no-id>"} " +
+                        $"while re-fly session {scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} is active");
+                    continue;
+                }
                 if (!IsReapEligible(rp, supersedes))
                     continue;
                 toReap.Add(rp);
@@ -130,6 +139,7 @@ namespace Parsek
 
                 // 2. Remove scenario entry.
                 rps.RemoveAt(idx);
+                RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp?.RewindPointId);
 
                 // 3. Clear BranchPoint back-reference (if any).
                 if (ClearBranchPointBackref(rp))

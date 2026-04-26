@@ -113,13 +113,13 @@ namespace Parsek
             if (!TreeExists(marker.TreeId))
                 return MarkerValidationResult.Invalid(
                     "TreeId",
-                    "checked=TreeId.exists; rejected because TreeId was not found in RecordingStore.CommittedTrees");
+                    "checked=TreeId.exists; rejected because TreeId was not found in RecordingStore.CommittedTrees or PendingTree");
 
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
                 return MarkerValidationResult.Invalid(
                     "ActiveReFlyRecordingId",
                     "checked=ActiveReFlyRecordingId.nonEmpty; rejected because ActiveReFlyRecordingId is empty");
-            var active = FindRecordingById(marker.ActiveReFlyRecordingId);
+            var active = FindRecordingById(marker.ActiveReFlyRecordingId, marker.TreeId);
             if (active == null)
                 return MarkerValidationResult.Invalid(
                     "ActiveReFlyRecordingId",
@@ -129,7 +129,7 @@ namespace Parsek
                 return MarkerValidationResult.Invalid(
                     "OriginChildRecordingId",
                     "checked=OriginChildRecordingId.nonEmpty; rejected because OriginChildRecordingId is empty");
-            var origin = FindRecordingById(marker.OriginChildRecordingId);
+            var origin = FindRecordingById(marker.OriginChildRecordingId, marker.TreeId);
             if (origin == null)
                 return MarkerValidationResult.Invalid(
                     "OriginChildRecordingId",
@@ -206,31 +206,53 @@ namespace Parsek
         private static bool TreeExists(string treeId)
         {
             var trees = RecordingStore.CommittedTrees;
-            if (trees == null) return false;
-            for (int i = 0; i < trees.Count; i++)
+            if (trees != null)
             {
-                var t = trees[i];
-                if (t == null) continue;
-                if (string.Equals(t.Id, treeId, StringComparison.Ordinal))
-                    return true;
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    var t = trees[i];
+                    if (t == null) continue;
+                    if (string.Equals(t.Id, treeId, StringComparison.Ordinal))
+                        return true;
+                }
             }
+
+            var pendingTree = RecordingStore.PendingTree;
+            if (pendingTree != null
+                && string.Equals(pendingTree.Id, treeId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             return false;
         }
 
-        private static Recording FindRecordingById(string recordingId)
+        private static Recording FindRecordingById(string recordingId, string treeId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
             // Allowlisted raw read: the validator MUST see NotCommitted
             // recordings (ERS filters them out).
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
+            if (committed != null)
             {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                        return rec;
+                }
             }
+
+            var pendingTree = RecordingStore.PendingTree;
+            if (pendingTree != null
+                && string.Equals(pendingTree.Id, treeId, StringComparison.Ordinal)
+                && pendingTree.Recordings != null
+                && pendingTree.Recordings.TryGetValue(recordingId, out var pendingRec))
+            {
+                return pendingRec;
+            }
+
             return null;
         }
 

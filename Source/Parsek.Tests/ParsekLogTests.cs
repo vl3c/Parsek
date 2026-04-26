@@ -148,5 +148,160 @@ namespace Parsek.Tests
             Assert.False(ParsekLog.SuppressLogging);
             Assert.Null(ParsekLog.TestObserverForTesting);
         }
+
+        [Fact]
+        public void VerboseOnChange_FirstCallEmits()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "decision A");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] decision A", lines[0]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_StableKey_SuppressesRepeats()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "decision A1");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "decision A2");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "decision A3");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] decision A1", lines[0]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_KeyFlip_ReemitsWithSuppressedCount()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "stable A");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "stable A");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "stable A");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "Segment|ok", "flipped to segment");
+
+            Assert.Equal(2, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] stable A", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] flipped to segment | suppressed=2", lines[1]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_DifferentIdentities_TrackedIndependently()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "A first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-B", "None|threshold", "B first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "None|threshold", "A repeat");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-B", "None|threshold", "B repeat");
+
+            Assert.Equal(2, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] A first", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] B first", lines[1]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_SuppressedCountResetsAfterEmission()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", "first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", "first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", "first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K2", "second");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K2", "second");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", "back to first");
+
+            Assert.Equal(3, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] first", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] second | suppressed=2", lines[1]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] back to first | suppressed=1", lines[2]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_SuppressedWhenVerboseDisabled()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = false;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", "would emit");
+
+            Assert.Empty(lines);
+        }
+
+        [Fact]
+        public void VerboseOnChange_NullStateKeyTreatedAsEmpty()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", null, "first");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", null, "second");
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "", "third");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] first", lines[0]);
+        }
+
+        [Fact]
+        public void VerboseOnChange_EmptyIdentityFallsBackToVerbose()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", null, "K1", "always");
+            ParsekLog.VerboseOnChange("UnitTest", "", "K1", "always");
+
+            Assert.Equal(2, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] always", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] always", lines[1]);
+        }
+
+        [Fact]
+        public void ClearVerboseOnChangeIdentitiesWithPrefix_RemovesOnlyMatchingScope()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 first");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-2|0", "blocked", "rp2 first");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 suppressed");
+
+            Assert.Equal(1, ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix("UnitTest", "slot|rp-1|"));
+
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 after clear");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-2|0", "blocked", "rp2 still suppressed");
+
+            Assert.Equal(3, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp1 first", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp2 first", lines[1]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp1 after clear", lines[2]);
+        }
     }
 }

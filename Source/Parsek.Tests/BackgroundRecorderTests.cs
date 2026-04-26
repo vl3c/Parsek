@@ -232,8 +232,12 @@ namespace Parsek.Tests
             Assert.Equal(2, logLines.FindAll(line =>
                 line.Contains("[VERBOSE][Extrapolator]")
                 && line.Contains("already classified Destroyed at terminalUT=180.0; skipping re-run")).Count);
-            Assert.Equal(2, logLines.FindAll(line =>
-                line.Contains("[INFO][Extrapolator] FinalizerCache refresh summary: owner=BackgroundOnRails reason=test_on_rails recordingsExamined=1 alreadyClassified=1 newlyClassified=0")).Count);
+            // Demoted to Verbose because newlyClassified=0; see
+            // RecordingFinalizationCacheProducer.LogRefreshSummary's
+            // log-hygiene gate (no real classification work happened, just a
+            // "still already destroyed" reaffirmation).
+            Assert.Single(logLines.FindAll(line =>
+                line.Contains("[VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=BackgroundOnRails reason=test_on_rails recordingsExamined=1 alreadyClassified=1 newlyClassified=0")));
         }
 
         [Fact]

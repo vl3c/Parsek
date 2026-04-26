@@ -242,6 +242,7 @@ namespace Parsek
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
+        internal const int PostSwitchManifestDeltaSkipped = -1;
         private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
         internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
@@ -677,6 +678,7 @@ namespace Parsek
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
         private TrajectoryPlaybackFlags[] cachedFlags;
+        private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
 
         #endregion
 
@@ -1396,6 +1398,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
+            ClearGhostSkipReasonLogState();
 
             ui?.Cleanup();
         }
@@ -4796,9 +4799,22 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
                 return;
             }
-            if (pendingSplitInProgress) return; // split must complete first
+            if (pendingSplitInProgress)
+            {
+                LogSplitSkip(
+                    "OnCrewBoardVessel",
+                    "pendingSplitInProgress",
+                    data.from?.vessel?.persistentId ?? 0u,
+                    data.to?.vessel?.persistentId ?? 0u);
+                return; // split must complete first
+            }
             if (data.to?.vessel == null)
             {
+                LogSplitSkip(
+                    "OnCrewBoardVessel",
+                    "target-vessel-null",
+                    data.from?.vessel?.persistentId ?? 0u,
+                    0u);
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: target vessel is null — ignoring");
                 return;
             }
@@ -4820,12 +4836,25 @@ namespace Parsek
             // Mid-recording EVA: tree branch (replaces legacy chain continuation)
             if (IsRecording)
             {
-                if (pendingSplitInProgress) return; // another split is being processed
+                if (pendingSplitInProgress)
+                {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        "pendingSplitInProgress",
+                        data.from?.vessel?.persistentId ?? 0u,
+                        data.to?.vessel?.persistentId ?? 0u);
+                    return; // another split is being processed
+                }
 
                 // Only trigger if EVA is from the vessel we're recording
                 if (data.from?.vessel == null ||
                     data.from.vessel.persistentId != recorder.RecordingVesselId)
                 {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        data.from?.vessel == null ? "source-vessel-null" : "source-vessel-mismatch",
+                        data.from?.vessel?.persistentId ?? 0u,
+                        data.to?.vessel?.persistentId ?? 0u);
                     return;
                 }
 
@@ -4852,7 +4881,14 @@ namespace Parsek
                 autoRecordOnEvaEnabled: ParsekSettings.Current?.autoRecordOnEva != false))
             {
                 if (!hasSourceVessel)
+                {
+                    LogSplitSkip(
+                        "OnCrewOnEva",
+                        "source-vessel-null",
+                        0u,
+                        data.to?.vessel?.persistentId ?? 0u);
                     ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
+                }
                 else
                     ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
                 return;
@@ -4861,6 +4897,31 @@ namespace Parsek
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
             Log($"EVA detected (sit={data.from.vessel.situation}) — pending auto-record");
+        }
+
+        private void LogSplitSkip(string source, string reason, uint sourcePid, uint targetPid)
+        {
+            string activeRecordingId = activeTree?.ActiveRecordingId;
+            string identity = string.Format(CultureInfo.InvariantCulture,
+                "split-skip-{0}-{1}-{2}-{3}",
+                string.IsNullOrEmpty(source) ? "unknown" : source,
+                string.IsNullOrEmpty(activeRecordingId) ? "none" : activeRecordingId,
+                sourcePid,
+                targetPid);
+            string stateKey = string.Format(CultureInfo.InvariantCulture,
+                "{0}|pending={1}",
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                pendingSplitInProgress ? 1 : 0);
+            ParsekLog.VerboseOnChange("Flight",
+                identity,
+                stateKey,
+                FormatSplitSkipSummary(
+                    source,
+                    reason,
+                    activeRecordingId,
+                    sourcePid,
+                    targetPid,
+                    pendingSplitInProgress));
         }
 
         internal static string ExtractEvaKerbalName(GameEvents.FromToAction<Part, Part> data)
@@ -4885,11 +4946,18 @@ namespace Parsek
             if (isRecording)
                 return AutoRecordLaunchDecision.SkipAlreadyRecording;
 
-            if (!isActiveVessel)
-                return AutoRecordLaunchDecision.SkipInactiveVessel;
-
+            // Time-jump transient suppression is checked before the active-vessel guard
+            // so the skip decision (and its INFO log) fires for any vessel whose situation
+            // changes during the jump window — including synthetic spawn vessels that the
+            // playback policy materializes during a Real Spawn Control / Timeline FF jump.
+            // The original #526 bug was an active-vessel `PRELAUNCH -> FLYING` flicker, but
+            // labelling non-active flickers as `SkipInactiveVessel` hid the time-jump origin
+            // and made the in-game canaries unable to confirm the suppression branch fired.
             if (suppressForTimeJumpTransient)
                 return AutoRecordLaunchDecision.SkipTimeJumpTransient;
+
+            if (!isActiveVessel)
+                return AutoRecordLaunchDecision.SkipInactiveVessel;
 
             if (fromSituation == Vessel.Situations.PRELAUNCH)
             {
@@ -5009,6 +5077,99 @@ namespace Parsek
             return needsCacheRefresh || currentUT >= nextManifestEvaluationUt;
         }
 
+        internal static string BuildPostSwitchAutoRecordDecisionStateKey(
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool baselineCaptured,
+            bool waitingForSettle,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "suppression={0}|baseline={1}|settle={2}|trigger={3}",
+                suppression,
+                baselineCaptured ? 1 : 0,
+                waitingForSettle ? 1 : 0,
+                trigger);
+        }
+
+        internal static string BuildPostSwitchManifestDeltaStateKey(
+            int crewDeltaKeys,
+            int resourceDeltaKeys,
+            int inventoryDeltaKeys,
+            int partStateTokenDelta,
+            bool crewChanged,
+            bool resourceChanged,
+            bool partStateChanged)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "crew={0}|resource={1}|inventory={2}|partState={3}|crewChanged={4}|resourceChanged={5}|partStateChanged={6}",
+                FormatPostSwitchManifestDeltaCount(crewDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(resourceDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(inventoryDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(partStateTokenDelta),
+                crewChanged ? 1 : 0,
+                resourceChanged ? 1 : 0,
+                partStateChanged ? 1 : 0);
+        }
+
+        private static string FormatPostSwitchManifestDeltaCount(int count)
+        {
+            return count == PostSwitchManifestDeltaSkipped
+                ? "skipped"
+                : count.ToString(CultureInfo.InvariantCulture);
+        }
+
+        internal static string FormatPostSwitchAutoRecordDecisionSummary(
+            uint armedPid,
+            uint activePid,
+            bool baselineCaptured,
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool waitingForSettle,
+            double comparisonsReadyUt,
+            double currentUt,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch watch decision: pid={0} activePid={1} baseline={2} suppression={3} waitingForSettle={4} readyAt={5:F1} now={6:F1} trigger={7}",
+                armedPid,
+                activePid,
+                baselineCaptured,
+                suppression,
+                waitingForSettle,
+                comparisonsReadyUt,
+                currentUt,
+                trigger);
+        }
+
+        private static void LogPostSwitchAutoRecordDecision(
+            PostSwitchAutoRecordState state,
+            uint activePid,
+            PostSwitchAutoRecordSuppressionReason suppression,
+            bool waitingForSettle,
+            double currentUt,
+            PostSwitchAutoRecordTrigger trigger)
+        {
+            if (state == null)
+                return;
+
+            string stateKey = BuildPostSwitchAutoRecordDecisionStateKey(
+                suppression,
+                state.BaselineCaptured,
+                waitingForSettle,
+                trigger);
+            ParsekLog.VerboseOnChange("Flight",
+                "post-switch-watch-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                stateKey,
+                FormatPostSwitchAutoRecordDecisionSummary(
+                    state.VesselPid,
+                    activePid,
+                    state.BaselineCaptured,
+                    suppression,
+                    waitingForSettle,
+                    state.ComparisonsReadyUt,
+                    currentUt,
+                    trigger));
+        }
+
         internal static bool HasMeaningfulLandedMotionChange(
             double distanceDeltaMeters,
             double speedMetersPerSecond)
@@ -5085,6 +5246,18 @@ namespace Parsek
             return false;
         }
 
+        internal static int CountMeaningfulCrewDelta(Dictionary<string, int> delta)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (entry.Value != 0)
+                    count++;
+            }
+            return count;
+        }
+
         internal static bool HasMeaningfulResourceDelta(
             Dictionary<string, double> delta,
             double epsilon = PostSwitchResourceDeltaEpsilon)
@@ -5098,6 +5271,20 @@ namespace Parsek
             return false;
         }
 
+        internal static int CountMeaningfulResourceDelta(
+            Dictionary<string, double> delta,
+            double epsilon = PostSwitchResourceDeltaEpsilon)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (Math.Abs(entry.Value) > epsilon)
+                    count++;
+            }
+            return count;
+        }
+
         internal static bool HasMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
         {
             if (delta == null) return false;
@@ -5107,6 +5294,18 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        internal static int CountMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
+        {
+            if (delta == null) return 0;
+            int count = 0;
+            foreach (var entry in delta)
+            {
+                if (entry.Value.count != 0 || entry.Value.slotsTaken != 0)
+                    count++;
+            }
+            return count;
         }
 
         internal static bool HasMeaningfulPartStateTokenChange(
@@ -5127,6 +5326,75 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        internal static int CountPartStateTokenDelta(
+            ICollection<string> baselineTokens,
+            ICollection<string> currentTokens)
+        {
+            int baselineCount = baselineTokens != null ? baselineTokens.Count : 0;
+            int currentCount = currentTokens != null ? currentTokens.Count : 0;
+            if (baselineCount == 0)
+                return currentCount;
+            if (currentCount == 0)
+                return baselineCount;
+
+            var baselineSet = baselineTokens as HashSet<string> ?? new HashSet<string>(baselineTokens);
+            var currentSet = currentTokens as HashSet<string> ?? new HashSet<string>(currentTokens);
+            int delta = 0;
+            foreach (string token in currentSet)
+            {
+                if (!baselineSet.Contains(token))
+                    delta++;
+            }
+            foreach (string token in baselineSet)
+            {
+                if (!currentSet.Contains(token))
+                    delta++;
+            }
+            return delta;
+        }
+
+        internal static string FormatPostSwitchManifestDeltaSummary(
+            uint vesselPid,
+            int crewDeltaKeys,
+            int resourceDeltaKeys,
+            int inventoryDeltaKeys,
+            int partStateTokenDelta,
+            bool crewChanged,
+            bool resourceChanged,
+            bool partStateChanged,
+            double nextEvaluationUt)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch manifest delta: pid={0} crewChanged={1} resourceChanged={2} partStateChanged={3} crewDeltaKeys={4} resourceDeltaKeys={5} inventoryDeltaKeys={6} partStateTokenDelta={7} nextEvalUT={8:F1}",
+                vesselPid,
+                crewChanged,
+                resourceChanged,
+                partStateChanged,
+                FormatPostSwitchManifestDeltaCount(crewDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(resourceDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(inventoryDeltaKeys),
+                FormatPostSwitchManifestDeltaCount(partStateTokenDelta),
+                nextEvaluationUt);
+        }
+
+        internal static string FormatSplitSkipSummary(
+            string source,
+            string reason,
+            string activeRecordingId,
+            uint sourcePid,
+            uint targetPid,
+            bool pendingSplitInProgress)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0}: split path skipped reason={1} activeRec={2} sourcePid={3} targetPid={4} pendingSplitInProgress={5}",
+                string.IsNullOrEmpty(source) ? "(unknown)" : source,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                string.IsNullOrEmpty(activeRecordingId) ? "(none)" : activeRecordingId,
+                sourcePid,
+                targetPid,
+                pendingSplitInProgress);
         }
 
         internal static bool HasMeaningfulPartStateChange(IEnumerable<PartEventType> changedTypes)
@@ -5664,21 +5932,66 @@ namespace Parsek
             if (evaluateManifestDiff)
             {
                 ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
-                var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
-                var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
                 var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
-                var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
-                crewChanged = HasMeaningfulCrewDelta(
-                    CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew));
-                resourceChanged = HasMeaningfulResourceDelta(
-                    ResourceManifest.ComputeResourceDelta(state.BaselineResources, currentResources));
-                partStateChanged = HasMeaningfulPartStateTokenChange(
-                    state.BaselinePartStateTokens,
-                    currentPartStateTokens)
-                    || HasMeaningfulInventoryDelta(
-                        InventoryManifest.ComputeInventoryDelta(state.BaselineInventory, currentInventory));
+                var crewDelta = CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew);
+                int crewDeltaKeys = CountMeaningfulCrewDelta(crewDelta);
+                int resourceDeltaKeys = PostSwitchManifestDeltaSkipped;
+                int inventoryDeltaKeys = PostSwitchManifestDeltaSkipped;
+                int partStateTokenDelta = PostSwitchManifestDeltaSkipped;
+                crewChanged = crewDeltaKeys > 0;
+                if (!crewChanged)
+                {
+                    var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                    var resourceDelta = ResourceManifest.ComputeResourceDelta(
+                        state.BaselineResources,
+                        currentResources);
+                    resourceDeltaKeys = CountMeaningfulResourceDelta(resourceDelta);
+                    resourceChanged = resourceDeltaKeys > 0;
+                }
+
+                if (!crewChanged && !resourceChanged)
+                {
+                    var currentPartStateTokens = CapturePostSwitchPartStateTokens(v);
+                    partStateTokenDelta = CountPartStateTokenDelta(
+                        state.BaselinePartStateTokens,
+                        currentPartStateTokens);
+                    if (partStateTokenDelta > 0)
+                    {
+                        partStateChanged = true;
+                    }
+                    else
+                    {
+                        var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                        var inventoryDelta = InventoryManifest.ComputeInventoryDelta(
+                            state.BaselineInventory,
+                            currentInventory);
+                        inventoryDeltaKeys = CountMeaningfulInventoryDelta(inventoryDelta);
+                        partStateChanged = inventoryDeltaKeys > 0;
+                    }
+                }
+
                 state.NextManifestEvaluationUt =
                     currentUT + PostSwitchManifestEvaluationIntervalSeconds;
+                ParsekLog.VerboseOnChange("Flight",
+                    "post-switch-manifest-delta-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                    BuildPostSwitchManifestDeltaStateKey(
+                        crewDeltaKeys,
+                        resourceDeltaKeys,
+                        inventoryDeltaKeys,
+                        partStateTokenDelta,
+                        crewChanged,
+                        resourceChanged,
+                        partStateChanged),
+                    FormatPostSwitchManifestDeltaSummary(
+                        state.VesselPid,
+                        crewDeltaKeys,
+                        resourceDeltaKeys,
+                        inventoryDeltaKeys,
+                        partStateTokenDelta,
+                        crewChanged,
+                        resourceChanged,
+                        partStateChanged,
+                        state.NextManifestEvaluationUt));
             }
         }
 
@@ -5831,6 +6144,7 @@ namespace Parsek
                 return;
 
             uint activePid = v != null ? v.persistentId : 0;
+            double currentUT = Planetarium.GetUniversalTime();
             var suppression = EvaluatePostSwitchAutoRecordSuppression(
                 ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                 IsRecording,
@@ -5843,37 +6157,66 @@ namespace Parsek
                 IsAnyWarpActive(),
                 v != null && v.packed);
 
-            ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-watch",
-                $"Post-switch watch: pid={state.VesselPid} activePid={activePid} " +
-                $"baseline={state.BaselineCaptured} suppression={suppression}", 1.0);
-
             if (suppression == PostSwitchAutoRecordSuppressionReason.Disabled
                 || suppression == PostSwitchAutoRecordSuppressionReason.AlreadyRecording)
             {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 DisarmPostSwitchAutoRecord($"suppressed by {suppression}");
                 return;
             }
 
             if (suppression != PostSwitchAutoRecordSuppressionReason.None)
+            {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 return;
+            }
 
-            double currentUT = Planetarium.GetUniversalTime();
             if (!state.BaselineCaptured)
             {
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 CapturePostSwitchAutoRecordBaseline(state, v, currentUT);
                 return;
             }
 
             if (currentUT < state.ComparisonsReadyUt)
             {
-                ParsekLog.VerboseRateLimited("Flight", "post-switch-auto-record-landed-settle",
-                    $"Post-switch watch: waiting for landed settle pid={state.VesselPid} " +
-                    $"readyAt={state.ComparisonsReadyUt:F1} now={currentUT:F1}", 1.0);
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: true,
+                    currentUt: currentUT,
+                    trigger: PostSwitchAutoRecordTrigger.None);
                 return;
             }
 
             PostSwitchAutoRecordTrigger trigger =
                 EvaluatePostSwitchAutoRecordTrigger(v, state, currentUT);
+            LogPostSwitchAutoRecordDecision(
+                state,
+                activePid,
+                suppression,
+                waitingForSettle: false,
+                currentUt: currentUT,
+                trigger: trigger);
             if (trigger == PostSwitchAutoRecordTrigger.None)
                 return;
 
@@ -9407,6 +9750,34 @@ namespace Parsek
 
             if (isSceneExit)
             {
+                // PR #572 follow-up: same gate as the leaf path — when the
+                // active recording was just repaired from the committed tree
+                // this frame, do not overwrite its (intentionally unset)
+                // terminal state with a Landed/Splashed inference based on
+                // the last trajectory point. The gate's only clause is
+                // RestoredFromCommittedTreeThisFrame; an additional
+                // orbital-evidence clause was considered (Option D in the
+                // design plan) and rejected because the legitimate
+                // orbit-then-land case shares the same shape (high
+                // MaxDistanceFromLaunch + stable orbit segment + low-altitude
+                // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
+                // doc comment.
+                if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                        activeRec, out string skipReason))
+                {
+                    activeRec.RestoredFromCommittedTreeThisFrame = false;
+                    PopulateTerminalOrbitFromLastSegment(activeRec);
+                    ParsekLog.Info("Flight",
+                        $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
+                        $"for active recording '{activeRec.RecordingId}' " +
+                        $"(vessel pid={activeRec.VesselPersistentId}) — {skipReason} " +
+                        $"(lastPtAlt={(activeRec.Points.Count > 0 ? activeRec.Points[activeRec.Points.Count - 1].altitude : double.NaN):F1}m " +
+                        $"maxDist={activeRec.MaxDistanceFromLaunch:F0}m " +
+                        $"orbitSegs={activeRec.OrbitSegments?.Count ?? 0})");
+                    RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeafSkipInfer");
+                    return false;
+                }
+
                 var inferredState = InferTerminalStateFromTrajectory(activeRec);
                 activeRec.TerminalStateValue = inferredState;
                 ParsekLog.Info("Flight",
@@ -9594,22 +9965,54 @@ namespace Parsek
                     // DeferredDestructionCheck / ApplyDestroyedFallback before finalization.
                     // Reaching here without a terminal state means the vessel was alive
                     // when unloaded. Infer terminal state from the last trajectory point.
-                    var inferredState = InferTerminalStateFromTrajectory(rec);
-                    rec.TerminalStateValue = inferredState;
-                    ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
-                        $"not found on scene exit for recording '{rec.RecordingId}' — " +
-                        $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
-                    PopulateTerminalOrbitFromLastSegment(rec);
-
-                    // Bug #290d: capture terrain height from last trajectory point for
-                    // landed/splashed recordings whose vessel was unloaded at scene exit.
-                    // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
-                    // uses PQS terrain height, which is below KSP static structures (runway,
-                    // launchpad), causing the spawned vessel to clip through and explode.
-                    if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                    //
+                    // PR #572 follow-up: skip the surface inference when the recording was
+                    // just repaired from the committed tree this frame (the trajectory
+                    // came from a copy that already lacked a terminal state, so the
+                    // "vessel was alive when unloaded" heuristic does not apply — typically
+                    // means the live pid was a deliberate Re-Fly strip casualty). The gate's
+                    // only clause is RestoredFromCommittedTreeThisFrame; an additional
+                    // orbital-evidence clause was considered (Option D in the design plan)
+                    // and rejected because the legitimate orbit-then-land case shares the
+                    // same shape (high MaxDistanceFromLaunch + stable orbit segment + low-
+                    // altitude last point) and adding such a clause would regress
+                    // EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory
+                    // and SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog.
+                    if (ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                            rec, out string skipReason))
                     {
-                        PopulateTerminalPositionFromLastPoint(rec, inferredState);
-                        TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
+                        rec.RestoredFromCommittedTreeThisFrame = false;
+                        // Recover terminal orbit metadata from the last orbit segment if
+                        // available — preserves the orbital fingerprint for ghost-map
+                        // playback even though the terminal state remains unset.
+                        PopulateTerminalOrbitFromLastSegment(rec);
+                        ParsekLog.Info("Flight",
+                            $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
+                            $"for '{rec.RecordingId}' (vessel pid={rec.VesselPersistentId}) — " +
+                            $"{skipReason} " +
+                            $"(lastPtAlt={(rec.Points.Count > 0 ? rec.Points[rec.Points.Count - 1].altitude : double.NaN):F1}m " +
+                            $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
+                            $"orbitSegs={rec.OrbitSegments?.Count ?? 0})");
+                    }
+                    else
+                    {
+                        var inferredState = InferTerminalStateFromTrajectory(rec);
+                        rec.TerminalStateValue = inferredState;
+                        ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
+                            $"not found on scene exit for recording '{rec.RecordingId}' — " +
+                            $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
+                        PopulateTerminalOrbitFromLastSegment(rec);
+
+                        // Bug #290d: capture terrain height from last trajectory point for
+                        // landed/splashed recordings whose vessel was unloaded at scene exit.
+                        // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
+                        // uses PQS terrain height, which is below KSP static structures (runway,
+                        // launchpad), causing the spawned vessel to clip through and explode.
+                        if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                        {
+                            PopulateTerminalPositionFromLastPoint(rec, inferredState);
+                            TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
+                        }
                     }
                 }
                 else
@@ -9799,6 +10202,64 @@ namespace Parsek
             return TerminalState.SubOrbital;
         }
 
+        /// <summary>
+        /// PR #572 second-order data-loss companion. Decides whether
+        /// <see cref="FinalizeIndividualRecording"/> /
+        /// <see cref="EnsureActiveRecordingTerminalState"/> should skip the
+        /// scene-exit "vessel was alive when unloaded → infer Landed/Splashed
+        /// from last trajectory point" branch.
+        ///
+        /// <para>
+        /// The gate fires when the recording was just repaired from the
+        /// committed tree this frame
+        /// (<see cref="Recording.RestoredFromCommittedTreeThisFrame"/>).
+        /// The trajectory is a copy of a recording that was committed
+        /// mid-flight without a terminal state — typically because the
+        /// missing live pid is a deliberate Re-Fly strip casualty, not a
+        /// natural unload — so the surface inference's "vessel was alive
+        /// when unloaded" assumption does not apply.
+        /// </para>
+        ///
+        /// <para>
+        /// An additional "orbital evidence" clause (high
+        /// <see cref="Recording.MaxDistanceFromLaunch"/> and/or a stable
+        /// orbit segment) was considered as Option D in the design plan
+        /// (<c>docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md</c>)
+        /// and rejected: the legitimate "orbit-then-land" case shares the
+        /// same shape (high MaxDistanceFromLaunch + stable orbit segment
+        /// alongside a low-altitude last point), so any threshold that
+        /// captures the user's strip-casualty case also breaks the existing
+        /// pinned tests
+        /// <c>EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory</c>
+        /// and <c>SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog</c>.
+        /// The user's 2026-04-25 case is solved by the restore flag alone
+        /// because the committed copy carried no terminal state. Future
+        /// readers: do not add an orbital-evidence clause here without
+        /// first revisiting those two tests.
+        /// </para>
+        ///
+        /// Returns true with a human-readable <paramref name="reason"/>
+        /// when the inference must be skipped; false (with reason=null)
+        /// when the normal inference path should proceed.
+        /// </summary>
+        internal static bool ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+            Recording rec,
+            out string reason)
+        {
+            reason = null;
+            if (rec == null)
+                return false;
+
+            if (rec.RestoredFromCommittedTreeThisFrame)
+            {
+                reason = "recording was repaired from committed tree this frame " +
+                    "(PR #572 follow-up: trajectory came from a non-authoritative committed copy)";
+                return true;
+            }
+
+            return false;
+        }
+
         static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
         {
             if (rec?.Points == null || rec.Points.Count == 0)
@@ -9934,7 +10395,7 @@ namespace Parsek
             rec.MarkFilesDirty();
             ParsekLog.Info("Flight",
                 $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
-                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit})");
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289]");
             return true;
         }
 
@@ -12033,6 +12494,234 @@ namespace Parsek
             }
         }
 
+        internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            if (!hasRenderableData)
+                return GhostPlaybackSkipReason.NoRenderableData;
+            if (!playbackEnabled)
+                return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (externalVesselSuppressed)
+                return GhostPlaybackSkipReason.ExternalVesselSuppressed;
+            return GhostPlaybackSkipReason.None;
+        }
+
+        private static string BuildGhostSkipReasonIdentity(int index, string recordingId)
+        {
+            return !string.IsNullOrEmpty(recordingId)
+                ? recordingId
+                : "idx-" + index.ToString(CultureInfo.InvariantCulture);
+        }
+
+        internal static string BuildGhostSkipReasonMessage(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7}",
+                index,
+                string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
+                vesselName ?? "?",
+                reason != GhostPlaybackSkipReason.None,
+                reason.ToLogToken(),
+                hasRenderableData,
+                playbackEnabled,
+                externalVesselSuppressed);
+        }
+
+        private static void LogGhostSkipReasonChangeCore(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
+            ParsekLog.VerboseOnChange(
+                "Flight",
+                identity,
+                reason.ToLogToken(),
+                BuildGhostSkipReasonMessage(
+                    index,
+                    recordingId,
+                    vesselName,
+                    reason,
+                    hasRenderableData,
+                    playbackEnabled,
+                    externalVesselSuppressed));
+        }
+
+        private void ClearGhostSkipReasonLogState()
+        {
+            activeGhostSkipReasonLogIdentities.Clear();
+            ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix("Flight", "ghost-skip|");
+        }
+
+        internal void ClearGhostSkipReasonLogStateForTesting()
+        {
+            ClearGhostSkipReasonLogState();
+        }
+
+        internal static void LogGhostSkipReasonChangeForTesting(
+            int index,
+            string recordingId,
+            string vesselName,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool playbackEnabled,
+            bool externalVesselSuppressed)
+        {
+            LogGhostSkipReasonChangeCore(
+                index,
+                recordingId,
+                vesselName,
+                reason,
+                hasRenderableData,
+                playbackEnabled,
+                externalVesselSuppressed);
+        }
+
+        private void LogGhostSkipReasonChangeIfNeeded(
+            int index,
+            Recording rec,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool externalVesselSuppressed)
+        {
+            string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
+            bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
+            if (reason == GhostPlaybackSkipReason.None && !hasLoggedActiveSkip)
+                return;
+
+            LogGhostSkipReasonChangeCore(
+                index,
+                rec?.RecordingId,
+                rec?.VesselName,
+                reason,
+                hasRenderableData,
+                rec?.PlaybackEnabled ?? false,
+                externalVesselSuppressed);
+
+            if (reason == GhostPlaybackSkipReason.None)
+                activeGhostSkipReasonLogIdentities.Remove(identity);
+            else
+                activeGhostSkipReasonLogIdentities.Add(identity);
+        }
+
+        internal struct FastForwardWatchHandoffDecision
+        {
+            public bool canEnterWatch;
+            public bool warn;
+            public int index;
+            public bool recordingExists;
+            public bool playbackEnabled;
+            public bool activeGhost;
+            public GhostPlaybackSkipReason skipReason;
+            public string reason;
+            public string recordingId;
+            public string vesselName;
+        }
+
+        internal static FastForwardWatchHandoffDecision ClassifyFastForwardWatchHandoff(
+            string pendingRecordingId,
+            IReadOnlyList<Recording> committed,
+            TrajectoryPlaybackFlags[] flags,
+            Func<int, bool> hasActiveGhost)
+        {
+            var stale = new FastForwardWatchHandoffDecision
+            {
+                canEnterWatch = false,
+                warn = false,
+                index = -1,
+                recordingExists = false,
+                playbackEnabled = false,
+                activeGhost = false,
+                skipReason = GhostPlaybackSkipReason.None,
+                reason = "stale-recording-id",
+                recordingId = pendingRecordingId,
+                vesselName = "?"
+            };
+
+            if (string.IsNullOrEmpty(pendingRecordingId) || committed == null)
+                return stale;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null || rec.RecordingId != pendingRecordingId)
+                    continue;
+
+                bool activeGhost = hasActiveGhost != null && hasActiveGhost(i);
+                GhostPlaybackSkipReason skipReason = flags != null && i < flags.Length
+                    ? flags[i].skipReason
+                    : ResolveGhostPlaybackSkipReason(
+                        GhostPlaybackEngine.HasRenderableGhostData(rec),
+                        rec.PlaybackEnabled,
+                        externalVesselSuppressed: false);
+                string reason = activeGhost
+                    ? "active-ghost"
+                    : (skipReason != GhostPlaybackSkipReason.None
+                        ? skipReason.ToLogToken()
+                        : "active-ghost-missing");
+                return new FastForwardWatchHandoffDecision
+                {
+                    canEnterWatch = activeGhost,
+                    warn = !activeGhost,
+                    index = i,
+                    recordingExists = true,
+                    playbackEnabled = rec.PlaybackEnabled,
+                    activeGhost = activeGhost,
+                    skipReason = skipReason,
+                    reason = reason,
+                    recordingId = rec.RecordingId,
+                    vesselName = rec.VesselName
+                };
+            }
+
+            return stale;
+        }
+
+        internal static string BuildFastForwardWatchHandoffMessage(
+            FastForwardWatchHandoffDecision decision,
+            double currentUT)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Deferred FF watch handoff {0}: id={1} index={2} vessel=\"{3}\" " +
+                "committedExists={4} playbackEnabled={5} currentUT={6:F1} activeGhost={7} " +
+                "skipReason={8} reason={9}",
+                decision.canEnterWatch ? "ready" : "failed",
+                string.IsNullOrEmpty(decision.recordingId) ? "(none)" : decision.recordingId,
+                decision.index,
+                decision.vesselName ?? "?",
+                decision.recordingExists,
+                decision.playbackEnabled,
+                currentUT,
+                decision.activeGhost,
+                decision.skipReason.ToLogToken(),
+                decision.reason ?? "(none)");
+        }
+
+        private static void LogFastForwardWatchHandoff(
+            FastForwardWatchHandoffDecision decision,
+            double currentUT)
+        {
+            string message = BuildFastForwardWatchHandoffMessage(decision, currentUT);
+            if (decision.warn)
+                ParsekLog.Warn("CameraFollow", message);
+            else
+                ParsekLog.Verbose("CameraFollow", message);
+        }
+
         /// <summary>
         /// Pre-computes policy flags for all committed recordings. Called once per frame
         /// before the engine's update loop. Eliminates per-recording RecordingStore queries
@@ -12053,6 +12742,16 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
+                    hasData,
+                    rec.PlaybackEnabled,
+                    externalVesselSuppressed);
+                LogGhostSkipReasonChangeIfNeeded(
+                    i,
+                    rec,
+                    skipReason,
+                    hasData,
+                    externalVesselSuppressed);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -12063,17 +12762,45 @@ namespace Parsek
 
                 bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
 
-                // Log spawn suppression reason for non-debris recordings (diagnostic)
+                // Log spawn suppression reason for non-debris recordings (diagnostic).
+                // Emit only when the suppression reason flips for this recording —
+                // stable per-frame repeats (e.g., "no vessel snapshot" for the entire
+                // session) are coalesced into the suppressed counter and surfaced
+                // on the next reason change. Identity is keyed on the stable
+                // RecordingId rather than the bare list index because the committed
+                // list is dense — when a recording is discarded, later recordings
+                // shift down and the same index gets reused for a different
+                // recording. Keying on index alone would let the new occupant
+                // inherit the prior recording's cached state and mask its first
+                // emission (or surface a stale suppressed counter on the next
+                // flip). The index still appears in the message body so audits
+                // can resolve recordings post-hoc.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
                     string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
-                    ParsekLog.VerboseRateLimited("Spawner", "spawn-suppressed-" + i,
+                    string identity = "spawn-suppressed|"
+                        + (!string.IsNullOrEmpty(rec.RecordingId) ? rec.RecordingId : "idx-" + i);
+                    ParsekLog.VerboseOnChange(
+                        "Spawner",
+                        identity,
+                        reason ?? "(none)",
                         $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
                 }
 
                 flags[i] = new TrajectoryPlaybackFlags
                 {
-                    skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
+                    skipGhost = skipReason != GhostPlaybackSkipReason.None,
+                    skipReason = skipReason,
+                    skipReasonDetail = skipReason == GhostPlaybackSkipReason.None
+                        ? null
+                        : BuildGhostSkipReasonMessage(
+                            i,
+                            rec.RecordingId,
+                            rec.VesselName,
+                            skipReason,
+                            hasData,
+                            rec.PlaybackEnabled,
+                            externalVesselSuppressed),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -12095,6 +12822,12 @@ namespace Parsek
         void UpdateTimelinePlaybackViaEngine()
         {
             GhostPlaybackLogic.InvalidateVesselCache();
+            if (GhostPlaybackLogic.ShouldSkipTimelinePlaybackForPendingReFlyInvoke(RewindInvokeContext.Pending))
+            {
+                ParsekLog.VerboseRateLimited("Flight", "timeline-playback-skip-refly-invoke",
+                    "UpdateTimelinePlaybackViaEngine: skipped while re-fly post-load invocation is pending");
+                return;
+            }
 
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
@@ -12145,14 +12878,31 @@ namespace Parsek
             {
                 string ffId = pendingWatchAfterFFId;
                 pendingWatchAfterFFId = null;
-                for (int fi = 0; fi < committed.Count; fi++)
+                FastForwardWatchHandoffDecision handoff =
+                    ClassifyFastForwardWatchHandoff(
+                        ffId,
+                        committed,
+                        flags,
+                        idx => watchMode.HasActiveGhost(idx));
+                if (handoff.canEnterWatch)
                 {
-                    if (committed[fi].RecordingId == ffId && watchMode.HasActiveGhost(fi))
+                    watchMode.EnterWatchMode(handoff.index);
+                    if (watchMode.IsWatchingGhost && watchMode.WatchedRecordingIndex == handoff.index)
                     {
-                        watchMode.EnterWatchMode(fi);
-                        ParsekLog.Info("CameraFollow", $"Deferred FF watch entered: #{fi}");
-                        break;
+                        ParsekLog.Info("CameraFollow",
+                            $"Deferred FF watch entered: #{handoff.index}");
                     }
+                    else
+                    {
+                        handoff.canEnterWatch = false;
+                        handoff.warn = true;
+                        handoff.reason = "enter-watch-refused";
+                        LogFastForwardWatchHandoff(handoff, currentUT);
+                    }
+                }
+                else
+                {
+                    LogFastForwardWatchHandoff(handoff, currentUT);
                 }
             }
 
@@ -12356,6 +13106,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
+            ClearGhostSkipReasonLogState();
         }
 
         /// <summary>

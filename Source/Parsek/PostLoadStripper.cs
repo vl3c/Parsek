@@ -57,7 +57,7 @@ namespace Parsek
                 StrippedPids = new List<uint>(),
                 GhostsGuarded = 0,
                 LeftAlone = 0,
-                LeftAloneNames = new List<string>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
                 FallbackMatches = 0,
             };
 
@@ -121,7 +121,7 @@ namespace Parsek
                 // Unrelated vessel.
                 result.LeftAlone++;
                 if (!string.IsNullOrEmpty(v.VesselName))
-                    result.LeftAloneNames.Add(v.VesselName);
+                    result.LeftAlonePidNames.Add((pid, v.VesselName));
                 ParsekLog.Verbose(Tag,
                     $"Strip leaveAlone: unrelated v={pid} name='{v.VesselName}'");
             }
@@ -202,7 +202,7 @@ namespace Parsek
         /// second ghost of the current flight. Caller toasts a warning so
         /// the situation is diagnosable.
         /// </summary>
-        /// <param name="leftAloneNames">Names from <see cref="PostLoadStripResult.LeftAloneNames"/>.</param>
+        /// <param name="leftAloneNames">Names from <see cref="PostLoadStripResult.LeftAlonePidNames"/> (project the name field).</param>
         /// <param name="treeVesselNames">Distinct vessel names from the re-fly tree's committed recordings.</param>
         /// <returns>Distinct collision names (ordinal compare). Empty list when nothing matches or any input is null.</returns>
         internal static List<string> FindTreeNameCollisions(
@@ -330,14 +330,22 @@ namespace Parsek
         public int LeftAlone;
 
         /// <summary>
-        /// Names of vessels the strip left alone (collected alongside
+        /// (pid, name) pairs of vessels the strip left alone (collected alongside
         /// <see cref="LeftAlone"/>). Used by the caller to surface a diagnostic
         /// warning when a left-alone vessel shares its name with a committed
         /// recording in the re-fly tree — a classic case is a prior-career
         /// "Kerbal X" still orbiting that the player confuses with the
         /// current flight's ghost.
+        /// <para>
+        /// PR #577 P2 review: pids are retained alongside names so the
+        /// post-supplement re-survey can scope the live-vessel count to the
+        /// pre-existing left-alone set — the live-name-only resurvey would
+        /// otherwise count the actively re-flown vessel, ghost-ProtoVessels,
+        /// or any other legitimate same-name vessel as a "leftover", producing
+        /// a false-positive WARN/toast.
+        /// </para>
         /// </summary>
-        public List<string> LeftAloneNames;
+        public List<(uint pid, string name)> LeftAlonePidNames;
 
         /// <summary>Count of matches that used the root-part fallback path.</summary>
         public int FallbackMatches;

@@ -362,6 +362,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Snapshot_MissingPatchBodyAfterValidPrefix_StableRepeatsLogOnce()
+        {
+            var nullBodyPatch = MakePatch(200, 320, body: null,
+                transition: PatchedConicTransitionType.Encounter);
+            var firstPatch = MakePatch(100, 200, body: "Kerbin",
+                transition: PatchedConicTransitionType.Encounter);
+            firstPatch.NextPatch = nullBodyPatch;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = firstPatch
+            };
+
+            for (int i = 0; i < 5; i++)
+            {
+                PatchedConicSnapshot.SnapshotPatchedConicChain(
+                    source, 120 + i, 8, "Stable Truncated Vessel");
+            }
+
+            Assert.Equal(1, logLines.Count(line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("truncated chain after 1 valid patch(es), keeping partial result")));
+            Assert.Equal(1, logLines.Count(line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("captured=1") &&
+                line.Contains("hasTruncatedTail=True")));
+
+            nullBodyPatch.BodyName = "Mun";
+            PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 130, 8, "Stable Truncated Vessel");
+
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("captured=2") &&
+                line.Contains("lastBody=Mun") &&
+                line.Contains("suppressed=4"));
+        }
+
+        [Fact]
         public void Snapshot_LogsPatchCount_AtWalkComplete()
         {
             var source = new FakePatchedConicSnapshotSource(2)

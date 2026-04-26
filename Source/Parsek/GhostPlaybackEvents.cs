@@ -2,6 +2,73 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal enum GhostPlaybackSkipReason : byte
+    {
+        None = 0,
+        NoRenderableData = 1,
+        PlaybackDisabled = 2,
+        ExternalVesselSuppressed = 3,
+        BeforeActivation = 4,
+        AnchorMissing = 5,
+        LoopSyncFailed = 6,
+        ParentLoopPaused = 7,
+        WarpHidden = 8,
+        VisualLoadFailed = 9,
+        SessionSuppressed = 10
+    }
+
+    internal static class GhostPlaybackSkipReasonExtensions
+    {
+        internal static string ToLogToken(this GhostPlaybackSkipReason reason)
+        {
+            switch (reason)
+            {
+                case GhostPlaybackSkipReason.None:
+                    return "none";
+                case GhostPlaybackSkipReason.NoRenderableData:
+                    return "no-renderable-data";
+                case GhostPlaybackSkipReason.PlaybackDisabled:
+                    return "playback-disabled";
+                case GhostPlaybackSkipReason.ExternalVesselSuppressed:
+                    return "external-vessel-suppressed";
+                case GhostPlaybackSkipReason.BeforeActivation:
+                    return "before-activation";
+                case GhostPlaybackSkipReason.AnchorMissing:
+                    return "anchor-missing";
+                case GhostPlaybackSkipReason.LoopSyncFailed:
+                    return "loop-sync-failed";
+                case GhostPlaybackSkipReason.ParentLoopPaused:
+                    return "parent-loop-paused";
+                case GhostPlaybackSkipReason.WarpHidden:
+                    return "warp-hidden";
+                case GhostPlaybackSkipReason.VisualLoadFailed:
+                    return "visual-load-failed";
+                case GhostPlaybackSkipReason.SessionSuppressed:
+                    return "session-suppressed";
+                default:
+                    return "unknown";
+            }
+        }
+    }
+
+    internal struct GhostPlaybackFrameCounters
+    {
+        public int spawned;
+        public int destroyed;
+        public int deferred;
+        public int beforeActivation;
+        public int anchorMissing;
+        public int loopSyncFailed;
+        public int parentLoopPaused;
+        public int warpHidden;
+        public int visualLoadFailed;
+        public int noRenderableData;
+        public int playbackDisabled;
+        public int externalVesselSuppressed;
+        public int sessionSuppressed;
+        public int active;
+    }
+
     /// <summary>
     /// Pre-computed policy decisions passed alongside each trajectory.
     /// The engine reads these flags instead of accessing Recording policy fields.
@@ -11,6 +78,12 @@ namespace Parsek
     {
         /// <summary>Don't render this ghost (chain-suppressed, disabled, external vessel).</summary>
         public bool skipGhost;
+
+        /// <summary>Compact reason for <see cref="skipGhost"/> and aggregate frame summaries.</summary>
+        public GhostPlaybackSkipReason skipReason;
+
+        /// <summary>Optional additional context for the skip decision.</summary>
+        public string skipReasonDetail;
 
         /// <summary>Mid-chain segment — hold ghost at end position instead of destroying.</summary>
         public bool isMidChain;

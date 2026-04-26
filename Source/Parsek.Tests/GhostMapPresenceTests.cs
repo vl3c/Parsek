@@ -357,6 +357,110 @@ namespace Parsek.Tests
             Assert.True(GhostMapPresence.HasOrbitData(traj));
         }
 
+        /// <summary>
+        /// Stable HasOrbitData(IPlaybackTrajectory) calls collapse to a single
+        /// log line via VerboseOnChange — guards bug "1678 lines per session"
+        /// captured in the 2026-04-25 playtest.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_TrajectoryStableCalls_LogOnceWithSuppressedCounter()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-stable-traj",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 742959.0
+            };
+            IPlaybackTrajectory traj = rec;
+
+            // Hit the per-frame path 100 times with stable state.
+            for (int i = 0; i < 100; i++)
+            {
+                Assert.True(GhostMapPresence.HasOrbitData(traj));
+            }
+
+            int firstEmissionCount = logLines.FindAll(l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("HasOrbitData(IPlaybackTrajectory)")
+                && l.Contains("result=True")).Count;
+            // First call emits, the next 99 are suppressed (no state flip).
+            Assert.Equal(1, firstEmissionCount);
+
+            // Force a state change so the suppressed-counter surfaces on the
+            // next emission.
+            rec.TerminalOrbitBody = "Mun";
+            rec.TerminalOrbitSemiMajorAxis = 200000.0;
+            Assert.True(GhostMapPresence.HasOrbitData(traj));
+
+            // Second emission carries `| suppressed=99`.
+            Assert.Contains(logLines, l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)")
+                && l.Contains("Mun")
+                && l.Contains("suppressed=99"));
+        }
+
+        /// <summary>
+        /// HasOrbitData(IPlaybackTrajectory) on a different recording id
+        /// emits independently of a stable stream on another id — the gate
+        /// must be keyed per (recording, body, sma) so distinct trajectories
+        /// each get their own first emission.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_TrajectoryDistinctRecordings_LogIndependently()
+        {
+            var first = new Recording
+            {
+                RecordingId = "rec-id-A",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+            var second = new Recording
+            {
+                RecordingId = "rec-id-B",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            // Saturate first recording's gate.
+            for (int i = 0; i < 5; i++)
+                Assert.True(GhostMapPresence.HasOrbitData((IPlaybackTrajectory)first));
+
+            int firstEmits = logLines.FindAll(l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)") && l.Contains("True")).Count;
+            Assert.Equal(1, firstEmits);
+
+            // Second recording has identical body/sma but a different id —
+            // identity scope must change, so it gets its own first emission.
+            Assert.True(GhostMapPresence.HasOrbitData((IPlaybackTrajectory)second));
+            int secondEmits = logLines.FindAll(l =>
+                l.Contains("HasOrbitData(IPlaybackTrajectory)") && l.Contains("True")).Count;
+            Assert.Equal(2, secondEmits);
+        }
+
+        [Fact]
+        public void RemoveAllGhostVessels_NoGhosts_RateLimitsRepeatedCleanupLogs()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            for (int i = 0; i < 4; i++)
+                GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][VERBOSE][GhostMap]")
+                && l.Contains("RemoveAllGhostVessels: no ghost vessels to remove")
+                && l.Contains("reason=scene-cleanup")));
+
+            clockSeconds += 31.0;
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][GhostMap]")
+                && l.Contains("RemoveAllGhostVessels: no ghost vessels to remove")
+                && l.Contains("reason=scene-cleanup")
+                && l.Contains("suppressed=3"));
+        }
+
         #endregion
 
         #region ResolveVesselType
@@ -2528,6 +2632,102 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
             Assert.Equal("no-orbit-data", skipReason);
+        }
+
+        // #571 closure pin: an OrbitalCheckpoint TrackSection with inline frames
+        // coexists with the seed OrbitSegment that covers the same window. When
+        // currentUT lands inside that coexisting span the resolver MUST keep the
+        // segment as the source of truth — the densified frames are sampling
+        // along that same Keplerian arc, not a competing source. This mirrors
+        // the in-game RuntimeTests.GhostMapCheckpointSourceLogResolvesWorldPosition
+        // fixture so the contract is enforced from xUnit too.
+        [Fact]
+        public void ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment()
+        {
+            const double startUT = 1000.0;
+            const double endUT = 1060.0;
+            var segment = new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000,
+                eccentricity = 0.0,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT
+            };
+            var first = new TrajectoryPoint
+            {
+                ut = startUT,
+                bodyName = "Kerbin",
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100000.0,
+                velocity = new UnityEngine.Vector3(0f, 2300f, 0f)
+            };
+            var second = first;
+            second.ut = endUT;
+            second.longitude = 5.0;
+            var rec = new Recording
+            {
+                RecordingId = "checkpoint-coexisting-segment",
+                VesselName = "Coexisting checkpoint",
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                TerminalStateValue = TerminalState.Orbiting,
+                OrbitSegments = new List<OrbitSegment> { segment },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.ExoBallistic,
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        source = TrackSectionSource.Checkpoint,
+                        startUT = startUT,
+                        endUT = endUT,
+                        frames = new List<TrajectoryPoint> { first, second },
+                        checkpoints = new List<OrbitSegment> { segment },
+                        minAltitude = 100000f,
+                        maxAltitude = 100000f
+                    }
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: false,
+                currentUT: startUT + 30.0,
+                allowTerminalOrbitFallback: true,
+                logOperationName: "test-checkpoint-coexisting-segment",
+                ref mapCached,
+                out OrbitSegment resolvedSegment,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Null(skipReason);
+            Assert.Equal("Kerbin", resolvedSegment.bodyName);
+            Assert.Equal(segment.semiMajorAxis, resolvedSegment.semiMajorAxis);
+            // P3 review pin: assert the OrbitalCheckpoint branch was actually
+            // exercised. Without these substrings the test would still pass if
+            // TryResolveCheckpointStateVectorMapPoint stopped finding the
+            // OrbitalCheckpoint section entirely — the segment branch would
+            // return Segment first and the coexistence regression would go
+            // silently green. `stateVectorSource=OrbitalCheckpoint` is emitted
+            // only after the checkpoint section is resolved, and
+            // `orbitalCheckpointFallback=reject` proves the fallback
+            // evaluator ran and chose the segment as the safer source.
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-checkpoint-coexisting-segment")
+                    && l.Contains("source=Segment")
+                    && l.Contains("stateVectorSource=OrbitalCheckpoint")
+                    && l.Contains("orbitalCheckpointFallback=reject"));
         }
 
         [Fact]

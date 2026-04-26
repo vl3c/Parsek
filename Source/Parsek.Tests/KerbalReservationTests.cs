@@ -945,7 +945,7 @@ namespace Parsek.Tests
             KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
-                l.Contains("[KerbalsModule]") && l.Contains("2 reservations"));
+                l.Contains("[KerbalsModule]") && l.Contains("reservations=2"));
         }
 
         [Fact]
@@ -958,7 +958,7 @@ namespace Parsek.Tests
             KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
-                l.Contains("[KerbalsModule]") && l.Contains("1 slots"));
+                l.Contains("[KerbalsModule]") && l.Contains("slots=1"));
         }
 
         [Fact]

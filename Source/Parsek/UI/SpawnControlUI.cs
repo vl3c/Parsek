@@ -58,6 +58,40 @@ namespace Parsek
             this.parentUI = parentUI;
         }
 
+        internal static string ResolveAutoCloseReason(
+            bool inFlight,
+            bool hasFlight,
+            int candidateCount)
+        {
+            if (!inFlight)
+                return "not-in-flight";
+            if (!hasFlight)
+                return "flight-null";
+            if (candidateCount <= 0)
+                return "zero-candidates";
+            return null;
+        }
+
+        internal static string FormatAutoCloseSummary(string reason, int candidateCount)
+        {
+            return string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "Real Spawn Control auto-close: reason={0} candidates={1}",
+                string.IsNullOrEmpty(reason) ? "none" : reason,
+                candidateCount);
+        }
+
+        private static void LogAutoClose(string reason, int candidateCount)
+        {
+            if (string.IsNullOrEmpty(reason))
+                return;
+
+            ParsekLog.VerboseOnChange("UI",
+                "spawn-control-auto-close",
+                reason,
+                FormatAutoCloseSummary(reason, candidateCount));
+        }
+
         public void DrawIfOpen(Rect mainWindowRect, ParsekFlight flight, bool inFlight)
         {
             if (!showSpawnControlWindow)
@@ -67,8 +101,14 @@ namespace Parsek
             }
 
             // Auto-close when no nearby candidates
-            if (!inFlight || flight == null || flight.NearbySpawnCandidates.Count == 0)
+            int candidateCount = flight?.NearbySpawnCandidates?.Count ?? 0;
+            string autoCloseReason = ResolveAutoCloseReason(
+                inFlight,
+                flight != null,
+                candidateCount);
+            if (!string.IsNullOrEmpty(autoCloseReason))
             {
+                LogAutoClose(autoCloseReason, candidateCount);
                 showSpawnControlWindow = false;
                 ReleaseInputLock();
                 return;

@@ -316,11 +316,87 @@ namespace Parsek.Tests
                 && l.Contains("created=3")
                 && l.Contains("destroyed=1")
                 && l.Contains("updated=7")
-                && l.Contains("currentUT=12345.6"));
+                && l.Contains("currentUT=12345.6")
+                && l.Contains("mapVisibility[")
+                && l.Contains("mapObjMissing=0")
+                && l.Contains("orbitRendererMissing=0")
+                && l.Contains("iconSuppressed=0"));
 
             Assert.Equal(0, GhostMapPresence.lifecycleCreatedThisTick);
             Assert.Equal(0, GhostMapPresence.lifecycleDestroyedThisTick);
             Assert.Equal(0, GhostMapPresence.lifecycleUpdatedThisTick);
+        }
+
+        [Fact]
+        public void BuildLifecycleSummaryMessage_IncludesMapVisibilityCounters()
+        {
+            var visibility = new GhostMapPresence.GhostMapVisibilityCounters
+            {
+                uniqueTracked = 5,
+                recordingTracked = 3,
+                chainTracked = 2,
+                mapObjectMissing = 1,
+                orbitRendererMissing = 2,
+                orbitRendererDisabled = 3,
+                drawIconsNotAll = 4,
+                iconSuppressed = 5
+            };
+
+            string line = GhostMapPresence.BuildLifecycleSummaryMessage(
+                "tracking-station",
+                visibility,
+                created: 6,
+                destroyed: 7,
+                updated: 8,
+                currentUT: 123.4,
+                scene: "SPACECENTER");
+
+            Assert.Contains("scope=tracking-station", line);
+            Assert.Contains("vesselsTracked=5", line);
+            Assert.Contains("recordingTracked=3", line);
+            Assert.Contains("chainTracked=2", line);
+            Assert.Contains("created=6", line);
+            Assert.Contains("destroyed=7", line);
+            Assert.Contains("updated=8", line);
+            Assert.Contains("currentUT=123.4", line);
+            Assert.Contains("scene=SPACECENTER", line);
+            Assert.Contains("mapObjMissing=1", line);
+            Assert.Contains("orbitRendererMissing=2", line);
+            Assert.Contains("orbitRendererDisabled=3", line);
+            Assert.Contains("drawIconsNotAll=4", line);
+            Assert.Contains("iconSuppressed=5", line);
+        }
+
+        [Fact]
+        public void BuildGhostProtoVesselVisibilityState_ExplainsIconBlockers()
+        {
+            string missingMapObject = GhostMapPresence.BuildGhostProtoVesselVisibilityState(
+                hasMapObject: false,
+                hasOrbitRenderer: true,
+                orbitRendererEnabled: true,
+                drawIcons: "ALL",
+                nativeIconSuppressed: false,
+                rendererForceEnabled: false);
+            string forcedRenderer = GhostMapPresence.BuildGhostProtoVesselVisibilityState(
+                hasMapObject: true,
+                hasOrbitRenderer: true,
+                orbitRendererEnabled: true,
+                drawIcons: "ALL",
+                nativeIconSuppressed: false,
+                rendererForceEnabled: true);
+            string suppressedIcon = GhostMapPresence.BuildGhostProtoVesselVisibilityState(
+                hasMapObject: true,
+                hasOrbitRenderer: true,
+                orbitRendererEnabled: true,
+                drawIcons: "ALL",
+                nativeIconSuppressed: true,
+                rendererForceEnabled: false);
+
+            Assert.Contains("visibilityReason=map-object-missing", missingMapObject);
+            Assert.Contains("rendererForceEnabled=True", forcedRenderer);
+            Assert.Contains("visibilityReason=renderer-force-enabled", forcedRenderer);
+            Assert.Contains("nativeIconSuppressed=True", suppressedIcon);
+            Assert.Contains("visibilityReason=native-icon-suppressed", suppressedIcon);
         }
 
         // -----------------------------------------------------------------
