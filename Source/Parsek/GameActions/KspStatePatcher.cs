@@ -21,6 +21,11 @@ namespace Parsek
         private const double RecordStateEpsilon = 0.000001;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        private static void VerboseStablePatchState(string identity, string stateKey, string message)
+        {
+            ParsekLog.VerboseOnChange(Tag, identity, stateKey, message);
+        }
+
         /// <summary>
         /// When true, skips Unity-only API calls (FindObjectsOfType etc.) that crash outside the engine.
         /// Set by test fixtures; reset via <see cref="ResetForTesting"/>.
@@ -49,7 +54,7 @@ namespace Parsek
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
                 PatchContracts(contracts);
 
-                ParsekLog.Info(Tag, "PatchAll complete");
+                VerboseStablePatchState("patch-all-complete", "complete", "PatchAll complete");
             }
         }
 
@@ -68,7 +73,7 @@ namespace Parsek
 
             if (ResearchAndDevelopment.Instance == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|science|rnd", "rnd-null",
                     "PatchScience: ResearchAndDevelopment.Instance is null (sandbox mode) — skipping");
                 return;
             }
@@ -77,7 +82,7 @@ namespace Parsek
             // once KSP singletons report non-zero values. See bug #392.
             if (!science.HasSeed)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|science|seed", "missing-seed",
                     "PatchScience: module has no ScienceInitial seed — skipping to preserve KSP values");
                 return;
             }
@@ -90,7 +95,7 @@ namespace Parsek
 
             if (Math.Abs(delta) < 0.001f)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-noop|science", targetScience.ToString("F1", IC),
                     $"PatchScience: balance unchanged (current={currentScience.ToString("F1", IC)}, " +
                     $"target={targetScience.ToString("F1", IC)})");
             }
@@ -230,21 +235,21 @@ namespace Parsek
         {
             if (targetTechIds == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|tech-tree|target", "target-null",
                     "PatchTechTree: no target tech set supplied — skipping");
                 return;
             }
 
             if (ResearchAndDevelopment.Instance == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|tech-tree|rnd", "rnd-null",
                     "PatchTechTree: ResearchAndDevelopment.Instance is null — skipping");
                 return;
             }
 
             if (AssetBase.RnDTechTree == null || AssetBase.RnDTechTree.GetTreeTechs() == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|tech-tree|tree", "tree-unavailable",
                     "PatchTechTree: RnDTechTree unavailable — skipping");
                 return;
             }
@@ -527,7 +532,7 @@ namespace Parsek
 
             if (Funding.Instance == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|funds|funding", "funding-null",
                     "PatchFunds: Funding.Instance is null (sandbox mode) — skipping");
                 return;
             }
@@ -536,7 +541,7 @@ namespace Parsek
             // once KSP singletons report non-zero values. See bug #392.
             if (!funds.HasSeed)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|funds|seed", "missing-seed",
                     "PatchFunds: module has no FundsInitial seed — skipping to preserve KSP values");
                 return;
             }
@@ -547,7 +552,7 @@ namespace Parsek
 
             if (Math.Abs(delta) < 0.01)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-noop|funds", targetFunds.ToString("F1", IC),
                     $"PatchFunds: no change needed (current={currentFunds.ToString("F1", IC)}, " +
                     $"target={targetFunds.ToString("F1", IC)})");
                 return;
@@ -590,7 +595,7 @@ namespace Parsek
 
             if (Reputation.Instance == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|reputation|singleton", "reputation-null",
                     "PatchReputation: Reputation.Instance is null (sandbox mode) — skipping");
                 return;
             }
@@ -599,7 +604,7 @@ namespace Parsek
             // once KSP singletons report non-zero values. See bug #392.
             if (!reputation.HasSeed)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|reputation|seed", "missing-seed",
                     "PatchReputation: module has no ReputationInitial seed — skipping to preserve KSP values");
                 return;
             }
@@ -609,7 +614,7 @@ namespace Parsek
 
             if (Math.Abs(targetRep - currentRep) < 0.01f)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-noop|reputation", targetRep.ToString("F2", IC),
                     $"PatchReputation: no change needed (current={currentRep.ToString("F2", IC)}, " +
                     $"target={targetRep.ToString("F2", IC)})");
                 return;
@@ -640,7 +645,7 @@ namespace Parsek
 
             if (ScenarioUpgradeableFacilities.protoUpgradeables == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|facilities|proto-upgradeables", "proto-null",
                     "PatchFacilities: protoUpgradeables is null — skipping");
                 return;
             }
@@ -738,7 +743,7 @@ namespace Parsek
         {
             if (SuppressUnityCallsForTesting)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|destruction|test-suppression", "suppressed",
                     "PatchDestructionState: SuppressUnityCallsForTesting — skipping");
                 return;
             }
@@ -746,7 +751,7 @@ namespace Parsek
             var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
             if (destructibles == null || destructibles.Length == 0)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|destruction|destructibles", "none-found",
                     "PatchDestructionState: no DestructibleBuilding objects found (not in KSC scene?) — skipping");
                 return;
             }
@@ -821,7 +826,7 @@ namespace Parsek
 
             if (ResearchAndDevelopment.Instance == null)
             {
-                ParsekLog.Verbose(Tag,
+                VerboseStablePatchState("patch-skip|subject-science|rnd", "rnd-null",
                     "PatchPerSubjectScience: ResearchAndDevelopment.Instance is null — skipping");
                 return;
             }
@@ -897,7 +902,8 @@ namespace Parsek
 
             if (ProgressTracking.Instance == null)
             {
-                ParsekLog.Verbose(Tag, "PatchMilestones: ProgressTracking.Instance is null — skipping");
+                VerboseStablePatchState("patch-skip|milestones|progress-tracking", "progress-null",
+                    "PatchMilestones: ProgressTracking.Instance is null — skipping");
                 return;
             }
 

@@ -47,6 +47,7 @@ namespace Parsek
 
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
+        private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
         private bool pauseMenuOpen;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
@@ -248,8 +249,11 @@ namespace Parsek
                     DestroyAllKscOverlapGhosts(i);
                     if (currentUT > rec.EndUT)
                     {
-                        ParsekLog.Verbose("KSCSpawn",
-                            $"Playback-disabled past-end: attempting spawn for #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                        LogPlaybackDisabledPastEndSpawnAttemptOnce(
+                            rec,
+                            i,
+                            "playback-disabled-past-end",
+                            loggedPlaybackDisabledPastEndSpawnAttempts);
                         TrySpawnAtRecordingEnd(i, rec);
                     }
                     continue;
@@ -345,10 +349,15 @@ namespace Parsek
                 LoopTiming.MinCycleDuration);
             double anchorUT = autoLoopQueueScratch[0].PlaybackStartUT;
             double cadenceSeconds = launchGapSeconds * autoLoopQueueScratch.Count;
-            ParsekLog.Verbose("KSC",
+            string orderedIds = BuildAutoLoopQueueOrderedIds(autoLoopQueueScratch);
+            string fingerprint = BuildAutoLoopQueueFingerprint(autoLoopQueueScratch, anchorUT, cadenceSeconds);
+            ParsekLog.VerboseOnChange("KSC",
+                "auto-loop-queue",
+                fingerprint,
                 $"Auto loop queue rebuilt: count={autoLoopQueueScratch.Count} " +
                 $"anchorUT={anchorUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"cadence={cadenceSeconds.ToString("R", CultureInfo.InvariantCulture)}s");
+                $"cadence={cadenceSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                $"orderedIds={orderedIds}");
             for (int slot = 0; slot < autoLoopQueueScratch.Count; slot++)
             {
                 AutoLoopQueueCandidate candidate = autoLoopQueueScratch[slot];
@@ -359,6 +368,62 @@ namespace Parsek
                         slot,
                         autoLoopQueueScratch.Count);
             }
+        }
+
+        private static string BuildAutoLoopQueueFingerprint(
+            IReadOnlyList<AutoLoopQueueCandidate> queue,
+            double anchorUT,
+            double cadenceSeconds)
+        {
+            int count = queue?.Count ?? 0;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "count={0}|anchor={1}|cadence={2}|ids={3}",
+                count,
+                anchorUT.ToString("R", CultureInfo.InvariantCulture),
+                cadenceSeconds.ToString("R", CultureInfo.InvariantCulture),
+                BuildAutoLoopQueueOrderedIds(queue));
+        }
+
+        private static string BuildAutoLoopQueueOrderedIds(IReadOnlyList<AutoLoopQueueCandidate> queue)
+        {
+            if (queue == null || queue.Count == 0)
+                return "(empty)";
+
+            var ids = new List<string>(queue.Count);
+            for (int i = 0; i < queue.Count; i++)
+            {
+                AutoLoopQueueCandidate candidate = queue[i];
+                string id = string.IsNullOrEmpty(candidate.RecordingId)
+                    ? "(no-id)"
+                    : candidate.RecordingId;
+                ids.Add(candidate.RecordingIndex.ToString(CultureInfo.InvariantCulture) + ":" + id);
+            }
+
+            return string.Join(",", ids.ToArray());
+        }
+
+        internal static bool LogPlaybackDisabledPastEndSpawnAttemptOnce(
+            Recording rec,
+            int recIdx,
+            string reason,
+            ISet<string> loggedKeys)
+        {
+            string safeReason = string.IsNullOrEmpty(reason)
+                ? "playback-disabled-past-end"
+                : reason;
+            string id = !string.IsNullOrEmpty(rec?.RecordingId)
+                ? rec.RecordingId
+                : "idx:" + recIdx.ToString(CultureInfo.InvariantCulture);
+            string key = safeReason + "|" + id;
+            if (loggedKeys != null && !loggedKeys.Add(key))
+                return false;
+
+            ParsekLog.Verbose("KSCSpawn",
+                $"Playback-disabled past-end: attempting spawn for #{recIdx} " +
+                $"\"{rec?.VesselName ?? "(null)"}\" id={rec?.RecordingId ?? "(null)"} " +
+                $"reason={safeReason}");
+            return true;
         }
 
         /// <summary>
@@ -1389,9 +1454,10 @@ namespace Parsek
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnAbandoned = true;
+                    var classified = VesselSpawner.ClassifySnapshotCrew(snapshotCrew);
                     ParsekLog.Warn("KSCSpawn",
-                        $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": all {snapshotCrew.Count} crew " +
-                        $"are dead/missing — [{string.Join(", ", snapshotCrew)}]");
+                        $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": no spawnable crew — " +
+                        VesselSpawner.FormatSpawnableClassificationSummary(classified));
                     return;
                 }
 
@@ -1536,6 +1602,7 @@ namespace Parsek
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
             kscSpawnAttempted.Clear();
+            loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();

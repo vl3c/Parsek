@@ -1,7 +1,6 @@
 # Plan: Observability Logging Visibility
 
 Branch: `observability-audit`
-Worktree: `C:/Users/vlad3/Documents/Code/Parsek/Parsek-observability-audit`
 Date: 2026-04-26
 
 ## Source Material

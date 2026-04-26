@@ -287,7 +287,28 @@ namespace Parsek
 
             double resumeUT = GetQuickloadResumeUT();
             double preTrimEndUT = activeRec.EndUT;
-            bool treeTrimmed = ParsekScenario.TrimRecordingTreePastUT(ActiveTree, resumeUT);
+            int recordingsInTree = ActiveTree.Recordings.Count;
+
+            // Bug #610: pick trim scope. F9 quickload trims the whole tree;
+            // Re-Fly in-place continuation trims only the active rec because the
+            // splice (SpliceMissingCommittedRecordings) just restored other-vessel
+            // post-RP recordings that the tree-wide trim would prune again.
+            // Use `?.` instead of `!= null` so the read works in unit tests where
+            // ParsekScenario (a UnityEngine MonoBehaviour) is fake-destroyed by
+            // Unity's overloaded `==` operator; `?.` uses reference equality.
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            var trimScope = ParsekScenario.ChooseQuickloadTrimScope(
+                ActiveTree.Id, marker, out string trimScopeReason);
+            bool treeTrimmed;
+            if (trimScope == ParsekScenario.QuickloadTrimScope.ActiveRecOnly)
+            {
+                treeTrimmed = ParsekScenario.TrimRecordingPastUT(activeRec, resumeUT);
+            }
+            else
+            {
+                treeTrimmed = ParsekScenario.TrimRecordingTreePastUT(ActiveTree, resumeUT);
+            }
+
             bool hasTailEnv = TryGetTailTrackSectionEnvironment(activeRec, out SegmentEnvironment tailEnv);
             if (hasTailEnv)
                 ArmRestoreEnvironmentResync(tailEnv, "quickload-resume tail environment");
@@ -297,6 +318,8 @@ namespace Parsek
                 $"Quickload resume prep: activeRec='{activeRec.RecordingId}' " +
                 $"cutoffUT={resumeUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"preTrimEndUT={preTrimEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"trimScope={trimScope} ({trimScopeReason}) " +
+                $"recordingsInTree={recordingsInTree} " +
                 $"treeTrimmed={treeTrimmed}" +
                 (hasTailEnv ? $" envResyncTarget={tailEnv}" : ""));
         }

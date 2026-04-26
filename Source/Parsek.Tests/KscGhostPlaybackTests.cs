@@ -660,6 +660,86 @@ namespace Parsek.Tests
             Assert.Equal(90.0, cache[0].LaunchCadenceSeconds, 6);
         }
 
+        [Fact]
+        public void RebuildAutoLoopLaunchScheduleCache_StableQueueLogsOnceUntilFingerprintChanges()
+        {
+            var host = (ParsekKSC)FormatterServices.GetUninitializedObject(typeof(ParsekKSC));
+            var schedulesField = typeof(ParsekKSC).GetField(
+                "autoLoopLaunchSchedules",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var scratchField = typeof(ParsekKSC).GetField(
+                "autoLoopQueueScratch",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var rebuildMethod = typeof(ParsekKSC).GetMethod(
+                "RebuildAutoLoopLaunchScheduleCache",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(schedulesField);
+            Assert.NotNull(scratchField);
+            Assert.NotNull(rebuildMethod);
+
+            schedulesField.SetValue(
+                host,
+                new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>());
+            scratchField.SetValue(host, Activator.CreateInstance(scratchField.FieldType));
+
+            var first = MakeKerbinRecording(
+                startUT: 100, endUT: 150, loopPlayback: true, loopInterval: 999.0);
+            first.RecordingId = "first";
+            first.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            var second = MakeKerbinRecording(
+                startUT: 110, endUT: 160, loopPlayback: true, loopInterval: 999.0);
+            second.RecordingId = "second";
+            second.LoopTimeUnit = LoopTimeUnit.Auto;
+
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                autoLoopIntervalSeconds = 30f
+            };
+
+            var recordings = new List<Recording> { first, second };
+            rebuildMethod.Invoke(host, new object[] { recordings });
+            rebuildMethod.Invoke(host, new object[] { recordings });
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KSC]") && l.Contains("Auto loop queue rebuilt")));
+
+            second.RecordingId = "second-changed";
+            rebuildMethod.Invoke(host, new object[] { recordings });
+
+            Assert.Equal(2, logLines.FindAll(l =>
+                l.Contains("[KSC]") && l.Contains("Auto loop queue rebuilt")).Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("Auto loop queue rebuilt")
+                && l.Contains("orderedIds=0:first,1:second-changed")
+                && l.Contains("suppressed=1"));
+        }
+
+        [Fact]
+        public void PlaybackDisabledPastEndSpawnAttempt_LogsOncePerRecordingAndReason()
+        {
+            var rec = MakeKerbinRecording(playbackEnabled: false);
+            rec.RecordingId = "disabled-rec";
+            rec.VesselName = "Disabled Vessel";
+            var logged = new HashSet<string>();
+
+            Assert.True(ParsekKSC.LogPlaybackDisabledPastEndSpawnAttemptOnce(
+                rec, 3, "playback-disabled-past-end", logged));
+            Assert.False(ParsekKSC.LogPlaybackDisabledPastEndSpawnAttemptOnce(
+                rec, 3, "playback-disabled-past-end", logged));
+            Assert.True(ParsekKSC.LogPlaybackDisabledPastEndSpawnAttemptOnce(
+                rec, 3, "playback-disabled-other", logged));
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KSCSpawn]")
+                && l.Contains("Playback-disabled past-end")
+                && l.Contains("reason=playback-disabled-past-end")));
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KSCSpawn]")
+                && l.Contains("Playback-disabled past-end")
+                && l.Contains("reason=playback-disabled-other")));
+        }
+
         #endregion
 
         #region TryComputeLoopUT with #381 period semantics

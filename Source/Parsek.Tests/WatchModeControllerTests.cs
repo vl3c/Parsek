@@ -725,6 +725,110 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyMapFocusRestore_ReturnsSpecificMissingReason()
+        {
+            Assert.Equal("no-ghost-pid",
+                WatchModeController.ClassifyMapFocusRestore(
+                    ghostPid: 0u,
+                    hasGhostVessel: false,
+                    hasMapObject: false,
+                    hasPlanetariumCamera: true));
+            Assert.Equal("ghost-vessel-missing",
+                WatchModeController.ClassifyMapFocusRestore(
+                    ghostPid: 123u,
+                    hasGhostVessel: false,
+                    hasMapObject: false,
+                    hasPlanetariumCamera: true));
+            Assert.Equal("map-object-missing",
+                WatchModeController.ClassifyMapFocusRestore(
+                    ghostPid: 123u,
+                    hasGhostVessel: true,
+                    hasMapObject: false,
+                    hasPlanetariumCamera: true));
+            Assert.Equal("planetarium-camera-missing",
+                WatchModeController.ClassifyMapFocusRestore(
+                    ghostPid: 123u,
+                    hasGhostVessel: true,
+                    hasMapObject: true,
+                    hasPlanetariumCamera: false));
+            Assert.Equal("ready",
+                WatchModeController.ClassifyMapFocusRestore(
+                    ghostPid: 123u,
+                    hasGhostVessel: true,
+                    hasMapObject: true,
+                    hasPlanetariumCamera: true));
+        }
+
+        [Fact]
+        public void BuildMapFocusRestoreDecisionMessage_IncludesMapIconState()
+        {
+            string message = WatchModeController.BuildMapFocusRestoreDecisionMessage(
+                recordingIndex: 9,
+                ghostPid: 123u,
+                hasGhostVessel: true,
+                hasMapObject: false,
+                hasOrbitRenderer: true,
+                hasPlanetariumCamera: true,
+                reason: "map-object-missing");
+
+            Assert.Contains("rec=#9", message);
+            Assert.Contains("ghostPid=123", message);
+            Assert.Contains("hasGhostVessel=True", message);
+            Assert.Contains("mapObj=False", message);
+            Assert.Contains("orbitRenderer=True", message);
+            Assert.Contains("planetariumCamera=True", message);
+            Assert.Contains("reason=map-object-missing", message);
+        }
+
+        [Fact]
+        public void ClassifyWatchCameraInfrastructure_ReturnsSpecificMissingReason()
+        {
+            Assert.Equal("flight-camera-missing",
+                WatchModeController.ClassifyWatchCameraInfrastructure(
+                    hasFlightCamera: false,
+                    hasTransform: false,
+                    hasParent: false));
+            Assert.Equal("camera-transform-missing",
+                WatchModeController.ClassifyWatchCameraInfrastructure(
+                    hasFlightCamera: true,
+                    hasTransform: false,
+                    hasParent: false));
+            Assert.Equal("camera-parent-missing",
+                WatchModeController.ClassifyWatchCameraInfrastructure(
+                    hasFlightCamera: true,
+                    hasTransform: true,
+                    hasParent: false));
+            Assert.Equal("ready",
+                WatchModeController.ClassifyWatchCameraInfrastructure(
+                    hasFlightCamera: true,
+                    hasTransform: true,
+                    hasParent: true));
+        }
+
+        [Fact]
+        public void BuildWatchCameraInfrastructureMessage_IncludesTargetState()
+        {
+            string message = WatchModeController.BuildWatchCameraInfrastructureMessage(
+                recordingIndex: 2,
+                recordingId: "rec-watch",
+                reason: "camera-parent-missing",
+                vesselName: "Watch Vessel",
+                cycleIndex: 5,
+                scene: "FLIGHT",
+                hasState: true,
+                hasGhost: true,
+                hasCameraPivot: false);
+
+            Assert.Contains("rec=#2", message);
+            Assert.Contains("id=rec-watch", message);
+            Assert.Contains("vessel=\"Watch Vessel\"", message);
+            Assert.Contains("cycle=5", message);
+            Assert.Contains("scene=FLIGHT", message);
+            Assert.Contains("targetState[state=True ghost=True pivot=False]", message);
+            Assert.Contains("reason=camera-parent-missing", message);
+        }
+
+        [Fact]
         public void FinalizeAutomaticExit_ClearsEnsureGhostOrbitRenderersLatch()
         {
             // Regression for #377 follow-up review finding: the one-shot
