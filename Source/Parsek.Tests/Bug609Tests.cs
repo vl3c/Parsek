@@ -6,8 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for bug #608 follow-up: the spawner-side downstream of the
-    /// crew-reservation deferred-orphan-placement scenario. Reserved kerbals
+    /// Tests for bug #609 (spawner-side downstream of #608): reserved kerbals
     /// that KSP marked Missing (because their original vessel was stripped by
     /// Re-Fly) must not be counted as "dead" by the all-crew-dead spawn-block
     /// guard — they will be rescued to Available before the snapshot is
@@ -15,14 +14,15 @@ namespace Parsek.Tests
     ///
     /// Live-roster behaviour (the actual rescue, the BuildDeadCrewSet
     /// reservation carve-out, and the un-block Verbose log) is exercised by
-    /// the in-game test in <c>RuntimeTests.Bug608_ReservedMissingCrewSpawnsCleanly</c>.
+    /// the in-game test
+    /// <c>RuntimeTests.Bug609_ReservedMissingCrewIsSpawnableAndRescued</c>.
     /// </summary>
     [Collection("Sequential")]
-    public class Bug608Tests : IDisposable
+    public class Bug609Tests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
 
-        public Bug608Tests()
+        public Bug609Tests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -33,9 +33,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            CrewReservationManager.ResetReplacementsForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         // ────────────────────────────────────────────────────────────

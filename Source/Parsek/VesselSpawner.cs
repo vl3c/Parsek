@@ -552,7 +552,7 @@ namespace Parsek
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
-                // (#608) Rescue reserved+Missing crew BEFORE the keep/remove
+                // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
                 RescueReservedMissingCrewInSnapshot(spawnNode);
@@ -970,7 +970,7 @@ namespace Parsek
                     NormalizeOrbitalSpawnMetadata(spawnNode, ut);
 
                 // Crew handling
-                // (#608) Rescue reserved+Missing crew BEFORE the keep/remove
+                // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
                 RescueReservedMissingCrewInSnapshot(spawnNode);
@@ -2010,7 +2010,7 @@ namespace Parsek
         /// <summary>
         /// Per-crew classification used by the dead-crew abandon log so the WARN
         /// can break down the snapshot crew list by reason instead of just
-        /// listing names. (#608)
+        /// listing names. (#608/#609)
         /// </summary>
         internal enum SpawnableClassification
         {
@@ -2022,7 +2022,7 @@ namespace Parsek
 
         /// <summary>
         /// Classify each snapshot crew name into the categories the abandon log
-        /// reports. Pure decision: does not mutate state. (#608)
+        /// reports. Pure decision: does not mutate state. (#608/#609)
         /// </summary>
         internal static List<KeyValuePair<string, SpawnableClassification>> ClassifySnapshotCrew(
             List<string> snapshotCrew)
@@ -2051,7 +2051,7 @@ namespace Parsek
 
         /// <summary>
         /// Format the per-category summary used by both the abandon WARN and
-        /// the carve-out Verbose log (#608). Counts each category and lists the
+        /// the carve-out Verbose log (#608/#609). Counts each category and lists the
         /// names with their classification.
         /// </summary>
         internal static string FormatSpawnableClassificationSummary(
@@ -2092,7 +2092,7 @@ namespace Parsek
             var deadSet = BuildDeadCrewSet(snapshotCrew);
             bool block = ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet);
 
-            // (#608) When the carve-out lets a snapshot through that the
+            // (#608/#609) When the carve-out lets a snapshot through that the
             // pre-fix code would have abandoned, log a Verbose breakdown so
             // playtest logs make the recovery visible. Pre-fix decision used
             // IsCrewDeadInRoster (Dead OR Missing) for every name, so the old
@@ -2113,7 +2113,7 @@ namespace Parsek
                 if (wouldHaveBlocked && anyReservedMissing)
                 {
                     ParsekLog.Verbose("Spawner",
-                        "Spawn-block carve-out applied (#608): allowing spawn that pre-fix would " +
+                        "Spawn-block carve-out applied (#608/#609): allowing spawn that pre-fix would " +
                         "have abandoned because reserved+Missing crew is rescuable — " +
                         FormatSpawnableClassificationSummary(classified));
                 }
@@ -2663,7 +2663,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// (#608) Pre-spawn pass: for each crew name in the snapshot that is
+        /// (#608/#609) Pre-spawn pass: for each crew name in the snapshot that is
         /// reserved AND currently Missing in the roster, flip the roster status
         /// back to Available so KSP's <c>ProtoVessel.Load → Part.RegisterCrew</c>
         /// path can place them on the spawned vessel cleanly. Reserved+Missing
@@ -2711,14 +2711,14 @@ namespace Parsek
                         pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                         rescued++;
                         ParsekLog.Info("Spawner",
-                            $"Rescued reserved+Missing crew '{name}' → Available before snapshot load (#608)");
+                            $"Rescued reserved+Missing crew '{name}' → Available before snapshot load (#608/#609)");
                     }
                 }
             }
 
             if (rescued > 0)
                 ParsekLog.Info("Spawner",
-                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) → Available (#608)");
+                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) → Available (#608/#609)");
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)

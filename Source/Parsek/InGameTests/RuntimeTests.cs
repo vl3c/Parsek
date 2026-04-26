@@ -5213,10 +5213,10 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
-            Description = "Bug #608: spawner-side carve-out — reserved+Missing crew is rescued and not classified as dead")]
-        public void Bug608_ReservedMissingCrewIsSpawnableAndRescued()
+            Description = "Bug #609: spawner-side carve-out — reserved+Missing crew is rescued and not classified as dead")]
+        public void Bug609_ReservedMissingCrewIsSpawnableAndRescued()
         {
-            // End-to-end integration test for the bug #608 spawner-side fix.
+            // End-to-end integration test for the bug #608/#609 spawner-side fix.
             // Scenario: a kerbal is reserved by a recording AND currently
             // Missing in the roster (the post-Re-Fly-strip state). The spawner
             // must:
@@ -5315,7 +5315,7 @@ namespace Parsek.InGameTests
                     snapshot, out snapshotCrew);
                 InGameAssert.IsFalse(blocked,
                     $"ShouldBlockSpawnForDeadCrewInSnapshot must allow spawn for " +
-                    $"reserved+Missing crew (#608 carve-out) — got blocked=true");
+                    $"reserved+Missing crew (#608/#609 carve-out) — got blocked=true");
                 InGameAssert.AreEqual(1, snapshotCrew.Count,
                     $"snapshotCrew should contain {victim.name}, got count={snapshotCrew.Count}");
 
