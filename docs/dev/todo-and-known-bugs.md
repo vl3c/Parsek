@@ -449,6 +449,78 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## 612. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
+3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
+entered its first relative-frame track section (`UT=199.3-214.7`,
+`anchorPid=3151978247`) at line ~17943. The very next line emitted the
+WARN `[Anchor] RELATIVE playback: anchor vessel pid=3151978247 not found
+— ghost frozen at last known position`, and the subsequent
+`[GhostAppearance]` line reported `root=(0.00,0.00,0.00)` with
+`rootRot=identity` and a render distance of `1140719m`. The recorded
+anchor pid (`3151978247`) had been the active Re-Fly probe; it was
+destroyed in the background at 10:14:23 (line ~11001
+`[BgRecorder] Background vessel destroyed`) and the rewind erased it from
+the future, so the post-rewind `FlightGlobals.Vessels` never contained
+that pid again.
+
+**PID lifecycle (verified):** `TrackSection.anchorVesselId` (uint pid) is
+captured by `FlightRecorder.ApplyRelativeOffset` at recording time
+(`Source/Parsek/FlightRecorder.cs:5566`) and persisted in the recording's
+on-disk track sections (`RecordingStore.cs:5132`,
+`TrajectorySidecarBinary.cs:631`). It is **never rewritten** after the
+recording finalizes — recordings are immutable across rewinds. After a
+Re-Fly rewind the recording sits in `RecordingStore.CommittedRecordings`
+with the original anchor pid intact, but the live `FlightGlobals.Vessels`
+no longer contains that pid (the anchor's recording-side
+`Vessel.persistentId` is gone with the destroyed-future strip).
+`FlightRecorder.FindVesselByPid(3151978247)` then returns null on every
+playback frame. The ghost-map presence path already gracefully defers in
+this case (`GhostMapPresence.TryResolveStateVectorMapPointPure` returns
+`relative-frame-anchor-unresolved`), but the in-flight ghost-positioning
+path was still using the older "freeze at last known position" branch,
+which renders a freshly-spawned ghost at `(0,0,0)`.
+
+**Fix direction:** retire (hide) the ghost during the relative section
+rather than re-resolve. Re-resolution by name was rejected: the recorded
+anchor was a transient sibling vessel (a decoupled probe) with no stable
+identifier — there is nothing to rebind to in the post-rewind scene. The
+fix in `Source/Parsek/ParsekFlight.cs` (`InterpolateAndPositionRelative`
+~line 15264, `PositionGhostRelativeAt` ~line 15400) replaces the
+freeze-in-place branch with `ghost.SetActive(false)` plus a one-shot
+per-(recordingIndex, anchorPid) WARN under the `[Anchor]` tag carrying a
+greppable `relative-anchor-retired` keyword. Hiding strictly dominates
+freezing: if the anchor reappears on a later frame the engine re-enters
+the same method and repositions; if it never reappears, the ghost stays
+gracefully ungraphable instead of marooned at world origin with bogus
+distance reports. The `LateUpdate` Relative-mode path in `ParsekFlight`
+already deactivated the ghost on null anchor, so this brings the two
+positioning entry points into alignment.
+
+**Decision helper:** new pure static `RelativeAnchorResolution` (Decide /
+DedupeKey / FormatRetiredMessage) so the resolver decision is unit
+testable with an injectable resolver delegate, mirroring the existing
+`GhostMapPresence.AnchorResolvableForTesting` pattern.
+
+**Tests:** 16 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
+covering: Decide outcomes (Resolved / Retired / pid==0 short-circuit /
+null resolver), DedupeKey uniqueness across (recIdx, pid) combos and high
+bit handling, FormatRetiredMessage greppable keyword + identifying field
+inclusion + null-vessel-name placeholder + Re-Fly root-cause mention, the
+log-assertion case that pipes the formatted message through
+`ParsekLog.Warn("Anchor", ...)` and asserts the resulting line carries
+`[WARN]`, `[Anchor]`, and `relative-anchor-retired`, and the rewind
+scenario coverage (anchor still alive in post-rewind FlightGlobals -->
+Resolved with no spurious retirement; anchor erased --> Retired with no
+freeze-path reachable). The Outcome enum has a defensive shape test that
+locks the contract to exactly two values, blocking any future "partial
+positioning" outcome.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the
