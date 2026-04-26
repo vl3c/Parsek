@@ -30,7 +30,7 @@ namespace Parsek
         private const string Tag = "MapMarker";
         private const int IconSize = 20;
         private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
-        private const float IconOpacity = 0.8f;
+        private const float UnpinnedMarkerAlpha = 0.8f;
 
         // VesselType -> sprite index in MapNode.iconSprites, taken from the
         // decompiled KSP.UI.Screens.Mapview.MapNode icon-index lookup.
@@ -199,19 +199,19 @@ namespace Parsek
                 && vesselIconEntries.TryGetValue(vtype, out entry)
                 && entry.Atlas != null)
             {
-                GUI.color = WithIconOpacity(Color.white, sticky);
+                GUI.color = WithMarkerOpacity(Color.white, sticky);
                 GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
             }
             else if (fallbackDiamond != null)
             {
-                GUI.color = WithIconOpacity(color, sticky);
+                GUI.color = WithMarkerOpacity(color, sticky);
                 GUI.DrawTexture(iconRect, fallbackDiamond);
             }
             GUI.color = prevColor;
 
             if (ShouldDrawLabel(sticky, mouseOver))
             {
-                labelStyle.normal.textColor = WithLabelOpacity(GetLabelColor(), sticky);
+                labelStyle.normal.textColor = WithMarkerOpacity(GetLabelColor(), sticky);
                 GUI.Label(
                     new Rect(x - 75, y + IconSize / 2 + 2, 150, 20),
                     "Ghost: " + (label ?? "(unknown)"),
@@ -227,15 +227,14 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldDrawLabel(bool sticky, bool hover) => sticky || hover;
 
-        internal static Color WithIconOpacity(Color color, bool sticky)
+        /// <summary>
+        /// Replaces the source alpha with the marker alpha: unpinned hover
+        /// markers render muted, while pinned markers and labels render fully
+        /// opaque. RGB values are deliberately preserved.
+        /// </summary>
+        internal static Color WithMarkerOpacity(Color color, bool sticky)
         {
-            color.a = sticky ? 1f : IconOpacity;
-            return color;
-        }
-
-        internal static Color WithLabelOpacity(Color color, bool sticky)
-        {
-            color.a = sticky ? 1f : IconOpacity;
+            color.a = sticky ? 1f : UnpinnedMarkerAlpha;
             return color;
         }
 

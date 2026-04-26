@@ -146,45 +146,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WithIconOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
+        public void WithMarkerOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
         {
             Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
 
-            Color iconColor = MapMarkerRenderer.WithIconOpacity(source, sticky: false);
+            Color markerColor = MapMarkerRenderer.WithMarkerOpacity(source, sticky: false);
 
-            Assert.Equal(source.r, iconColor.r);
-            Assert.Equal(source.g, iconColor.g);
-            Assert.Equal(source.b, iconColor.b);
-            Assert.Equal(0.8f, iconColor.a);
+            Assert.Equal(source.r, markerColor.r);
+            Assert.Equal(source.g, markerColor.g);
+            Assert.Equal(source.b, markerColor.b);
+            Assert.Equal(0.8f, markerColor.a, 0.001f);
         }
 
         [Fact]
-        public void WithIconOpacity_UsesFullAlphaWhenLabelPinned()
+        public void WithMarkerOpacity_UsesFullAlphaWhenPinned()
         {
             Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
 
-            Color iconColor = MapMarkerRenderer.WithIconOpacity(source, sticky: true);
+            Color markerColor = MapMarkerRenderer.WithMarkerOpacity(source, sticky: true);
 
-            Assert.Equal(source.r, iconColor.r);
-            Assert.Equal(source.g, iconColor.g);
-            Assert.Equal(source.b, iconColor.b);
-            Assert.Equal(1f, iconColor.a);
-        }
-
-        [Theory]
-        [InlineData(false, 0.8f)]
-        [InlineData(true, 1f)]
-        public void WithLabelOpacity_MatchesPinnedStateWithoutChangingRgb(
-            bool sticky, float expectedAlpha)
-        {
-            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
-
-            Color labelColor = MapMarkerRenderer.WithLabelOpacity(source, sticky);
-
-            Assert.Equal(source.r, labelColor.r);
-            Assert.Equal(source.g, labelColor.g);
-            Assert.Equal(source.b, labelColor.b);
-            Assert.Equal(expectedAlpha, labelColor.a);
+            Assert.Equal(source.r, markerColor.r);
+            Assert.Equal(source.g, markerColor.g);
+            Assert.Equal(source.b, markerColor.b);
+            Assert.Equal(1f, markerColor.a, 0.001f);
         }
 
         // IsToggleClick — only left-button MouseDown toggles sticky state.
