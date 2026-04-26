@@ -145,6 +145,48 @@ namespace Parsek.Tests
             Assert.NotEqual(stationColor.g, labelColor.g);
         }
 
+        [Fact]
+        public void WithIconOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color iconColor = MapMarkerRenderer.WithIconOpacity(source, sticky: false);
+
+            Assert.Equal(source.r, iconColor.r);
+            Assert.Equal(source.g, iconColor.g);
+            Assert.Equal(source.b, iconColor.b);
+            Assert.Equal(0.8f, iconColor.a);
+        }
+
+        [Fact]
+        public void WithIconOpacity_UsesFullAlphaWhenLabelPinned()
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color iconColor = MapMarkerRenderer.WithIconOpacity(source, sticky: true);
+
+            Assert.Equal(source.r, iconColor.r);
+            Assert.Equal(source.g, iconColor.g);
+            Assert.Equal(source.b, iconColor.b);
+            Assert.Equal(1f, iconColor.a);
+        }
+
+        [Theory]
+        [InlineData(false, 0.8f)]
+        [InlineData(true, 1f)]
+        public void WithLabelOpacity_MatchesPinnedStateWithoutChangingRgb(
+            bool sticky, float expectedAlpha)
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color labelColor = MapMarkerRenderer.WithLabelOpacity(source, sticky);
+
+            Assert.Equal(source.r, labelColor.r);
+            Assert.Equal(source.g, labelColor.g);
+            Assert.Equal(source.b, labelColor.b);
+            Assert.Equal(expectedAlpha, labelColor.a);
+        }
+
         // IsToggleClick — only left-button MouseDown toggles sticky state.
         // Non-left clicks must pass through so stock map/tracking handlers can
         // still react normally. The production click handler gates on this
