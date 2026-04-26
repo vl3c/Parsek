@@ -447,6 +447,50 @@ namespace Parsek.Tests
             Assert.Single(LogLinesContaining("CanInvokeSlot:"));
         }
 
+        // Regression: Recordings window closed + Timeline window open was the
+        // production scenario where DrawIfOpen previously cleared the slot
+        // decision cache every OnGUI pass, re-spamming slot-ok per frame
+        // because TimelineWindowUI's Fly button still calls
+        // CanInvokeRewindPointSlot. The follow-up removed the per-pass clear,
+        // and ClearAllRewindSlotCanInvokeLogState is now reserved for actual
+        // close transitions and scene loads. This test pins that the cache
+        // survives steady Timeline-only calls.
+        [Fact]
+        public void RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose()
+        {
+            string quicksavePath = WriteQuicksave("GAME\n{\n  FLIGHTSTATE\n  {\n  }\n}\n");
+            var slot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_timeline_only",
+                QuicksaveFilename = "Parsek/RewindPoints/rp_timeline_only.sfs",
+                ChildSlots = new List<ChildSlot> { slot }
+            };
+            RewindInvoker.ResolveAbsoluteQuicksavePathOverrideForTesting = _ => quicksavePath;
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+
+            // Simulate Recordings open: Timeline calls seed the cache.
+            Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+
+            // Simulate Recordings window close transition: ClearAll fires once.
+            RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
+
+            // Simulate the steady Recordings-closed + Timeline-open state.
+            // Pre-follow-up DrawIfOpen called ClearAll on every pass; that path
+            // is gone now, so Timeline's per-frame calls should suppress.
+            for (int i = 0; i < 200; i++)
+            {
+                Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+            }
+
+            // Expect: 1 emit before close, 1 emit after close+first-Timeline-call.
+            Assert.Equal(2, LogLinesContaining("CanInvokeSlot:").Count);
+        }
+
         private string WriteQuicksave(string contents)
         {
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + ".sfs");
