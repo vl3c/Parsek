@@ -629,8 +629,13 @@ namespace Parsek.Tests
             var roster = new GuardFakeRoster();
             roster.Add("Sara Kerman", ProtoCrewMember.RosterStatus.Available);
             // The stand-in IS on a live vessel (the freshly-loaded launch
-            // vessel that hasn't started recording yet).
+            // vessel that hasn't started recording yet). Call BOTH
+            // MarkOnLiveVessel (legacy name-only signal feeding the production
+            // IsKerbalOnLiveVessel) and MarkOnVessel(name, pid) (pid-scoped
+            // signal) so the test stays correct if the retain branch is later
+            // tightened to use IsKerbalOnVesselWithPid.
             roster.MarkOnLiveVessel("Sara Kerman");
+            roster.MarkOnVessel("Sara Kerman", RescuedVesselPid);
 
             logLines.Clear();
             module.ApplyToRoster(roster);
