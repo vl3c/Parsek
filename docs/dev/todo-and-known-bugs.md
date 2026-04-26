@@ -449,7 +449,7 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
-## 612. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
 3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
