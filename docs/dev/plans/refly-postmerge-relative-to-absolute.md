@@ -169,10 +169,12 @@ internal static int RunReFlyParentChainAbsolutePromotionPass(
 `tree.BranchPoints` to enforce the single-parent predicate and on
 `tree.Recordings` to collect same-chain members. Passing it explicitly
 keeps the pass off `RecordingStore.CommittedTrees` and makes it
-testable with synthetic trees in unit tests. Callers look up the tree
-once via `RecordingStore.FindCommittedTreeById(targetTreeId)` and pass
-it in; the pass returns 0 with a `Warn` if `tree` is null or doesn't
-contain `activeReFlyTargetRecordingId`.
+testable with synthetic trees in unit tests. Both callers (the
+in-place branch in `MergeDialog.TryCommitReFlySupersede` and
+`MergeJournalOrchestrator.RunMerge`) already have the tree in scope —
+see the "Shared promotion step" call-site notes below for how each
+resolves it. The pass returns 0 with a `Warn` if `tree` is null or
+doesn't contain `activeReFlyTargetRecordingId`.
 
 The pass returns the number of recordings it promoted (for logging) and:
 
@@ -274,13 +276,13 @@ has TWO completion paths and a naive single-call-site wiring would only
 catch one of them:
 
 1. **Placeholder path.** Non-in-place Re-Fly: a fresh provisional
-   recording is built and `MergeJournalOrchestrator.RunMergeJournal`
+   recording is built and `MergeJournalOrchestrator.RunMerge`
    drives the supersede / tombstone / finalize / RpReap phases.
 2. **In-place continuation path.** [MergeDialog.cs:393-660](../Source/Parsek/MergeDialog.cs)
    detects in-place continuation, runs its own
    `SupersedeCommit.AppendRelations` + `FlipMergeStateAndClearTransient`
    + RP reap + `persistent.sfs` durable save sequence, and returns
-   `Completed` WITHOUT calling `RunMergeJournal`. The in-place branch
+   `Completed` WITHOUT calling `RunMerge`. The in-place branch
    logs `in-place continuation persisted via persistent.sfs` /
    `in-place continuation skipped durable save`.
 
@@ -301,9 +303,28 @@ internal static int SupersedeCommit.PromoteParentChainRelativeToAbsolute(
     RecordingTree tree)
 ```
 
+`tree` is required (not optional). Both call sites already have the
+tree in scope at the moment they invoke the helper:
+
+- `MergeDialog.MergeCommit` accepts `RecordingTree tree` as its first
+  parameter and passes it through to `TryCommitReFlySupersede` via
+  closure / shared state. The in-place branch already operates on
+  that same tree.
+- `MergeJournalOrchestrator.RunMerge(ReFlySessionMarker marker,
+  Recording provisional)` resolves the tree once at the top of the
+  method via `provisional.TreeId` against `RecordingStore.CommittedTrees`
+  using a small inline scan (the same scan pattern
+  `EffectiveState.ResolveChainTerminalRecording` uses today —
+  `EffectiveState.cs:1810-1840`). No new public lookup API is
+  required. Adding an `internal static RecordingTree
+  RecordingStore.FindCommittedTreeById(string)` is a reasonable
+  one-liner refactor if more than one consumer wants it, but it is
+  NOT a prerequisite for this plan; the scan is small and local.
+
 The helper:
-1. Looks up `tree` from `RecordingStore.FindCommittedTreeById(marker.TreeId)`
-   if the caller passes null (defensive).
+1. Validates inputs (non-null marker, target, tree; target id present
+   in `tree.Recordings`). Returns 0 with a `Warn` on failure — the
+   merge is allowed to proceed; only the optional cleanup is skipped.
 2. Calls `RecordingOptimizer.RunReFlyParentChainAbsolutePromotionPass(
    tree, RecordingStore.CommittedRecordings, marker.ActiveReFlyRecordingId,
    activeReFlyTarget.VesselPersistentId)`.
@@ -330,15 +351,35 @@ The helper:
   identical to the current world. No regression.)
 
 - **Placeholder path via the orchestrator.** Add a new
-  `MergeJournal.Phases.RelativePromotion` between `RpReap` and the
-  implicit final cleared state. `RunMergeJournal` invokes the helper
-  after `RpReap` advances. `RunFinisher` learns to redrive from
-  `RelativePromotion` (re-run the helper — idempotent — then clear).
-  Alternative: fold it into `RpReap`'s body without a new phase. We
-  pick the explicit phase because (a) journal phases are cheap,
-  (b) the redrive contract is obvious from the orchestrator code,
-  (c) it gives us a log-grep landmark consistent with the in-place
-  branch.
+  `MergeJournal.Phases.RelativePromotion` between `RpReap` and
+  `Durable2Done`. `RunMerge` invokes the helper after `RpReap`
+  advances and before the existing `Durable2Done` advance — so the
+  helper's in-memory section flips and flat-list rewrites ride the
+  existing `durable2` save (`MergeJournalOrchestrator.cs:248`) onto
+  disk in one atomic step. No new durable save is added; no extra
+  I/O cost.
+
+  **Crash recovery.** Because `RelativePromotion` is post-Durable1
+  but pre-Durable2 (in the existing `Durable1Done`-to-`Durable2Done`
+  in-memory window), a crash anywhere in this window means:
+  - On disk: journal phase is `Durable1Done` (or `RpReap` if it
+    advanced), and sidecars hold the **pre-promotion shape**
+    (RELATIVE sections with anchor-local frames + shadow frames).
+  - On reload: `RecordingStore` repopulates from sidecars to the
+    pre-promotion in-memory state. `MergeJournalOrchestrator.RunFinisher`
+    detects a post-Durable1 phase and walks forward through
+    `CompleteFromPostDurable`. The new `RelativePromotion` step
+    re-invokes the helper, which finds the parent-chain RELATIVE
+    sections in memory (rebuilt from disk) and promotes them again.
+    `Durable2Done` advance + `durable2` save then land the
+    promotion. The redrive is therefore not a no-op — it does the
+    real work the original run lost. This is the same contract the
+    rest of the post-Durable1 phases use (RpReap is also redriven
+    on reload). Alternative: fold it into `RpReap`'s body without a
+    new phase. We pick the explicit phase because (a) journal phases
+    are cheap, (b) the redrive contract is obvious from the
+    orchestrator code, (c) it gives us a log-grep landmark
+    consistent with the in-place branch.
 
 #### Why not unify the two paths instead?
 
@@ -502,20 +543,43 @@ data transformation).
 
 ### `MergeJournalOrchestratorTests` additions
 
-1. **`RelativePromotion` phase is reached after `RpReap` (placeholder
-   path).** Placeholder Re-Fly merge (NOT in-place) with parent-chain
-   recordings to promote. Assert journal advances through
-   `RelativePromotion` and clears.
+1. **`RelativePromotion` phase fires between `RpReap` and `Durable2Done`
+   (placeholder path).** Placeholder Re-Fly merge (NOT in-place) with
+   parent-chain recordings to promote. Assert journal advances
+   `RpReap` → `RelativePromotion` → `Durable2Done`, the helper logs
+   the structured promotion summary, and the `durable2` save fires
+   AFTER the in-memory promotion landed (so the on-disk sidecars
+   carry the promoted shape).
 
-2. **Redrive from `RelativePromotion` re-runs the pass and is
-   idempotent.** Inject a crash hook before the phase clears; reload;
-   `RunFinisher` should re-execute the pass (which finds nothing to
-   promote because the previous run already landed in memory) and
-   advance to cleared.
+2. **Crash inside `RelativePromotion` redrives the pass on reload.**
+   Inject `Phase.RpReap` test hook to throw (or use the
+   `DurableSaveForTesting` seam to drop the in-progress state).
+   Reload simulates a fresh process: `RecordingStore` repopulates
+   from disk (pre-promotion sidecars), `MergeJournalOrchestrator.RunFinisher`
+   sees journal phase = `RpReap` (post-Durable1, pre-Durable2),
+   walks forward through `CompleteFromPostDurable`, re-invokes
+   `PromoteParentChainRelativeToAbsolute` on the freshly-loaded
+   RELATIVE state, lands the promotion in memory, advances
+   `Durable2Done`, fires the `durable2` save. Final on-disk state
+   is the promoted shape. Assert the helper's INFO line shows
+   `promoted > 0` on the redrive (NOT "nothing to promote") because
+   the rebuilt-from-sidecar state still carries the unpromoted
+   RELATIVE sections.
 
-3. **Crash before `RelativePromotion` does NOT promote.** Inject hook at
-   `RpReap` clear; assert the parent-chain recordings are still
-   RELATIVE on disk, and reload's redrive completes the promotion.
+3. **Crash before `RelativePromotion` advance also redrives.**
+   Inject hook at `RpReap` advance. Reload: same redrive path,
+   same promoted final state. Twin of #2; pinned because the
+   journal phase difference (`Durable1Done` vs `RpReap`) is a
+   different finisher branch.
+
+4. **Idempotency on a clean second redrive.** Run the pass once,
+   crash AFTER `Durable2Done` save lands, reload. The sidecars
+   already hold the promoted shape, so `RecordingStore` rebuilds
+   in-memory to ABSOLUTE. The redrive of `RelativePromotion`
+   finds no RELATIVE sections matching the filter and logs
+   `nothing to promote` — the audit landmark. Final state matches
+   the no-crash path. This is the only scenario where the redrive
+   reports zero promotions.
 
 ### `MergeDialogTests` / in-place branch wiring
 
