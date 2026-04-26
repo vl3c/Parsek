@@ -94,10 +94,12 @@ repair-adjacent and need explicit review during implementation:
   must stay in the same write position because it aligns `.sfs` metadata with
   existing sidecars.
 - Legacy loop migration in load playback/linkage uses
-  `GhostPlaybackEngine.DefaultLoopPlaybackIntervalSeconds`, updates loop start
-  and end fields, logs the existing `[Loop]` warning text, and calls
+  `GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(...)`, updates
+  loop start and end fields when conversion succeeds, and calls
   `RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration`.
-  If moved, the body and call order must be byte-for-byte equivalent.
+  The successful-migration and deferred-migration `ParsekLog.Warn("Loop", ...)`
+  paths must both keep their existing warning text, conditions, and relative
+  order if this block moves.
 - `RecordingEndpointResolver.BackfillEndpointDecision(rec,
   "RecordingTree.LoadRecordingFrom")` should remain in the
   `RecordingTree.LoadRecordingFrom` wrapper after codec hydration for the first
@@ -110,7 +112,10 @@ repair-adjacent and need explicit review during implementation:
   `RecordingStore.BumpLegacyMergeStateMigrationCounterForTesting()`.
   `RecordingTree.Load` remains responsible for the one-shot
   `RecordingStore.EmitLegacyMergeStateMigrationLogOnce(...)` call.
-- Stray committed `SupersedeTargetId` cleanup must keep the same warning tag,
+- Stray committed `SupersedeTargetId` cleanup currently lives at the end of
+  `LoadRecordingResourceAndState`, immediately after `MergeState`,
+  `committed`-bool migration, `CreatingSessionId`, `SupersedeTargetId`, and
+  `ProvisionalForRpId` loading. It must keep the same position, warning tag,
   warning text, condition, and null assignment.
 
 The guiding rule is: low-level serialization can move; repair/order policy
