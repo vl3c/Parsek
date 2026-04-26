@@ -1616,6 +1616,100 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_UntaggedOptimizerSplit_UsesContiguousTip()
+        {
+            var head = Rec("rec_untag_head", "tree_untag",
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_untag";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var staleOldTail = Rec("rec_untag_stale_old_tail", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleOldTail.ChainId = "chain_untag";
+            staleOldTail.ChainBranch = 0;
+            staleOldTail.ChainIndex = 1;
+            staleOldTail.Points.Add(new TrajectoryPoint { ut = 0.4 });
+            staleOldTail.Points.Add(new TrajectoryPoint { ut = 0.6 });
+
+            var middle = Rec("rec_untag_middle", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: null);
+            middle.ChainId = "chain_untag";
+            middle.ChainBranch = 0;
+            middle.ChainIndex = 2;
+            middle.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            middle.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            var tip = Rec("rec_untag_tip", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Orbiting);
+            tip.ChainId = "chain_untag";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 3;
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            InstallTree("tree_untag",
+                new List<Recording> { head, staleOldTail, middle, tip },
+                new List<BranchPoint>());
+
+            // Match the captured failure mode: the flat committed list contains
+            // optimizer split children, but the committed tree lookup still
+            // resolves the in-place head to itself. The continuity fallback must
+            // use the flat list to find the real post-optimizer tip.
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_stale_old_tail");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_middle");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_tip");
+
+            var marker = Marker(originId: "rec_untag_head", provisionalId: "rec_untag_head",
+                treeId: "tree_untag");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_stale_old_tail"
+                    && r.NewRecordingId == "rec_untag_tip");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_middle");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_tip");
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("contiguous split bounds")
+                && l.Contains("head=rec_untag_head")
+                && l.Contains("tip=rec_untag_tip")
+                && l.Contains("rec_untag_middle")
+                && !l.Contains("rec_untag_stale_old_tail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("rec_untag_head")
+                && l.Contains("rec_untag_middle")
+                && l.Contains("rec_untag_tip")
+                && !l.Contains("rec_untag_stale_old_tail")
+                && l.Contains("size=3"));
+        }
+
+        [Fact]
         public void ResolveSessionOwnedChainTerminalRecording_IgnoresHigherIndexStaleTail()
         {
             var head = Rec("rec_target_head", "tree_target",
@@ -1833,6 +1927,82 @@ namespace Parsek.Tests
                 l.Contains("repaired null terminal") &&
                 l.Contains("rec_scene_exit_origin") &&
                 l.Contains("terminal=Splashed"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ContiguousHoleStaysOnHeadAndRepairs()
+        {
+            var head = Rec("rec_hole_head", "tree_hole",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            head.ChainId = "chain_hole";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.SceneExitSituation = (int)Vessel.Situations.FLYING;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var middleAfterHole = Rec("rec_hole_middle", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: null);
+            middleAfterHole.ChainId = "chain_hole";
+            middleAfterHole.ChainBranch = 0;
+            middleAfterHole.ChainIndex = 2;
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            var tipAfterHole = Rec("rec_hole_tip", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Orbiting);
+            tipAfterHole.ChainId = "chain_hole";
+            tipAfterHole.ChainBranch = 0;
+            tipAfterHole.ChainIndex = 3;
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 4.0 });
+
+            InstallTree("tree_hole",
+                new List<Recording> { head, middleAfterHole, tipAfterHole },
+                new List<BranchPoint>());
+
+            // Simulate a flat-list optimizer artifact where later same-chain records
+            // exist, but the committed tree still resolves the in-place origin to
+            // itself. The contiguous walk must not jump the 1s hole from HEAD to MIDDLE.
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_middle");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_tip");
+
+            List<Recording> members = MergeDialog.ResolveContiguousInPlaceChainMembers(head);
+            Assert.Single(members);
+            Assert.Same(head, members[0]);
+
+            var marker = Marker(originId: "rec_hole_head",
+                provisionalId: "rec_hole_head",
+                treeId: "tree_hole",
+                sessionId: "sess_hole");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            Assert.Equal(TerminalState.SubOrbital, head.TerminalStateValue);
+            Assert.Equal(2, scenario.RecordingSupersedes.Count);
+            Assert.All(scenario.RecordingSupersedes, r =>
+                Assert.Equal("rec_hole_head", r.NewRecordingId));
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_middle");
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_tip");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolver audit")
+                && l.Contains("sessionOwnedSize=0")
+                && l.Contains("contiguousSize=1")
+                && l.Contains("contiguousTip=rec_hole_head"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("repaired null terminal")
+                && l.Contains("rec_hole_head")
+                && l.Contains("terminal=SubOrbital"));
         }
 
         [Fact]
