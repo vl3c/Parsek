@@ -485,6 +485,282 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
+3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
+entered its first relative-frame track section (`UT=199.3-214.7`,
+`anchorPid=3151978247`) at line ~17943. The very next line emitted the
+WARN `[Anchor] RELATIVE playback: anchor vessel pid=3151978247 not found
+— ghost frozen at last known position`, and the subsequent
+`[GhostAppearance]` line reported `root=(0.00,0.00,0.00)` with
+`rootRot=identity` and a render distance of `1140719m`. The recorded
+anchor pid (`3151978247`) had been the active Re-Fly probe; it was
+destroyed in the background at 10:14:23 (line ~11001
+`[BgRecorder] Background vessel destroyed`) and the rewind erased it from
+the future, so the post-rewind `FlightGlobals.Vessels` never contained
+that pid again.
+
+**PID lifecycle (verified):** `TrackSection.anchorVesselId` (uint pid) is
+captured by `FlightRecorder.ApplyRelativeOffset` at recording time
+(`Source/Parsek/FlightRecorder.cs:5566`) and persisted in the recording's
+on-disk track sections (`RecordingStore.cs:5132`,
+`TrajectorySidecarBinary.cs:631`). It is **never rewritten** after the
+recording finalizes — recordings are immutable across rewinds. After a
+Re-Fly rewind the recording sits in `RecordingStore.CommittedRecordings`
+with the original anchor pid intact, but the live `FlightGlobals.Vessels`
+no longer contains that pid (the anchor's recording-side
+`Vessel.persistentId` is gone with the destroyed-future strip).
+`FlightRecorder.FindVesselByPid(3151978247)` then returns null on every
+playback frame. The ghost-map presence path already gracefully defers in
+this case (`GhostMapPresence.TryResolveStateVectorMapPointPure` returns
+`relative-frame-anchor-unresolved`), but the in-flight ghost-positioning
+path was still using the older "freeze at last known position" branch,
+which renders a freshly-spawned ghost at `(0,0,0)`.
+
+**Fix direction:** retire (hide) the ghost during the relative section
+rather than re-resolve. Re-resolution by name was rejected: the recorded
+anchor was a transient sibling vessel (a decoupled probe) with no stable
+identifier — there is nothing to rebind to in the post-rewind scene. The
+fix in `Source/Parsek/ParsekFlight.cs` (`InterpolateAndPositionRelative`
+~line 15264, `PositionGhostRelativeAt` ~line 15400) replaces the
+freeze-in-place branch with `ghost.SetActive(false)` plus a one-shot
+per-(recordingIndex, anchorPid) WARN under the `[Anchor]` tag carrying a
+greppable `relative-anchor-retired` keyword. Hiding strictly dominates
+freezing: if the anchor reappears on a later frame the engine re-enters
+the same method and repositions; if it never reappears, the ghost stays
+gracefully ungraphable instead of marooned at world origin with bogus
+distance reports. The `LateUpdate` Relative-mode path in `ParsekFlight`
+already deactivated the ghost on null anchor, so this brings the two
+positioning entry points into alignment.
+
+**Decision helper:** new pure static `RelativeAnchorResolution` (Decide /
+DedupeKey / FormatRetiredMessage) so the resolver decision is unit
+testable with an injectable resolver delegate, mirroring the existing
+`GhostMapPresence.AnchorResolvableForTesting` pattern.
+
+**Tests:** 21 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
+covering: Decide outcomes (Resolved / Retired / pid==0 short-circuit /
+null resolver), DedupeKey uniqueness across (recIdx, pid) combos and high
+bit handling, FormatRetiredMessage greppable keyword + identifying field
+inclusion + null-vessel-name placeholder + Re-Fly root-cause mention, the
+log-assertion case that pipes the formatted message through
+`ParsekLog.Warn("Anchor", ...)` and asserts the resulting line carries
+`[WARN]`, `[Anchor]`, and `relative-anchor-retired`, and the rewind
+scenario coverage (anchor still alive in post-rewind FlightGlobals -->
+Resolved with no spurious retirement; anchor erased --> Retired with no
+freeze-path reachable). The Outcome enum has a defensive shape test that
+locks the contract to exactly two values, blocking any future "partial
+positioning" outcome. The P1-fix follow-up adds 5 cases pinning the
+`ShouldSkipPostPositionPipeline` predicate (true/false round-trip + pure
+function), the `GhostPlaybackState.anchorRetiredThisFrame` default + reset
+through `ClearLoadedVisualReferences`, and a 3-frame integration scenario
+that mirrors the production engine + positioner contract: frame 1 sets
+the flag and emits the one-shot WARN, frame 2 re-enters the retire branch
+on the same key without re-emitting the WARN, frame 3 resolves the anchor
+and the gate lets the activation pipeline run again. In-game coverage
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetiredAnchor_EndsFrameInactive_NoAppearance` /
+`Bug613_DeferredSyncWithResolvedAnchor_StillActivates` /
+`Bug613_PerFrameClear_StaleFlagDoesNotLeak`) drives a full
+`engine.UpdatePlayback` frame with a mock `IGhostPositioner` whose
+`InterpolateAndPositionRelative` mimics the production retire branch
+(`SetActive(false)` plus `state.anchorRetiredThisFrame = true`); the
+asserts pin `ghost.activeSelf == false`, `appearanceCount == 0`, and the
+absence of any `[GhostAppearance]` log line on a retired frame, plus the
+positive case where deferred-sync activation still flips the ghost active
+when the anchor is resolved.
+
+**P1 review narrative (PR #594):** The first commit retired the ghost
+correctly inside the positioner (`SetActive(false)` plus the WARN), but
+review noticed that in the same `engine.RenderInRangeGhost` frame
+`ActivateGhostVisualsIfNeeded` ran unconditionally after positioning and
+flipped the ghost back to active before the frame returned. The visible
+symptom was unchanged from the original bug B repro: a (0,0,0) ghost
+appearance for one rendered frame on every per-frame call inside the
+relative section. Two fix shapes were considered:
+
+- **Option (a):** thread an explicit out-parameter / return value
+  (`AnchorOutcome` enum) up through `InterpolateAndPositionRelative` and
+  `PositionLoopGhost` so the engine can branch directly on the decision.
+  Cleanest signal but five callsites in the engine (`RenderInRangeGhost`,
+  loop-playback main, loop-primary, loop-overlap, and the `WatchSync`
+  rebuild path) plus the loop-pause window each need to consume the new
+  shape, and the watch-sync path crosses an additional helper boundary
+  (`PositionLoadedGhostAtPlaybackUT`) that does not currently take the
+  positioner. Touches the `IGhostPositioner` interface contract.
+
+- **Option (b, shipped):** single `bool anchorRetiredThisFrame` on
+  `GhostPlaybackState`. Engine clears it before each per-frame call to
+  the positioner; positioner sets it true on the retire branch; the
+  engine's existing post-position pipeline reads it and skips the
+  visuals + activation + appearance steps. Pure predicate
+  `RelativeAnchorResolution.ShouldSkipPostPositionPipeline(bool)` named
+  the gate so the call sites are reviewable from xUnit. No
+  `IGhostPositioner` signature churn, no new event types, and the flag's
+  one-frame scope is self-documenting.
+
+The shipped fix gates six engine callsites (`RenderInRangeGhost` line
+~1035, loop-playback main line ~1457, `HandleLoopPauseWindow` line ~1865
+caught in the P1 second pass, primary-loop overlap line ~1659,
+`OverlapGhost` loop line ~1796, and the `SynchronizeLoadedGhostForWatch`
+watch-sync rebuild line ~3667). Each gate calls
+`ApplyFrameVisuals(skipPartEvents=true, suppressVisualFx=true)` to tear
+down any previously-emitting plumes/audio, then early-returns / falls
+through past `ActivateGhostVisualsIfNeeded` and `TrackGhostAppearance`.
+The retire branch in `ParsekFlight.InterpolateAndPositionRelative` and
+`PositionGhostRelativeAt` (the `PositionLoopGhost` callee) now takes an
+extra `GhostPlaybackState retireSignalState` argument that may be null in
+test fixtures that drive the method without a state object; the
+production callsites always pass the live state.
+
+**P1 review narrative (PR #594, round 2):** A second review pass caught
+that the six visibility gates above only cover
+`ActivateGhostVisualsIfNeeded` + `TrackGhostAppearance` + transient
+`ApplyFrameVisuals` events. Three additional code paths still ran
+side-effect helpers (explosion FX, completion-event queueing, loop
+camera-action / restart payloads) from the stale (0,0,0) transform of
+the just-hidden ghost when the relative anchor was unresolvable:
+
+1. `RenderInRangeGhost` falling through to
+   `TryHandleEarlyDestroyedDebrisCompletion` (line ~1070) with
+   `ghostActive` computed BEFORE positioning. On a retired frame the
+   helper still called `TriggerExplosionIfDestroyed` against the stale
+   transform, marked `explosionFired`/`completed`, and queued a
+   `PlaybackCompletedEvent` that policy handlers would react to.
+   Fix: gate the call on `!retired`; emit a one-shot
+   `early-completion suppressed: anchor retired` Verbose log when
+   skipping. If the recording was a legitimate early-debris destruction,
+   the next replay frame with a resolvable anchor handles the completion.
+
+2. `UpdateLoopingPlayback` cycle-change endpoint (line ~1296):
+   `PositionGhostAtLoopEndpoint` routes through `positioner.PositionLoop`
+   which CAN raise `state.anchorRetiredThisFrame`, but the immediately
+   following block called `TriggerExplosionIfDestroyed`, emitted
+   `OnLoopCameraAction(ExplosionHoldStart/End)` with
+   `AnchorPosition = state.ghost.transform.position`, and emitted
+   `OnLoopRestarted` with `ExplosionPosition` from the same stale
+   transform. Fix: clear the flag before `PositionGhostAtLoopEndpoint`,
+   read it back, suppress all four side effects (explosion + camera +
+   restart event + retarget event) when retired. Suppression log:
+   `loop endpoint side effects suppressed: anchor retired ghost #N
+   "vesselName" cycle=K`.
+
+3. `UpdateExpireAndPositionOverlaps` overlap-expiry endpoint (line
+   ~1723): same pattern — `PositionGhostAtLoopEndpoint` followed by
+   `TriggerExplosionIfDestroyed` + `OnOverlapCameraAction` +
+   `OnOverlapExpired`, all reading `ovState.ghost.transform.position`.
+   Fix: identical clear-then-check-flag wrap; suppress on retired.
+
+4. `HandleLoopPauseWindow` (line ~1865): the existing visibility gate
+   ran AFTER `TriggerExplosionIfDestroyed`. P3 follow-up: the retire
+   early-return only called `HideAllGhostParts` (which itself only
+   calls `MuteAllAudio`) so previously-emitting engine plumes / RCS /
+   reentry FX continued rendering at the (0,0,0) retired position. Fix:
+   gate `TriggerExplosionIfDestroyed` on `!loopPauseRetired`, and add
+   `ApplyFrameVisuals(skipPartEvents:true, suppressVisualFx:true,
+   allowTransientEffects:false)` before the early-return so the FX
+   teardown matches the contract of the other five visibility gates.
+   Suppression log: `loop endpoint side effects suppressed: anchor
+   retired ghost #N "vesselName" loop-pause`.
+
+The total surface is now **6 visibility gates** + **3 endpoint
+side-effect gates** (loop cycle endpoint, overlap expiry, loop pause)
++ **1 early-completion gate** in `RenderInRangeGhost`. In-game tests
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetireDuringRender_DoesNotFireEarlyDestroyedCompletion`,
+`Bug613_ResolvedAnchorFiresEarlyDestroyedCompletion`,
+`Bug613_RetireDuringLoopCycleEndpoint_NoExplosionOrCameraRestart`,
+`Bug613_ResolvedAnchorFiresLoopCycleEndpoint`,
+`Bug613_RetireDuringOverlapExpiry_NoExplosionOrCamera`,
+`Bug613_ResolvedAnchorFiresOverlapExpiry`,
+`Bug613_RetireDuringLoopPause_StopsEngineFx`,
+`Bug613_ResolvedAnchorLoopPauseFiresExplosion`) extend the existing
+`Bug613_*` mock-positioner harness with a `SetsLoopRetireFlag` knob and
+two new test trajectories (`Bug613EarlyDebrisRelativeTrajectory` for
+the early-debris path, `Bug613LoopRelativeTrajectory` for the three
+loop-endpoint paths). Each retire test asserts `explosionFired==false`,
+no event-list emissions, and the suppression log line; each negative
+test asserts the same side effects DO fire when the anchor resolves.
+
+**Status:** Open until merged.
+
+---
+
+## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
+after the load-window pending-tree fix shipped, the user re-flew the booster
+again and a `Ghost: Kerbal X` ProtoVessel was still created — this time for
+the **root** recording (`c9df8d86b79b4f6b91c049696b5cc8e2`), an ancestor two
+hops up the parent chain from the active Re-Fly target
+(`89eff8431cb843b783e5dbe693ed30f2`). The direct parent
+(`1d6d2116543245249c9ca7f26dd361f7`) was correctly suppressed at log line
+~14640 (`reason=refly-relative-anchor=active relationship=parent`). The root
+got `reason=not-suppressed-not-parent-of-refly-target` at log line ~14211
+and the bogus state-vector ghost was created at log line ~14212 with
+`sma=2 ecc=1.000000`.
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:976-1093`):** the BFS walk in
+`IsRecordingInParentChainOfActiveReFly` only followed
+`Recording.ParentBranchPointId` links. The user's tree topology was:
+`c9df8d86 (root, ChainIndex=0)` -> [optimizer split] ->
+`1d6d2116 (mid, ChainIndex=1)` -> [Breakup BP `f1c7b08f`] ->
+`89eff8431 (leaf)`. The root -> mid edge is an **optimizer chain split**
+(`RecordingStore.RunOptimizationSplitPass` at `RecordingStore.cs:2016-2049`):
+the second half (`mid`) shares the root's `ChainId` + monotonically
+incremented `ChainIndex`, but does NOT receive a `ParentBranchPointId`.
+The comment at `RecordingStore.cs:2041-2046` is explicit: *"The chain
+linkage (shared ChainId) connects it to subsequent segments. Code that
+walks from a BranchPoint to the chain tip must follow ChainId, not just
+ChildRecordingIds."* The reverse walk (used here) had the same bug — it
+must follow `ChainId` predecessors, not just `ParentBranchPointId`.
+
+The structured `walkTrace` in the failed log line confirms the BFS
+terminated at mid: `walkTrace=(exhausted-without-victim
+activeId=89eff843 treeId=50e9197d victim=c9df8d86 visitedBPs=1
+parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
+parents=[1d6d2116])`. One BP visited, one parent recording reached
+(mid), then exhausted — never traversed the chain link from mid to root.
+
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #593):** the BFS now
+walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
+`ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
+reaches, including the active recording itself (so a mid-chain active
+seeds the chain-predecessor leg too). New helper
+`GhostMapPresence.TryFindChainPredecessor(tree, rec)` encapsulates the
+chain-predecessor lookup: returns null for standalone recordings,
+`ChainIndex == 0`, and missing predecessors; scoped per-tree and
+per-`ChainBranch` so legacy / future cross-tree clones cannot leak.
+
+The `walkTrace` gains a `chainHops` counter that increments on every
+chain-predecessor enqueue (active-seed + every fan-out hop) plus a
+`chainHopsViaAncestors` counter for the fan-out subset. A future
+regression of the same shape will surface as `chainHops=0` on a
+topology that should have chain links — visible in `KSP.log` without
+re-reading source. The previous trace string `active-has-no-parent-bp`
+was renamed to `active-has-no-parent` because the bail condition is
+now "neither BP-parent nor chain-predecessor", not BP-only.
+
+**Tests:** 14 new cases in `Bug614GhostMapAncestorChainTests` covering
+the user's exact 3-recording chain shape (`SuppressesRoot_…`,
+`SuppressesMid_…`), sibling-branch negatives
+(`DoesNotSuppressSibling_…`, `DoesNotSuppressUnrelatedTreeRecording`),
+multi-hop chain depth (`SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments`),
+mid-chain active recording (`SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent`),
+true-root bail behaviour, chain cycles
+(`HandlesChainCycleGracefully_VisitedSetCapsTheWalk`), the
+`TryFindChainPredecessor` helper edge cases (standalone recording,
+`ChainIndex == 0`, `ChainBranch` scoping, missing predecessor), and the
+`chainHops=` walkTrace counter contract on both success and failure
+paths. The end-to-end production-gate test
+`EndToEnd_SuppressesRoot_ProductionGate_UserShape` drives
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
+exact production tree shape and asserts both the suppress decision and
+the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
+
+---
+
 ## ~~612. Boring-tail trim never fires for stable orbits because terminal-shape match used exact float equality~~
 
 **Source:** user reported the orbital "boring tail" trim mechanism never trims
@@ -590,8 +866,6 @@ Wraparound regressions in `RecordingOptimizerTests.cs`:
   `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
   rejected, AND the divergence log line carries `LAN wrapped delta` (so
   the wrap fix is observable from `KSP.log` alone).
-
-**Status:** Open until merged.
 
 ---
 
