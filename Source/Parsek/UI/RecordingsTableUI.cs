@@ -1442,21 +1442,36 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
-            // Loop checkbox
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
-            if (loop != rec.LoopPlayback)
+            // Loop checkbox — suppressed when this row is being drawn inside the
+            // virtual Unfinished Flights group (unfinishedFlightRowDepth > 0).
+            // The group is a re-fly TODO list; surfacing a loop toggle there
+            // is misleading because the user's next action on these rows is
+            // Fly, not playback configuration. The same recording's row in
+            // its real (mission) group still exposes the toggle, so loop
+            // remains editable for unfinished-flight recordings — just not
+            // from inside the virtual group itself. We render an empty cell
+            // of the same column width to keep the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
             {
-                rec.LoopPlayback = loop;
-                ApplyAutoLoopRange(rec, loop);
-                if (!loop && loopPeriodFocusedRi == ri)
-                    loopPeriodFocusedRi = -1;
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
             }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (loop != rec.LoopPlayback)
+                {
+                    rec.LoopPlayback = loop;
+                    ApplyAutoLoopRange(rec, loop);
+                    if (!loop && loopPeriodFocusedRi == ri)
+                        loopPeriodFocusedRi = -1;
+                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                }
+            }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
 
             // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right treatment
@@ -2556,16 +2571,17 @@ namespace Parsek
                 return false;
             }
 
-            // Always "Re-Fly" — the action is qualitatively different from
-            // the legacy R / FF buttons (rewind time and watch playback).
-            // Clicking this loads a Rewind Point quicksave, places the
-            // player in control of the destroyed sibling vessel, and
-            // starts a re-fly session (marker, supersede tracking, merge
-            // dialog later). Past-vs-future relative to current UT is
-            // irrelevant for the user-facing label: the action is "go to
-            // the breakup point and re-fly" in either direction. `now` is
-            // kept on the signature for future per-row state if needed.
-            const string kReFlyLabel = "Re-Fly";
+            // Always "Fly" — matches the Timeline-window separation-row label
+            // (DrawTimelineFlyButton) so the same action carries the same
+            // glyph in both surfaces. The action is qualitatively different
+            // from the legacy R / FF buttons (rewind time and watch
+            // playback): clicking this loads a Rewind Point quicksave,
+            // places the player in control of the destroyed sibling vessel,
+            // and starts a re-fly session (marker, supersede tracking,
+            // merge dialog later). Past-vs-future relative to current UT is
+            // irrelevant for the user-facing label. `now` is kept on the
+            // signature for future per-row state if needed.
+            const string kReFlyLabel = "Fly";
             _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
@@ -2627,7 +2643,7 @@ namespace Parsek
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Re-Fly", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent("Fly", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 
