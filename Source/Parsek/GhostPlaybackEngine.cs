@@ -1057,8 +1057,21 @@ namespace Parsek
             // the outer result: the ghost has already been rendered above this
             // line, so RenderInRangeGhost must report true regardless of
             // whether the completion fired or was skipped. #369 cosmetic.
-            if (allowEarlyDestroyedDebrisCompletion)
+            //
+            // Bug #613 (PR #594 P1 round 2): when the relative-frame retire
+            // gate fired, the ghost was just hidden at (0,0,0) — running
+            // TryHandleEarlyDestroyedDebrisCompletion here would still see
+            // ghostActive==true (computed from HasLoadedGhostVisuals BEFORE
+            // positioning) and would TriggerExplosionIfDestroyed at the stale
+            // transform plus mark explosionFired and queue the completion
+            // event. Skip the helper entirely on retired frames; if the anchor
+            // resolves on a later frame, the normal completion path will
+            // handle it from a real position.
+            if (allowEarlyDestroyedDebrisCompletion && !retired)
                 TryHandleEarlyDestroyedDebrisCompletion(i, traj, f, ctx, state, ghostActive, hasPointData);
+            else if (allowEarlyDestroyedDebrisCompletion && retired)
+                ParsekLog.VerboseRateLimited("Engine", $"early-completion-suppressed-{i}",
+                    $"early-completion suppressed: anchor retired ghost #{i} \"{traj.VesselName}\"");
 
             return true;
         }
@@ -1293,34 +1306,56 @@ namespace Parsek
                 else
                 {
                 // Position at the loop endpoint so explosion appears at the real loop end.
+                    // Bug #613 (PR #594 P1 round 2): clear retire signal so we
+                    // can detect a fresh retirement raised by the loop-endpoint
+                    // positioner (PositionGhostAtLoopEndpoint -> PositionLoop ->
+                    // relative-frame retire branch). Without this, the side
+                    // effects below (explosion FX, ExplosionHold camera event,
+                    // LoopRestarted with ExplosionPosition) all fire from a
+                    // stale (0,0,0) transform when the LoopAnchor pid is
+                    // unresolvable post-rewind.
+                    state.anchorRetiredThisFrame = false;
                     PositionGhostAtLoopEndpoint(index, traj, state);
 
-                    bool needsExplosion = !state.explosionFired
+                    bool loopEndpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                        state.anchorRetiredThisFrame);
+
+                    bool needsExplosion = !loopEndpointRetired
+                    && !state.explosionFired
                     && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                         traj, ResolveLoopPlaybackEndpointUT(traj));
+
+                    if (loopEndpointRetired)
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"loop-endpoint-suppressed-{index}",
+                            $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" cycle={cycleIndex}");
+                    }
 
                     if (needsExplosion)
                         TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
 
                     // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
-                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    if (!loopEndpointRetired)
                     {
-                        Index = index,
-                        Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
-                        AnchorPosition = state.ghost.transform.position,
-                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
-                        Trajectory = traj, Flags = flags
-                    });
+                        OnLoopCameraAction?.Invoke(new CameraActionEvent
+                        {
+                            Index = index,
+                            Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
+                            AnchorPosition = state.ghost.transform.position,
+                            HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
+                            Trajectory = traj, Flags = flags
+                        });
 
-                    // Fire loop restarted event
-                    OnLoopRestarted?.Invoke(new LoopRestartedEvent
-                    {
-                        Index = index, Trajectory = traj, State = state, Flags = flags,
-                        PreviousCycleIndex = state.loopCycleIndex,
-                        NewCycleIndex = cycleIndex,
-                        ExplosionFired = needsExplosion,
-                        ExplosionPosition = state.ghost.transform.position
-                    });
+                        // Fire loop restarted event
+                        OnLoopRestarted?.Invoke(new LoopRestartedEvent
+                        {
+                            Index = index, Trajectory = traj, State = state, Flags = flags,
+                            PreviousCycleIndex = state.loopCycleIndex,
+                            NewCycleIndex = cycleIndex,
+                            ExplosionFired = needsExplosion,
+                            ExplosionPosition = state.ghost.transform.position
+                        });
+                    }
 
                     GhostPlaybackLogic.ResetReentryFx(state, index);
 
@@ -1348,7 +1383,11 @@ namespace Parsek
                     // the new cycle's pivot.
                     ReusePrimaryGhostAcrossCycle(
                         index, traj, flags, state, loopUT, cycleIndex,
-                        emitRetargetEvent: !needsExplosion);
+                        // #613 P1 round 2: also suppress retarget when retired —
+                        // the ghost was just hidden and there is no real
+                        // (post-positioning) world position to anchor a camera
+                        // retarget on this cycle boundary.
+                        emitRetargetEvent: !needsExplosion && !loopEndpointRetired);
                     // state is the same object; loaded-ghost path keeps visuals live, and
                     // pending-build path above just advances the cycle index without
                     // emitting restart side effects.
@@ -1719,37 +1758,58 @@ namespace Parsek
                 // Expired cycle
                 if (phase > duration)
                 {
+                    // Bug #613 (PR #594 P1 round 2): clear retire signal so
+                    // PositionGhostAtLoopEndpoint -> PositionLoop -> relative
+                    // retire branch can flag this overlap expiry. Without the
+                    // gate, an unresolvable LoopAnchor pid would let the
+                    // explosion + ExplosionHold camera event + OverlapExpired
+                    // payload fire from a stale (0,0,0) transform.
+                    bool overlapExpiryRetired = false;
                     if (ovState.ghost != null)
+                    {
+                        ovState.anchorRetiredThisFrame = false;
                         PositionGhostAtLoopEndpoint(index, traj, ovState);
-                    bool triggerExplosionAtExpiry = !ovState.explosionFired
+                        overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            ovState.anchorRetiredThisFrame);
+                    }
+                    bool triggerExplosionAtExpiry = !overlapExpiryRetired
+                        && !ovState.explosionFired
                         && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                             traj, ResolveLoopPlaybackEndpointUT(traj));
+                    if (overlapExpiryRetired)
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"overlap-expiry-suppressed-{index}",
+                            $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" overlap-cycle={cycle}");
+                    }
                     if (triggerExplosionAtExpiry)
                     {
                         TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
                     }
 
                     // Fire camera event for overlap expiry
-                    OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                    if (!overlapExpiryRetired)
                     {
-                        Index = index,
-                        Action = triggerExplosionAtExpiry
-                            ? CameraActionType.ExplosionHoldStart
-                            : CameraActionType.ExplosionHoldEnd,
-                        NewCycleIndex = cycle,
-                        AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
-                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
-                        Trajectory = traj, Flags = flags
-                    });
+                        OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                        {
+                            Index = index,
+                            Action = triggerExplosionAtExpiry
+                                ? CameraActionType.ExplosionHoldStart
+                                : CameraActionType.ExplosionHoldEnd,
+                            NewCycleIndex = cycle,
+                            AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
+                            HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
+                            Trajectory = traj, Flags = flags
+                        });
 
-                    // Fire overlap expired event
-                    OnOverlapExpired?.Invoke(new OverlapExpiredEvent
-                    {
-                        Index = index, Trajectory = traj, State = ovState, Flags = flags,
-                        CycleIndex = cycle,
-                        ExplosionFired = triggerExplosionAtExpiry,
-                        ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
-                    });
+                        // Fire overlap expired event
+                        OnOverlapExpired?.Invoke(new OverlapExpiredEvent
+                        {
+                            Index = index, Trajectory = traj, State = ovState, Flags = flags,
+                            CycleIndex = cycle,
+                            ExplosionFired = triggerExplosionAtExpiry,
+                            ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
+                        });
+                    }
 
                     ParsekLog.VerboseRateLimited("Engine", "overlap-expired",
                         $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
@@ -1828,6 +1888,8 @@ namespace Parsek
             // failure mode covered by the per-frame gate above).
             state.anchorRetiredThisFrame = false;
             PositionGhostAtLoopEndpoint(index, traj, state);
+            bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
             // clamped altitude (#282). Don't overwrite it here with the raw
             // recording-end altitude on the first pause-window frame, or the
@@ -1839,10 +1901,21 @@ namespace Parsek
                     ? traj.Points[traj.Points.Count - 1].bodyName
                     : null;
             }
-            if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+            // Bug #613 (PR #594 P1 round 2): when retired, the explosion side
+            // effect would fire from the stale (0,0,0) loop-endpoint transform.
+            // Skip TriggerExplosionIfDestroyed; if the recording's loop endpoint
+            // really was a destruction, the next replay with a resolvable
+            // anchor will produce the explosion at the real position.
+            if (!loopPauseRetired
+                && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                     traj, ResolveLoopPlaybackEndpointUT(traj)))
             {
                 TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            }
+            else if (loopPauseRetired)
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"loop-pause-suppressed-{index}",
+                    $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj?.VesselName}\" loop-pause");
             }
             if (!state.pauseHidden)
             {
@@ -1862,9 +1935,20 @@ namespace Parsek
             // branch already called SetActive(false). Skip the
             // ActivateGhostVisualsIfNeeded + TrackGhostAppearance pair here so
             // the same-frame reactivation race can't undo the hide.
-            if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                    state.anchorRetiredThisFrame))
+            //
+            // P3 (round 2): HideAllGhostParts above only calls MuteAllAudio —
+            // any previously-emitting engine plumes / RCS / reentry FX
+            // continue rendering at the (0,0,0) retired position. The other
+            // five PR #594 visibility gates already call
+            // ApplyFrameVisuals(suppressVisualFx:true) for FX teardown; do
+            // the same here so the loop-pause window matches that contract.
+            if (loopPauseRetired)
+            {
+                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
                 return;
+            }
             ActivateGhostVisualsIfNeeded(state);
             double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);
             TrackGhostAppearance(index, traj, state, appearanceUT, "loop-pause");
@@ -3305,6 +3389,14 @@ namespace Parsek
         }
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
+
+        // Bug #613 (PR #594 P1 round 2) test seams: in-game tests need to
+        // observe whether TryHandleEarlyDestroyedDebrisCompletion ran on the
+        // retire frame. Both sets / lists are private; expose count-only
+        // accessors so the test file does not need InternalsVisibleTo
+        // gymnastics to peek at internal state.
+        internal int Bug613TestEarlyDestroyedCount => earlyDestroyedDebrisCompleted.Count;
+        internal int Bug613TestDeferredCompletedCount => deferredCompletedEvents.Count;
 
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring

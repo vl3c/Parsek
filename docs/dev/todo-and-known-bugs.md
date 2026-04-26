@@ -614,6 +614,75 @@ extra `GhostPlaybackState retireSignalState` argument that may be null in
 test fixtures that drive the method without a state object; the
 production callsites always pass the live state.
 
+**P1 review narrative (PR #594, round 2):** A second review pass caught
+that the six visibility gates above only cover
+`ActivateGhostVisualsIfNeeded` + `TrackGhostAppearance` + transient
+`ApplyFrameVisuals` events. Three additional code paths still ran
+side-effect helpers (explosion FX, completion-event queueing, loop
+camera-action / restart payloads) from the stale (0,0,0) transform of
+the just-hidden ghost when the relative anchor was unresolvable:
+
+1. `RenderInRangeGhost` falling through to
+   `TryHandleEarlyDestroyedDebrisCompletion` (line ~1070) with
+   `ghostActive` computed BEFORE positioning. On a retired frame the
+   helper still called `TriggerExplosionIfDestroyed` against the stale
+   transform, marked `explosionFired`/`completed`, and queued a
+   `PlaybackCompletedEvent` that policy handlers would react to.
+   Fix: gate the call on `!retired`; emit a one-shot
+   `early-completion suppressed: anchor retired` Verbose log when
+   skipping. If the recording was a legitimate early-debris destruction,
+   the next replay frame with a resolvable anchor handles the completion.
+
+2. `UpdateLoopingPlayback` cycle-change endpoint (line ~1296):
+   `PositionGhostAtLoopEndpoint` routes through `positioner.PositionLoop`
+   which CAN raise `state.anchorRetiredThisFrame`, but the immediately
+   following block called `TriggerExplosionIfDestroyed`, emitted
+   `OnLoopCameraAction(ExplosionHoldStart/End)` with
+   `AnchorPosition = state.ghost.transform.position`, and emitted
+   `OnLoopRestarted` with `ExplosionPosition` from the same stale
+   transform. Fix: clear the flag before `PositionGhostAtLoopEndpoint`,
+   read it back, suppress all four side effects (explosion + camera +
+   restart event + retarget event) when retired. Suppression log:
+   `loop endpoint side effects suppressed: anchor retired ghost #N
+   "vesselName" cycle=K`.
+
+3. `UpdateExpireAndPositionOverlaps` overlap-expiry endpoint (line
+   ~1723): same pattern — `PositionGhostAtLoopEndpoint` followed by
+   `TriggerExplosionIfDestroyed` + `OnOverlapCameraAction` +
+   `OnOverlapExpired`, all reading `ovState.ghost.transform.position`.
+   Fix: identical clear-then-check-flag wrap; suppress on retired.
+
+4. `HandleLoopPauseWindow` (line ~1865): the existing visibility gate
+   ran AFTER `TriggerExplosionIfDestroyed`. P3 follow-up: the retire
+   early-return only called `HideAllGhostParts` (which itself only
+   calls `MuteAllAudio`) so previously-emitting engine plumes / RCS /
+   reentry FX continued rendering at the (0,0,0) retired position. Fix:
+   gate `TriggerExplosionIfDestroyed` on `!loopPauseRetired`, and add
+   `ApplyFrameVisuals(skipPartEvents:true, suppressVisualFx:true,
+   allowTransientEffects:false)` before the early-return so the FX
+   teardown matches the contract of the other five visibility gates.
+   Suppression log: `loop endpoint side effects suppressed: anchor
+   retired ghost #N "vesselName" loop-pause`.
+
+The total surface is now **6 visibility gates** + **3 endpoint
+side-effect gates** (loop cycle endpoint, overlap expiry, loop pause)
++ **1 early-completion gate** in `RenderInRangeGhost`. In-game tests
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetireDuringRender_DoesNotFireEarlyDestroyedCompletion`,
+`Bug613_ResolvedAnchorFiresEarlyDestroyedCompletion`,
+`Bug613_RetireDuringLoopCycleEndpoint_NoExplosionOrCameraRestart`,
+`Bug613_ResolvedAnchorFiresLoopCycleEndpoint`,
+`Bug613_RetireDuringOverlapExpiry_NoExplosionOrCamera`,
+`Bug613_ResolvedAnchorFiresOverlapExpiry`,
+`Bug613_RetireDuringLoopPause_StopsEngineFx`,
+`Bug613_ResolvedAnchorLoopPauseFiresExplosion`) extend the existing
+`Bug613_*` mock-positioner harness with a `SetsLoopRetireFlag` knob and
+two new test trajectories (`Bug613EarlyDebrisRelativeTrajectory` for
+the early-debris path, `Bug613LoopRelativeTrajectory` for the three
+loop-endpoint paths). Each retire test asserts `explosionFired==false`,
+no event-list emissions, and the suppression log line; each negative
+test asserts the same side effects DO fire when the anchor resolves.
+
 **Status:** Open until merged.
 
 ---
