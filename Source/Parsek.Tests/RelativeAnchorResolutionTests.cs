@@ -400,6 +400,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindAbsoluteShadowForwardBridgeFrame_SkipsMismatchedAnchorVesselId()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var otherAnchorRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.5,
+                endUT = 110.0,
+                anchorVesselId = 99u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward-mismatch",
+                TrackSections = new List<TrackSection> { firstRelative, otherAnchorRelative }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.False(ParsekFlight.TryFindAbsoluteShadowForwardBridgeFrame(
+                rec, firstRelative, 100.4, out bridge));
+        }
+
+        [Fact]
         public void ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap()
         {
             Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.0));

@@ -1930,6 +1930,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ContiguousHoleStaysOnHeadAndRepairs()
+        {
+            var head = Rec("rec_hole_head", "tree_hole",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            head.ChainId = "chain_hole";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.SceneExitSituation = (int)Vessel.Situations.FLYING;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var middleAfterHole = Rec("rec_hole_middle", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: null);
+            middleAfterHole.ChainId = "chain_hole";
+            middleAfterHole.ChainBranch = 0;
+            middleAfterHole.ChainIndex = 2;
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            var tipAfterHole = Rec("rec_hole_tip", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Orbiting);
+            tipAfterHole.ChainId = "chain_hole";
+            tipAfterHole.ChainBranch = 0;
+            tipAfterHole.ChainIndex = 3;
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 4.0 });
+
+            InstallTree("tree_hole",
+                new List<Recording> { head, middleAfterHole, tipAfterHole },
+                new List<BranchPoint>());
+
+            // Simulate a flat-list optimizer artifact where later same-chain records
+            // exist, but the committed tree still resolves the in-place origin to
+            // itself. The contiguous walk must not jump the 1s hole from HEAD to MIDDLE.
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_middle");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_tip");
+
+            List<Recording> members = MergeDialog.ResolveContiguousInPlaceChainMembers(head);
+            Assert.Single(members);
+            Assert.Same(head, members[0]);
+
+            var marker = Marker(originId: "rec_hole_head",
+                provisionalId: "rec_hole_head",
+                treeId: "tree_hole",
+                sessionId: "sess_hole");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            Assert.Equal(TerminalState.SubOrbital, head.TerminalStateValue);
+            Assert.Equal(2, scenario.RecordingSupersedes.Count);
+            Assert.All(scenario.RecordingSupersedes, r =>
+                Assert.Equal("rec_hole_head", r.NewRecordingId));
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_middle");
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_tip");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolver audit")
+                && l.Contains("sessionOwnedSize=0")
+                && l.Contains("contiguousSize=1")
+                && l.Contains("contiguousTip=rec_hole_head"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("repaired null terminal")
+                && l.Contains("rec_hole_head")
+                && l.Contains("terminal=SubOrbital"));
+        }
+
+        [Fact]
         public void ValidateSupersedeTarget_ReasonStrings()
         {
             string reason;

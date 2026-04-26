@@ -60,7 +60,7 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly parent-chain absolute-shadow playback now forward-bridges under-sampled initial RELATIVE sections from the adjacent section's shadow frames, so the first post-separation ghost pose interpolates instead of freezing at the stale boundary point.
 
-- Controlled split-child recordings now replace a stale decouple-callback seed with a live root-part sample only when the seed's velocity-propagated pose misses the loaded child root by more than 250 m, keeping Re-Fly upper-stage/booster playback aligned without treating normal high-speed travel during the coalescer window as drift.
+- Controlled split-child recordings now replace a stale decouple-callback seed with a live root-part sample only when the seed's velocity-propagated pose misses the loaded child root by more than 50 m, keeping Re-Fly upper-stage/booster playback aligned without treating normal high-speed travel during the coalescer window as drift.
 
 - Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
 
@@ -80,7 +80,7 @@ All notable changes to Parsek are documented here.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
 
-- Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands, preventing the camera from staying attached to a completed segment after playback.
+- Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands; watch range also has 300 km entry / 305 km exit hysteresis so near-cutoff transfers do not immediately pop the camera back out.
 
 - `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the guard skips the stand-in recreate only when the kerbal is currently on the SAME vessel where the rescue placed them (pid-scoped marker), so fresh reservations on the active player vessel still get their swap stand-in even if the kerbal happened to be rescued onto a different vessel earlier in the same session.
 

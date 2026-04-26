@@ -58,6 +58,11 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
+        // Manual watch entry keeps the legacy 300km affordance. Exit adds a
+        // 5km hysteresis band so a target that transfers/rebuilds near the cutoff
+        // does not enter and leave watch on the same frame.
+        internal const float WatchEnterCutoffMeters = 300_000f;
+        internal const float WatchExitCutoffMeters = 305_000f;
         // Watch-mode tunables (entry camera defaults, pending-bridge budget) live
         // in ParsekConfig.cs under WatchMode.*. WatchModeLockId / WatchModeLockMask
         // are KSP ControlLocks identifiers and stay local.
@@ -378,6 +383,40 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        internal static bool IsWithinWatchEntryRange(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters < WatchEnterCutoffMeters;
+        }
+
+        internal static bool IsWithinWatchExitRange(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters < WatchExitCutoffMeters;
+        }
+
+        internal static bool ShouldExitWatchForDistance(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters >= WatchExitCutoffMeters;
+        }
+
+        internal static bool ShouldForceWatchedFullFidelityAtDistance(
+            bool isWatchedGhost,
+            double distanceMeters)
+        {
+            return isWatchedGhost
+                && IsFiniteWatchDistance(distanceMeters)
+                && !ShouldExitWatchForDistance(distanceMeters);
+        }
+
+        private static bool IsFiniteWatchDistance(double distanceMeters)
+        {
+            return !double.IsNaN(distanceMeters)
+                && !double.IsInfinity(distanceMeters)
+                && distanceMeters >= 0.0;
+        }
+
         internal static bool IsFiniteVector3(Vector3 value)
         {
             return !float.IsNaN(value.x)
@@ -656,19 +695,20 @@ namespace Parsek
             string activeBodyName = FlightGlobals.ActiveVessel?.mainBody?.name;
             string activeBody = activeBodyName ?? "null";
             double distMeters = hasGhost ? ResolveWatchDistanceMeters(state) : double.NaN;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
             bool sameBody = hasGhost
                 && !string.IsNullOrEmpty(ghostBody)
                 && !string.IsNullOrEmpty(activeBodyName)
                 && ghostBody == activeBodyName;
-            bool inRange = hasGhost && GhostPlaybackLogic.IsWithinWatchRange(distMeters, cutoffKm);
+            bool inRange = hasGhost && IsWithinWatchEntryRange(distMeters);
             string zone = hasGhost ? state.currentZone.ToString() : "None";
             bool isWatched = index == watchedRecordingIndex;
 
             return
                 $"watchEval(rec=#{index} watched={isWatched} watchedIndex={watchedRecordingIndex} " +
                 $"hasGhost={hasGhost} ghostActive={(hasGhost && state.ghost.activeSelf)} zone={zone} " +
-                $"dist={FormatWatchDistanceForLogs(distMeters)} cutoff={cutoffKm.ToString("F0", CultureInfo.InvariantCulture)}km " +
+                $"dist={FormatWatchDistanceForLogs(distMeters)} " +
+                $"enterCutoff={(WatchEnterCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +
+                $"exitCutoff={(WatchExitCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +
                 $"ghostBody={ghostBody} activeBody={activeBody} sameBody={sameBody} inRange={inRange})";
         }
 
@@ -818,8 +858,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if the ghost at index is within the camera cutoff distance.
-        /// The cutoff applies uniformly to all ghosts.
+        /// Returns true if the ghost at index is within the watch camera range.
+        /// Active watches use the wider exit cutoff; idle watch affordances use
+        /// the entry cutoff.
         /// </summary>
         internal bool IsGhostWithinVisualRange(int index)
         {
@@ -829,8 +870,9 @@ namespace Parsek
                 : null;
             if (s == null && (!ghostStates.TryGetValue(index, out s) || s == null))
                 return false;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-            return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
+            return index == watchedRecordingIndex
+                ? IsWithinWatchExitRange(s.lastDistance)
+                : IsWithinWatchEntryRange(s.lastDistance);
         }
 
         internal bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state)
@@ -1546,8 +1588,7 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is at or beyond the fixed watch camera cutoff distance.
-            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
+            // Refuse new watch entry if the ghost is at or beyond the entry cutoff.
             if (FlightGlobals.ActiveVessel != null)
             {
                 double distMeters = gs.lastDistance;
@@ -1556,9 +1597,10 @@ namespace Parsek
                     distMeters = Vector3d.Distance(
                         gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
                 }
-                if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
+                if (!IsWithinWatchEntryRange(distMeters))
                 {
                     float distKm = (float)(distMeters / 1000.0);
+                    float maxWatchKm = WatchEnterCutoffMeters / 1000f;
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
                         $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");

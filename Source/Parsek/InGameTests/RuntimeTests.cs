@@ -2135,6 +2135,193 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region Coalescer
+
+        [InGameTest(Category = "Coalescer", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a recording and stages the active vessel. Use Run All + Isolated or the row play button on a disposable two-controller decoupler craft.",
+            Description = "Controlled-child staging logs the live seed residual decision")]
+        public IEnumerator ControlledChildBreakupSeed_LogsLiveResidualDecision()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle active vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no pending tree before staging");
+                yield break;
+            }
+            if (!HasAtLeastTwoCommandModules(vessel, out int commandModuleCount))
+            {
+                InGameAssert.Skip(
+                    $"requires an active vessel with 2+ command modules/probe cores, got {commandModuleCount}");
+                yield break;
+            }
+            if (!HasDecouplerModule(vessel, out int decouplerCount))
+            {
+                InGameAssert.Skip("requires an active vessel with a decoupler or separator module");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            bool startedByTest = false;
+
+            try
+            {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                startedByTest = flight.IsRecording;
+                InGameAssert.IsTrue(startedByTest,
+                    "ParsekFlight.StartRecording should start before controlled-child staging");
+
+                yield return new WaitForSeconds(0.25f);
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+
+                FlightInputHandler.state.mainThrottle = Mathf.Max(FlightInputHandler.state.mainThrottle, 1f);
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                string decisionLine = null;
+                float deadline = Time.time + 10f;
+                while (Time.time < deadline)
+                {
+                    decisionLine = FindControlledChildSeedResidualDecisionLog(captured);
+                    if (decisionLine != null)
+                        break;
+
+                    yield return new WaitForFixedUpdate();
+                }
+
+                if (decisionLine == null)
+                {
+                    string otherSeedLine = captured.LastOrDefault(IsControlledChildSeedLog);
+                    if (otherSeedLine != null)
+                    {
+                        InGameAssert.Fail(
+                            "Controlled child seed log did not include a measured residual decision: " +
+                            otherSeedLine);
+                    }
+
+                    InGameAssert.Skip(
+                        "requires the next stage to separate a controllable child; no controlled-child seed decision log was observed");
+                    yield break;
+                }
+
+                InGameAssert.Contains(decisionLine, "seedLiveRootDist=",
+                    "Seed decision log should include raw live-root distance for postmortems");
+                InGameAssert.Contains(decisionLine, "propagatedResidual=",
+                    "Seed decision log should include propagated residual");
+                InGameAssert.IsFalse(decisionLine.Contains("propagatedResidual=n/a"),
+                    "Seed decision log should include a numeric propagated residual");
+
+                ParsekLog.Info("TestRunner",
+                    $"Controlled child seed residual decision observed: commandModules={commandModuleCount} " +
+                    $"decouplers={decouplerCount} line='{decisionLine}'");
+            }
+            finally
+            {
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (startedByTest && cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+            }
+        }
+
+        private static bool HasAtLeastTwoCommandModules(Vessel vessel, out int commandModuleCount)
+        {
+            commandModuleCount = 0;
+            if (vessel?.parts == null)
+                return false;
+
+            foreach (Part part in vessel.parts)
+            {
+                if (part == null)
+                    continue;
+                if (part.FindModuleImplementing<ModuleCommand>() != null)
+                    commandModuleCount++;
+            }
+
+            return commandModuleCount >= 2;
+        }
+
+        private static bool HasDecouplerModule(Vessel vessel, out int decouplerCount)
+        {
+            decouplerCount = 0;
+            if (vessel?.parts == null)
+                return false;
+
+            foreach (Part part in vessel.parts)
+            {
+                if (part?.Modules == null)
+                    continue;
+
+                for (int i = 0; i < part.Modules.Count; i++)
+                {
+                    string moduleName = part.Modules[i]?.moduleName;
+                    if (moduleName == "ModuleDecouple" || moduleName == "ModuleAnchoredDecoupler")
+                        decouplerCount++;
+                }
+            }
+
+            return decouplerCount > 0;
+        }
+
+        private static string FindControlledChildSeedResidualDecisionLog(List<string> lines)
+        {
+            if (lines == null)
+                return null;
+
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                string line = lines[i];
+                if (!IsControlledChildSeedLog(line))
+                    continue;
+
+                if (line.Contains("Controlled child initial seed replaced with live sample"))
+                    return line;
+                if (line.Contains("source=decouple-callback")
+                    && line.Contains("seedLiveRootDist=")
+                    && line.Contains("propagatedResidual="))
+                    return line;
+            }
+
+            return null;
+        }
+
+        private static bool IsControlledChildSeedLog(string line)
+        {
+            return line != null
+                && line.Contains("[Coalescer]")
+                && line.Contains("Controlled child initial seed");
+        }
+
+        #endregion
+
         #region MergeDialog
 
         [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,

@@ -9,6 +9,8 @@ namespace Parsek
     public static class MergeDialog
     {
         private const string MergeLockId = "ParsekMergeDialog";
+        // SplitAtSection writes back-to-back UT bounds; 50ms covers float
+        // rounding and one-frame skew without bridging a real inter-recording gap.
         private const double InPlaceChainContinuityToleranceSeconds = 0.05;
 
         internal enum ReFlyMergeCommitResult
@@ -451,6 +453,8 @@ namespace Parsek
                         EffectiveState.ResolveChainTerminalRecording(provisional);
                     Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
                         provisional, marker.SessionId);
+                    int sessionOwnedSize = CountSessionOwnedChainMembers(
+                        provisional, marker.SessionId);
                     bool sessionOwnedResolved = IsDifferentRecording(
                         sessionOwnedTip, provisional);
                     if (sessionOwnedResolved)
@@ -491,6 +495,15 @@ namespace Parsek
                     }
                     else
                     {
+                        ParsekLog.Verbose("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolver audit " +
+                            $"head={provisional.RecordingId} " +
+                            $"sessionOwnedResolved={sessionOwnedResolved} " +
+                            $"sessionOwnedSize={sessionOwnedSize} " +
+                            $"sessionOwnedTip={(sessionOwnedTip != null ? sessionOwnedTip.RecordingId : "<null>")} " +
+                            $"contiguousResolved={IsDifferentRecording(contiguousTip, provisional)} " +
+                            $"contiguousSize={contiguousInPlaceChain.Count} " +
+                            $"contiguousTip={(contiguousTip != null ? contiguousTip.RecordingId : "<null>")}");
                         ParsekLog.Verbose("MergeDialog",
                             $"TryCommitReFlySupersede: in-place continuation supersede target " +
                             $"unchanged from head={provisional.RecordingId} (no chain split, " +
@@ -957,6 +970,42 @@ namespace Parsek
             }
 
             return best ?? provisional;
+        }
+
+        private static int CountSessionOwnedChainMembers(
+            Recording provisional,
+            string sessionId)
+        {
+            if (provisional == null || string.IsNullOrEmpty(sessionId))
+                return 0;
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return 0;
+            }
+
+            int count = 0;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+                return 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var cand = committed[i];
+                if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                    continue;
+                if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
+                    continue;
+                if (cand.ChainBranch != provisional.ChainBranch)
+                    continue;
+                count++;
+            }
+
+            return count;
         }
 
         internal static List<Recording> ResolveContiguousInPlaceChainMembers(

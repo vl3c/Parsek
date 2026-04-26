@@ -4055,7 +4055,14 @@ namespace Parsek
                 "would produce an 'Unknown' 0s row with no playback value";
         }
 
-        internal const double ControlledChildLiveSeedResidualToleranceMeters = 250.0;
+        // Why 50m: this gate uses propagated residual, not raw seed-live travel.
+        // KSP.log:10596 showed the pathological child seed had normal ~866m
+        // along-track travel over 0.5s but a ~270m radial/perpendicular miss after
+        // propagation. Healthy split seeds should land within a few metres of the
+        // live root over the coalescer window; 50m is intentionally below that
+        // captured failure while still leaving room for frame skew.
+        internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
+        internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
 
         internal static bool ShouldPreferLiveBreakupChildSeed(
             bool childHasController,
@@ -4064,6 +4071,8 @@ namespace Parsek
             double propagatedSeedLiveRootResidualMeters,
             double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
         {
+            // Debris seeds remain excluded in this PR: the controlled child is the
+            // user-visible Re-Fly stage, while debris needs a separate threshold policy.
             return childHasController
                 && liveVesselAvailable
                 && capturedSeedAvailable
@@ -4076,10 +4085,11 @@ namespace Parsek
             Vector3 seedVelocity,
             double seedUT,
             Vector3d liveRootWorld,
-            double liveUT)
+            double liveUT,
+            double maxPropagationDeltaSeconds = MaxBreakupSeedPropagationDeltaSeconds)
         {
             double dt = liveUT - seedUT;
-            if (!IsFinite(dt) || dt < 0)
+            if (!IsFinite(dt) || dt < 0 || dt > maxPropagationDeltaSeconds)
                 return double.NaN;
 
             Vector3d velocity = new Vector3d(seedVelocity.x, seedVelocity.y, seedVelocity.z);
@@ -4274,7 +4284,17 @@ namespace Parsek
             double liveUT)
         {
             if (liveVessel == null)
+            {
+                if (capturedPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Coalescer",
+                        $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                        $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        "reason=live-vessel-missing");
+                }
                 return capturedPoint;
+            }
 
             TrajectoryPoint livePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
                 liveVessel,
@@ -10182,6 +10202,8 @@ namespace Parsek
             {
                 if (finalizeVessel != null)
                 {
+                    if (isSceneExit)
+                        rec.SceneExitSituation = (int)finalizeVessel.situation;
                     rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
                     CaptureTerminalOrbit(rec, finalizeVessel);
                     CaptureTerminalPosition(rec, finalizeVessel);
@@ -13880,21 +13902,21 @@ namespace Parsek
             bool forceWatchedFullFidelity = false;
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
+                if (isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
-                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
                         $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
                 {
-                    forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
-                        isWatchedGhost, activeVesselDistance, cutoffKm);
+                    forceWatchedFullFidelity = isWatchProtectedRecording
+                        || WatchModeController.ShouldForceWatchedFullFidelityAtDistance(
+                            isWatchedGhost, activeVesselDistance);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
                             shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
@@ -15763,6 +15785,11 @@ namespace Parsek
             return true;
         }
 
+        // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
+        // bounds. The 0.5s bridge window covers frame/float skew without spanning a
+        // real gap to an unrelated future section.
+        internal const double AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds = 0.5;
+
         internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
             IPlaybackTrajectory trajectory,
             TrackSection section,
@@ -15856,7 +15883,7 @@ namespace Parsek
 
             double lastShadowUT =
                 relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
-            double adjacentStartLimit = relativeSection.endUT + 0.5;
+            double adjacentStartLimit = relativeSection.endUT + AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds;
             bool found = false;
             double bestUT = double.PositiveInfinity;
 
