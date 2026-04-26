@@ -367,7 +367,13 @@ namespace Parsek
             if (!showRecordingsWindow)
             {
                 ReleaseInputLock();
-                ClearAllRewindSlotCanInvokeLogState();
+                // Do NOT clear the slot decision cache here. TimelineWindowUI's
+                // Fly button calls CanInvokeRewindPointSlot, and DrawIfOpen runs
+                // every OnGUI pass — clearing per pass while Recordings is closed
+                // and Timeline is open re-spams slot-ok every frame. The cache is
+                // bounded by RP-slot count and is cleared on RP lifecycle events
+                // (Reaper / Author / Discard / LoadTimeSweep) and on save load
+                // (ParsekScenario.OnLoad).
                 return;
             }
 
