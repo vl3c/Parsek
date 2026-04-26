@@ -38,6 +38,10 @@ All notable changes to Parsek are documented here.
 - Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
 - Continued refactor-4 (Pass 2) with a behavior-neutral `SidecarFileCommitBatch` extraction: staged sidecar write/delete commit, rollback, and artifact cleanup now live in a focused helper while preserving the `[RecordingStore]` log tag, per-step rollback semantics from `#366`, sidecar epoch ordering, and `FilesDirty` mutation order.
 
+### Documentation
+
+- Added `docs/dev/observability-audit-2026-04-26.md` and `docs/dev/plan-observability-logging-visibility.md`, a full logging-coverage audit plus phased implementation plan covering spam controls, silent skip gates, persistence/rewind context gaps, UI/map diagnostics, and follow-up test-contract work needed to keep Parsek decisions reconstructable from `KSP.log`.
+
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
@@ -47,10 +51,63 @@ All notable changes to Parsek are documented here.
 - `#544` Rewind-to-launch now restores 15 seconds of pre-launch setup time instead of 10 before loading the stripped launch save, and the rewind UT coverage now reads the same shared launch lead-time constant as the production path.
 - Added active and background recording-finalization cache refresh producers, including the 5-second dynamic refresh cadence, stable-coast digest skipping, background on-rails orbit summaries, and maneuver-node-safe tail generation.
 - `#586` Ghost map `IsVesselRegistered` now reads from `FlightGlobals.PersistentVesselIds` instead of scanning the full `FlightGlobals.Vessels` list, dropping the per-`Set As Target` cost from O(N) to O(1).
+- Runtime observability now adds compact recorder, map, Tracking Station, post-switch, game-action, and in-game test summaries without repeating stable no-op decisions.
 
 ### Bug Fixes
 
+- Re-Fly slot precondition log no longer spams `KSP.log` with thousands of identical `slot-ok` lines per session; the on-change gate now uses a per-call-site decision cache that reliably suppresses repeats from the OnGUI draw loop.
+
+- `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances, angular fields (LAN, argument of periapsis, inclination) use a shortest-angle delta so a tail that crosses the 0/360 boundary still matches, and each `TrimBoringTail` skip reports which guard rejected.
+
+- Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
+
+- `#611` Re-Fly doubled-vessel suppression now searches `RecordingStore.PendingTree` alongside `CommittedTrees` for both the active recording's PID lookup AND the parent-chain BFS walk, so the predicate fires during the load window when `TryRestoreActiveTreeNode`'s post-splice `RemoveCommittedTreeById` has just emptied the committed copy. Previously the gate bailed at the PID lookup with `not-suppressed-active-rec-pid-unknown` (because `CommittedRecordings` no longer held this tree's recordings) before reaching the parent-chain walk, and the doubled `Ghost: <name>` ProtoVessel got created. The success reason now also carries `activePidSource=search-tree:<id>` or `committed-recordings-flat-list` so the load-window vs steady-state distinction is auditable. The BFS walk returns a structured `walkTrace` (`active-not-found` / `active-has-no-parent` / `found-victim-in-parent-chain` / `exhausted-without-victim` plus visited-BP ids and parents-encountered ids) bubbled into both the suppressed and not-suppressed structured log lines so future "predicate didn't fire" diagnoses can read the BFS state from `KSP.log` alone — no more debugging by absence-of-line. A new `[GhostMap] create-state-vector-not-suppressed-during-refly` Verbose decision line fires when a Re-Fly session is active but the predicate declines to suppress, recording the rejection reason + walk trace.
+
+- `#614` Re-Fly doubled-vessel suppression now also walks chain-predecessor links, not just BranchPoint parents, so optimizer-split chain ancestors of the active Re-Fly target (e.g. the root recording two hops up the chain) are correctly suppressed instead of getting a bogus state-vector map ghost.
+
+- `#610` Re-Fly load no longer destroys other vessels' continued timelines. The quickload-resume tail trim previously ran tree-wide regardless of whether the resume was an F9 quickload (where every recording's post-cutoff data is genuinely stale) or a Re-Fly in-place continuation (where the splice has just restored other-vessel post-RP recordings as preserved forks). On Re-Fly the tree-wide path was clipping the capsule's exo-half to the cutoff UT and pruning its remaining sections as "future-only", so the original timeline of any vessel that wasn't the re-flown one disappeared the moment the new recorder started. A new pure-function `ChooseQuickloadTrimScope(treeId, marker, out reason)` now picks `ActiveRecOnly` when the live `ReFlySessionMarker` pins this tree (only the in-place continuation target's tail is trimmed, so the recorder can append fresh post-cutoff samples without colliding with the pre-cutoff timeline) and falls back to the existing `TreeWide` path otherwise. The chosen scope + reason are appended to the `Quickload resume prep:` Recorder log line so the branch is auditable from `KSP.log` alone.
+
+- `#609` (spawner-side downstream of `#608`) Re-Fly-stripped capsule recordings no longer permanently abandon their end-of-recording vessel spawn when the original crew is `Missing`. The spawn-block check now treats reserved-but-Missing crew as spawnable (symmetric with `RemoveDeadCrewFromSnapshot`'s reserved-keep branch), and a new `RescueReservedMissingCrewInSnapshot` pre-spawn step flips them back to `Available` before the snapshot loads. The abandon WARN now reports a per-category breakdown (`strictlyDead=N missingNotReserved=N reservedMissing=N alive=N`) instead of just a name list.
+
+- `#572` follow-up: scene-exit `FinalizeTreeRecordings` no longer clobbers the just-restored terminal state of a Re-Fly-stripped recording with a stale `Landed` inference. When `RestoreHydrationFailedRecordingsFromCommittedTree` repairs an active-tree record from the committed copy, the next finalize pass detects the missing live pid is a deliberate Re-Fly strip casualty (not a natural unload), skips the surface inference, and emits a structured `[Flight]` `FinalizeTreeRecordings: skipping Landed/Splashed inference … repaired from committed tree this frame` log line; the existing orbit-then-land Landed-inference path is unchanged.
+
+- `#601` Re-Fly load now preserves recording-tree mutations (like atmo/exo splits) that the merge ran AFTER the Rewind Point's quicksave was authored. The frozen `.sfs` only knows the pre-merge tree shape; `TryRestoreActiveTreeNode` now splices any post-RP recordings (and updated BranchPoint parent IDs) from the in-memory committed tree into the loaded tree before the committed copy is detached, AND refreshes any same-id recording that the merge mutated in place (truncated trajectory + moved terminal payload + reassigned child branch-point link), including the active recording — the post-split atmo half keeps the original id, so the active first half was the one most likely to stay stale. The active refresh runs in a recorder-state-preserving mode that keeps load-time mitigation flags (FilesDirty, SidecarLoadFailed, continuation-rollback bookkeeping) intact, since at splice time the recorder has not yet rebound to the active recording.
+
+- `#605` Map-view `HasOrbitData(IPlaybackTrajectory)` no longer floods `KSP.log` with ~1678 identical `body=… sma=… result=True` lines per session. The diagnostic now emits once per state change keyed on `(recording, body, sma)` and surfaces a `| suppressed=N` counter on the next flip.
+
+- `#606` Finalizer cache diagnostics now keep classification context while collapsing stable no-op refreshes.
+
+- Phase 1 observability spam hygiene now keeps finalization, map, diagnostics, KSC playback, ledger, and sandbox patch logs useful without repeating stable no-op decisions.
+
+- `#607` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys at warn time scoped to the (pid, name) pairs the stripper actually left alone, with belt-and-suspenders exclusion of the actively re-flown vessel, freshly stripped pids, and any GhostMap ProtoVessel — so the WARN can no longer be tripped by the active vessel, a ghost, or a same-name vessel from a parallel flight, and the structured payload now carries `leftAlonePidsAlive=N excludedSelected=N excludedStripped=N excludedGhostMap=N`.
+
+- `#600` Stationary landed or splashed ghosts now stay visible above the 50x high-warp mesh-hide threshold. Moving ghosts and overlap clones still hide for performance, and FX/audio suppression is unchanged.
+
+- `#585` follow-up: Re-Fly load no longer destroys the on-disk `.prec` of sibling tree recordings whose sidecar load was skipped by bug `#270`'s stale-epoch mitigation. Two layers of protection: `SaveActiveTreeIfAny` first attempts to repair hydration-failed records by copying trajectory data from the matching committed tree (`RestoreHydrationFailedRecordingsFromCommittedTree`), so the in-memory state is restored and the recording remains playable in-session; if no committed-tree donor is available, the save path then refuses to overwrite a recording whose `SidecarLoadFailed` flag is still set AND whose in-memory state has no trajectory points, orbit segments, track sections, snapshots, or part events, preserving the original `.prec` until either the recorder rebinds (which clears the flag) or an explicit deletion path runs. The 2026-04-25 playtest's launch recording (`22c28f04`) was being clobbered with `points=0 wroteVessel=False` on scene exit; a structured `SaveRecordingFiles: skipping write … preserving on-disk .prec` WARN reports each callee-side save-skip decision and `SaveActiveTreeIfAny: skipped empty sidecar overwrite` reports each caller-side skip.
+
+- `#587` follow-up: Re-Fly post-supplement strip now also kills pre-existing vessels whose name matches a recording in the session-suppressed subtree, not just `Destroyed`-terminal recordings. The 2026-04-25 playtest left a non-Destroyed phantom in scene that the player saw as a clickable "second Kerbal X-shaped object". The kill-eligible-name set now unions Destroyed-terminal recordings with `EffectiveState.ComputeSessionSuppressedSubtree` membership, while still excluding the active Re-Fly target's own vessel name and respecting the `#573` protected-pid contract; a structured kill-summary VERBOSE log line breaks down the match counts.
+
+- `#587` third facet: Re-Fly no longer creates a real "Ghost: \<name\>" vessel colocated with the player's active vessel. A parent recording mid-flight in a Relative-frame section anchored to the active Re-Fly target's pid now skips state-vector ProtoVessel creation; the in-physics-zone playback ghost (visuals, audio, parts) is unaffected.
+
+- Map-vessel source-resolve and spawn-suppression diagnostics no longer storm `KSP.log` when the same per-frame decision repeats every tick. Stable `(source, reason)` tuples now emit once per recording and stay quiet until the decision flips, with the suppressed count surfaced as `| suppressed=N` on the next state change.
+
+- In-game `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` no longer flags legacy-migrated recordings whose binary `.prec` sidecar predates the v4 loop-interval semantic bump. The lag exception is exactly v3 sidecar with v4 recording (the documented metadata-only migration); any other lag, including v3-or-older sidecar paired with a v5 / v6 recording, still fails the assertion so genuinely stale binary trajectory data is caught.
+
+- `#571` In-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` now matches the shipped resolver contract: an OrbitalCheckpoint section that coexists with its seed orbit segment resolves to `Segment` (the densified frames sample along the same Keplerian arc), not `StateVector`.
+
+- `#526` Time-jump auto-record suppression now also reports synthetic-spawn-vessel situation flickers as "suppressing time-jump transient" (instead of as a generic non-active-vessel skip), so the in-game pad canaries reliably observe the protective branch firing during Real Spawn Control and Timeline FF jumps. Auto-record start behaviour for the real pad vessel is unchanged.
+
+- `#525` Destroyed loop-cycle boundaries now emit exactly one `OnLoopCameraAction` event (the `ExplosionHoldStart`) instead of also emitting a redundant `RetargetToNewGhost` from the ghost-reuse step. The watch handler already ignored the second event while in explosion-hold state, so camera behaviour is unchanged; the contract clean-up unblocks the in-game terrain-clearance regression that pins the explosion anchor to the same terrain-clamped position the camera holds at.
+
+- In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` now passes again: the stable-terminal re-snapshot Info log line emitted by `FinalizeIndividualRecording` carries the `[#289]` tag the test scans for.
+
+- In-game test `CrewReservationTests.ReplacementsAreValid` no longer NREs in MAINMENU when no save is loaded; it now skips cleanly when `HighLogic.CurrentGame` is null, mirroring the sibling `ReservedCrewNotAssigned` guard.
+
 - `#591` Missed-vessel-switch recovery no longer floods `KSP.log` with redundant recorder-state snapshots. Identical recovery frames now collapse into 5-second `suppressed=N` summaries while normal vessel-switch diagnostics are unchanged.
+
+- Re-Fly post-load activation now holds timeline playback while `RewindInvokeContext` is still pending, so the selected re-fly vessel cannot briefly render as both the activated real vessel and its pre-marker timeline ghost.
+
+- Re-Fly session marker / RewindPoint state now survives the stale-sidecar restore path seen in the `2026-04-25_2210_refly-bugs` playtest. `MarkerValidator` now accepts a marker whose `TreeId` resolves through `RecordingStore.PendingTree` (not just `CommittedTrees`), so the playtest's `21:59:57` `Marker invalid field=TreeId; cleared` event no longer fires when the active tree is still in pending-Limbo. `RewindPointReaper.ReapOrphanedRPs` now preserves any RP whose id matches `ActiveReFlySessionMarker.RewindPointId`, so the playtest's `22:07:14` `Marker invalid field=RewindPointId` event no longer fires after a reap pass eats the marker's own RP. (Active-tree sidecar overwrite + in-memory repair are described in the `#585` follow-up entry above.)
 
 - `#571` Long on-rails OrbitalCheckpoint warp sections now get derived trajectory samples every 5 degrees of true anomaly, so ghost icons follow the checkpoint window instead of replaying one sparse Kepler segment. The representative 22 ks Kerbin warp adds 42 points and preserves them through format-v6 `.prec` round trips.
 
@@ -171,6 +228,10 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added regressions for pending-tree marker validation, active-marker RP preservation during reap, Re-Fly pending-invocation timeline playback gating, and committed-tree repair of hydration-failed active-tree sidecars.
+- Added observability guardrails that summarize retained logs and catch malformed Parsek log lines during validation.
+
+- `#527` In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` now drives `CommitTreeFlight` to land its launch recording in the timeline before staging the rewind, replacing the earlier `StopRecording`-then-wait pattern that timed out because stop alone never commits.
 - `#526` Added headless and isolated in-game coverage for the pad-vessel time-jump regression: the shared jump suppression now has explicit boundary tests, and the FLIGHT canary fast-forwards from a real pad vessel, asserts the suppression path fires, and verifies no new auto-recording starts.
 - `#525` Added headless coverage for explosion-anchor body resolution and an in-game terrain/watch regression that drives the loop-explosion engine path and verifies the emitted watch hold anchor and loop-restart explosion payload both use the same terrain-clamped anchor.
 - `#536` Added headless Tracking Station regressions covering future-child suppression timing, live parent-ghost retirement at child start, indeterminate child-start fail-open behavior, current orbit continuation ghost creation, and the atmospheric-marker continuation handoff.
@@ -223,6 +284,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- Map View and Tracking Station custom ghost icons and unpinned hover labels now draw at 80% opacity by default; pinned labels and their icons return to 100%.
 - Ghost vessel explosions in flight now use KSP's stock explosion effects and bundled audio, matching stock vessel destruction; KSC keeps the prior custom renderer since the stock system is flight-scene-only.
 - Raised the per-recording concurrent-ghost hard cap from 10 to 20 in both the flight and KSC scenes. The cap bounds how many live clones of the same recording (primary + overlap) can coexist while looping; each clone is its own GameObject/renderer/FX/audio stack (mesh vertex data is still shared via Unity `sharedMesh`, so per-frame cost scales with the clone count, not with vertex budget). Because `GhostPlaybackLogic.ComputeEffectiveLaunchCadence` enforces the cap as `ceil(duration/cadence) <= cap`, doubling the cap halves the minimum effective looping interval (floor = `duration / cap`) - e.g., a 60-second recording's floor drops from 6s to 3s before the runtime-cadence clamp kicks in. Distance-based LOD (full-fidelity inside the 2.3km physics bubble, simplified out to 50km, hidden beyond 120km) is independent of this cap and unchanged.
 - Consolidated scattered tunables into a single `Source/Parsek/ParsekConfig.cs`. `DistanceThresholds` moved from its standalone file into the same config file; new top-level static classes `GhostPlayback` (concurrency caps, per-frame throttles, prewarm/hold buffers), `LoopTiming` (loop/cycle periods, boundary epsilon), `WarpThresholds` (FX-suppress / ghost-hide warp levels), and `WatchMode` (grace windows, camera entry defaults, pending-bridge frame budget) own the numbers that used to live inside `GhostPlaybackEngine`, `GhostPlaybackLogic`, `ParsekKSC`, and `WatchModeController` (including the duplicated KSC copy of the concurrent-ghost cap). Behaviour-neutral refactor - every constant keeps its value.
@@ -232,6 +294,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Flight playback, watch handoff, and ghost map visibility diagnostics now explain skipped or blocked playback decisions without adding per-frame spam.
 - `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
@@ -258,6 +321,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- Added focused coverage for the new playback visibility diagnostics.
 - `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.

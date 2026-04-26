@@ -54,6 +54,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TryBuildDefaultFinalizationResultOverrideForTesting = null;
+            ResetRefreshSummaryDedupForTesting();
         }
 
         internal static bool ShouldRefresh(
@@ -301,26 +302,153 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        private static readonly HashSet<string> emittedMaterialRefreshSummaryKeys =
+            new HashSet<string>(StringComparer.Ordinal);
+
         internal static void LogRefreshSummary(
             FinalizationCacheOwner owner,
             string reason,
             int recordingsExamined,
             int alreadyClassified,
-            int newlyClassified)
+            int newlyClassified,
+            string recordingId = null,
+            uint vesselPid = 0,
+            FinalizationCacheStatus? status = null,
+            TerminalState? terminalState = null,
+            string declineReason = null,
+            int predictedSegmentCount = -1)
         {
             if (recordingsExamined <= 0 && alreadyClassified <= 0 && newlyClassified <= 0)
                 return;
 
-            ParsekLog.Info("Extrapolator",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "FinalizerCache refresh summary: owner={0} reason={1} " +
-                    "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}",
-                    owner,
-                    reason ?? "(none)",
-                    recordingsExamined,
-                    alreadyClassified,
-                    newlyClassified));
+            string message = string.Format(
+                CultureInfo.InvariantCulture,
+                "FinalizerCache refresh summary: owner={0} reason={1} " +
+                "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}{5}",
+                owner,
+                reason ?? "(none)",
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                BuildRefreshSummaryContextSuffix(
+                    recordingId,
+                    vesselPid,
+                    status,
+                    terminalState,
+                    declineReason,
+                    predictedSegmentCount));
+
+            string identity = BuildRefreshSummaryIdentity(owner, recordingId, vesselPid);
+            string stateKey = BuildRefreshSummaryStateKey(
+                reason,
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                status,
+                terminalState,
+                declineReason,
+                predictedSegmentCount);
+
+            if (newlyClassified > 0)
+            {
+                string materialKey = identity + "|" + stateKey;
+                if (emittedMaterialRefreshSummaryKeys.Add(materialKey))
+                {
+                    ParsekLog.Info("Extrapolator", message);
+                    return;
+                }
+
+                ParsekLog.VerboseRateLimited(
+                    "Extrapolator",
+                    "finalizer-refresh-classified|" + materialKey,
+                    message,
+                    30.0);
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "Extrapolator",
+                "finalizer-refresh-stable|" + identity + "|" + stateKey,
+                message,
+                30.0);
+        }
+
+        private static string BuildRefreshSummaryIdentity(
+            FinalizationCacheOwner owner,
+            string recordingId,
+            uint vesselPid)
+        {
+            if (!string.IsNullOrEmpty(recordingId))
+                return string.Format(CultureInfo.InvariantCulture, "{0}|rec={1}", owner, recordingId);
+            if (vesselPid != 0)
+                return string.Format(CultureInfo.InvariantCulture, "{0}|pid={1}", owner, vesselPid);
+            return string.Format(CultureInfo.InvariantCulture, "{0}|aggregate", owner);
+        }
+
+        private static string BuildRefreshSummaryStateKey(
+            string reason,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified,
+            FinalizationCacheStatus? status,
+            TerminalState? terminalState,
+            string declineReason,
+            int predictedSegmentCount)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "reason={0}|examined={1}|already={2}|new={3}|status={4}|terminal={5}|decline={6}|segments={7}",
+                reason ?? "(none)",
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                status.HasValue ? status.Value.ToString() : "(null)",
+                terminalState.HasValue ? terminalState.Value.ToString() : "(null)",
+                declineReason ?? "(none)",
+                predictedSegmentCount);
+        }
+
+        private static string BuildRefreshSummaryContextSuffix(
+            string recordingId,
+            uint vesselPid,
+            FinalizationCacheStatus? status,
+            TerminalState? terminalState,
+            string declineReason,
+            int predictedSegmentCount)
+        {
+            bool hasContext = !string.IsNullOrEmpty(recordingId)
+                || vesselPid != 0
+                || status.HasValue
+                || terminalState.HasValue
+                || !string.IsNullOrEmpty(declineReason)
+                || predictedSegmentCount >= 0;
+            if (!hasContext)
+                return string.Empty;
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                " rec={0} pid={1} status={2} terminal={3} decline={4} segments={5}",
+                recordingId ?? "(pending)",
+                vesselPid,
+                status.HasValue ? status.Value.ToString() : "(null)",
+                terminalState.HasValue ? terminalState.Value.ToString() : "(null)",
+                declineReason ?? "(none)",
+                predictedSegmentCount);
+        }
+
+        internal static void ResetRefreshSummaryDedupForTesting()
+        {
+            emittedMaterialRefreshSummaryKeys.Clear();
+        }
+
+        /// <summary>
+        /// Back-compat test hook kept for older test code. Refresh-summary
+        /// suppression is now keyed by recording/terminal digest rather than a
+        /// global no-delta counter.
+        /// </summary>
+        internal static void ResetSuppressedNoDeltaCountForTesting()
+        {
+            ResetRefreshSummaryDedupForTesting();
         }
 
         internal static bool HasMeaningfulThrust(
@@ -501,7 +629,13 @@ namespace Parsek
                 cache?.RefreshReason,
                 recordingsExamined,
                 alreadyClassified,
-                newlyClassified);
+                newlyClassified,
+                cache?.RecordingId,
+                cache != null ? cache.VesselPersistentId : 0,
+                cache?.Status,
+                cache?.TerminalState,
+                cache?.DeclineReason,
+                cache?.PredictedSegments?.Count ?? -1);
             return success;
         }
 

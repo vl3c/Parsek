@@ -952,6 +952,340 @@ namespace Parsek.Tests
                 l.Contains("backgroundEntries=0"));
         }
 
+        // ============================================================
+        // Bug #610: ChooseQuickloadTrimScope (Re-Fly carve-out)
+        // ============================================================
+
+        [Fact]
+        public void ChooseQuickloadTrimScope_NoMarker_ReturnsTreeWide()
+        {
+            var scope = ParsekScenario.ChooseQuickloadTrimScope("tree_a", null, out string reason);
+
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, scope);
+            Assert.Equal("no-active-refly-marker", reason);
+        }
+
+        [Fact]
+        public void ChooseQuickloadTrimScope_MarkerWithoutTreeId_ReturnsTreeWide()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_x",
+                TreeId = "",
+                ActiveReFlyRecordingId = "rec_a",
+                OriginChildRecordingId = "rec_a",
+            };
+
+            var scope = ParsekScenario.ChooseQuickloadTrimScope("tree_a", marker, out string reason);
+
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, scope);
+            Assert.Contains("refly-marker-has-no-treeid", reason);
+            Assert.Contains("sess=sess_x", reason);
+        }
+
+        [Fact]
+        public void ChooseQuickloadTrimScope_MarkerForDifferentTree_ReturnsTreeWide()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_other",
+                TreeId = "tree_other",
+                ActiveReFlyRecordingId = "rec_other",
+                OriginChildRecordingId = "rec_other",
+            };
+
+            var scope = ParsekScenario.ChooseQuickloadTrimScope("tree_a", marker, out string reason);
+
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, scope);
+            Assert.Contains("refly-marker-tree-mismatch", reason);
+            Assert.Contains("markerTree=tree_other", reason);
+            Assert.Contains("resumeTree=tree_a", reason);
+        }
+
+        [Fact]
+        public void ChooseQuickloadTrimScope_MarkerForThisTree_ReturnsActiveRecOnly()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_match",
+                TreeId = "tree_a",
+                ActiveReFlyRecordingId = "rec_origin",
+                OriginChildRecordingId = "rec_origin",
+            };
+
+            var scope = ParsekScenario.ChooseQuickloadTrimScope("tree_a", marker, out string reason);
+
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.ActiveRecOnly, scope);
+            Assert.Contains("refly-active", reason);
+            Assert.Contains("sess=sess_match", reason);
+            Assert.Contains("markerTree=tree_a", reason);
+            Assert.Contains("originRec=rec_origin", reason);
+        }
+
+        [Fact]
+        public void ChooseQuickloadTrimScope_NullResumeTreeId_ReturnsTreeWide()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_match",
+                TreeId = "tree_a",
+                ActiveReFlyRecordingId = "rec_origin",
+                OriginChildRecordingId = "rec_origin",
+            };
+
+            var scope = ParsekScenario.ChooseQuickloadTrimScope(null, marker, out string reason);
+
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, scope);
+            Assert.Contains("resume-tree-has-no-id", reason);
+        }
+
+        // ============================================================
+        // Bug #610: PrepareQuickloadResumeStateIfNeeded with Re-Fly active
+        // ============================================================
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_ReFlyActive_TrimsActiveOnlyKeepsSibling()
+        {
+            // Models the post-splice tree shape from Re-Fly load:
+            //   active rec (booster atmo) — needs tail trimmed so the recorder can
+            //   append fresh post-cutoff data without colliding with the pre-cutoff
+            //   timeline.
+            //   sibling rec (capsule exo, started past cutoff) — represents the OTHER
+            //   vessel's continued timeline; tree-wide trim would prune it.
+            var tree = MakeTree("refly_tree", "ReFly Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.PartEvents.Clear();
+            activeRec.ExplicitStartUT = 200.0;
+            activeRec.ExplicitEndUT = 280.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 250.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+            activeRec.PartEvents.Add(new PartEvent { ut = 270.0 });
+            activeRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 200.0,
+                endUT = 280.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200.0, altitude = 50.0 },
+                    new TrajectoryPoint { ut = 250.0, altitude = 60.0 },
+                    new TrajectoryPoint { ut = 280.0, altitude = 70.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var siblingRec = tree.Recordings["child_refly_tree_1"];
+            siblingRec.Points.Clear();
+            siblingRec.PartEvents.Clear();
+            siblingRec.TrackSections.Clear();
+            siblingRec.ExplicitStartUT = 280.0;
+            siblingRec.ExplicitEndUT = 696.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 500.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 696.0 });
+            siblingRec.PartEvents.Add(new PartEvent { ut = 400.0 });
+            siblingRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 280.0,
+                endUT = 696.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 280.0, altitude = 70.0 },
+                    new TrajectoryPoint { ut = 500.0, altitude = 100000.0 },
+                    new TrajectoryPoint { ut = 696.0, altitude = 80000.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_refly_610",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = activeRec.RecordingId,
+                    OriginChildRecordingId = activeRec.RecordingId,
+                    RewindPointId = "rp_refly_610",
+                    InvokedUT = 203.0,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            try
+            {
+                var recorder = new FlightRecorder { ActiveTree = tree };
+                FlightRecorder.QuickloadResumeUTProviderForTesting = () => 203.0;
+                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+                logLines.Clear();
+                InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+                // Active rec was trimmed at cutoff.
+                Assert.Equal(203.0, activeRec.ExplicitEndUT);
+                Assert.Empty(activeRec.PartEvents);
+
+                // Sibling preserved untouched (tree-wide trim/prune did NOT run).
+                Assert.True(tree.Recordings.ContainsKey(siblingRec.RecordingId));
+                Assert.Equal(696.0, siblingRec.ExplicitEndUT);
+                Assert.Equal(3, siblingRec.Points.Count);
+                Assert.Single(siblingRec.PartEvents);
+                Assert.Equal(400.0, siblingRec.PartEvents[0].ut);
+                Assert.Single(siblingRec.TrackSections);
+                Assert.Equal(696.0, siblingRec.TrackSections[0].endUT);
+                Assert.Equal(3, siblingRec.TrackSections[0].frames.Count);
+
+                // Resume-prep log carries the chosen scope + reason for auditability.
+                Assert.Contains(logLines, l =>
+                    l.Contains("Quickload resume prep:") &&
+                    l.Contains($"activeRec='{activeRec.RecordingId}'") &&
+                    l.Contains("trimScope=ActiveRecOnly") &&
+                    l.Contains("refly-active") &&
+                    l.Contains("sess=sess_refly_610") &&
+                    l.Contains($"markerTree={tree.Id}") &&
+                    l.Contains("recordingsInTree=2"));
+
+                // Tree-wide trim line MUST NOT appear (only the per-rec path ran).
+                Assert.DoesNotContain(logLines, l => l.Contains("Quickload tree trim:"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_NoReFlyMarker_KeepsTreeWideTrim()
+        {
+            // Sanity: without a Re-Fly marker, the existing tree-wide trim still
+            // runs (preserves F9 quickload semantics).
+            var tree = MakeTree("plain_quickload", "Plain Quickload", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 100.0;
+            activeRec.ExplicitEndUT = 180.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 180.0 });
+            activeRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 180.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, altitude = 0.0 },
+                    new TrajectoryPoint { ut = 180.0, altitude = 10.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var siblingRec = tree.Recordings["child_plain_quickload_1"];
+            siblingRec.Points.Clear();
+            siblingRec.TrackSections.Clear();
+            siblingRec.ExplicitStartUT = 170.0;
+            siblingRec.ExplicitEndUT = 200.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 170.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+
+            // No ParsekScenario instance with a marker -> ChooseQuickloadTrimScope
+            // returns TreeWide.
+            ParsekScenario.SetInstanceForTesting(null);
+
+            var recorder = new FlightRecorder { ActiveTree = tree };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            Assert.Equal(150.0, activeRec.ExplicitEndUT);
+            Assert.Equal(150.0, siblingRec.ExplicitEndUT); // tree-wide trim clipped sibling too
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:") &&
+                l.Contains("trimScope=TreeWide") &&
+                l.Contains("no-active-refly-marker"));
+            Assert.Contains(logLines, l => l.Contains("Quickload tree trim:"));
+        }
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim()
+        {
+            // Marker exists but pins a DIFFERENT tree — fall through to tree-wide
+            // trim so a stale or unrelated marker can't accidentally protect a
+            // separate tree's post-cutoff payload.
+            var tree = MakeTree("isolated_tree", "Isolated Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 100.0;
+            activeRec.ExplicitEndUT = 180.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 180.0 });
+            activeRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 180.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, altitude = 0.0 },
+                    new TrajectoryPoint { ut = 180.0, altitude = 10.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var siblingRec = tree.Recordings["child_isolated_tree_1"];
+            siblingRec.Points.Clear();
+            siblingRec.TrackSections.Clear();
+            siblingRec.ExplicitStartUT = 170.0;
+            siblingRec.ExplicitEndUT = 200.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 170.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_other",
+                    TreeId = "some_other_tree",
+                    ActiveReFlyRecordingId = "rec_x",
+                    OriginChildRecordingId = "rec_x",
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            try
+            {
+                var recorder = new FlightRecorder { ActiveTree = tree };
+                FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
+                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+                logLines.Clear();
+                InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+                Assert.Equal(150.0, activeRec.ExplicitEndUT);
+                Assert.Equal(150.0, siblingRec.ExplicitEndUT);
+                Assert.Contains(logLines, l =>
+                    l.Contains("Quickload resume prep:") &&
+                    l.Contains("trimScope=TreeWide") &&
+                    l.Contains("refly-marker-tree-mismatch") &&
+                    l.Contains("markerTree=some_other_tree") &&
+                    l.Contains($"resumeTree={tree.Id}"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
         [Fact]
         public void SaveActiveTreeIfAny_CopiesRecorderRewindSaveToSerializedRoot()
         {
@@ -1181,6 +1515,213 @@ namespace Parsek.Tests
             Assert.True(loadedTree.Recordings["child_tree_salvage_1"].FilesDirty);
             Assert.False(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailed);
             Assert.Null(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailureReason);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches()
+        {
+            var committedTree = MakeTree("tree_refly_salvage", "Committed", 2);
+            var committedRoot = committedTree.Recordings["root_tree_refly_salvage"];
+            committedRoot.VesselName = "Committed Root";
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 6;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_refly_salvage", "Active", 2);
+            var activeRoot = activeTree.Recordings["root_tree_refly_salvage"];
+            Recording activeRootReference = activeRoot;
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarEpoch = 2;
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+            activeRoot.MergeState = MergeState.NotCommitted;
+            activeRoot.CreatingSessionId = "sess_refly";
+            activeRoot.SupersedeTargetId = "old_root";
+            activeRoot.ProvisionalForRpId = "rp_refly";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(1, restored);
+            var restoredRoot = activeTree.Recordings["root_tree_refly_salvage"];
+            Assert.Same(activeRootReference, restoredRoot);
+            Assert.Equal("Committed Root", restoredRoot.VesselName);
+            Assert.Equal(3, restoredRoot.Points.Count);
+            Assert.Equal(6, restoredRoot.SidecarEpoch);
+            Assert.False(restoredRoot.FilesDirty);
+            Assert.False(restoredRoot.SidecarLoadFailed);
+            Assert.Null(restoredRoot.SidecarLoadFailureReason);
+            Assert.Equal(MergeState.NotCommitted, restoredRoot.MergeState);
+            Assert.Equal("sess_refly", restoredRoot.CreatingSessionId);
+            Assert.Equal("old_root", restoredRoot.SupersedeTargetId);
+            Assert.Equal("rp_refly", restoredRoot.ProvisionalForRpId);
+        }
+
+        // PR #572 P2 review follow-up: the repair must be scoped to records
+        // that explicitly failed to hydrate from sidecar. A dirty + empty
+        // record without `SidecarLoadFailed=true` is a legitimate metadata
+        // / snapshot-only edit; copying the committed trajectory over it
+        // would silently overwrite the in-memory mutation.
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_DirtyEmptyButNotHydrationFailed_NotRepaired()
+        {
+            var committedTree = MakeTree("tree_p2_scope", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_scope"];
+            committedRoot.VesselName = "Committed Root";
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 4;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_scope", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_scope"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.VesselName = "Mid-edit Name";
+            // No SidecarLoadFailed: the record is dirty for a legitimate
+            // reason (e.g. mid-flight metadata edit before any trajectory
+            // sample was flushed).
+            activeRoot.SidecarLoadFailed = false;
+            activeRoot.SidecarLoadFailureReason = null;
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.Equal("Mid-edit Name", activeRoot.VesselName);
+            Assert.True(activeRoot.FilesDirty);
+        }
+
+        // PR #572 P2 review follow-up: snapshot-only hydration failures route
+        // through the pending-tree salvage path; the committed-tree repair
+        // must NOT overwrite their in-memory state with a stale committed
+        // copy (the snapshot-only-rescue path's #585 carve-out already
+        // restores the snapshot bytes from the pending tree).
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_SnapshotOnlyHydrationFailure_NotRepaired()
+        {
+            var committedTree = MakeTree("tree_p2_snapshot", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_snapshot"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 5;
+            committedRoot.FilesDirty = false;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_snapshot", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_snapshot"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarLoadFailed = true;
+            // Snapshot-only failure: the trajectory sidecar was fine, only
+            // the snapshot blob failed to hydrate.
+            activeRoot.SidecarLoadFailureReason = "snapshot-vessel-invalid";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.True(activeRoot.SidecarLoadFailed);
+        }
+
+        // PR #572 P2 review follow-up: ApplyPersistenceArtifactsFrom copies
+        // CrewEndStatesResolved but NOT the CrewEndStates dictionary itself.
+        // Verify that the repair copies both, so the safety-net population
+        // doesn't skip an already-resolved record with a null/stale dict.
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_CopiesCrewEndStatesAndSpawnSuppression()
+        {
+            var committedTree = MakeTree("tree_p2_crew", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_p2_crew"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            committedRoot.SidecarEpoch = 7;
+            committedRoot.FilesDirty = false;
+            committedRoot.CrewEndStates = new Dictionary<string, KerbalEndState>(StringComparer.Ordinal)
+            {
+                { "Jeb", KerbalEndState.Recovered },
+                { "Bob", KerbalEndState.Aboard },
+            };
+            committedRoot.CrewEndStatesResolved = true;
+            committedRoot.SpawnSuppressedByRewind = true;
+            committedRoot.SpawnSuppressedByRewindReason = "same-recording-active-source";
+            committedRoot.SpawnSuppressedByRewindUT = 12.5;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_p2_crew", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_p2_crew"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.CrewEndStates = null;
+            activeRoot.CrewEndStatesResolved = false;
+            activeRoot.SpawnSuppressedByRewind = false;
+            activeRoot.SpawnSuppressedByRewindReason = null;
+            activeRoot.SpawnSuppressedByRewindUT = double.NaN;
+            activeRoot.SidecarEpoch = 2;
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(activeTree);
+
+            Assert.Equal(1, restored);
+            var restoredRoot = activeTree.Recordings["root_tree_p2_crew"];
+            // CrewEndStates: dictionary populated, NOT null + resolved=true.
+            Assert.True(restoredRoot.CrewEndStatesResolved);
+            Assert.NotNull(restoredRoot.CrewEndStates);
+            Assert.Equal(2, restoredRoot.CrewEndStates.Count);
+            Assert.Equal(KerbalEndState.Recovered, restoredRoot.CrewEndStates["Jeb"]);
+            Assert.Equal(KerbalEndState.Aboard, restoredRoot.CrewEndStates["Bob"]);
+            // The dictionary must be a fresh instance, not a shared reference
+            // (mutation of the source must not affect the restored target).
+            Assert.NotSame(committedRoot.CrewEndStates, restoredRoot.CrewEndStates);
+            // SpawnSuppressedByRewind* triplet round-trips.
+            Assert.True(restoredRoot.SpawnSuppressedByRewind);
+            Assert.Equal("same-recording-active-source", restoredRoot.SpawnSuppressedByRewindReason);
+            Assert.Equal(12.5, restoredRoot.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording()
+        {
+            var committedTree = MakeTree("tree_refly_active_skip", "Committed", 1);
+            var committedRoot = committedTree.Recordings["root_tree_refly_active_skip"];
+            committedRoot.Points.Add(new TrajectoryPoint { ut = 999 });
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            foreach (var rec in committedTree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            var activeTree = MakeTree("tree_refly_active_skip", "Active", 1);
+            var activeRoot = activeTree.Recordings["root_tree_refly_active_skip"];
+            activeRoot.Points.Clear();
+            activeRoot.OrbitSegments.Clear();
+            activeRoot.TrackSections.Clear();
+            activeRoot.SidecarLoadFailed = true;
+            activeRoot.SidecarLoadFailureReason = "stale-sidecar-epoch";
+            activeRoot.FilesDirty = true;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromCommittedTree(
+                activeTree,
+                activeTree.ActiveRecordingId);
+
+            Assert.Equal(0, restored);
+            Assert.Empty(activeRoot.Points);
+            Assert.True(activeRoot.FilesDirty);
+            Assert.True(activeRoot.SidecarLoadFailed);
         }
 
         [Fact]

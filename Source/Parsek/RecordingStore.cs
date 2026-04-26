@@ -5726,6 +5726,49 @@ namespace Parsek
             RecordingSidecarStore.MarkSidecarLoadFailure(rec, reason);
         }
 
+        private static string FormatSidecarContext(Recording rec)
+        {
+            return FormatSidecarContext(
+                rec,
+                rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
+        }
+
+        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "id={0} saveFolder='{1}' epoch={2} ghostSnapshotMode={3}",
+                rec == null || string.IsNullOrEmpty(rec.RecordingId) ? "<null>" : rec.RecordingId,
+                SafeSaveFolderForSidecarLog(),
+                rec != null ? rec.SidecarEpoch : 0,
+                ghostSnapshotMode);
+        }
+
+        private static string FormatPathForSidecarLog(string path)
+        {
+            return string.IsNullOrEmpty(path) ? "<null>" : path;
+        }
+
+        private static string FormatExceptionForSidecarLog(Exception ex)
+        {
+            if (ex == null)
+                return "<none>";
+
+            return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
+        }
+
+        private static string SafeSaveFolderForSidecarLog()
+        {
+            try
+            {
+                return string.IsNullOrEmpty(HighLogic.SaveFolder) ? "<null>" : HighLogic.SaveFolder;
+            }
+            catch (Exception ex)
+            {
+                return "<error:" + ex.GetType().Name + ">";
+            }
+        }
+
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             return RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch);
@@ -5956,15 +5999,21 @@ namespace Parsek
             if (probeOk && !SuppressLogging)
             {
                 ParsekLog.Verbose("RecordingStore",
-                    $"TryProbeSnapshotSidecar: encoding={SnapshotSidecarCodec.GetEncodingLabel(probe)} " +
-                    $"version={probe.FormatVersion} node={probe.NodeName ?? "<unknown>"} " +
-                    $"uncompressedBytes={probe.UncompressedLength} compressedBytes={probe.CompressedLength}");
+                    $"TryProbeSnapshotSidecar: path='{FormatPathForSidecarLog(path)}' " +
+                    SnapshotSidecarCodec.DescribeProbe(probe));
                 if (!probe.Supported)
                 {
                     ParsekLog.Warn("RecordingStore",
-                        $"TryProbeSnapshotSidecar: unsupported snapshot sidecar version={probe.FormatVersion} " +
-                        $"codec={probe.Codec} path={Path.GetFileName(path)}");
+                        $"TryProbeSnapshotSidecar: unsupported snapshot sidecar " +
+                        $"path='{FormatPathForSidecarLog(path)}' " +
+                        SnapshotSidecarCodec.DescribeProbe(probe));
                 }
+            }
+            else if (!probeOk && !SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"TryProbeSnapshotSidecar: failed path='{FormatPathForSidecarLog(path)}' " +
+                    SnapshotSidecarCodec.DescribeProbe(probe));
             }
 
             return probeOk;
@@ -6011,6 +6060,32 @@ namespace Parsek
         internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
         {
             RecordingSidecarStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+        }
+
+        internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
+        {
+            return RecordingSidecarStore.IsAcceptableSidecarVersionLag(probeFormatVersion, recordingFormatVersion);
+        }
+
+        /// <summary>
+        /// Bug #585 follow-up: a recording whose sidecar load failed (most often
+        /// bug #270's stale-sidecar-epoch mitigation on a Re-Fly quicksave) sits
+        /// in memory with empty trajectory + null snapshots, while the on-disk
+        /// .prec still holds the original mission's data. If the recorder never
+        /// rebinds (any non-active recording in the loaded tree), writing the
+        /// empty in-memory state back to disk would clobber the original .prec
+        /// — permanently destroying user data. PR #558 fixed this for the
+        /// active recording (recorder rebind repopulates it) but did nothing
+        /// for siblings; the playtest at <c>logs/2026-04-25_2210_refly-bugs/</c>
+        /// caught a sibling launch recording (22c28f04…) being overwritten with
+        /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
+        /// scene exit. This guard returns true when both flags are set and the
+        /// in-memory state has no recorded data: the saver must skip the write
+        /// to preserve the on-disk .prec.
+        /// </summary>
+        internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
+        {
+            return RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec);
         }
 
         internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)

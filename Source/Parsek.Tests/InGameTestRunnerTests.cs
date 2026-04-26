@@ -124,6 +124,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FilterSceneEligibleBatchCandidates_MarksRejectedTestsBeforeBatch()
+        {
+            var anyScene = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "Any",
+                RequiredScene = InGameTestAttribute.AnyScene
+            };
+            var ksc = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "KSC",
+                RequiredScene = GameScenes.SPACECENTER
+            };
+            var flight = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "Flight",
+                RequiredScene = GameScenes.FLIGHT
+            };
+
+            int skipped;
+            Dictionary<GameScenes, int> skippedByRequiredScene;
+            var eligible = InGameTestRunner.FilterSceneEligibleBatchCandidates(
+                new[] { anyScene, ksc, flight },
+                GameScenes.FLIGHT,
+                out skipped,
+                out skippedByRequiredScene);
+
+            Assert.Equal(new[] { "Any", "Flight" }, eligible.Select(t => t.Name).ToArray());
+            Assert.Equal(1, skipped);
+            Assert.Equal(1, skippedByRequiredScene[GameScenes.SPACECENTER]);
+            Assert.Equal(TestStatus.Skipped, ksc.Status);
+            Assert.Equal("Requires SPACECENTER scene", ksc.ErrorMessage);
+            Assert.Equal(TestStatus.NotRun, anyScene.Status);
+            Assert.Equal(TestStatus.NotRun, flight.Status);
+        }
+
+        [Fact]
         public void GetBatchExecutionNote_ReturnsRestoreNoteForIsolatedTests()
         {
             var isolated = new InGameTestInfo

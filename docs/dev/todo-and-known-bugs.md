@@ -11,6 +11,128 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Observability Audit - 2026-04-26
+
+Full report: `docs/dev/observability-audit-2026-04-26.md`.
+Implementation plan: `docs/dev/plan-observability-logging-visibility.md`.
+
+Open implementation follow-up: make Parsek's runtime decisions reconstructable
+from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
+
+- P1 current spam hygiene: finalizer-cache summaries, patched-snapshot /
+  extrapolator repeats, current map/proto-vessel/tracking-station repeaters,
+  diagnostics sidecar warnings, ledger no-op summaries, sandbox patch skips,
+  and KSC playback spam fixes.
+- P2 ~~flight ghost skip reasons, playback frame skip summaries~~, rewind
+  `CanInvoke` reason logging, sidecar/path severity and context, duplicate
+  `OnLoad` timing cleanup, post-switch auto-record no-trigger summaries,
+  background recorder drift warnings, game-action skip summaries, and ~~UI/map
+  marker skip summaries for ghost/proto-vessel map presence and watch focus~~.
+- P3 shared rate-limit key cleanup, repeated-warning rate limits, noisy resource
+  event aggregation, production warning-prefix cleanup, and low-risk
+  cleanup/reflection summaries.
+
+Phase 0 guardrails started on `observability/guardrails`: retained-log signal
+analysis, stricter post-hoc log validation, and guaranteed validation artifacts
+from `collect-logs.py`.
+
+2026-04-26 Phase 1 update: the current retained-log hygiene slice is closed for
+the finalization/map signal called out in
+`logs/2026-04-26_0118_refly-postfix-still-broken`. The fix keys
+`FinalizerCache refresh summary` by owner/recording/terminal state, rate-limits
+stable no-delta and repeated classification summaries, collapses the
+patched-snapshot missing-body / captured and extrapolator seeded-OFR repeaters
+with `VerboseOnChange`, rate-limits empty GhostMap cleanup, gates map-visible
+window diagnostics on source/window changes, and folds the Task 1.5 ledger /
+sandbox-patcher repeaters into state-change gated summaries. Focused xUnit log
+assertions pin each gate. The broader observability audit remains open for later
+missing-decision logs and save/load context work.
+
+Status update (`observability/playback-visibility`): closed the Phase 2 flight
+playback visibility slice for ghost skip reasons, on-change skip logging, engine
+aggregate skip counters, fast-forward watch handoff reasons, and watch-camera
+infrastructure failures. The branch also added map-view/proto-vessel visibility
+reasoning for missing map objects, orbit renderers, draw-icon state, native-icon
+suppression, renderer force-enable, and watched-ghost map-focus restore blockers.
+Review follow-up: map-focus restore logging now uses one stable on-change
+identity with the watched recording/pid/reason in the state key, avoiding
+per-recording cache growth while preserving reason-change visibility.
+Review follow-up: Flight scene teardown and `DestroyAllTimelineGhosts` now clear
+ghost-skip reason state and the matching `Flight|ghost-skip|` `VerboseOnChange`
+identities, with coverage showing per-recording skip reasons re-emit after
+scene cleanup and rewind/timeline destruction.
+Remaining observability audit items stay open.
+
+Phase 3 persistence/rewind observability is closed on
+`observability/persistence-rewind` (2026-04-26): `OnSave` / `OnLoad` now carry
+top-level exception context and single phase/status timing; recording sidecar,
+snapshot-probe, path-resolution, and transient cleanup failures now surface
+Warn/Error context with recording id, save folder, epoch, ghost snapshot mode,
+file kind, paths, staged-file count, and exception details; Rewind/Re-Fly
+`CanInvoke` plus disabled slot decisions now log only on reason changes. This
+closes the audit follow-up for duplicate/miscounted `OnLoad` timing, sidecar/path
+failure severity/context, and rewind precondition reason visibility. Remaining
+observability-audit work stays in the non-persistence phases: KSC/playback spam
+hygiene, ghost skip summaries, recorder/auto-record decision logs, game-action
+aggregation, and map/UI/test-runner visibility.
+
+Review follow-up: legacy text snapshot parse exceptions again flow to the
+outer `exception:<Type>` sidecar failure path; resolve-only path lookups now log
+missing save context at Verbose while directory-creation entry points keep Warn;
+and Rewind/Re-Fly slot `VerboseOnChange` identities are cleared when RP state is
+loaded, closed, reaped, discarded, or rolled back.
+
+Runtime-gaps branch progress (2026-04-26): Phase 4/5 recorder and
+game-visible runtime decisions are now covered for the high-priority gaps:
+background recorder attach/clear and drift warnings, active-to-background
+missing-vessel/finalizer diagnostics, post-switch auto-record no-trigger and
+manifest-delta summaries, EVA/boarding split skips, ParsekUI map-marker skip
+summaries, Tracking Station atmospheric-marker skip summaries, ghost orbit-line
+suppression decisions, game-action converter skip-by-type summaries, event
+reject logs, kerbal recalculation counters, Real Spawn Control auto-close
+reasons, and test-runner scene-eligibility skip aggregation.
+Review follow-up: post-switch manifest logging preserves trigger-priority
+short-circuiting, marking lower-priority delta families as `skipped` instead of
+diffing every manifest category on each 0.25s evaluation tick; the background
+state-drift throttle now has a backwards-UT rollback test.
+
+Remaining observability follow-up after runtime-gaps: the earlier P1/P2
+save/load exception context, sidecar/path severity expansion, rewind
+`CanInvoke` reason-change logging, playback-engine frame skip counters, and
+Phase 6 retained in-game log-package validation still need separate passes.
+
+Review follow-up coverage (2026-04-26): closed the deferred log-assertion gaps
+for finalizer refresh identity isolation, Diagnostics missing-sidecar path
+warning scopes, `ComputePlaybackFlags` ghost-skip emit/suppress behavior,
+`OnSave` exception context/RecState, and unsupported snapshot probe logging.
+
+Post-merge spam fix (2026-04-26, `fix/rewindui-canInvokeSlot-spam`): the
+2026-04-26_1025 playtest log showed 1389 identical `[RewindUI] CanInvokeSlot:
+slot-ok` lines in 6 seconds for a single rp/slot — the existing
+`ParsekLog.VerboseOnChange` gate did not suppress the repeats from the OnGUI
+draw loop, while the matching `[Rewind] CanInvoke:` site (same code path,
+same dictionary) suppressed correctly. The xUnit 200-call repro passes, so
+the failure is Unity-runtime-specific. `LogRewindSlotCanInvokeDecision` now
+tracks the last-emitted decision stateKey in a file-local
+`Dictionary<string,string>` and only calls `ParsekLog.Verbose` when it
+changes — mirroring the `lastCanInvoke` pattern already used by
+`DrawUnfinishedFlightRewindButton` ~300 lines above. Existing
+`ClearRewindSlotCanInvokeLogState` callers (LoadTimeSweep, RewindPointAuthor,
+RewindPointReaper, TreeDiscardPurge, ParsekScenario.OnLoad) clear the new
+dict alongside the original `ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix`
+call. Review follow-up: removed the per-OnGUI-pass clear that
+`RecordingsTableUI.DrawIfOpen` was firing while the Recordings window was
+closed — it wiped the cache before TimelineWindowUI's Fly button could
+reuse it, re-spamming `slot-ok` whenever Timeline was open without
+Recordings. Regression tests:
+`RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk` drives
+200 calls and asserts a single emit;
+`RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose`
+drives 200 Timeline-style calls after a single close-transition clear and
+asserts only 2 emits total.
+
+---
+
 ## Rewind to Staging — v0.9 carryover follow-ups
 
 The feature itself shipped on `feat/rewind-staging` across the v0.9 cycle (design: `docs/parsek-rewind-to-staging-design.md`; pre-implementation spec archived at `docs/dev/done/parsek-rewind-staging-design.md`; roadmap + CHANGELOG under v0.9.0). Items 1-18 of the post-merge follow-up cascade are archived in `done/todo-and-known-bugs-v4.md`.
@@ -29,7 +151,19 @@ Items below were landed on PR #514 (`bug/extrapolator-destroyed-on-subsurface`) 
 
 Review follow-ups raised during the `2026-04-25_0153` post-landing review (design-level and diagnostic polish; not blockers on the current branch):
 
+25. **In-game `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` timed out on the very first real run because `flight.StopRecording()` does not commit the active tree.** ~~done~~ — `#527` review-fix added the live rewind canary in `RuntimeTests.cs`, but `flight.StopRecording()` only stops the underlying `FlightRecorder`; nothing in `ParsekFlight.StopRecording` adds the active tree to `RecordingStore.CommittedRecordings` or copies `RewindSaveFileName` to the tree root (that work lives in `CommitTreeFlight` -> `FinalizeTreeRecordings` -> `CopyRewindSaveToRoot` and the scene-exit MergeDialog path, neither of which the test triggered). The test then waited 10 s for the recording to materialize in `CommittedRecordings`, recorded `committedBefore=294, committedNow=294, isRecording=False`, and bailed before `InitiateRewind` could run. The test was added in `b3d73408` and never actually executed until the `2026-04-25_2147` playtest because the runner skips `AllowBatchExecution=false` rows in batch mode. Fixed by switching the canary to `flight.CommitTreeFlight()`, which finalizes the active tree, copies the rewind save filename to the root recording, and adds the recording to `CommittedRecordings` so `InitiateRewind` can resolve a real rewind owner; the underlying scenario decision is already pinned by the headless `RewindUtCutoffTests` suite. Reproduced from the `2026-04-25_2147` playtest (`parsek-test-results.txt` lines 30-31 + `Player.log` lines 444977-461516).
+
 24. **Re-fly merge supersede only covered the chain head, leaving a chain-tip orphan after env-split crashes.** ~~done~~ — Review follow-up: `EnqueueChainSiblings` originally matched siblings by `ChainId` + `ChainBranch` across every committed recording, mirroring `IsChainMemberOfUnfinishedFlight`. The terminal-chain resolver `ResolveChainTerminalRecording` already scopes by owning tree, and the closure builder feeds both supersede commits and the tombstone scan — a future clone path / import / legacy save that drops the same `ChainId`+`ChainBranch` into a foreign tree could silently pull unrelated recordings into the closure (hidden in ERS, kerbal-death actions retired). Hardened with a `TreeId` gate: candidates must share the dequeued member's `TreeId`; recordings without a `TreeId` skip chain expansion entirely. SplitAtSection always emits same-tree segments by construction (`RecordingStore.cs:1992` sets `second.TreeId = original.TreeId`), so the gate is defense-in-depth for legacy / future shapes. Test `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs` installs two trees with colliding `ChainId`+`ChainBranch` and asserts the closure stops at the tree boundary. `EffectiveState.ComputeSessionSuppressedSubtreeInternal` (`Source/Parsek/EffectiveState.cs:523`) walked the suppressed-subtree closure forward via `ChildBranchPointId` only. Merge-time `RecordingOptimizer.SplitAtSection` splits a single live recording at env boundaries (atmo↔exo) into a `ChainId`-linked HEAD + TIP where the HEAD keeps the parent-branch-point link to the RewindPoint but ends with `ChildBranchPointId = null` (moved to the TIP at `RecordingStore.cs:2018-2019`), while the TIP carries the `Destroyed` terminal. After re-fly merge, only the HEAD got a supersede row pointing at the new provisional; the TIP stayed visible with the original "kerbal destroyed in atmo" outcome alongside the new "kerbal lived" re-fly. Fixed by adding an `EnqueueChainSiblings` helper invoked at the top of the dequeue body, BEFORE the `ChildBranchPointId` early-return: for each recording added to the closure, every committed recording sharing both `TreeId`, `ChainId`, and `ChainBranch` is also added (and re-enqueued so its own `ChildBranchPointId` walk runs). The contract matches `EffectiveState.IsChainMemberOfUnfinishedFlight` and `ResolveChainTerminalRecording`. Tests `ChainExpansion_HeadOrigin_IncludesTip`, `ChainExpansion_TipOrigin_IncludesHead`, `ChainExpansion_DifferentChainBranch_Excluded`, `ChainExpansion_ThreeSegments_AllIncluded`, `ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded`, and `ChainExpansion_DifferentTree_Excluded` in `SessionSuppressedSubtreeTests.cs`; `AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment` in `SupersedeCommitTests.cs`; `CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin` in `SupersedeCommitTombstoneTests.cs`. No retroactive migration: pre-existing affected saves keep the orphan TIP and require a manual `Discard`. Plan in `docs/dev/plans/fix-chain-sibling-supersede.md`.
+
+26. **In-game test `Bug289.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` failed in FLIGHT scene with "Expected FinalizeIndividualRecording stable-terminal re-snapshot log line during finalize".** ~~done~~ — `RuntimeTests.cs:6898-6911` requires the captured log line to contain `[Flight]`, `FinalizeIndividualRecording`, `stable terminal state`, AND `[#289`. The production `ParsekLog.Info` call inside `TryRefreshStableTerminalSnapshot` (`ParsekFlight.cs:9935-9937`) was missing the `[#289]` tag — the sibling `CommitTreeSceneExit` log line at `ParsekFlight.cs:1577` already used the convention. Fixed by appending `[#289]` to the message. Reproduced from `logs/2026-04-25_2147` (parsek-test-results.txt + Player.log line 102836). Regression pin remains the in-game test (the function takes a live `Vessel`, so xUnit cannot reach it).
+
+27. **In-game test `CrewReservationTests.ReplacementsAreValid` NRE'd in MAINMENU scene with "Object reference not set to an instance of an object".** ~~done~~ — `RuntimeTests.cs:4591` dereferenced `HighLogic.CurrentGame.CrewRoster` without a null guard. In MAINMENU, `HighLogic.CurrentGame` is null when no save is loaded. The early `replacements.Count == 0` return at line 4585 made the other scenes pass — they hit zero replacements first — but MAINMENU after the test-order swap ran with one replacement loaded from the save's static state, then NRE'd on the deref. The sibling `ReservedCrewNotAssigned` (line 4660) already null-guards the same access. Fixed by mirroring that guard right after the count-zero early return: skip via `InGameAssert.Skip("No crew roster available")` when `HighLogic.CurrentGame?.CrewRoster` is null. Reproduced from `logs/2026-04-25_2147` (Player.log line 663325).
+
+28. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
+
+29. **Re-Fly 22:10 cascade: duplicate upper-stage view, marker/RP loss, and zero-payload sidecar overwrite broke playback after rewind.** ~~done~~ — Reproduced from `logs/2026-04-25_2210_refly-bugs`. The duplicate upper-stage view was a post-load ordering race: `UpdateTimelinePlaybackViaEngine` spawned/positioned timeline ghosts before `RewindInvoker.ConsumePostLoad` completed strip/activate/atomic marker write, so the selected in-place continuation vessel could coexist for a few frames with its own pre-marker ghost. The later playback failure had two persistence causes: `MarkerValidator` rejected a valid live marker when the tree existed only as `RecordingStore.PendingTree`, `RewindPointReaper` could reap the RP still referenced by the live marker, and the pending-Limbo active tree carried stale-sidecar epoch failures for the root/upper-stage recordings; a later active-tree save wrote those failed records back out as empty `.prec` files, replacing the good committed launch trajectory and leaving no watchable ghost. Fixed by gating timeline playback while `RewindInvokeContext.Pending` is true, accepting pending-tree marker ownership during validation, preserving marker-referenced RPs during reap, repairing hydration-failed active-tree records from the committed tree during restore/save, and skipping an active-tree sidecar write if a failed-hydration record is still truly empty. Regression coverage: `LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`, `LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`, `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`, and `RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
+
+30. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
 
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
@@ -158,6 +292,380 @@ already pins this case.
 `main` build); the symptom will not reproduce. Closed as a duplicate of #570.
 
 **Status:** CLOSED 2026-04-25 (duplicate of #570).
+
+---
+
+## ~~610. Quickload-resume tail trim destroys other vessels' continued recordings during Re-Fly load~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. Same
+playtest as `#611`. The user reported "the exo recording of the upper
+stage again disappeared after booster Re-Fly" — even though `#601`
+(PR #575) was supposed to splice post-RP recordings back from the
+committed tree before the committed copy is detached.
+
+The splice DID run correctly:
+
+- `01:11:28.092` `SpliceMissingCommittedRecordings: tree 'Kerbal X'
+  loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2`
+- spliced ids = `2f1ac072` (capsule exo half) + `223cc6e2` (booster exo
+  half); refreshed ids = `0b394bb5` (capsule atmo, root) + `3a9f8573`
+  (booster atmo, the in-place continuation target).
+- After splice the tree had all 10 recordings — including the capsule's
+  exo half whose data spans `UT 279.7 → 696.17`.
+
+But ~1.5 seconds later, the quickload-resume path still destroyed it:
+
+- `01:11:29.555` `Quickload tree trim: tree='Kerbal X' cutoffUT=203.12
+  trimmedRecordings=4/10 prunedFutureRecordings=2 prunedBranchPoints=1`
+- The 2 future-only recordings pruned were exactly the 2 spliced exo
+  halves (`StartUT >= 203.12`). The 4 trimmed recordings had their
+  `Points/PartEvents/TrackSections` past `203.12` removed AND
+  `ExplicitEndUT` clipped to `203.12`. The capsule atmo (`0b394bb5`)
+  on disk now ends at `203.12` instead of its real terminal at
+  `279.7` — the 76 seconds between the cutoff and the atmo→exo
+  boundary are gone too.
+
+**Cause (`Source/Parsek/FlightRecorder.cs:267-302` →
+`Source/Parsek/ParsekScenario.cs:2619-2656`):**
+`PrepareQuickloadResumeStateIfNeeded` always called
+`TrimRecordingTreePastUT(ActiveTree, resumeUT)`, which clips every
+recording in the tree to the cutoff UT and prunes recordings that
+start past it. That contract is correct for F9 quickload (the world
+genuinely rewound and every recording's post-cutoff data is stale)
+but wrong for Re-Fly: the splice has just re-installed other-vessel
+post-RP recordings as preserved forks, and the in-place continuation
+only needs to scrub the active recording's tail so the recorder can
+append fresh post-cutoff samples.
+
+**Fix:** added a pure-function
+`ChooseQuickloadTrimScope(treeId, marker, out reason)` on
+`ParsekScenario` that returns `ActiveRecOnly` when
+`ParsekScenario.Instance.ActiveReFlySessionMarker` pins this same
+tree, and `TreeWide` otherwise (no marker, marker has no tree id,
+or marker pins a different tree). `PrepareQuickloadResumeStateIfNeeded`
+now consults the helper and calls `TrimRecordingPastUT(activeRec, ...)`
+in the `ActiveRecOnly` branch (only the in-place continuation target's
+tail is touched; siblings remain untouched as fork timelines). The
+chosen scope + reason are appended to the `Quickload resume prep:`
+log line — `trimScope=ActiveRecOnly (refly-active sess=… markerTree=… originRec=…)`
+or `trimScope=TreeWide (no-active-refly-marker | refly-marker-tree-mismatch …)`
+— so the branch is auditable from `KSP.log` alone.
+
+**Unity-overload trap:** the natural `if (ParsekScenario.Instance != null)`
+check returns false in unit tests because `ParsekScenario` is a
+`UnityEngine.MonoBehaviour` whose overloaded `==` operator treats
+non-Awake'd instances as fake-destroyed. Production used `?.` which
+the C# spec defines as reference-equality; we mirrored that
+(`var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;`)
+so the integration test for the `ActiveRecOnly` branch actually
+exercises the marker path.
+
+**Tests:** 8 new cases in `QuickloadResumeTests` —
+`ChooseQuickloadTrimScope_NoMarker_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerWithoutTreeId_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerForDifferentTree_ReturnsTreeWide`,
+`ChooseQuickloadTrimScope_MarkerForThisTree_ReturnsActiveRecOnly`,
+`ChooseQuickloadTrimScope_NullResumeTreeId_ReturnsTreeWide`,
+`PrepareQuickloadResumeStateIfNeeded_ReFlyActive_TrimsActiveOnlyKeepsSibling`
+(reproduces the production shape — sibling recording starting past
+cutoff is preserved with all its data + track sections + part events),
+`PrepareQuickloadResumeStateIfNeeded_NoReFlyMarker_KeepsTreeWideTrim`
+(sanity for F9 quickload), and
+`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim`
+(stale/unrelated marker can't accidentally protect a different
+tree). All 8947 tests pass.
+
+**Status:** Open until merged.
+
+---
+
+## ~~611. Re-Fly doubled-vessel suppression silently fails when active tree is in PendingTree (load window)~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. After
+`#587 third facet` (PR #574) and its P2 review follow-up landed and shipped,
+the user re-flew the booster again and reported the same long-standing
+"upper stage doubled — real vessel copy" symptom they have reported across
+~6 playtests. PR #574's parent-chain gate was supposed to suppress the
+doubled `Ghost: Kerbal X` ProtoVessel, but in this playtest the gate
+**silently** declined to suppress (`create-state-vector-done` instead of
+`create-state-vector-suppressed`), and the user could click "aim camera"
+on the doubled ProtoVessel's parts to confirm it was a real KSP `Vessel`.
+
+The diagnosis took longer than it should have because the predicate emits
+**no log when it returns false** — every reject branch is silent. The only
+forensic evidence of failed suppression is the absence of the
+`create-state-vector-suppressed` line. We had to read the source to
+discover that the BFS walk was searching `RecordingStore.CommittedTrees`,
+which has been emptied by the time the gate fires (because
+`TryRestoreActiveTreeNode` calls `RemoveCommittedTreeById` after the
+splice, leaving the freshly-loaded tree only in `PendingTree`).
+
+**Concrete log evidence in this playtest:**
+
+- `01:11:28.092` SpliceMissingCommittedRecordings finishes
+  (`splicedRecordings=2 refreshedRecordings=2`); the load tree is now
+  stashed Pending-Limbo, and the committed counterpart is removed.
+- `01:11:29.460` Created ghost vessel `Ghost: Kerbal X` for recording #0
+  (`0b394bb5...`), the capsule's atmo half. `sma=2 ecc=1.000000`,
+  `frame=relative`, `anchorPid=3026957949` (the active booster).
+  Predicate didn't fire — the user sees a clickable, aim-camera-able
+  ProtoVessel co-located with the booster.
+- `01:12:46.250` Recording #1 (`2f1ac072...`, the capsule's exo half)
+  reaches the same gate; this time the predicate fires
+  (`reason=refly-relative-anchor=active relationship=parent`). So the
+  parent-chain logic IS correct — it was the topology lookup that
+  failed for #0. The atmo half slipped through because the BFS bailed
+  on `active-not-found` (active recording was in PendingTree, not
+  searched).
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:776-849`):**
+`IsRecordingInParentChainOfActiveReFly` was called with
+`RecordingStore.CommittedTrees` only. The active recording's tree had
+been moved to `PendingTree` by the load-side splice path. The BFS walk
+silently returned false, the predicate returned
+`not-suppressed-not-parent-of-refly-target`, and the doubled ProtoVessel
+got created.
+
+**Fix (`fix/refly-pending-tree-and-observability`):** added a
+`ComposeSearchTreesForReFlySuppression(committedTrees, pendingTree)`
+helper that the production call site now uses to compose committed +
+pending into the helper's search list. `IsRecordingInParentChainOfActiveReFly`
+gained an `out string walkTrace` parameter populated with one of four
+explicit termination reasons (`active-not-found` /
+`active-has-no-parent-bp` / `found-victim-in-parent-chain` /
+`exhausted-without-victim`) plus visited-BP ids and parents-encountered
+ids. The trace is bubbled into the predicate's `suppressReason` for both
+the suppressed and not-suppressed paths, and a new Verbose
+`[GhostMap] create-state-vector-not-suppressed-during-refly` decision
+line fires whenever a Re-Fly session is active but the predicate
+declined to suppress — making future "predicate didn't fire" diagnoses
+readable from `KSP.log` alone, no source-reading required.
+
+**P1 review follow-up:** the initial fix added the pending tree to the
+parent-chain BFS but the predicate has TWO gates against the load
+window — a separate active-recording PID lookup at the top of
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` was still
+walking only the flat `RecordingStore.CommittedRecordings` list. At
+load time `RemoveCommittedTreeById` has emptied that list for this
+tree, so the gate bailed with `not-suppressed-active-rec-pid-unknown`
+BEFORE the new BFS pending-tree path could run, and the doubled
+ProtoVessel still got created. The PID lookup now walks the same
+composed search trees first (resolving the active recording's
+`VesselPersistentId` directly from the tree's `Recordings` map) and
+falls back to the flat list only if the trees can't yield a non-zero
+PID. The success reason now carries `activePidSource=search-tree:<id>`
+or `activePidSource=committed-recordings-flat-list` so the load-window
+vs steady-state distinction is auditable; the rejection reason carries
+`searchTrees=<n> committedRecordings=<n> activeRecId=<id>` so a future
+"predicate didn't fire" diagnosis can see exactly which lookup source
+came up empty.
+
+**Tests:** 9 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
+`ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs`,
+`ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly`,
+`ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending`,
+`ComposeSearchTreesForReFlySuppression_PendingSameIdAsCommitted_KeepsPendingDropsCommitted`,
+`IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList`,
+`IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape`,
+`IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape`,
+`Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree`
+(P1 follow-up: reproduces the exact production load-window shape —
+empty `committedRecordings` plus the active recording in the composed
+search trees, with `VesselPersistentId` set on the tree's recording —
+and asserts the success reason carries `activePidSource=search-tree:`),
+and `NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts`
+(asserts the new rejection reason format). The existing
+`NotSuppressed_WhenCommittedListIsNull` test was updated to reflect
+the unified bail behavior; the existing `Suppresses_…_VictimIsParent`
+and docking-target no-suppress tests use `Assert.StartsWith` since
+`suppressReason` now carries the appended `activePidSource` and
+`walkTrace` strings.
+
+**Status:** Open until merged.
+
+---
+
+## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
+after the load-window pending-tree fix shipped, the user re-flew the booster
+again and a `Ghost: Kerbal X` ProtoVessel was still created — this time for
+the **root** recording (`c9df8d86b79b4f6b91c049696b5cc8e2`), an ancestor two
+hops up the parent chain from the active Re-Fly target
+(`89eff8431cb843b783e5dbe693ed30f2`). The direct parent
+(`1d6d2116543245249c9ca7f26dd361f7`) was correctly suppressed at log line
+~14640 (`reason=refly-relative-anchor=active relationship=parent`). The root
+got `reason=not-suppressed-not-parent-of-refly-target` at log line ~14211
+and the bogus state-vector ghost was created at log line ~14212 with
+`sma=2 ecc=1.000000`.
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:976-1093`):** the BFS walk in
+`IsRecordingInParentChainOfActiveReFly` only followed
+`Recording.ParentBranchPointId` links. The user's tree topology was:
+`c9df8d86 (root, ChainIndex=0)` -> [optimizer split] ->
+`1d6d2116 (mid, ChainIndex=1)` -> [Breakup BP `f1c7b08f`] ->
+`89eff8431 (leaf)`. The root -> mid edge is an **optimizer chain split**
+(`RecordingStore.RunOptimizationSplitPass` at `RecordingStore.cs:2016-2049`):
+the second half (`mid`) shares the root's `ChainId` + monotonically
+incremented `ChainIndex`, but does NOT receive a `ParentBranchPointId`.
+The comment at `RecordingStore.cs:2041-2046` is explicit: *"The chain
+linkage (shared ChainId) connects it to subsequent segments. Code that
+walks from a BranchPoint to the chain tip must follow ChainId, not just
+ChildRecordingIds."* The reverse walk (used here) had the same bug — it
+must follow `ChainId` predecessors, not just `ParentBranchPointId`.
+
+The structured `walkTrace` in the failed log line confirms the BFS
+terminated at mid: `walkTrace=(exhausted-without-victim
+activeId=89eff843 treeId=50e9197d victim=c9df8d86 visitedBPs=1
+parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
+parents=[1d6d2116])`. One BP visited, one parent recording reached
+(mid), then exhausted — never traversed the chain link from mid to root.
+
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #593):** the BFS now
+walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
+`ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
+reaches, including the active recording itself (so a mid-chain active
+seeds the chain-predecessor leg too). New helper
+`GhostMapPresence.TryFindChainPredecessor(tree, rec)` encapsulates the
+chain-predecessor lookup: returns null for standalone recordings,
+`ChainIndex == 0`, and missing predecessors; scoped per-tree and
+per-`ChainBranch` so legacy / future cross-tree clones cannot leak.
+
+The `walkTrace` gains a `chainHops` counter that increments on every
+chain-predecessor enqueue (active-seed + every fan-out hop) plus a
+`chainHopsViaAncestors` counter for the fan-out subset. A future
+regression of the same shape will surface as `chainHops=0` on a
+topology that should have chain links — visible in `KSP.log` without
+re-reading source. The previous trace string `active-has-no-parent-bp`
+was renamed to `active-has-no-parent` because the bail condition is
+now "neither BP-parent nor chain-predecessor", not BP-only.
+
+**Tests:** 14 new cases in `Bug614GhostMapAncestorChainTests` covering
+the user's exact 3-recording chain shape (`SuppressesRoot_…`,
+`SuppressesMid_…`), sibling-branch negatives
+(`DoesNotSuppressSibling_…`, `DoesNotSuppressUnrelatedTreeRecording`),
+multi-hop chain depth (`SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments`),
+mid-chain active recording (`SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent`),
+true-root bail behaviour, chain cycles
+(`HandlesChainCycleGracefully_VisitedSetCapsTheWalk`), the
+`TryFindChainPredecessor` helper edge cases (standalone recording,
+`ChainIndex == 0`, `ChainBranch` scoping, missing predecessor), and the
+`chainHops=` walkTrace counter contract on both success and failure
+paths. The end-to-end production-gate test
+`EndToEnd_SuppressesRoot_ProductionGate_UserShape` drives
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
+exact production tree shape and asserts both the suppress decision and
+the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
+
+**Status:** Open until merged.
+
+---
+
+## ~~612. Boring-tail trim never fires for stable orbits because terminal-shape match used exact float equality~~
+
+**Source:** user reported the orbital "boring tail" trim mechanism never trims
+in practice. Logs from `logs/2026-04-26_1025_3bugs-refly/KSP.log` confirmed
+that neither the success log (`TrimBoringTail: trimmed ...`) nor the existing
+divergence skip log fired at all for orbital-terminal recordings, even when
+the recording clearly ended in a long stable coast.
+
+**Root cause:** `RecordingOptimizer.OrbitShapeMatchesTerminal` compared the
+tail's `OrbitSegment` parameters (SMA, eccentricity, inclination, LAN, argP)
+against the recording's `TerminalOrbit*` fields with exact `!=` equality.
+Numerical drift across the boring tail from rails / pack-unpack / conic
+prediction is unavoidable on real recordings, so the byte-for-byte match
+rejected on the first parameter. The same failure mode bit the surface-state
+path before its tolerances landed (`#356` follow-up). Two compounding
+problems made this hard to diagnose: the existing `TailMatchesTerminalOrbit`
+skip log only fired when the predicate was actually called, but the player
+was reporting "no trim happens" with no log line either way — and
+`TrimBoringTail`'s six entry guards (leaf / duration / track-sections /
+last-section-not-boring / lastInteresting-NaN-too-few-points / buffer-not-met)
+all early-returned silently, so we could not tell which guard rejected.
+
+**Fix:** `OrbitShapeMatchesTerminal` now uses `Math.Abs(delta) > eps` checks
+sized to absorb stable-orbit jitter while still catching real maneuvers.
+Body name remains exact equality.
+
+- `TailOrbitSmaAbsoluteEpsilonMeters = 10.0`,
+  `TailOrbitSmaRelativeEpsilon = 1e-3`. SMA uses
+  `max(absolute, relative * |terminal SMA|)` so the check scales from a
+  700 km LKO (relEps -> ~700 m) to a 13 Mm Mun encounter (~13 km) without
+  losing sensitivity to small absolute changes. A 1 m/s circularization
+  burn at LKO shifts SMA by ~tens of metres, well above 10 m.
+- `TailOrbitEccentricityEpsilon = 1e-3` absolute. A real burn shifts
+  eccentricity by `>= 1e-3`; rails jitter is closer to `1e-5..1e-4`.
+- `TailOrbitAngleEpsilonDegrees = 0.01` absolute (inclination, LAN, argP).
+  Stable-orbit prograde precession over a 15-minute coast stays under
+  `0.01 deg`; a real plane-change burn is hundreds of times larger.
+
+Each `OrbitShapeMatchesTerminal` rejection now logs which field diverged
+and the actual delta (Verbose, `[Optimizer]` tag), so future tolerance
+tuning has structured data instead of "trim mysteriously didn't fire".
+
+`TrimBoringTail`'s entry guards now each emit a structured one-line skip
+reason (Verbose, `[Optimizer]` tag): `not-leaf`, `too-short`,
+`no-track-sections`, `last-section-not-boring`, `all-boring-too-few-points`,
+`buffer-not-met`, `terminal-mismatch`, `no-points-past-trim-ut`,
+`keep-count-too-low`, plus a `rec-null-or-too-few-points` guard at entry.
+Each line carries the recording id and the relevant numeric values so the
+rejection branch is auditable from `KSP.log` alone.
+
+**Tests:** `RecordingOptimizerTests.cs`:
+- `TrimBoringTail_StableOrbitWithRailsJitter_StillTrims` constructs a
+  jittered tail (SMA shifted by 3.5 m, ecc by 5e-4, angles by 0.005 deg)
+  and asserts the trim now succeeds.
+- `TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim` uses an
+  eccentricity delta of 0.05 (50x epsilon) and asserts the trim still
+  rejects.
+- `TrimBoringTail_NotLeaf_LogsSkipReason`, `_TooShort_LogsSkipReason`, and
+  `_TerminalMismatch_LogsSkipReasonWithDelta` capture log output via
+  `ParsekLog.TestSinkForTesting` and assert the corresponding skip-reason
+  string fires.
+
+Two pre-existing tests had constructed deltas chosen to break exact
+equality (`eccentricity = 0.01001` and `semiMajorAxis = 1200000.5`), well
+below the new tolerances; they were updated to use deltas above the
+epsilons (`eccentricity = 0.05`, `semiMajorAxis = 1300000.0`) so they
+continue to pin the guard-rejects-real-changes contract.
+
+**Wraparound follow-up (P2 review on PR #589):** the first-pass angle
+checks used raw `Math.Abs(seg.angle - rec.terminal.angle)` for
+inclination, LAN, and argument of periapsis. LAN and argP routinely cross
+the 0/360 boundary on a stable orbit; e.g. `terminal LAN = 359.997` vs
+`segment LAN = 0.002` is a real wrapped delta of `0.005 deg` (within
+epsilon), but raw `Abs(a - b) = 359.995` would have triggered a false
+mismatch and the trim would have stayed broken even after the epsilon
+fix. Inclination stays in `[0, 180]` and never hits the wrap branch, but
+uses the same helper for symmetry / centralized math.
+
+The fix reuses `TrajectoryMath.AngularDeltaDegrees(a, b)` (the existing
+`Math.Abs(a - b) % 360, > 180 ? 360 - delta : delta` helper used by
+`TrajectoryMath.OrbitsAreEquivalent`); promoted from `private` to
+`internal static` so `RecordingOptimizer` can call it. The helper's
+contract is now documented (inputs in any range; result in `[0, 180]`)
+and pinned by `TrajectoryMathTests.cs` covering simple deltas, zero
+delta, the wraparound short-path case, the half-turn boundary,
+inclination-range inputs, out-of-range inputs (small negatives,
+`> 360`), and the always-non-negative result invariant.
+
+The LAN / argP / inc divergence log lines now report
+`<field> wrapped delta <value>deg` so the log no longer lies about what
+the comparison saw (a tail at LAN = 0.002 vs terminal LAN = 359.997 logs
+a wrapped delta of `0.005`, not `359.995`).
+
+Wraparound regressions in `RecordingOptimizerTests.cs`:
+
+- `TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims` (terminal
+  `LAN = 359.997` vs segment `LAN = 0.002`, wrapped delta `0.005`) — trim
+  succeeds.
+- `TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims` (terminal
+  `argP = 0.001` vs segment `argP = 359.998`, wrapped delta `0.003`) —
+  trim succeeds.
+- `TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim` (terminal
+  `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
+  rejected, AND the divergence log line carries `LAN wrapped delta` (so
+  the wrap fix is observable from `KSP.log` alone).
 
 ---
 
@@ -1081,6 +1589,16 @@ post-swap rebuild contract.
 
 **Status:** CLOSED 2026-04-26.
 
+**2026-04-25_2210 follow-up:** the later `refly-bugs` bundle tightened this
+conclusion. The sidecar loader still correctly rejects stale `.prec` epochs,
+but an in-place Re-Fly active tree must not keep the resulting empty records
+when a matching committed tree with good sidecars exists. The empty active-tree
+shape is safe only transiently; if it reaches `SaveActiveTreeIfAny`, it can
+overwrite the committed launch/upper-stage sidecars with zero payload and break
+watch/rewind playback. Item 25 adds the committed-tree repair plus an empty
+failed-hydration save skip, superseding the earlier "empty trajectory list is
+expected" wording for the active in-place Re-Fly resume path.
+
 ---
 
 ## 586. Ghost map vessel "Set Target" via icon click logs success but does nothing in KSP ~~done~~
@@ -1619,6 +2137,77 @@ inherited from `ParsekLog.DefaultRateLimitSeconds`.
 
 ---
 
+## ~~Log spam: `[GhostMap] map-presence-{pending,initial}-create` and `[Spawner] Spawn suppressed: no vessel snapshot` re-emit on every frame across stable per-frame decisions~~
+
+**Source:** `logs/2026-04-25_2147/` (KSP.log + Player.log mirror the
+same Parsek output — counts below are per-file; sum across both is
+the same number doubled) — 228k Parsek lines in a 27-minute playtest,
+~13,719 of which were `[GhostMap] map-presence-pending-create` (9,950)
+/ `map-presence-initial-create` (3,769) verbose lines, plus 14,487
+`[Spawner] Spawn suppressed for #X "Y": <reason>` lines spanning 286
+distinct `(idx, vessel)` tuples. Reproduce with:
+
+```bash
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log
+grep -c "Spawn suppressed for #" logs/2026-04-25_2147/Player.log
+grep -h "Spawn suppressed for #" logs/2026-04-25_2147/KSP.log \
+    logs/2026-04-25_2147/Player.log \
+    | grep -oE '#[0-9]+ "[^"]+"' | sort -u | wc -l
+```
+
+**Diagnosis (2026-04-25):** `GhostMapPresence.ResolveMapPresenceGhostSource`
+fires from two per-frame call sites (`ParsekPlaybackPolicy.cs:867` for
+the pending queue and `:758` for initial create) and emits two verbose
+diagnostic lines per call. The previous wiring used
+`VerboseRateLimited` with the default 5s window keyed on
+`(operation, recId, source, reason)`, so a recording stuck in
+`source=None reason=state-vector-threshold` for the entire session
+still emitted ~one line per recording per 5 seconds (50 recordings ×
+324 5-second windows ≈ 16,200 emissions). `ParsekFlight.ComputePlaybackFlags`
+emitted `Spawn suppressed for #X "Y": <reason>` keyed by `idx` only
+(no reason in the key), so a recording whose suppression reason
+flipped between e.g. `"no vessel snapshot"` and `"chain-suppressed"`
+mid-session would only surface one of them per 5s window.
+
+**Fix:** added `ParsekLog.VerboseOnChange(subsystem, identity,
+stateKey, message)` — emits only when `stateKey` flips for the given
+`identity`, surfacing the suppressed count as `| suppressed=N` on the
+next change. Per-frame stable streaks coalesce into a single emission
+on entry plus one on exit, regardless of duration. Three call sites
+now route through the helper:
+
+- `GhostMapPresence.ResolveMapPresenceGhostSource.ReturnDecision`
+  (`GhostMapPresence.cs:2357`) — identity `map-ghost-source-<op>-<recId>`,
+  state key `(source, reason)`.
+- `GhostMapPresence.EmitSourceResolveLine` (`GhostMapPresence.cs:2301`)
+  — identity `gm-source-resolve-<op>-<recId>`, state key
+  `(source, reason)`.
+- `ParsekFlight.ComputePlaybackFlags` (`ParsekFlight.cs:12070`) —
+  identity `spawn-suppressed|<rec.RecordingId>` (with `idx-<i>`
+  fallback when RecordingId is null/empty), state key is the
+  suppression reason itself. The 2026-04-25_2147 logs show index 294
+  reused across recordings as discards reshuffle the committed list,
+  so keying on `RecordingId` rather than the bare index keeps each
+  recording's first-emission line and suppressed counter independent.
+  The bare index still appears in the message body so audits can
+  resolve recordings post-hoc.
+
+**Tests:** `ParsekLogTests.VerboseOnChange_*` (8 cases covering first
+emission, stable suppression, key flip with suppressed counter,
+independent identities, suppressed-count reset, verbose disabled, null
+state key, empty identity fallback) plus
+`LogSpamRateLimitTests.GhostMapSourceResolve_*` and
+`LogSpamRateLimitTests.Spawner_*` for the call-site integration. The
+index-reuse-across-recordings case is pinned by
+`LogSpamRateLimitTests.SpawnSuppression_IndexReuseAcrossRecordings_KeepsIndependentState`
+(plus `_StableReasonStillCoalescesPerRecording` and
+`_NullRecordingId_FallsBackToIndexInIdentity`).
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Reproduced from the
+`logs/2026-04-25_2147` playtest folder.
+
+---
+
 ## ~~596. Log spam: `KspStatePatcher.PatchFacilities` emits an INFO summary on every recalc even when there is nothing to patch~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 42 ×
@@ -1650,6 +2239,420 @@ skipped-only branch needs real `UpgradeableFacility` refs in
 in-game during the next playtest pass instead of an xUnit canary.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~605. Log spam: `HasOrbitData(IPlaybackTrajectory)` fires ~1678 times per session from per-frame map-view callers~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13777` and
+~1677 sibling lines. Shape:
+
+```
+[Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=742959.380465312 result=True
+```
+
+`grep -c 'HasOrbitData(IPlaybackTrajectory)'` ⇒ 1678 in a single
+27-minute playtest, ~11/sec, multiple per frame.
+
+**Cause:** `GhostMapPresence.HasOrbitData(IPlaybackTrajectory)` is
+called from `ParsekPlaybackPolicy.MaybeCreateInitialGhostMap` and the
+shared map-presence resolver every map-view frame. The verbose log
+inside the helper was an unconditional `ParsekLog.Verbose` so each
+caller flooded the log with the same `(body, sma)` decision while the
+recording sat in steady state. The pre-existing `Recording`-overload
+emitted the same line at the same cadence whenever a map-view caller
+reached it, contributing a parallel stream.
+
+**Resolution (2026-04-26):** Routed both `HasOrbitData` overloads
+through `ParsekLog.VerboseOnChange`, identity scoped per
+recording (or vessel name when `RecordingId` is empty), state key
+`(body, smaBucket1km, result)`. A stable per-frame stream now emits
+exactly once on entry and surfaces `| suppressed=N` on the next state
+flip. Regression coverage:
+`GhostMapPresenceTests.HasOrbitData_TrajectoryStableCalls_LogOnceWithSuppressedCounter`
+(100 stable calls ⇒ 1 emission, 99 suppressed; state change emits with
+`suppressed=99`) and
+`GhostMapPresenceTests.HasOrbitData_TrajectoryDistinctRecordings_LogIndependently`
+(distinct recording ids each get their own first emission).
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~606. Log spam: `FinalizerCache refresh summary` Info-tier emits 156× per session for periodic no-op passes~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:9528+`
+and 155 sibling lines. Steady-state shape:
+
+```
+[Parsek][INFO][Extrapolator] FinalizerCache refresh summary: owner=ActiveRecorder reason=periodic recordingsExamined=1 alreadyClassified=0 newlyClassified=0
+```
+
+Counts:
+
+```bash
+grep -c "FinalizerCache refresh summary" KSP.log    # 156
+```
+
+Most are `alreadyClassified=0 newlyClassified=0` periodic cadence
+re-runs that did no real classification work.
+
+**Cause:** `RecordingFinalizationCacheProducer.LogRefreshSummary`
+emitted every refresh at INFO regardless of whether the pass produced
+a fresh classification. The diagnostic was originally meant to
+surface "a recording crossed from unclassified to classified", but the
+gate `recordingsExamined<=0 && alreadyClassified<=0 && newlyClassified<=0`
+let `examined=1, classified=0, fresh=0` through every refresh.
+
+**Resolution (2026-04-26):** Demoted no-delta passes
+(`newlyClassified == 0`) to Verbose; passes that produced a fresh
+classification (`newlyClassified > 0`) keep INFO. Added a backstop:
+every 64th consecutive no-delta pass still emits at INFO with
+`backstop=every64thNoDeltaPass suppressedNoDeltaPasses=N` so a long
+session retains discoverable INFO markers in case the diagnostic is
+needed post-hoc. Tests:
+`RecordingFinalizationCacheProducerTests.LogRefreshSummary_NoDeltaPass_RoutesThroughVerbose`,
+`LogRefreshSummary_FreshClassification_StaysInfo`,
+`LogRefreshSummary_NoDeltaBackstop_PromotesEvery64thPassToInfo`.
+Existing `BackgroundRecorderTests.RefreshOnRailsFinalizationCache_AlreadyDestroyedSkipRefreshesOnCadence`
++ `RecordingFinalizationCacheProducerTests.TryBuildAlreadyClassifiedDestroyedSkip_LiveVesselSecondCall_ReusesExistingFailureCacheAndUpdatesObservation`
+flipped to assert Verbose for `alreadyClassified=1, newlyClassified=0`.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~607. Misleading `Strip left N pre-existing vessel(s)` WARN reports stale, deduped count after post-supplement kill~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906-12907`:
+
+```
+[WARN][Rewind] Strip post-supplement: killed 3 pre-existing debris vessel(s) for in-place continuation re-fly: [Kerbal X Debris, Kerbal X Debris, Kerbal X Debris] (...)
+[WARN][Rewind] Strip left 1 pre-existing vessel(s) whose name matches a tree recording: [Kerbal X Debris] — not related to the re-fly...
+```
+
+Same playtest: 3 actual `Kerbal X Debris` instances were in
+`stripResult.LeftAloneNames`; `StripPreExistingDebrisForInPlaceContinuation`
+killed all 3; the WARN still fired and reported `1` (the deduped
+unique-name count) — wrong on both counts (1 vs the original 3,
+0 vs the post-kill survivors).
+
+**Cause:** `RewindInvoker.WarnOnLeftAloneNameCollisions` formatted
+`collisions.Count` as the vessel-instance count. `collisions` came
+from `PostLoadStripper.FindTreeNameCollisions`, which dedupes by
+name. And the WARN ran AFTER the post-supplement kill but read from
+the original pre-kill list, so it could fire even when no colliding
+vessel survived.
+
+**Resolution (2026-04-26):** Re-survey
+`FlightGlobals.Vessels` at warn time; intersect with the colliding
+name set; report `vessels=N collidingNames=M` separately so the two
+counts cannot be conflated; suppress the WARN entirely (Verbose-only
+diagnostic) when the colliding set has been fully drained. Helpers
+`CountLiveCollidingVessels` (pure) and `EmitStripLeftAloneWarn`
+(pure) extracted so unit tests can exercise the format without
+`FlightGlobals` wiring. Tests in
+`Bug587StripPreExistingDebrisTests`:
+`CountLiveCollidingVessels_AllInstancesKilled_ReturnsZero`,
+`CountLiveCollidingVessels_MultipleInstancesSameName_CountsInstancesNotNames`,
+`EmitStripLeftAloneWarn_AllKilled_LogsVerboseAndNoWarn`,
+`EmitStripLeftAloneWarn_LiveVesselsRemain_LogsSeparateInstanceAndNameCounts`,
+`EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors`,
+`EmitStripLeftAloneWarn_NoCollidingNames_NoLog`.
+
+**P2 review follow-up (PR #577):** the original re-survey walked
+every live vessel name and counted every match — including the
+actively re-flown vessel (`SelectedPid`), GhostMap ProtoVessels,
+freshly stripped pids whose `Die()` event hadn't drained from the
+live list, and any other legitimate same-name vessel from a parallel
+flight. Any of those producing a name match would re-emit the
+misleading WARN this fix was supposed to suppress.
+
+**Resolution (2026-04-25):** Renamed
+`PostLoadStripResult.LeftAloneNames` (`List<string>`) →
+`LeftAlonePidNames` (`List<(uint pid, string name)>`) so the strip
+phase persists the pid alongside the name. The new pure helper
+`RewindInvoker.SurveyLiveLeftAloneCollisions` walks ONLY the
+`LeftAlonePidNames` set, defensively drops entries matching
+`SelectedPid` / `StrippedPids` / `GhostMapPresence.IsGhostMapVessel`,
+verifies pid liveness against a `FlightGlobals.Vessels` snapshot,
+and only then counts collisions. The `liveVesselCount` is now
+bounded by the pre-strip leftAlone set, so a same-name active vessel
+or a ghost ProtoVessel can no longer be miscounted as a "leftover".
+The structured WARN payload gained `leftAlonePidsAlive=N
+excludedSelected=N excludedStripped=N excludedGhostMap=N` so the
+exclusion path is post-mortem visible.
+
+New tests in `Bug587StripPreExistingDebrisTests` (replacing the
+`CountLiveCollidingVessels_*` cases):
+`SurveyLiveLeftAloneCollisions_AllLeftAlonePidsKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_PartialKill_ReportsSurvivorInstanceAndNameCount`,
+`SurveyLiveLeftAloneCollisions_MultipleInstancesSameName_CountsInstancesNotNames`,
+`SurveyLiveLeftAloneCollisions_SelectedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_StrippedPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_GhostMapPidExcluded_DoesNotCountAsLeftover`,
+`SurveyLiveLeftAloneCollisions_AllExcludedAndAllKilled_ReturnsZero`,
+`SurveyLiveLeftAloneCollisions_NullInputs_AreDefensive`,
+plus `EmitStripLeftAloneWarn_AllExcluded_LogsVerboseWithExclusionCounters`
+to pin the structured-log shape.
+`PostLoadStripperTests.Strip_CapturesLeftAlonePidNamesForCollisionDetection`
+flipped to assert `(pid, name)` tuples are captured.
+
+**Status:** CLOSED 2026-04-25 (PR #577 P2 follow-up).
+
+---
+
+## 608. Crew-reservation orphan placement deferred for original-crew kerbals after Re-Fly merge
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13401-13404`
+and `Player.log:73024+`. After the in-place continuation Re-Fly
+re-loaded into FLIGHT, the orphan-placement pass deferred all three
+original-crew kerbals (Jeb / Bill / Bob) to their stand-ins (Lola /
+Milfrey / Jesrick); the booster was the active vessel post-Re-Fly,
+not the capsule that has them:
+
+```
+[WARN][CrewReservation] Orphan placement deferred: no matching part with free seat in active vessel for 'Jebediah Kerman' → 'Lola Kerman' (snapshot pid=10668187 name='mk1-3pod') — stand-in kept in roster; reason=active-vessel-missing-snapshot-part activeParts=13 freeSeatParts=0 pidMatches=0 pidFreeSeats=0 nameMatches=0 nameFreeSeats=0 (attempted pidTier=yes nameTier=yes; cumulative pidHits=0 nameHitFallbacks=0)
+```
+
+Same shape repeats for Bill→Milfrey and Bob→Jesrick. The
+single-pass summary follows at line 13404:
+
+```
+[INFO][CrewReservation] Orphan placement pass: orphans=3 placed=0 ... skippedNoMatchingPart=3
+```
+
+KSP-stock then warns 60+ seconds later that the original kerbals are
+still assigned-but-no-vessels-references-them and flips them to
+"missing":
+
+```
+[Player.log:73024] [ProtoCrewMember Warning]: Crewmember Jebediah Kerman found assigned but no vessels reference him. Last vessel: ID 0. ProtoCrewMember set as missing.
+```
+
+(Same warn for Bill and Bob.)
+
+**Files to investigate:**
+
+- `Source/Parsek/CrewReservationManager.cs` — orphan placement pass,
+  the `active-vessel-missing-snapshot-part` deferral path, and
+  whether end-of-recording capsule respawn (or the FLIGHT→TRACKSTATION
+  trip that follows merge) re-runs the placement against the right
+  vessel.
+- `Source/Parsek/KerbalsModule.cs` — replacement dispatch.
+- Cross-reference `#578` (recent crew-orphan-placement fix) — the
+  `active-vessel-missing-snapshot-part` reason was the diagnostic
+  that closure introduced. The deferral itself worked as intended in
+  this playtest (stand-ins kept in roster, skipped fallback), but the
+  player's expectation is that the original crew eventually get
+  re-placed once the capsule re-spawns at end-of-recording.
+
+**Open questions:**
+
+1. Is this expected post-Re-Fly behaviour? The booster is the active
+   vessel during the re-fly continuation; the capsule has its own
+   recording that materializes later. The original 3 crew are
+   reservation-bound to the capsule's command-pod pid=10668187, but
+   that pid is not in scene at orphan-placement time.
+2. Or is the orphan-placement deferral missing a path to re-run when
+   the capsule re-spawns at end-of-recording (or the player switches
+   to it)? `activeParts=13 freeSeatParts=0` suggests the booster's
+   13 parts genuinely have no command-pod free seats, so the pass
+   correctly defers. The question is whether there is a follow-up
+   trigger.
+3. Are the KSP-stock "set as missing" warns a downstream effect we
+   need to handle? If Parsek's crew-reservation reset path eventually
+   clears this state when the capsule re-spawns, the missing-flag
+   should be reversible. If it does not, the original crew remain
+   "missing" and are unrecoverable without manual save editing — a
+   silent data-loss bug.
+
+**Reproduction:** From the playtest, an in-place continuation Re-Fly
+where the active-on-load vessel is the booster (not the capsule
+holding the original crew). Active recording ends with the booster's
+own destroyed terminal; the capsule's recording is still live in the
+tree.
+
+**Status:** Open — needs investigation. Not fixed in PR #(this).
+
+**Spawner-side downstream:** see `#609` for the related fix that
+prevents the deferred state from cascading into a permanent
+`Spawn ABANDONED — all crew dead/missing` for the capsule recording.
+The orphan-placement-deferred state itself is still as-designed; the
+follow-up only removes the spawn-time abandon trap that turned it
+into a hard data-loss bug.
+
+---
+
+## ~~609. Spawner abandons capsule recording forever when reserved crew is Missing post-Re-Fly~~
+
+**Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log:14414`
+(plus the `#608` deferred-orphan-placement preamble at line 13539-13541).
+After the orphan-placement pass for a Re-Fly stripped capsule deferred
+all three reserved kerbals (Jeb / Bill / Bob) — booster was the active
+vessel, no command-pod free seats — the spawner's end-of-recording
+spawn for the capsule (`#1 "Kerbal X"`) abandoned permanently:
+
+```
+[WARN][Spawner] Spawn ABANDONED for #1 (Kerbal X): all 3 crew are dead/missing — [Jebediah Kerman, Bill Kerman, Bob Kerman]
+[VERBOSE][Spawner] Spawn suppressed for #1 "Kerbal X": already spawned (VesselSpawned=true)
+```
+
+KSP's natural respawn timer flipped the originals back to Available
+~33 s later (log lines 14863-14874 `Crewmember X has respawned!`),
+but the recording was already in the abandoned terminal state
+(`VesselSpawned=true SpawnAbandoned=true`) and never re-attempted —
+the post-Re-Fly continued timeline never appeared in the scene.
+
+**Root cause:** `VesselSpawner.BuildDeadCrewSet` used
+`IsCrewDeadInRoster` (Dead OR Missing) for every snapshot crew name,
+asymmetric with `RemoveDeadCrewFromSnapshot`'s reserved-kerbal
+carve-out (`reserved.ContainsKey(name) && !isStrictlyDead → keep`).
+A reserved kerbal who was Missing because their original vessel had
+just been Re-Fly-stripped therefore counted as dead in the all-dead
+spawn-block guard, even though the spawn pipeline would have kept them
+in the snapshot if the guard had let them through.
+
+**Fix:**
+
+- `BuildDeadCrewSet` now applies the same reservation carve-out:
+  reserved-and-not-strictly-Dead crew are excluded from the dead set,
+  and `ShouldBlockSpawnForDeadCrewInSnapshot` allows the spawn.
+- New `RescueReservedMissingCrewInSnapshot` pre-spawn step
+  (called from both `RespawnVessel` and `SpawnAtPosition`) flips
+  reserved+Missing kerbals back to Available before the snapshot is
+  loaded by `ProtoVessel.Load`, mirroring the existing rescue branches
+  in `CrewReservationManager.ReserveCrewIn` and
+  `PlaceOrphanedReplacements`.
+- The `Spawn ABANDONED` WARN at `VesselSpawner.cs:1218` and
+  `ParsekKSC.cs:1393` now reports a per-category breakdown
+  (`total=N strictlyDead=N missingNotReserved=N reservedMissing=N alive=N [name: classification, …]`)
+  instead of a flat name list, so future regressions can be diagnosed
+  from the abandon line alone.
+- New `[Verbose][Spawner] Spawn-block carve-out applied (#608/#609)` log
+  fires whenever the carve-out turns a previously-abandoned scenario
+  into a successful spawn — playtest logs make the recovery visible.
+
+Regression coverage: `Bug609Tests.cs` (xUnit — pure pieces:
+`ClassifySnapshotCrew` degraded path,
+`FormatSpawnableClassificationSummary` shape, post-carve-out
+`ShouldBlockSpawnForDeadCrew` decisions); in-game test
+`Bug609_ReservedMissingCrewIsSpawnableAndRescued` in
+`InGameTests/RuntimeTests.cs` exercises the live-roster path
+(reservation registration → rosterStatus = Missing → classification +
+spawn-block check + rescue, with full rollback).
+
+**Known limitation (deliberate, not a bug):** saves authored before
+this fix that already have a recording stuck at
+`VesselSpawned=true SpawnAbandoned=true` from this exact path will
+not auto-recover. A retroactive sweep would risk un-sticking
+recordings that were correctly abandoned, so the fix is
+forward-only — affected players need to re-trigger via save edit or
+discard the abandoned recording. (Q1 design decision logged 2026-04-26.)
+
+**Reproduction:** From `logs/2026-04-26_0118_refly-postfix-still-broken`,
+an in-place continuation Re-Fly where the active-on-load vessel is the
+booster (no command pod, no free seats) and the capsule's recording is
+still live in the tree. KSP marks the original crew Missing on Re-Fly
+strip; the orphan-placement pass defers the stand-ins (per `#608`); the
+end-of-recording capsule spawn fires while the originals are still
+Missing.
+
+**Status:** CLOSED 2026-04-26 (PR #(this)). Cross-reference `#608`,
+which still describes the orphan-placement-deferred preamble.
+
+---
+
+## ~~598. #526 follow-up: pad-vessel time-jump canaries observed `skipCount=0` — suppression armed but `[INFO][Flight] suppressing time-jump transient` never fired~~
+
+**Source:** `logs/2026-04-25_2147/KSP.log` lines 75858 (`Time-jump launch auto-record suppression armed: jump=epoch-shift`) and 76410 (`FAILED: FlightIntegrationTests.RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording — Real Spawn Control pad canary should exercise the time-jump transient suppression path`); same shape for `TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording` at lines 81376 / 81654.
+
+**Cause:** `EvaluateAutoRecordLaunchDecision` checked `!isActiveVessel -> SkipInactiveVessel` *before* `suppressForTimeJumpTransient -> SkipTimeJumpTransient`. During a Real Spawn Control / Timeline FF pad jump, the only `OnVesselSituationChange` events fired in the window are for the synthetic spawn vessel (`0 -> ORBITING`); the real pad vessel itself stays in `PRELAUNCH`. The non-active flickers were attributed to `SkipInactiveVessel` and only logged at `[VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel`, so the in-game canaries never observed the suppression skip log they assert on.
+
+**Fix:** Reordered `EvaluateAutoRecordLaunchDecision` so the time-jump transient check fires before the active-vessel check. Synthetic-vessel flickers during a jump window now route to `SkipTimeJumpTransient` and emit the canonical `[INFO][Flight] OnVesselSituationChange: suppressing time-jump transient (...)` line. The auto-record START decision for the real pad vessel is unchanged because that vessel still has no situation change in the window. New xUnit coverage in `Source/Parsek.Tests/AutoRecordDecisionTests.cs` pins the new ordering for the non-active-vessel-during-suppression case and for the `isRecording` precedence guard.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`EvaluateAutoRecordLaunchDecision` decision order), `Source/Parsek.Tests/AutoRecordDecisionTests.cs` (two new ordering regressions).
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
+## ~~599. In-game test: `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` failed for legacy-loop-migrated recording in every scene~~
+
+**Source:** `logs/2026-04-25_2147` playtest. The in-game test failed for
+recording `1bbb50cf98654a23a60b3248848b0301` ("Learstar A1") in EDITOR /
+FLIGHT / MAINMENU / SPACECENTER / TRACKSTATION with
+`Current-format recording '…' should keep its on-disk format version`.
+
+**Diagnosis (2026-04-25):** the recording loaded at `formatVersion=3`
+(`Player.log:31418`). `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
+then ran (`Player.log:31487`) and called
+`NormalizeRecordingFormatVersionAfterLegacyLoopMigration`, which bumps the
+in-memory `RecordingFormatVersion` to v4 (the launch-to-launch loop interval
+semantic). The `.prec` sidecar stayed at `BinaryV3 version=3` because v4 was
+metadata-only — the binary layout is byte-identical to v3 and no rewrite was
+required. The test asserted `AreEqual(rec.RecordingFormatVersion,
+probe.FormatVersion)`, treating two distinct concepts (on-disk binary-encoding
+version vs. in-memory semantic version) as the same number. They diverge by
+design at v4 and above whenever a legacy save loads.
+
+**Fix:** `RuntimeTests.CurrentFormatTrajectorySidecarsProbeAsBinary` now
+asserts a narrow contract via the new
+`RecordingStore.IsAcceptableSidecarVersionLag(probe, rec)` predicate:
+equality is the ordinary case, and the only allowed lag is v3 sidecar with
+v4 recording (the documented metadata-only legacy-loop migration). Every
+other lag fails the assertion. v5 added serialized
+`OrbitSegment.isPredicted` and v6 changed RELATIVE TrackSection point
+semantics, so a v3-or-older sidecar paired with a v5 / v6 recording would
+mean the binary on disk predates a contract change and the trajectory
+data is genuinely stale. The first PR #567 relaxation to the broad
+asymmetric `probe <= rec` would have hidden that case; review note P2
+narrowed the exception. The runtime test also now explicitly asserts
+`probe.Supported`. The production read path in `TrajectorySidecarBinary.Read`
+already uses promote-only (`if (rec.RecordingFormatVersion <
+probe.FormatVersion)`), so no production runtime code change was needed
+beyond exposing the predicate. xUnit
+`TrajectorySidecarProbeVersionContractTests` covers v3 / v3 (equality),
+v3 / v4 (allowed legacy-loop migration), v3 / v5, v3 / v6, v4 / v6, and
+probe&gt;rec (all rejected), plus the freshly-written-at-current-version
+case that reduces to equality.
+
+**Status:** CLOSED 2026-04-25. Fixed for v0.9.0.
+
+---
+
+## ~~601. Re-Fly load drops post-RP merge tree mutations (atmo/exo split halves vanish after Re-Fly)~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log`. User report: "the map view trajectory of the upper stage capsule was completely wrong, position around Kerbin was wrong, also there was only an in-atmo recording of the launch, but no exo recording of the upper stage — something definitely went wrong".
+
+**Reproduction:**
+
+1. RP `rp_129e07d7553e4695bf22541bec581f8a` was authored at booster decoupling (UT=159.24, `KSP.log:10777-10853`). The frozen `.sfs` snapshots the tree state at this point — 8 recordings.
+2. The user committed the regular tree-merge dialog at 23:28:30. `RecordingOptimizer.SplitAtSection` ran on the capsule recording (`66be32fa...` -> atmo + new `b66cc068b7f84469b0cbb2d7a3960f6e` exo half) and the booster recording (`5ef9ecb7...` -> atmo + new `1c999fccf63b49edacc531473672ccca` exo half). Tree size grew from 8 to 10 recordings; both new halves got their own `.prec` sidecars on disk (`KSP.log:11865-11876`).
+3. User invoked Re-Fly at 23:28:42 (`KSP.log:12544`). Re-Fly load read the RP's frozen `.sfs`, which still listed only the pre-split 8 recordings. The 2 post-split exo halves were absent from the loaded `RECORDING_TREE` ConfigNode.
+4. `[Parsek][INFO][RecordingStore] TryRestoreActiveTreeNode: removed committed tree 'Kerbal X' (id=4dd8eafbdfa4406fb051966c8c59c863, 10 recording(s))` (`KSP.log:12662`) — the in-memory copy with all 10 recordings was destroyed. The replacement Limbo tree had 8 (`KSP.log:12663`). The capsule's exo half was never re-recorded post-Re-Fly (the user only re-flew the booster), so the upper-stage exo trajectory is lost.
+
+**Cause:** the RP's `.sfs` is a static snapshot of the tree at RP authoring time. Any post-RP tree-shape mutation (`SplitAtSection`, supersede, branch-point edit) updates `RecordingStore.CommittedTrees` and writes new `.prec` sidecars but does NOT rewrite the historical RP `.sfs`. When Re-Fly later loads that `.sfs`, the loaded tree is the pre-mutation shape; `TryRestoreActiveTreeNode` then calls `RemoveCommittedTreeById`, dropping the only in-memory record of the post-mutation recordings.
+
+**Fix:** Inserted `ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree` between the pending-tree salvage step and `RemoveCommittedTreeById` in `TryRestoreActiveTreeNode`. The helper looks up the in-memory committed tree by id, deep-clones any recording whose id is missing from the loaded tree (calling `MarkFilesDirty()` so the next `OnSave` rewrites the `.sfs` + advances the `.prec` sidecar epoch in lockstep), copies any committed-only `BranchPoint`, and overwrites `ParentRecordingIds` / `ChildRecordingIds` for any BranchPoint whose id matches but whose parent/child id lists diverge (the case where `SplitAtSection` rewrote the parent-id-list of an existing BP). Structured `[Scenario][INFO]` log line reports `loadedBefore=N committed=N after=N splicedRecordings=N refreshedRecordings=N splicedBranchPoints=N updatedBranchPoints=N source=committed-tree-in-memory`. Regression coverage in `Bug601ReFlyPostMergeSplitPreservationTests.cs` (7 tests). Design note: `docs/dev/plans/refly-rp-predates-merge-split-fix.md`.
+
+**Review follow-up (PR #575):** P1 review caught that the initial splice loop only imported recordings whose ids were absent from the loaded tree, but `SplitAtSection` mutates the *original* recording in place — it truncates trajectory, moves terminal payload to the new second half, and reassigns `ChildBranchPointId` to the second half — before adding the second half to the tree. With the previous skip, a restored pre-split tree kept the stale full-trajectory original AND its old `ChildBranchPointId` link while the BP-update branch (already present) overwrote the parent BP's `ParentRecordingIds` to name the new second half, leaving the tree internally inconsistent. Fixed by adding a same-ID refresh path in the recording loop: when the committed copy diverges from the loaded copy on split-relevant structural fields (Points count, last-point UT, OrbitSegments / TrackSections counts, `ChildBranchPointId`, `TerminalStateValue`, `TerminalOrbitBody`), the helper now overwrites the loaded copy from the committed copy via `ApplyPersistenceArtifactsFrom` while preserving identity (RecordingId, TreeId, MergeState, etc.). The structured log line gains a `refreshedRecordings` field and the verbose ID list now distinguishes `splicedIds` from `refreshedIds`.
+
+**Review follow-up #2 (PR #575 P1):** The first follow-up excluded the active recording from the same-ID refresh ("recorder is live-updating it"), but the reviewer pointed out that production calls the helper with `tree.ActiveRecordingId` and `SplitAtSection` keeps the original id on the truncated first half — so the active first half IS the post-split atmo half and was the recording most likely to be left stale. Load-order analysis: at splice time the recorder has not yet bound to the active recording (rebind fires on the deferred `onFlightReady` callback after the splice), so there is no in-flight payload state on the loaded copy. The active recording now also gets the structural refresh, but in a recorder-state-preserving mode that snapshots and restores the `[NonSerialized]` mitigation flags any earlier load-time code path may have set: `FilesDirty`, `SidecarLoadFailed`, `SidecarLoadFailureReason`, `ContinuationBoundaryIndex`, `PreContinuationVesselSnapshot`, `PreContinuationGhostSnapshot`. The `activeRecordingId` parameter still exists, but its semantic flipped from "skip" to "treat specially". The structured log line now reports the refresh count split as `refreshedRecordings=N (full=N1 recorderStatePreserved=N2)`. Tests rewritten: `Splice_ActiveStaleFirstHalfAfterSplit_RefreshesAndPreservesRecorderOwnedState`, `Splice_NonActiveStaleFirstHalfAfterSplit_RefreshesInFullMode`, `Splice_RecorderOwnedFlagsPreservedOnActiveRefresh`, `Splice_ActiveRecordingAlreadyMatchesCommitted_NoRefreshNoFlagChurn` (the previous follow-up's `Splice_TreeWithStaleFirstHalfAfterSplit_RefreshesFirstHalfFromCommitted` and `Splice_RefreshDoesNotClobberActiveRecording` were retired — the first exercised a non-active path production never used and the second asserted the now-rejected skip semantics).
+
+**Status:** CLOSED. Fixed for v0.9.0.
+
+---
+
+## ~~600. Stationary surface ghosts are hidden above 50x warp even though their mesh does not need per-frame motion~~
+
+**Source:** User investigation request on 2026-04-25: high-warp playback hides all ghost vessels in KSC and flight view for performance, but vessels that are actually standing still should remain visible at any warp speed.
+
+**Cause:** The high-warp mesh suppression policy was a global `warpRate > WarpThresholds.GhostHide` decision. It ran before the per-trajectory render path in flight and before the per-recording playback path in KSC, so it could not distinguish a moving trajectory from a `SurfaceStationary` section.
+
+**Fix:** Added `GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp`, which preserves the old threshold for moving ghosts but exempts the current playback UT when its `TrackSection.environment` is `SurfaceStationary` (plus surface-only static trajectories). Flight playback now applies the decision per trajectory/loop UT, and KSC playback no longer returns early for all ghosts during high warp. FX suppression is unchanged, and overlap clones remain culled during high warp so the exemption only keeps the newest stationary primary mesh visible. Regression coverage lives in `Bug290_WarpSuppressionMapViewTests`.
+
+**Status:** CLOSED. Fixed for v0.9.0.
 
 ---
 
@@ -1687,6 +2690,390 @@ segment getting reopened mid-flight?").
 **Status:** Open. Performance / hygiene; no observed correctness
 defect. Defer until a measurable hot-path latency or a specific
 ghost-orbit anomaly points at it.
+
+---
+
+## ~~525-followup. In-game terrain-clearance regression `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` failed at the cycle-boundary camera-event count assertion~~
+
+**Source:** `logs/2026-04-25_2147/parsek-test-results.txt`,
+`logs/2026-04-25_2147/Player.log:137286-137304`. The original `#525`
+fix added an in-game pin that drives a Destroyed loop recording across
+a cycle boundary and asserts (a) the explosion anchor is terrain-clamped
+before any watch hold reads it, and (b) the engine emits exactly one
+`OnLoopCameraAction` event for the cycle boundary. The pin was authored
+in commit `814fbf53` (2026-04-22) but only ran for the first time on the
+2026-04-25_2147 playtest, where it failed:
+
+```
+[VERBOSE][TerrainCorrect] Explosion anchor clamp #525 ("Bug525ExplosionAnchor"): alt=63.8 terrain=64.8 -> 65.3 (clearance=0.5m) cycle=0
+[VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #525 ...
+[VERBOSE][Engine] Ghost #525 parts hidden after explosion
+[VERBOSE][Engine] Ghost #525 "Bug525ExplosionAnchor" ghost reused across loop cycle: from cycle=0 to cycle=1
+[WARN][TestRunner] FAILED: ... - Loop cycle-change explosion should emit exactly one camera hold event
+```
+
+**Cause:** `GhostPlaybackEngine.UpdateLoopingPlayback`'s loaded-visuals
+loop-cycle branch fired `OnLoopCameraAction(ExplosionHoldStart)`
+correctly, then called `ReusePrimaryGhostAcrossCycle` which fired a
+second `OnLoopCameraAction(RetargetToNewGhost)` at the end. The watch
+handler ignored the second event because `ExplosionHoldStart` had set
+`watchedOverlapCycleIndex = -2` and `RetargetToNewGhost` is a no-op in
+that state — so production behaviour was correct — but the API noise
+broke the "exactly one camera hold event per cycle boundary" contract
+that the regression test exercises.
+
+**Fix:** Added an `emitRetargetEvent = true` parameter to
+`ReusePrimaryGhostAcrossCycle`. The destroyed loop-cycle path now passes
+`emitRetargetEvent: !needsExplosion` so the redundant retarget event is
+suppressed only when an explosion was just emitted. The non-destroyed
+boundary (`ExplosionHoldEnd`) still fires `RetargetToNewGhost` because
+the watch handler genuinely needs it to swap the bridge anchor for the
+new cycle's pivot. xUnit pins in
+`Source/Parsek.Tests/Bug406GhostReuseLoopCycleTests.cs`
+(`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventFalse_StillNoEvent`,
+`ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventTrue_NoEvent`)
+fence the parameter API surface; the original
+`ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` in-game
+test now passes against a real ghost in flight.
+
+**Status:** CLOSED 2026-04-25. Fixed on `fix/explosion-camera-hold-event`.
+
+---
+
+## ~~585-followup. Stale-sidecar Re-Fly load destroys sibling tree recordings on the next OnSave (data loss)~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log`. The user did
+a Re-Fly of the booster (`50f91cc6`) on a tree whose tree-recording
+sidecar epochs had advanced past the `RewindPoint`'s `.sfs` epoch by
+the time the player triggered the rewind. Two recordings hit bug
+`#270`'s stale-sidecar mitigation on load:
+
+```
+[WARN][RecordingStore] Sidecar epoch mismatch for 22c28f04…: .sfs expects epoch 2, .prec has epoch 6 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+[WARN][RecordingStore] Sidecar epoch mismatch for 50f91cc6…: .sfs expects epoch 1, .prec has epoch 3 — sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)
+```
+
+PR `#558` (bug `#585`) handled the active recording (`50f91cc6`):
+the in-place-continuation marker swap rebinds the recorder, so
+the empty in-memory state gets repopulated by the live re-fly.
+But the OTHER recording (`22c28f04` — the launch / pre-decouple
+"Kerbal X") had no recorder bound to it. Its in-memory state stayed
+empty all session, and on scene exit at `21:59:55.747`:
+
+```
+[VERBOSE][RecordingStore] WriteBinaryTrajectoryFile: recording=22c28f04… points=0 orbitSegments=0 trackSections=0 sparsePointLists=0
+[VERBOSE][RecordingStore] SaveRecordingFiles: id=22c28f04… wroteVessel=False wroteGhost=False
+```
+
+The previous good write of this recording at `21:57:40` carried
+`points=400 orbitSegs=6 trackSections=32`. The save clobbered it
+with empty data; the `.prec` on disk now reads `points=0`, the
+launch row vanishes from the post-rewind timeline (`Recording
+collector: 2 entries from 7 recordings`), the launch ghost button
+is `disabled (no ghost)`, and the user's original launch trajectory
+is permanently destroyed.
+
+This is the same family as `#585` (bug `#270` mitigation +
+in-place continuation Re-Fly) but on a different axis: `#585`
+patched the active recording's restore; this one is the SAVE side
+of the same shape — the empty in-memory state of any non-active
+hydration-failed recording gets written through to disk.
+
+**Files investigated:**
+
+- `Source/Parsek/RecordingStore.cs` — `SaveRecordingFilesToPathsInternal`
+  unconditionally writes the trajectory sidecar from in-memory state.
+  The `Recording.SidecarLoadFailed` flag is set during load
+  (`MarkSidecarLoadFailure` at the stale-sidecar-epoch path) but
+  never consulted at save time.
+- `Source/Parsek/Recording.cs` — `[NonSerialized] internal bool
+  SidecarLoadFailed` exists already; its companion
+  `SidecarLoadFailureReason` carries `"stale-sidecar-epoch"` for
+  this case.
+- `Source/Parsek/ParsekScenario.cs` — the existing
+  `RestoreHydrationFailedRecordingsFromPendingTree` salvage path
+  does clear the flag for recordings it can recover from a
+  matching `pendingTree`, but it requires the pending tree to
+  exist + match by id, which doesn't always hold under Re-Fly load.
+
+**Resolution (2026-04-26 / 2026-04-27 integration):** Fixed in
+`fix/585-587-followup` (PR #572) which integrates parallel work from
+`fix/refly-bugs-2210` to provide two complementary layers of
+protection:
+
+1. **Repair-from-committed-tree (caller-side, in-session recovery)** —
+   `ParsekScenario.SaveActiveTreeIfAny` now invokes
+   `RestoreHydrationFailedRecordingsFromCommittedTree` before
+   iterating dirty recordings. For each active-tree record whose
+   `SidecarLoadFailed=true` (excluding snapshot-only failures and
+   the marker's active recording itself), the helper finds the
+   matching committed tree by id and copies trajectory data
+   (`Points`, `OrbitSegments`, `TrackSections`, `PartEvents`,
+   `FlagEvents`, `SegmentEvents`, `Controllers`, `SidecarEpoch`,
+   start-location, vessel name, persistence artifacts) over the
+   empty active-tree record while preserving Re-Fly identity fields
+   (`RecordingId`, `TreeId`, `MergeState`, `CreatingSessionId`,
+   `SupersedeTargetId`, `ProvisionalForRpId`). The flag is cleared
+   and the record becomes playable in-session.
+2. **Skip-empty-overwrite (caller-side, defense-in-depth)** —
+   `SaveActiveTreeIfAny` then skips any remaining
+   `SidecarLoadFailed`+empty record via
+   `ShouldSkipActiveTreeEmptySidecarOverwrite`, logging the
+   structured `SaveActiveTreeIfAny: skipped empty sidecar
+   overwrite` line and bumping the `skippedDegraded` counter on
+   the iteration summary.
+3. **Skip-empty-overwrite (callee-side, all save paths)** —
+   `RecordingStore.SaveRecordingFilesToPathsInternal` is gated on a
+   new pure-static helper
+   `RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec)` that
+   returns true iff `rec.SidecarLoadFailed` is true AND the
+   in-memory state is effectively empty (no `Points`,
+   `OrbitSegments`, `TrackSections`, `PartEvents`, `FlagEvents`,
+   `SegmentEvents`, `VesselSnapshot`, or `GhostVisualSnapshot`).
+   The gate covers BgRecorder out-of-band writes and scene-exit
+   force-writes that bypass `SaveActiveTreeIfAny`. When the gate
+   triggers, the saver returns success without touching any
+   sidecar file, without incrementing the epoch, and emits a
+   `SaveRecordingFiles: skipping write … preserving on-disk .prec`
+   WARN. The active-recording case from PR #558 is unaffected:
+   as soon as the recorder rebinds and adds any trajectory data,
+   both gates evaluate to false and the save proceeds normally.
+
+Tests: `Bug585FollowupSaveSkipTests` (10 cases — 8 predicate cases
+covering null rec, flag false, each individual data field present,
+and all-empty + flag set; 2 end-to-end cases pinning that the
+on-disk `.prec` is byte-for-byte unchanged after a stale-flag save
+attempt and that the active-recovered recording still writes new
+data); plus integrated `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`
+and `RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording`
+from the parallel branch pinning the repair contract.
+
+**Companion fixes integrated from `fix/refly-bugs-2210` for the same
+playtest's downstream cascades:** `MarkerValidator` accepts a marker
+whose `TreeId` resolves through `RecordingStore.PendingTree` (not just
+`CommittedTrees`), preventing the playtest's `21:59:57` "Marker invalid
+field=TreeId" event when the active tree is in pending-Limbo;
+`RewindPointReaper.ReapOrphanedRPs` preserves any RP referenced by the
+live `ActiveReFlySessionMarker.RewindPointId`, preventing the playtest's
+`22:07:14` "Marker invalid field=RewindPointId" event after a reap pass
+deletes the marker's own RP; `ParsekFlight.UpdateTimelinePlaybackViaEngine`
+gates timeline-ghost spawn/positioning while
+`RewindInvokeContext.Pending` is true, closing a frame race between the
+post-load coroutine and the strip/activate/atomic-marker-write critical
+section. Test pins:
+`LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`,
+`LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`,
+`RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
+## ~~572-followup. FinalizeTreeRecordings clobbers a Re-Fly-stripped recording's terminal state on scene exit~~
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:15829`.
+Second-order data-loss companion to PR #572's
+`RestoreHydrationFailedRecordingsFromCommittedTree`. After the
+in-place-continuation Re-Fly's strip killed the capsule
+(`Strip stripped=[2708531065]` at line 12821), `SaveActiveTreeIfAny`
+on the next scene exit ran `RestoreHydrationFailedRecordingsFromCommittedTree`
+to repair the capsule's active-tree record from the committed tree
+(line 15767, restored 1 recording). The very next `FinalizeTreeRecordings`
+pass (line 15828-15832) saw that the capsule's live pid was no longer
+in `FlightGlobals.Vessels`, fell into the
+`vessel pid=… not found on scene exit … inferred Landed from trajectory
+(vessel was alive when unloaded)` branch in
+`ParsekFlight.FinalizeIndividualRecording`, looked at the recording's
+last trajectory point at altitude=10.6m (an early atmospheric
+ascent point — the post-orbit data was pruned at chain segmentation
+when the new probe child was created), and stamped `terminal=Landed`
+onto the just-restored recording. The repair at line 15767 was
+silently bulldozed.
+
+User-visible symptom from the playtest: "the map view trajectory of
+the upper stage capsule was completely wrong, position around Kerbin
+was wrong" — `terminal=Landed` plus a populated `TerminalPosition`
+caused the spawn-at-end safety net to materialize a vessel at
+launch-site coordinates instead of leaving the orbit to play back as
+a ghost.
+
+**Cause:** the surface inference's working assumption is "vessel was
+alive when unloaded" (player flew to Space Center while the vessel
+remained in physics range). For a Re-Fly strip casualty whose
+recording was repaired from a committed copy that was committed
+mid-flight without a terminal state, that assumption is wrong — the
+missing live pid is a deliberate kill, and the trajectory's last
+point is whatever the committed copy carried, not a current "where
+the vessel is right now" hint.
+
+**Resolution:** added a transient
+`[NonSerialized] Recording.RestoredFromCommittedTreeThisFrame`
+flag set by `ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording`
+on every record it repairs from the committed tree. New
+`ParsekFlight.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording`
+helper consults the flag in both
+`FinalizeIndividualRecording`'s leaf scene-exit branch and
+`EnsureActiveRecordingTerminalState`'s active-non-leaf scene-exit
+branch; when the flag is set, the inference is skipped, the flag is
+cleared on read, the existing
+`PopulateTerminalOrbitFromLastSegment` orbit-metadata recovery still
+runs (so the orbit fingerprint survives for ghost-map playback), and a
+structured `FinalizeTreeRecordings: skipping Landed/Splashed inference
+for '<id>' (vessel pid=<pid>) — repaired from committed tree this frame
+… (lastPtAlt=<alt>m maxDist=<m> orbitSegs=<n>)` INFO line is emitted.
+The orbit-then-land legitimate Landed-inference path
+(`Bug278FinalizeLimboTests.EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`,
+`SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog`)
+is unchanged because the flag is only set by the repair helper.
+
+Tests: `Bug572FollowupFinalizeRestoredTests` (5 cases — leaf strip
+casualty, active-non-leaf strip casualty, normal unloaded landing
+regression guard, orbit-then-land regression guard, and an
+end-to-end pin that the flag is cleared on read so a downstream
+finalize call cannot accidentally re-trigger).
+
+Plan in
+`docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md`.
+
+**Status:** Open until merged.
+
+---
+
+## ~~587-followup. Re-Fly post-supplement strip leaves non-Destroyed phantom vessels in scene~~
+
+**Source:** `logs/2026-04-25_2210_refly-bugs/KSP.log:13590`. After
+the in-place-continuation Re-Fly's
+`StripPreExistingDebrisForInPlaceContinuation` ran, the diagnostic
+`WarnOnLeftAloneNameCollisions` still tripped:
+
+```
+[WARN][Rewind] Strip left 1 pre-existing vessel(s) whose name matches a tree recording: [Kerbal X Debris] — not related to the re-fly, will appear as second Kerbal X-shaped object in scene
+```
+
+The user reported this as a long-standing visible bug: "I can STILL
+see the upper stage doubled — both the ghost and a real vessel copy
+(clickable) of it in front." Even after `#587`'s post-supplement
+killed three of four matching debris in the playtest, a fourth
+remained — its matching tree recording's `TerminalState` was not
+`Destroyed`, so the `#587` predicate let it through.
+
+**Cause:** `RewindInvoker.ResolveInPlaceContinuationDebrisToKill`
+filtered the kill set on `rec.TerminalStateValue == TerminalState.Destroyed`
+only. For an in-place-continuation Re-Fly, the SCOPE of "this
+vessel is being superseded" is the session-suppressed subtree
+(`EffectiveState.ComputeSessionSuppressedSubtree(marker)`),
+which already includes non-Destroyed children of the origin
+recording. Pre-existing real vessels matching one of those
+recordings' names are phantoms from the old timeline that the
+re-fly is overwriting — they should be killed too.
+
+**Resolution (2026-04-26):** Fixed in `fix/585-587-followup` by
+adding an optional `IReadOnlyCollection<string>
+sessionSuppressedRecordingIds` parameter to
+`ResolveInPlaceContinuationDebrisToKill`. The kill-eligible-name set
+is now the UNION of (a) recordings with `TerminalState.Destroyed`
+and (b) recordings whose `RecordingId` is in the suppressed-subtree
+closure, while still excluding the active Re-Fly target's own vessel
+name (so a duplicate-name vessel cannot bypass the protected-pid
+gate). The production caller
+(`StripPreExistingDebrisForInPlaceContinuation`) calls
+`EffectiveState.ComputeSessionSuppressedSubtree(marker)` and passes
+its result; the predicate is otherwise unchanged. A structured
+VERBOSE log line breaks down `destroyedTerminal` / `suppressedSubtree`
+counts so playtest logs can confirm which path matched. Tests:
+five new cases in `Bug587StripPreExistingDebrisTests`
+(`InPlaceMarker_KillsNameMatchingSuppressedSubtreeRec`,
+`NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly` (backward
+compat), `SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching`
+(union), `SuppressedSubtreeKill_RespectsProtectedPids` (`#573`
+contract), and `LogsKillEligibleCounters_WhenMatchesFound`
+(structured log assertion)).
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
+## doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel
+
+**Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13201`.
+After the in-place-continuation Re-Fly of the booster, with the
+`#587` and `#587 follow-up` strip fixes already applied, the user
+still reported seeing a clickable, real vessel of the upper-stage
+("Kerbal X") a few metres from the booster. The user clarified
+that this is a *separate* vessel from the legitimate
+`GhostPlaybackEngine` ghost (Ghost #0, 35 parts, audio, full
+visuals) which they want to keep — the bug is that a real
+KSP `Vessel` is also being created for the same recording.
+
+```
+[INFO][GhostMap] Created ghost vessel 'Ghost: Kerbal X' ghostPid=1130130569
+type=Ship body=Kerbin sma=2 for recording #0 (state vectors alt=0 spd=2185.7
+frame=relative) orbitSource=state-vector-fallback
+stateBody=Kerbin stateUT=159.5 stateAlt=0 stateSpeed=2185.7 frame=relative
+anchorPid=2676381515 ... orbit=True mapObj=True orbitRenderer=True registered=True
+```
+
+The capsule recording (`66be32fafffe49a7a4bc82467c5ee600`) is the
+parent of the active Re-Fly recording in the same tree, with its
+current `TrackSection` in `ReferenceFrame.Relative` anchored to
+the live booster's pid (= the active Re-Fly target). The
+state-vector-fallback path resolves a world position by
+multiplying the anchor's transform by the recording's
+anchor-local offset — placing the synthesised ProtoVessel right
+next to the booster. The orbit synthesised at altitude=0
+atmospheric ascent state is also degenerate (`sma=2 ecc=0.999999`).
+
+**Why this is the third facet of `#587`:** the previous two
+fixes targeted the *strip* side — pre-existing in-scene vessels
+that survived `PostLoadStripper`. This one is on the
+**`GhostMapPresence` create side**: the `Ghost: <name>`
+ProtoVessel is *born* during Re-Fly (after strip ran), so the
+strip-side guards never see it. The capsule recording is the
+parent of the Re-Fly origin, so it is *outside*
+`EffectiveState.ComputeSessionSuppressedSubtree`'s child-ward
+closure and outside `IsSuppressedByActiveSession`'s gate too.
+
+**Resolution (2026-04-25):** added the pure predicate
+`GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
+and gated the create site in
+`GhostMapPresence.CreateGhostVesselFromStateVectors` on it. The
+predicate suppresses when (a) a `ReFlySessionMarker` is active,
+(b) the marker is in the in-place-continuation pattern
+(`origin == active`, mirroring `#587`'s placeholder carve-out),
+(c) the resolution branch is `relative`, (d) the resolution's
+`anchorPid` matches the active Re-Fly target's
+`Recording.VesselPersistentId`, and (e) the recording being
+mapped is in the active Re-Fly recording's parent chain (per
+PR #574 review P2: scope to the parent BranchPoint topology so
+legitimate `#583` / `#584` docking/rendezvous map ghosts whose
+anchor happens to be the active vessel are NOT suppressed). The
+predicate also signals retry-later semantics back through the
+new `out bool retryLater` parameter on
+`CreateGhostVesselFromStateVectors` /
+`CreateGhostVesselFromSource`; the flight-scene caller
+`ParsekPlaybackPolicy.CheckPendingMapVessels` keeps its
+pending-map entry alive when this gate fires, so a recording
+that is mid-Relative-section during Re-Fly is retried next
+tick rather than permanently dropped from the queue. A new
+structured INFO log line
+`create-state-vector-suppressed: ... reason=refly-relative-anchor=active relationship=parent ... retryLater=true`
+gives playtest logs a unique grep target. The
+`GhostPlaybackEngine` in-physics-zone ghost is untouched —
+exactly the one the user wants kept. Tests:
+`Bug587ThirdFacetDoubledGhostMapTests` covers the user's exact
+case (parent capsule recording during in-place Re-Fly of
+booster) plus 17 defensive negatives — no-marker, placeholder
+pattern, absolute branch, anchor-is-different-vessel,
+zero-anchor, missing/zero pid in committed list, null
+committed list, empty marker fields, `no-section` and
+`orbital-checkpoint` branches, structured-log-line shape,
+docking-target sibling (PR #574 P2 not-parent gate),
+multi-hop grandparent walk, victim-is-active idempotency,
+null/missing tree topology, null victim id, and direct
+`IsRecordingInParentChainOfActiveReFly` coverage including
+the BP-cycle bail.
+
+**Status:** Open until merged.
 
 ---
 
@@ -2010,6 +3397,20 @@ PatchFacilities INFO summary on having actual work. #597 tracks the underlying
 "KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
 a separate open todo (performance / hygiene only — no observed correctness
 defect).
+
+2026-04-26 update (observability Phase 1 current spam hygiene): the newest
+retained package `2026-04-26_0118_refly-postfix-still-broken` surfaced a
+different top-repeat set: finalizer-cache periodic summaries, repeated
+patched-snapshot missing-body/captured pairs, repeated extrapolator seeded
+orbital-frame-rotation lines, and small GhostMap cleanup/window repeaters. This
+branch keys finalizer summaries by owner/recording/terminal state, removes the
+no-delta Info backstop, keeps only the first unique classification at Info,
+gates patched-snapshot and OFR-seeding details with `VerboseOnChange`, and
+rate-limits empty GhostMap cleanup plus diagnostics missing-sidecar warnings.
+The follow-up also gates repeated all-zero ledger summaries and sandbox/no-target
+KSP patch skips with `VerboseOnChange`. Focused xUnit log assertions pin each
+gate. Remaining broader audit work stays tracked by the Observability Audit
+section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 

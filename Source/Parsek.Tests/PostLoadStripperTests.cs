@@ -250,7 +250,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Strip_CapturesLeftAloneNamesForCollisionDetection()
+        public void Strip_CapturesLeftAlonePidNamesForCollisionDetection()
         {
             var rp = MakeRp(new Dictionary<uint, int>
             {
@@ -267,10 +267,12 @@ namespace Parsek.Tests
             var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
 
             Assert.Equal(2, result.LeftAlone);
-            Assert.NotNull(result.LeftAloneNames);
-            Assert.Equal(2, result.LeftAloneNames.Count);
-            Assert.Contains("Kerbal X", result.LeftAloneNames);
-            Assert.Contains("Ast. ABC-123", result.LeftAloneNames);
+            Assert.NotNull(result.LeftAlonePidNames);
+            Assert.Equal(2, result.LeftAlonePidNames.Count);
+            // PR #577 P2: pids are paired with names so the resurvey can
+            // scope to the pre-existing left-alone set.
+            Assert.Contains(result.LeftAlonePidNames, t => t.pid == 700u && t.name == "Kerbal X");
+            Assert.Contains(result.LeftAlonePidNames, t => t.pid == 701u && t.name == "Ast. ABC-123");
         }
 
         [Fact]

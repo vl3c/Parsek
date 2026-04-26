@@ -1328,6 +1328,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void UpdateOverlapPlayback_HighWarpStationaryOverlap_KeepsPrimaryAndClearsOverlaps()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = new MockTrajectory
+            {
+                IsDebris = true, // keep xUnit on the no-Unity-GameObject path
+                VesselName = "StationaryOverlap",
+                RecordingId = "rec-stationary-overlap",
+            }.WithTimeRange(100, 200).WithLoop(30);
+            traj.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100,
+                endUT = 200,
+                frames = traj.Points,
+                source = TrackSectionSource.Active,
+            });
+
+            var primaryState = new GhostPlaybackState
+            {
+                vesselName = "StationaryOverlap",
+                loopCycleIndex = 2,
+            };
+            engine.ghostStates[5] = primaryState;
+            engine.overlapGhosts[5] = new List<GhostPlaybackState>
+            {
+                null
+            };
+
+            engine.UpdateOverlapPlaybackForTesting(
+                index: 5,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 160,
+                    warpRate = 100f,
+                    activeVesselPos = new Vector3d(0, 0, 0),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 30,
+                },
+                primaryState,
+                suppressVisualFx: true,
+                suppressOverlapGhosts: true,
+                stopAfterSuppressOverlapGhosts: true);
+
+            Assert.True(engine.TryGetGhostState(5, out var keptPrimary));
+            Assert.Same(primaryState, keptPrimary);
+            Assert.True(engine.TryGetOverlapGhosts(5, out var overlaps));
+            Assert.Empty(overlaps);
+            Assert.Equal(0, engine.FrameOverlapGhostIterationCountForTesting);
+        }
+
+        [Fact]
         public void ShouldPrewarmHiddenGhost_NearVisibleTierBoundary_ReturnsTrue()
         {
             var traj = new MockTrajectory().WithTimeRange(100, 200);

@@ -121,6 +121,18 @@ namespace Parsek
         internal static int lifecycleDestroyedThisTick;
         internal static int lifecycleUpdatedThisTick;
 
+        internal struct GhostMapVisibilityCounters
+        {
+            public int uniqueTracked;
+            public int recordingTracked;
+            public int chainTracked;
+            public int mapObjectMissing;
+            public int orbitRendererMissing;
+            public int orbitRendererDisabled;
+            public int drawIconsNotAll;
+            public int iconSuppressed;
+        }
+
         /// <summary>
         /// Decision-line field bag for the structured GhostMap log lines.
         /// All numeric fields default to NaN; the builder omits NaN-valued slots.
@@ -194,13 +206,13 @@ namespace Parsek
         /// </summary>
         internal static void EmitLifecycleSummary(string scope, double currentUT)
         {
+            GhostMapVisibilityCounters visibility = CollectMapVisibilityCounters();
             ParsekLog.VerboseRateLimited(
                 Tag,
                 "gm-lifecycle-summary",
-                string.Format(ic,
-                    "lifecycle-summary: scope={0} vesselsTracked={1} created={2} destroyed={3} updated={4} currentUT={5:F1} scene={6}",
-                    scope ?? "(unspecified)",
-                    vesselsByRecordingIndex.Count,
+                BuildLifecycleSummaryMessage(
+                    scope,
+                    visibility,
                     lifecycleCreatedThisTick,
                     lifecycleDestroyedThisTick,
                     lifecycleUpdatedThisTick,
@@ -210,6 +222,119 @@ namespace Parsek
             lifecycleCreatedThisTick = 0;
             lifecycleDestroyedThisTick = 0;
             lifecycleUpdatedThisTick = 0;
+        }
+
+        internal static string BuildLifecycleSummaryMessage(
+            string scope,
+            GhostMapVisibilityCounters visibility,
+            int created,
+            int destroyed,
+            int updated,
+            double currentUT,
+            string scene)
+        {
+            return string.Format(ic,
+                "lifecycle-summary: scope={0} vesselsTracked={1} recordingTracked={2} chainTracked={3} " +
+                "created={4} destroyed={5} updated={6} currentUT={7:F1} scene={8} " +
+                "mapVisibility[mapObjMissing={9} orbitRendererMissing={10} orbitRendererDisabled={11} " +
+                "drawIconsNotAll={12} iconSuppressed={13}]",
+                scope ?? "(unspecified)",
+                visibility.uniqueTracked,
+                visibility.recordingTracked,
+                visibility.chainTracked,
+                created,
+                destroyed,
+                updated,
+                currentUT,
+                scene ?? "n/a",
+                visibility.mapObjectMissing,
+                visibility.orbitRendererMissing,
+                visibility.orbitRendererDisabled,
+                visibility.drawIconsNotAll,
+                visibility.iconSuppressed);
+        }
+
+        internal static string BuildGhostProtoVesselVisibilityState(
+            bool hasMapObject,
+            bool hasOrbitRenderer,
+            bool orbitRendererEnabled,
+            string drawIcons,
+            bool nativeIconSuppressed,
+            bool rendererForceEnabled)
+        {
+            string visibilityReason;
+            if (!hasMapObject)
+                visibilityReason = "map-object-missing";
+            else if (!hasOrbitRenderer)
+                visibilityReason = "orbit-renderer-missing";
+            else if (!orbitRendererEnabled)
+                visibilityReason = "orbit-renderer-disabled";
+            else if (rendererForceEnabled)
+                visibilityReason = "renderer-force-enabled";
+            else if (!string.Equals(drawIcons, OrbitRendererBase.DrawIcons.ALL.ToString(), StringComparison.Ordinal))
+                visibilityReason = "draw-icons-not-all";
+            else if (nativeIconSuppressed)
+                visibilityReason = "native-icon-suppressed";
+            else
+                visibilityReason = "visible";
+
+            return string.Format(ic,
+                "mapObj={0} orbitRenderer={1} rendererEnabled={2} drawIcons={3} nativeIconSuppressed={4} " +
+                "rendererForceEnabled={5} visibilityReason={6}",
+                hasMapObject,
+                hasOrbitRenderer,
+                orbitRendererEnabled,
+                string.IsNullOrEmpty(drawIcons) ? "(none)" : drawIcons,
+                nativeIconSuppressed,
+                rendererForceEnabled,
+                visibilityReason);
+        }
+
+        private static GhostMapVisibilityCounters CollectMapVisibilityCounters()
+        {
+            var counters = new GhostMapVisibilityCounters
+            {
+                recordingTracked = vesselsByRecordingIndex.Count,
+                chainTracked = vesselsByChainPid.Count
+            };
+            var seenPids = new HashSet<uint>();
+
+            foreach (Vessel vessel in vesselsByRecordingIndex.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+            foreach (Vessel vessel in vesselsByChainPid.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+
+            return counters;
+        }
+
+        private static void CountMapVisibility(
+            Vessel vessel,
+            ref GhostMapVisibilityCounters counters,
+            HashSet<uint> seenPids)
+        {
+            if (vessel == null)
+                return;
+
+            uint pid = vessel.persistentId;
+            if (pid != 0 && !seenPids.Add(pid))
+                return;
+
+            counters.uniqueTracked++;
+            if (vessel.mapObject == null)
+                counters.mapObjectMissing++;
+            if (vessel.orbitRenderer == null)
+            {
+                counters.orbitRendererMissing++;
+            }
+            else
+            {
+                if (!vessel.orbitRenderer.enabled)
+                    counters.orbitRendererDisabled++;
+                if (vessel.orbitRenderer.drawIcons != OrbitRendererBase.DrawIcons.ALL)
+                    counters.drawIconsNotAll++;
+            }
+            if (pid != 0 && ghostsWithSuppressedIcon.Contains(pid))
+                counters.iconSuppressed++;
         }
 
         private static string GetCurrentSceneName()
@@ -569,6 +694,581 @@ namespace Parsek
             return SessionSuppressionState.IsSuppressedRecordingIndex(recordingIndex);
         }
 
+        /// <summary>
+        /// Bug #587 third facet (2026-04-25 playtest): the in-place continuation
+        /// Re-Fly path leaves the *parent* of the active Re-Fly recording outside
+        /// the SessionSuppressedSubtree closure (the closure walks child-ward
+        /// from <c>OriginChildRecordingId</c>). When that parent recording's
+        /// playback is mid-flight in a <see cref="ReferenceFrame.Relative"/>
+        /// section anchored to the *active Re-Fly target's* persistent id, the
+        /// state-vector-fallback code path in
+        /// <see cref="CreateGhostVesselFromStateVectors"/> resolves a world
+        /// position right next to the live active vessel and feeds it (with
+        /// the recording's atmospheric-ascent velocity) to
+        /// <see cref="Orbit.UpdateFromStateVectors"/>. The result is a
+        /// degenerate orbit (sma=2 ecc=0.999999) AND a real registered
+        /// <see cref="Vessel"/> colocated with the player's vessel — the
+        /// "doubled upper-stage" the user reported.
+        ///
+        /// <para>This predicate gates that one create site without touching any
+        /// other source path. Pure-static so xUnit can pin every branch
+        /// without a live KSP scene.</para>
+        ///
+        /// <para><b>Scope (PR #574 review P2):</b> the suppression is also
+        /// gated on the *recording relationship* between the recording being
+        /// mapped (<paramref name="victimRecordingId"/>) and the active Re-Fly
+        /// recording. The bug only manifests when the victim is a
+        /// <em>parent</em> (in the BranchPoint topology sense) of the active
+        /// Re-Fly recording — that is, the recording from which the active
+        /// was decoupled or otherwise branched. A docking-target recording
+        /// or any unrelated recording that happens to be Relative-anchored to
+        /// the active vessel (legitimate #583/#584 docking/rendezvous map
+        /// ghosts) is *not* suppressed. The parent walk uses
+        /// <see cref="Recording.ParentBranchPointId"/> +
+        /// <see cref="BranchPoint.ParentRecordingIds"/> via the committed
+        /// trees — the same edge data
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/> walks
+        /// child-ward, traversed in the opposite direction.</para>
+        ///
+        /// <para><b>Retry semantics (PR #574 review P2):</b> when the
+        /// predicate returns true at the call site
+        /// <see cref="CreateGhostVesselFromStateVectors"/>, the function
+        /// returns null. The flight-scene caller
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c> normally drops
+        /// the pending-map entry on null return — that would mean the
+        /// recording never re-attempts after the Re-Fly session ends. The
+        /// caller now consults <paramref name="retryLater"/> via
+        /// <see cref="CreateGhostVesselFromSource(int, IPlaybackTrajectory,
+        /// TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, double,
+        /// out bool)"/> and keeps the pending entry alive when this gate
+        /// fires, so suppression is "skip-this-tick", not "permanent-reject".</para>
+        ///
+        /// <para>Sister fixes (#587 and the #587 follow-up) targeted the
+        /// strip-side leftover (a pre-existing in-scene <c>Vessel</c> the
+        /// PostLoadStripper missed). This third facet targets the GhostMap-side
+        /// *creation* of a fresh ProtoVessel during the same Re-Fly invocation
+        /// — the strip side never sees this vessel because it is born after
+        /// strip runs.</para>
+        /// </summary>
+        /// <param name="marker">Live re-fly marker, or null.</param>
+        /// <param name="resolutionBranch">Branch label from
+        /// <see cref="StateVectorWorldFrame.Branch"/>: only "relative" suppresses.</param>
+        /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
+        /// <param name="victimRecordingId">RecordingId of the recording being
+        /// mapped. Suppression is rejected with
+        /// <c>not-suppressed-not-parent-of-refly-target</c> when the victim is
+        /// not in the active Re-Fly recording's parent chain.</param>
+        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>
+        /// (the flat committed list). Used as a secondary lookup source for
+        /// the active Re-Fly recording's PID. At Re-Fly load time the active
+        /// recording's tree has been moved into <c>PendingTree</c> so its
+        /// recordings are NOT in this list (#611 P1 follow-up); the primary
+        /// lookup now walks <paramref name="committedTrees"/>, which production
+        /// composes from CommittedTrees ++ PendingTree via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>. Tests pass a
+        /// list directly; production passes the live property.</param>
+        /// <param name="committedTrees">Trees searched for both BranchPoint
+        /// topology lookup AND the active Re-Fly recording's PID. Production
+        /// composes <see cref="RecordingStore.CommittedTrees"/> ++
+        /// <see cref="RecordingStore.PendingTree"/> via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>; tests pass a
+        /// list directly. Despite the legacy parameter name, this list MUST
+        /// include the pending tree for the load-window predicate to fire
+        /// (#611 P1 follow-up).</param>
+        /// <param name="suppressReason">On true, a structured human-readable
+        /// reason for the log line including the relationship scope. On false,
+        /// set to "not-suppressed-..." describing which gate clause rejected
+        /// the suppression.</param>
+        /// <returns>True iff the state-vector ProtoVessel should NOT be
+        /// created because its world position would land on top of the
+        /// active Re-Fly target AND the victim recording is in the active
+        /// Re-Fly recording's parent chain.</returns>
+        internal static bool ShouldSuppressStateVectorProtoVesselForActiveReFly(
+            ReFlySessionMarker marker,
+            string resolutionBranch,
+            uint resolutionAnchorPid,
+            string victimRecordingId,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            out string suppressReason)
+        {
+            if (marker == null)
+            {
+                suppressReason = "not-suppressed-no-marker";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            {
+                suppressReason = "not-suppressed-marker-fields-empty";
+                return false;
+            }
+
+            // Placeholder pattern (provisional != origin): the live vessel
+            // in scene is the player's pre-rewind vessel, NOT a fresh
+            // restoration. Mirror the carve-out in
+            // RewindInvoker.ResolveInPlaceContinuationDebrisToKill — only
+            // in-place continuations (origin == active) trigger the
+            // doubled-vessel placement.
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                suppressReason = "not-suppressed-placeholder-pattern";
+                return false;
+            }
+
+            if (!string.Equals(resolutionBranch, "relative", StringComparison.Ordinal))
+            {
+                suppressReason = "not-suppressed-not-relative-frame";
+                return false;
+            }
+
+            if (resolutionAnchorPid == 0u)
+            {
+                suppressReason = "not-suppressed-no-anchor-pid";
+                return false;
+            }
+
+            // #611 P1 follow-up: the PID lookup MUST search the composed trees
+            // (committed ++ pending) and not just the flat CommittedRecordings
+            // list. At Re-Fly load time TryRestoreActiveTreeNode has just
+            // detached this tree from CommittedTrees (and therefore from
+            // CommittedRecordings) and re-stashed it as PendingTree, so the
+            // flat list lookup that ran first would silently bail with
+            // not-suppressed-active-rec-pid-unknown -- before the new
+            // pending-tree topology walk got a chance to run -- and the
+            // doubled ProtoVessel still got created.
+            uint activeReFlyPid = 0u;
+            string activePidSource = "<not-found>";
+            if (committedTrees != null)
+            {
+                for (int t = 0; t < committedTrees.Count && activeReFlyPid == 0u; t++)
+                {
+                    RecordingTree tree = committedTrees[t];
+                    if (tree == null || tree.Recordings == null) continue;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        activePidSource = "search-tree:" + (tree.Id ?? "<no-id>");
+                    }
+                }
+            }
+            if (activeReFlyPid == 0u && committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording rec = committedRecordings[i];
+                    if (rec == null) continue;
+                    if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                            StringComparison.Ordinal))
+                        continue;
+                    activeReFlyPid = rec.VesselPersistentId;
+                    activePidSource = "committed-recordings-flat-list";
+                    break;
+                }
+            }
+
+            if (activeReFlyPid == 0u)
+            {
+                int treeCount = committedTrees != null ? committedTrees.Count : 0;
+                int recCount = committedRecordings != null ? committedRecordings.Count : 0;
+                suppressReason = "not-suppressed-active-rec-pid-unknown searchTrees="
+                    + treeCount + " committedRecordings=" + recCount
+                    + " activeRecId=" + (marker.ActiveReFlyRecordingId ?? "<null>");
+                return false;
+            }
+
+            if (resolutionAnchorPid != activeReFlyPid)
+            {
+                suppressReason = "not-suppressed-anchor-not-active-refly";
+                return false;
+            }
+
+            // PR #574 review P2: the anchor-equality predicate is necessary
+            // but not sufficient. A docking-target / rendezvous recording or
+            // any sibling recording could legitimately be Relative-anchored
+            // to the active vessel (cf. #583 / #584). Restrict suppression
+            // to the user's actual case: the recording being mapped is in
+            // the active Re-Fly recording's *parent* chain (i.e. the
+            // recording from which the active was decoupled or otherwise
+            // branched).
+            if (string.IsNullOrEmpty(victimRecordingId))
+            {
+                suppressReason = "not-suppressed-no-victim-id";
+                return false;
+            }
+
+            if (string.Equals(victimRecordingId, marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal))
+            {
+                // The active recording itself is already covered by the
+                // SessionSuppressedSubtree gate (IsSuppressedByActiveSession);
+                // this branch keeps the predicate idempotent for the unlikely
+                // case that the active recording reaches this code path.
+                suppressReason = "not-suppressed-victim-is-active";
+                return false;
+            }
+
+            if (!IsRecordingInParentChainOfActiveReFly(
+                    victimRecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    committedTrees,
+                    out string walkTrace))
+            {
+                // #611: append the BFS walk trace so the rejection log line
+                // carries enough detail to diagnose missing-active-tree /
+                // missing-parent-BP / topology-mismatch cases.
+                suppressReason = "not-suppressed-not-parent-of-refly-target walkTrace=("
+                    + walkTrace + ")";
+                return false;
+            }
+
+            // Bubble the trace into the success reason too so the
+            // create-state-vector-suppressed log line can show the chain
+            // that was matched. Helps reviewers / playtest log scrapers
+            // confirm the gate fired for the right relationship.
+            // #611 P1 follow-up: also include where the active PID was
+            // resolved (which tree, or the flat fallback list) so the
+            // load-window vs steady-state distinction is auditable.
+            suppressReason = "refly-relative-anchor=active relationship=parent activePidSource="
+                + activePidSource + " walkTrace=(" + walkTrace + ")";
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: walks the BranchPoint topology parent-ward from the active
+        /// Re-Fly recording and returns true when <paramref name="victimRecordingId"/>
+        /// is encountered in any parent BP's <see cref="BranchPoint.ParentRecordingIds"/>.
+        /// Mirror of the child-ward closure in
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>, traversed
+        /// in the opposite direction. Returns false on any structural defect
+        /// (null trees / missing tree / missing recording / cycle), erring on
+        /// the side of NOT suppressing.
+        ///
+        /// <para><b>Observability (#611):</b> emits a single Verbose
+        /// <c>[GhostMap] parent-chain-walk</c> log line per call describing
+        /// the search outcome (active-found-in tree id / source label,
+        /// visitedBPs count + ids, parents-encountered count + ids, terminate
+        /// reason). Mirrors the existing <c>SessionSuppressedSubtree</c>
+        /// summary line so the same structured-grep tooling works for both
+        /// closures.</para>
+        ///
+        /// <para><b>#611 fix:</b> at Re-Fly load time the active recording
+        /// lives in <see cref="RecordingStore.PendingTree"/>, NOT
+        /// <see cref="RecordingStore.CommittedTrees"/> (the committed copy is
+        /// removed by <c>TryRestoreActiveTreeNode</c>'s post-splice
+        /// <c>RemoveCommittedTreeById</c>). Callers must therefore compose
+        /// <paramref name="searchTrees"/> from BOTH committed + pending so
+        /// the active-tree lookup succeeds whether the load just happened
+        /// or the player is in steady-state flight.</para>
+        ///
+        /// <para><b>#614 fix:</b> the walk now follows BOTH BranchPoint-parents
+        /// AND chain-predecessors. Optimizer splits
+        /// (<see cref="RecordingStore"/> RunOptimizationSplitPass) connect
+        /// chain segments via shared <see cref="Recording.ChainId"/> alone — the
+        /// second half receives no <see cref="Recording.ParentBranchPointId"/>.
+        /// The pre-#614 BP-only walk silently terminated at the first chain
+        /// segment it reached, missing the root and any earlier segments. The
+        /// fix seeds the walk with the active recording's chain predecessor
+        /// (when present) and enqueues a chain predecessor for every recording
+        /// reached during fan-out. <c>chainHops</c> in the walk trace counts
+        /// these enqueues so a future regression shows up as <c>chainHops=0</c>
+        /// on a topology that should have chain links.</para>
+        /// </summary>
+        /// <param name="searchTrees">Trees to search. Production callers
+        /// compose <see cref="RecordingStore.CommittedTrees"/> ++
+        /// <see cref="RecordingStore.PendingTree"/> (when present). Tests
+        /// pass an explicit list.</param>
+        /// <param name="walkTrace">Diagnostic summary for the caller's
+        /// structured log line. Always populated, even on early-return.</param>
+        internal static bool IsRecordingInParentChainOfActiveReFly(
+            string victimRecordingId,
+            string activeRecordingId,
+            IReadOnlyList<RecordingTree> searchTrees,
+            out string walkTrace)
+        {
+            walkTrace = "no-input";
+            if (string.IsNullOrEmpty(victimRecordingId)
+                || string.IsNullOrEmpty(activeRecordingId)
+                || searchTrees == null)
+            {
+                return false;
+            }
+
+            // Locate the tree containing the active recording. Search every
+            // input tree so a Pending-Limbo-stashed tree (Re-Fly load window)
+            // is found alongside committed trees.
+            RecordingTree tree = null;
+            Recording active = null;
+            int treesSearched = 0;
+            for (int i = 0; i < searchTrees.Count; i++)
+            {
+                RecordingTree t = searchTrees[i];
+                if (t?.Recordings == null) continue;
+                treesSearched++;
+                if (t.Recordings.TryGetValue(activeRecordingId, out Recording rec)
+                    && rec != null)
+                {
+                    tree = t;
+                    active = rec;
+                    break;
+                }
+            }
+            if (tree == null || active == null)
+            {
+                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "active-not-found activeId={0} treesSearched={1}",
+                    activeRecordingId, treesSearched);
+                return false;
+            }
+            // #614: walk both BranchPoint-parents AND chain-predecessors. Optimizer
+            // splits (RecordingStore.RunOptimizationSplitPass) connect chain segments
+            // via shared ChainId / ChainIndex, NOT via ParentBranchPointId — so the
+            // older BP-only walk silently terminated when it reached a chain segment
+            // whose parent was a previous chain segment with no BP link, missing the
+            // root and any earlier chain segments. Seed the walk with the active
+            // recording's parent BP AND its chain predecessor; for every recording
+            // reached, enqueue its parent BP AND its chain predecessor.
+            var pendingBPs = new Queue<string>();
+            var pendingRecs = new Queue<string>();
+            var visitedBPs = new HashSet<string>();
+            var visitedRecs = new HashSet<string>();
+            var bpTrace = new List<string>();
+            var parentTrace = new List<string>();
+            int bpsNotFound = 0;
+            int chainHopsEnqueued = 0;
+            int chainHopsAncestorPredecessor = 0;
+
+            // Seed: parent BP of the active recording (may be empty for chain
+            // mid-segments and tree roots).
+            if (!string.IsNullOrEmpty(active.ParentBranchPointId))
+                pendingBPs.Enqueue(active.ParentBranchPointId);
+
+            // Seed: chain predecessor of the active recording. The active itself
+            // is not a victim (the victim-is-active short-circuit fires above),
+            // but the active may sit mid-chain whose previous segment IS a victim.
+            string activePredecessorId = TryFindChainPredecessor(tree, active);
+            if (!string.IsNullOrEmpty(activePredecessorId))
+            {
+                pendingRecs.Enqueue(activePredecessorId);
+                chainHopsEnqueued++;
+            }
+
+            // Bail if neither seed produced any work: the active is a true root
+            // with no chain predecessor.
+            if (pendingBPs.Count == 0 && pendingRecs.Count == 0)
+            {
+                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "active-has-no-parent activeId={0} treeId={1}",
+                    activeRecordingId, tree.Id ?? "<no-id>");
+                return false;
+            }
+
+            // Helper-style local: process a parent recording id (whether reached
+            // via BP-parent fan-out or chain-predecessor link). Returns true when
+            // the victim is found.
+            bool VisitRecordingId(string recId, string discoverySource)
+            {
+                if (string.IsNullOrEmpty(recId) || !visitedRecs.Add(recId))
+                    return false;
+
+                parentTrace.Add(recId);
+                if (string.Equals(recId, victimRecordingId, StringComparison.Ordinal))
+                    return true;
+
+                if (!tree.Recordings.TryGetValue(recId, out Recording rec) || rec == null)
+                    return false;
+
+                // BP link to next ancestor up.
+                if (!string.IsNullOrEmpty(rec.ParentBranchPointId))
+                    pendingBPs.Enqueue(rec.ParentBranchPointId);
+
+                // Chain link to previous segment (no BP). #614: this is the leg
+                // the old walk missed — optimizer-split chain predecessors share
+                // ChainId but have no ParentBranchPointId on the second half.
+                string predId = TryFindChainPredecessor(tree, rec);
+                if (!string.IsNullOrEmpty(predId))
+                {
+                    pendingRecs.Enqueue(predId);
+                    chainHopsEnqueued++;
+                    chainHopsAncestorPredecessor++;
+                }
+
+                return false;
+            }
+
+            while (pendingBPs.Count > 0 || pendingRecs.Count > 0)
+            {
+                // Drain any chain-predecessor recordings first so the walk
+                // surfaces direct chain ancestry before fanning out via BPs.
+                while (pendingRecs.Count > 0)
+                {
+                    string recId = pendingRecs.Dequeue();
+                    if (VisitRecordingId(recId, "chain-predecessor"))
+                    {
+                        walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "found-victim-in-parent-chain activeId={0} treeId={1} victim={2} " +
+                            "visitedBPs={3} parentsEncountered={4} chainHops={5} bps=[{6}] parents=[{7}]",
+                            activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                            visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued,
+                            string.Join(",", bpTrace.ToArray()),
+                            string.Join(",", parentTrace.ToArray()));
+                        return true;
+                    }
+                }
+
+                if (pendingBPs.Count == 0) break;
+
+                string bpId = pendingBPs.Dequeue();
+                if (string.IsNullOrEmpty(bpId) || !visitedBPs.Add(bpId))
+                    continue;
+
+                BranchPoint bp = null;
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    if (tree.BranchPoints[i] != null
+                        && string.Equals(tree.BranchPoints[i].Id, bpId, StringComparison.Ordinal))
+                    {
+                        bp = tree.BranchPoints[i];
+                        break;
+                    }
+                }
+                if (bp == null)
+                {
+                    bpsNotFound++;
+                    bpTrace.Add(bpId + ":not-found");
+                    continue;
+                }
+                bpTrace.Add(bpId + ":parents=" + (bp.ParentRecordingIds?.Count ?? 0));
+                if (bp.ParentRecordingIds == null) continue;
+
+                for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                {
+                    if (VisitRecordingId(bp.ParentRecordingIds[i], "bp-parent"))
+                    {
+                        walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "found-victim-in-parent-chain activeId={0} treeId={1} victim={2} " +
+                            "visitedBPs={3} parentsEncountered={4} chainHops={5} bps=[{6}] parents=[{7}]",
+                            activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                            visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued,
+                            string.Join(",", bpTrace.ToArray()),
+                            string.Join(",", parentTrace.ToArray()));
+                        return true;
+                    }
+                }
+            }
+
+            // Ancestor-walk summary: chainHops counts every chain-predecessor
+            // enqueue (active-seed + every parent recording's chain predecessor)
+            // so a future regression of the #614-style bug shows up here as a
+            // suspicious chainHops=0 on a topology that should have chain links.
+            walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "exhausted-without-victim activeId={0} treeId={1} victim={2} " +
+                "visitedBPs={3} parentsEncountered={4} chainHops={5} chainHopsViaAncestors={6} " +
+                "bpsNotFound={7} bps=[{8}] parents=[{9}]",
+                activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued, chainHopsAncestorPredecessor,
+                bpsNotFound,
+                string.Join(",", bpTrace.ToArray()),
+                string.Join(",", parentTrace.ToArray()));
+            return false;
+        }
+
+        /// <summary>
+        /// #614: returns the recording-id of <paramref name="rec"/>'s chain
+        /// predecessor in <paramref name="tree"/>, or null when the recording
+        /// is standalone, is the first chain segment (ChainIndex == 0), or
+        /// when no matching predecessor exists in the tree.
+        /// </summary>
+        /// <remarks>
+        /// Optimizer splits (<see cref="RecordingStore"/> RunOptimizationSplitPass)
+        /// link chain segments via shared <see cref="Recording.ChainId"/> and
+        /// monotonically increasing <see cref="Recording.ChainIndex"/> with the
+        /// same <see cref="Recording.ChainBranch"/>. The second half does NOT
+        /// receive a <see cref="Recording.ParentBranchPointId"/> — the chain id
+        /// is the only ancestry link.
+        /// </remarks>
+        internal static string TryFindChainPredecessor(RecordingTree tree, Recording rec)
+        {
+            if (tree?.Recordings == null || rec == null) return null;
+            if (string.IsNullOrEmpty(rec.ChainId)) return null;
+            if (rec.ChainIndex <= 0) return null;
+
+            int targetIdx = rec.ChainIndex - 1;
+            foreach (var kvp in tree.Recordings)
+            {
+                Recording other = kvp.Value;
+                if (other == null) continue;
+                if (!string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (other.ChainBranch != rec.ChainBranch) continue;
+                if (other.ChainIndex != targetIdx) continue;
+                return other.RecordingId;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// #611: composes the search-tree list for the Re-Fly suppression
+        /// predicate. Production callers pass <see cref="RecordingStore.CommittedTrees"/>
+        /// and (when present) <see cref="RecordingStore.PendingTree"/>; tests
+        /// pass an explicit list. Pure-static so unit tests can construct
+        /// arbitrary topologies without touching <c>RecordingStore</c>.
+        /// <para>
+        /// The list MUST include the pending tree because at Re-Fly load
+        /// time <see cref="ParsekScenario.TryRestoreActiveTreeNode"/> calls
+        /// <see cref="RecordingStore.RemoveCommittedTreeById"/> after the
+        /// splice runs, leaving the freshly-loaded tree only as PendingTree.
+        /// A predicate that searched only committed trees would silently
+        /// fail the active-recording lookup during the load window — which
+        /// is exactly when the doubled-vessel ProtoVessel get created (#611).
+        /// </para>
+        /// <para>
+        /// The pending tree is appended (not prepended) so the existing
+        /// tie-break behaviour for in-memory committedTrees still wins on
+        /// id collisions; the BFS walk's first-match-wins loop then
+        /// terminates at the same tree it would have found pre-#611 in the
+        /// steady state, and falls through to the pending tree only when
+        /// committed-trees lookup misses — matching the diagnosed bug
+        /// shape.
+        /// </para>
+        /// </summary>
+        internal static IReadOnlyList<RecordingTree> ComposeSearchTreesForReFlySuppression(
+            IReadOnlyList<RecordingTree> committedTrees,
+            RecordingTree pendingTree)
+        {
+            int committedCount = committedTrees?.Count ?? 0;
+            bool hasPending = pendingTree != null;
+            if (!hasPending) return committedTrees ?? Array.Empty<RecordingTree>();
+
+            var result = new List<RecordingTree>(committedCount + 1);
+            for (int i = 0; i < committedCount; i++)
+            {
+                RecordingTree t = committedTrees[i];
+                if (t == null) continue;
+                if (string.Equals(t.Id, pendingTree.Id, StringComparison.Ordinal))
+                {
+                    // Same tree id in both — drop the committed entry and
+                    // keep only the pending copy. At the moment both are
+                    // present (load-time transient), pending carries the
+                    // post-splice + post-refresh shape that the predicate
+                    // needs to walk; committed is the pre-load snapshot.
+                    // Skipping committed here avoids double-walk +
+                    // visited-set churn; the pending append below makes
+                    // the tree visible to the search.
+                    continue;
+                }
+                result.Add(t);
+            }
+            result.Add(pendingTree);
+            return result;
+        }
+
         private static double GetCurrentUTSafe()
         {
             return Planetarium.GetUniversalTime();
@@ -687,22 +1387,38 @@ namespace Parsek
         /// Pure: does this recording have orbital data suitable for map presence?
         /// True if terminal orbit body is set and SMA > 0.
         /// </summary>
+        /// <remarks>
+        /// Logs via <see cref="ParsekLog.VerboseOnChange"/> keyed on
+        /// <c>(recordingId, body, smaBucket, result)</c> so per-frame stable
+        /// callers do not flood KSP.log: the 2026-04-25 playtest recorded
+        /// ~1678 redundant emissions in a 27-minute session before this gate.
+        /// </remarks>
         internal static bool HasOrbitData(Recording rec)
         {
             if (rec == null)
             {
-                ParsekLog.Verbose(Tag, "HasOrbitData(Recording): null recording — returning false");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    "has-orbit-data-rec|null",
+                    "null",
+                    "HasOrbitData(Recording): null recording — returning false");
                 return false;
             }
 
             bool hasOrbit = HasTerminalOrbitData(rec);
 
-            ParsekLog.Verbose(Tag,
+            string recId = rec.RecordingId ?? "(null)";
+            string body = rec.TerminalOrbitBody ?? "(null)";
+            double sma = rec.TerminalOrbitSemiMajorAxis;
+            ParsekLog.VerboseOnChange(
+                Tag,
+                string.Format(ic, "has-orbit-data-rec|{0}", recId),
+                BuildHasOrbitDataStateKey(body, sma, hasOrbit),
                 string.Format(ic,
                     "HasOrbitData(Recording): rec={0} body={1} sma={2} result={3}",
-                    rec.RecordingId ?? "(null)",
-                    rec.TerminalOrbitBody ?? "(null)",
-                    rec.TerminalOrbitSemiMajorAxis,
+                    recId,
+                    body,
+                    sma,
                     hasOrbit));
 
             return hasOrbit;
@@ -712,24 +1428,63 @@ namespace Parsek
         /// Pure: does this trajectory have orbital data suitable for map presence?
         /// Overload accepting IPlaybackTrajectory for engine-side use.
         /// </summary>
+        /// <remarks>
+        /// Per-frame map-view callers (<see cref="ParsekPlaybackPolicy"/> + the
+        /// shared map-presence resolver) hammered this method ~11/sec in the
+        /// 2026-04-25 playtest. Logging is gated through
+        /// <see cref="ParsekLog.VerboseOnChange"/> so a stable
+        /// <c>(recordingId, body, smaBucket)</c> tuple emits exactly once per
+        /// state change with <c>| suppressed=N</c> on the next flip.
+        /// </remarks>
         internal static bool HasOrbitData(IPlaybackTrajectory traj)
         {
             if (traj == null)
             {
-                ParsekLog.Verbose(Tag, "HasOrbitData(IPlaybackTrajectory): null trajectory — returning false");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    "has-orbit-data-traj|null",
+                    "null",
+                    "HasOrbitData(IPlaybackTrajectory): null trajectory — returning false");
                 return false;
             }
 
             bool hasOrbit = HasTerminalOrbitData(traj);
 
             if (hasOrbit)
-                ParsekLog.Verbose(Tag,
+            {
+                string recId = traj.RecordingId;
+                string identityScope = !string.IsNullOrEmpty(recId)
+                    ? string.Format(ic, "has-orbit-data-traj|rec={0}", recId)
+                    : string.Format(ic, "has-orbit-data-traj|name={0}",
+                        traj.VesselName ?? "(unnamed)");
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    identityScope,
+                    BuildHasOrbitDataStateKey(traj.TerminalOrbitBody, traj.TerminalOrbitSemiMajorAxis, true),
                     string.Format(ic,
                         "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result=True",
                         traj.TerminalOrbitBody,
                         traj.TerminalOrbitSemiMajorAxis));
+            }
 
             return hasOrbit;
+        }
+
+        /// <summary>
+        /// Stable state-key builder for HasOrbitData log emissions. Buckets
+        /// SMA to 1km so trivial floating-point drift between frames does not
+        /// pop the on-change gate; <see cref="HasTerminalOrbitData"/>
+        /// classifies "has orbit" as <c>SMA &gt; 0</c>, so a 1km bucket is
+        /// far below any meaningful Recording terminal orbit.
+        /// </summary>
+        private static string BuildHasOrbitDataStateKey(string body, double sma, bool hasOrbit)
+        {
+            string safeBody = string.IsNullOrEmpty(body) ? "(null)" : body;
+            long smaBucket = double.IsNaN(sma) || double.IsInfinity(sma)
+                ? long.MinValue
+                : (long)Math.Round(sma / 1000.0);
+            return string.Format(ic, "{0}|sma={1}|res={2}",
+                safeBody, smaBucket, hasOrbit);
         }
 
         /// <summary>
@@ -1727,10 +2482,12 @@ namespace Parsek
             int indexCount = vesselsByRecordingIndex.Count;
             if (chainCount == 0 && indexCount == 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag,
+                    "remove-all-empty|" + (reason ?? "(none)"),
                     string.Format(ic,
                         "RemoveAllGhostVessels: no ghost vessels to remove (reason={0})",
-                        reason));
+                        reason),
+                    30.0);
                 return;
             }
 
@@ -2298,14 +3055,21 @@ namespace Parsek
                 srf.TerminalSma = traj?.TerminalOrbitSemiMajorAxis ?? double.NaN;
                 srf.TerminalEcc = traj?.TerminalOrbitEccentricity ?? double.NaN;
             }
-            ParsekLog.VerboseRateLimited(
+            // State-change-driven so a stuck (source, reason) decision doesn't
+            // re-emit on a wall-clock cadence. Identity scopes the cache per
+            // (operation, recording); the state key encodes (source, reason)
+            // so any decision flip reopens the gate.
+            ParsekLog.VerboseOnChange(
                 Tag,
                 string.Format(ic,
                     "gm-source-resolve-{0}-{1}",
-                    recId,
-                    source),
-                BuildGhostMapDecisionLine(srf),
-                5.0);
+                    logOperationName ?? "(none)",
+                    recId),
+                string.Format(ic,
+                    "{0}|{1}",
+                    source,
+                    string.IsNullOrEmpty(reason) ? "none" : reason),
+                BuildGhostMapDecisionLine(srf));
         }
 
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
@@ -2354,12 +3118,21 @@ namespace Parsek
                         resolvedStatePoint));
                 if (!string.IsNullOrEmpty(logOperationName))
                 {
-                    ParsekLog.VerboseRateLimited(
+                    // Per-frame caller — emit only when the (source, reason) decision
+                    // flips for this (operation, recording) pair. A stable
+                    // (None, state-vector-threshold) loop in the pending-create queue
+                    // would otherwise pour ~one line per recording per second; here
+                    // we emit once on entry into the state and again only when the
+                    // state actually changes. Suppressed-count is preserved on the
+                    // next emission so post-hoc audits can reconstruct the volume.
+                    ParsekLog.VerboseOnChange(
                         Tag,
                         string.Format(ic,
-                            "map-ghost-source-{0}-{1}-{2}-{3}",
+                            "map-ghost-source-{0}-{1}",
                             logOperationName,
-                            recId,
+                            recId),
+                        string.Format(ic,
+                            "{0}|{1}",
                             source,
                             reason ?? "none"),
                         string.Format(ic,
@@ -3168,6 +3941,35 @@ namespace Parsek
             TrajectoryPoint stateVectorPoint,
             double currentUT)
         {
+            return CreateGhostVesselFromSource(
+                recordingIndex,
+                traj,
+                source,
+                segment,
+                stateVectorPoint,
+                currentUT,
+                out _);
+        }
+
+        /// <summary>
+        /// Overload that propagates <paramref name="retryLater"/> from
+        /// <see cref="CreateGhostVesselFromStateVectors(int, IPlaybackTrajectory,
+        /// TrajectoryPoint, double, out bool, bool, string)"/>. Non-state-vector
+        /// branches always set it false. Callers that maintain a pending-map
+        /// queue use this overload to decide whether to drop the pending entry
+        /// on null return or keep it for the next tick (PR #574 review P2:
+        /// retry-later semantics for the active-Re-Fly suppression gate).
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromSource(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            TrajectoryPoint stateVectorPoint,
+            double currentUT,
+            out bool retryLater)
+        {
+            retryLater = false;
             // Dispatcher-line: which sub-create is about to fire? Single line
             // gives the post-hoc reader the routing decision.
             var dispatch = NewDecisionFields("create-dispatch");
@@ -3218,6 +4020,7 @@ namespace Parsek
                         traj,
                         stateVectorPoint,
                         currentUT,
+                        out retryLater,
                         allowOrbitalCheckpointStateVector: source == TrackingStationGhostSource.StateVectorSoiGap,
                         stateVectorCreateReason: source == TrackingStationGhostSource.StateVectorSoiGap
                             ? SoiGapStateVectorFallbackReason
@@ -3899,6 +4702,34 @@ namespace Parsek
             bool allowOrbitalCheckpointStateVector = false,
             string stateVectorCreateReason = null)
         {
+            return CreateGhostVesselFromStateVectors(
+                recordingIndex,
+                traj,
+                point,
+                ut,
+                out _,
+                allowOrbitalCheckpointStateVector,
+                stateVectorCreateReason);
+        }
+
+        /// <summary>
+        /// Overload that exposes <paramref name="retryLater"/> = true when the
+        /// PR #574 active-Re-Fly suppression gate fires. Callers that maintain
+        /// a "pending map vessel" queue (cf.
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the
+        /// pending entry alive on (<c>null</c>, <c>retryLater = true</c>) so
+        /// the recording is retried next tick once the Re-Fly session ends —
+        /// rather than silently dropping it forever.
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromStateVectors(
+            int recordingIndex, IPlaybackTrajectory traj,
+            TrajectoryPoint point,
+            double ut,
+            out bool retryLater,
+            bool allowOrbitalCheckpointStateVector = false,
+            string stateVectorCreateReason = null)
+        {
+            retryLater = false;
             if (traj == null) return null;
 
             // Phase 7 session-suppression gate (design §3.3).
@@ -3977,6 +4808,91 @@ namespace Parsek
                     anchorPosForLog = anchorRef.GetWorldPos3D();
                     localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
                 }
+            }
+
+            // Bug #587 third facet: during in-place continuation Re-Fly, the
+            // state-vector-fallback path can synthesize a ProtoVessel right
+            // next to the active Re-Fly target when the recording is in a
+            // Relative-frame section anchored to that very vessel. The result
+            // is a "doubled upper-stage" the user sees in scene. Suppress
+            // creation here; GhostPlaybackEngine still renders the legitimate
+            // in-physics-zone ghost. See
+            // docs/dev/plans/refly-doubled-ghostmap-protovessel-fix.md.
+            //
+            // PR #574 review P2: scope this to the *parent* recording chain of
+            // the active Re-Fly recording — a docking-target recording that
+            // is Relative-anchored to the active vessel for legitimate #583 /
+            // #584 reasons must NOT be suppressed. PR #574 review P2 also
+            // adds retry-later semantics: on suppression we set retryLater =
+            // true so the flight-scene caller leaves its pending-map entry
+            // intact (otherwise the recording would never get a map ghost
+            // again after the Re-Fly session ends).
+            // #611: at Re-Fly load time the active recording lives in
+            // PendingTree (not CommittedTrees, which the load-side
+            // RemoveCommittedTreeById call has just emptied for this tree).
+            // Compose the search list so the parent-chain walk can find the
+            // active recording in either committed or pending state.
+            IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
+                RecordingStore.CommittedTrees,
+                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                    SessionSuppressionState.ActiveMarker,
+                    resolution.Branch,
+                    resolution.AnchorPid,
+                    traj.RecordingId,
+                    RecordingStore.CommittedRecordings,
+                    searchTrees,
+                    out string activeReFlySuppressReason))
+            {
+                retryLater = true;
+                var suppressed = NewDecisionFields("create-state-vector-suppressed");
+                suppressed.RecordingId = traj.RecordingId;
+                suppressed.RecordingIndex = recordingIndex;
+                suppressed.VesselName = traj.VesselName;
+                suppressed.Source = "StateVector";
+                suppressed.Branch = MapResolutionBranch(resolution.Branch);
+                suppressed.Body = point.bodyName;
+                suppressed.AnchorPid = resolution.AnchorPid;
+                suppressed.AnchorPos = anchorPosForLog;
+                suppressed.LocalOffset = localOffsetForLog;
+                suppressed.StateVecAlt = point.altitude;
+                suppressed.StateVecSpeed = point.velocity.magnitude;
+                suppressed.UT = ut;
+                suppressed.Reason = string.Format(ic,
+                    "{0} sess={1} retryLater=true",
+                    activeReFlySuppressReason,
+                    SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));
+                return null;
+            }
+
+            // #611: when a Re-Fly session is active but the predicate
+            // declined to suppress, emit a Verbose decision line so the
+            // playtest log records WHY the gate didn't fire — without this,
+            // a successful create-state-vector-done line is the only signal
+            // and we can't tell whether the predicate ran or skipped which
+            // reject branch it took. Skip when no Re-Fly session is active
+            // (the gate is trivially a no-op then; logging would spam every
+            // ProtoVessel create).
+            if (SessionSuppressionState.ActiveMarker != null
+                && !string.IsNullOrEmpty(activeReFlySuppressReason))
+            {
+                var notSuppressed = NewDecisionFields("create-state-vector-not-suppressed-during-refly");
+                notSuppressed.RecordingId = traj.RecordingId;
+                notSuppressed.RecordingIndex = recordingIndex;
+                notSuppressed.VesselName = traj.VesselName;
+                notSuppressed.Source = "StateVector";
+                notSuppressed.Branch = MapResolutionBranch(resolution.Branch);
+                notSuppressed.Body = point.bodyName;
+                notSuppressed.AnchorPid = resolution.AnchorPid;
+                notSuppressed.StateVecAlt = point.altitude;
+                notSuppressed.StateVecSpeed = point.velocity.magnitude;
+                notSuppressed.UT = ut;
+                notSuppressed.Reason = string.Format(ic,
+                    "{0} sess={1}",
+                    activeReFlySuppressReason,
+                    SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(notSuppressed));
             }
 
             Vector3d worldPos = resolution.WorldPos;
@@ -4965,14 +5881,13 @@ namespace Parsek
                     out int lastVisibleIndex,
                     out bool carriedAcrossGap))
             {
-                ParsekLog.VerboseRateLimited(Tag,
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-segment|{0}", vesselPid),
                     string.Format(ic,
-                        "visible-window-{0}-{1:F3}-{2:F3}-{3:F3}-{4:F3}-{5}",
-                        vesselPid,
+                        "segment|rec={0}|segment={1:F3}-{2:F3}|gap={3}",
+                        recordingIndex,
                         segment.startUT,
                         segment.endUT,
-                        startUT,
-                        endUT,
                         carriedAcrossGap ? "gap" : "segment"),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} recIndex={1} ut={2:F2} body={3} " +
@@ -4987,8 +5902,7 @@ namespace Parsek
                         endUT,
                         firstVisibleIndex,
                         lastVisibleIndex,
-                        carriedAcrossGap),
-                    1.0);
+                        carriedAcrossGap));
 
                 if (PlaybackOrbitDiagnostics.TryBuildMapPredictedTailLog(
                     recordingIndex,
@@ -5013,26 +5927,26 @@ namespace Parsek
                 && recordingIndex < committed.Count
                 && committed[recordingIndex].HasOrbitSegments)
             {
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-none",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-none|{0}", vesselPid),
+                    string.Format(ic, "none|rec={0}", recordingIndex),
                     string.Format(ic,
                         "Map-visible orbit window unavailable source=none reason=no-active-equivalent-segment " +
                         "pid={0} recIndex={1} ut={2:F2} — " +
                         "no active or equivalent same-orbit segment chain",
-                        vesselPid, recordingIndex, currentUT),
-                    1.0);
+                        vesselPid, recordingIndex, currentUT));
             }
 
             if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
             {
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-stored-bounds-fallback",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-stored-bounds|{0}", vesselPid),
+                    string.Format(ic, "stored-bounds|{0:F3}-{1:F3}", startUT, endUT),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",
-                        vesselPid, currentUT, startUT, endUT),
-                    1.0);
+                        vesselPid, currentUT, startUT, endUT));
                 return true;
             }
 
@@ -5490,12 +6404,14 @@ namespace Parsek
 
                 // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
                 // may create the renderer in a disabled state.
+                bool rendererForceEnabled = false;
                 if (v.orbitRenderer != null)
                 {
                     v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
                     v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                     if (!v.orbitRenderer.enabled)
                     {
+                        rendererForceEnabled = true;
                         v.orbitRenderer.enabled = true;
                         ParsekLog.Verbose(Tag, string.Format(ic,
                             "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
@@ -5511,16 +6427,24 @@ namespace Parsek
                     v.vesselType = vtype;
                 }
 
+                string mapVisibilityState = BuildGhostProtoVesselVisibilityState(
+                    v.mapObject != null,
+                    v.orbitRenderer != null,
+                    v.orbitRenderer != null && v.orbitRenderer.enabled,
+                    v.orbitRenderer != null ? v.orbitRenderer.drawIcons.ToString() : "(none)",
+                    ghostsWithSuppressedIcon.Contains(v.persistentId),
+                    rendererForceEnabled);
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} " +
-                        "orbitSource={6}{7} | {8} mapObj={9} orbitRenderer={10} scene={11}",
+                        "orbitSource={6}{7} | {8} {9} scene={10}",
                         vesselName, v.persistentId,
                         vtype, body.name, orbit.semiMajorAxis, logContext,
                         string.IsNullOrEmpty(orbitSource) ? "(unspecified)" : orbitSource,
                         string.IsNullOrEmpty(orbitSourceDetail) ? string.Empty : " " + orbitSourceDetail,
                         driverState,
-                        v.mapObject != null, v.orbitRenderer != null,
+                        mapVisibilityState,
                         HighLogic.LoadedScene));
 
                 return v;

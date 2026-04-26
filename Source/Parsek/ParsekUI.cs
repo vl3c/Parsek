@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using ClickThroughFix;
 using UnityEngine;
@@ -214,6 +215,7 @@ namespace Parsek
             if (GUILayout.Button(GetCareerMainButtonLabel()))
             {
                 careerStateUI.IsOpen = !careerStateUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
             }
 
             GUILayout.Space(SpacingLarge);
@@ -978,16 +980,93 @@ namespace Parsek
         //  Map markers
         // ════════════════════════════════════════════════════════════════
 
+        internal enum MapMarkerPositionFailureReason
+        {
+            None,
+            BadRecordingIndex,
+            NoTrajectoryPoints,
+            OutsideTimeRange,
+            MissingBody
+        }
+
+        internal struct MapMarkerSummary
+        {
+            public bool IsMapView;
+            public int Candidates;
+            public int PreviewDrawn;
+            public int Drawn;
+            public int CameraUnavailable;
+            public int HiddenInFlight;
+            public int NativeIcon;
+            public int Debris;
+            public int ChainNonTip;
+            public int PositionFailure;
+            public int MissingBody;
+
+            internal bool HasSignal =>
+                Candidates > 0
+                || PreviewDrawn > 0
+                || Drawn > 0
+                || CameraUnavailable > 0
+                || HiddenInFlight > 0
+                || NativeIcon > 0
+                || Debris > 0
+                || ChainNonTip > 0
+                || PositionFailure > 0
+                || MissingBody > 0;
+        }
+
+        internal static string FormatMapMarkerSummary(MapMarkerSummary summary)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10}",
+                summary.IsMapView ? "map" : "flight",
+                summary.Candidates,
+                summary.PreviewDrawn,
+                summary.Drawn,
+                summary.CameraUnavailable,
+                summary.HiddenInFlight,
+                summary.NativeIcon,
+                summary.Debris,
+                summary.ChainNonTip,
+                summary.PositionFailure,
+                summary.MissingBody);
+        }
+
+        private static void LogMapMarkerSummary(MapMarkerSummary summary)
+        {
+            if (!summary.HasSignal)
+                return;
+
+            ParsekLog.VerboseRateLimited("UI",
+                "map-marker-summary",
+                FormatMapMarkerSummary(summary),
+                2.0);
+        }
+
         public void DrawMapMarkers()
         {
+            bool isMapView = MapView.MapIsEnabled;
+            var summary = new MapMarkerSummary { IsMapView = isMapView };
+
             // Resolve camera for current view; bail if unavailable
-            if (MapView.MapIsEnabled)
+            if (isMapView)
             {
-                if (PlanetariumCamera.Camera == null) return;
+                if (PlanetariumCamera.Camera == null)
+                {
+                    summary.CameraUnavailable++;
+                    LogMapMarkerSummary(summary);
+                    return;
+                }
             }
             else
             {
-                if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null) return;
+                if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null)
+                {
+                    summary.CameraUnavailable++;
+                    LogMapMarkerSummary(summary);
+                    return;
+                }
             }
 
             // Manual preview ghost. Uses a fixed marker key so hover/sticky state is
@@ -996,6 +1075,7 @@ namespace Parsek
             {
                 DrawMapMarkerAt(flight.PreviewGhost.transform.position, "preview", "Preview",
                     new Color(0.2f, 1f, 0.4f, 0.9f));
+                summary.PreviewDrawn++;
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
@@ -1007,6 +1087,11 @@ namespace Parsek
             // would mis-align the index -> recording mapping.
             // TODO(phase 6+): migrate ghostStates to recording-id keyed storage.
             var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+            {
+                LogMapMarkerSummary(summary);
+                return;
+            }
 
             // First pass: find the highest active index per chain
             chainTipIndexBuffer.Clear();
@@ -1026,17 +1111,21 @@ namespace Parsek
             // after FloatingOrigin shifts and projects to wrong map locations.
             // In map view, draw ALL active ghosts — use trajectory-derived positions when the
             // mesh is hidden by zone distance so every ghost is visible on the map.
-            bool isMapView = MapView.MapIsEnabled;
             double currentUT = isMapView ? Planetarium.GetUniversalTime() : 0;
 
             foreach (var kvp in flight.Engine.ghostStates)
             {
                 var state = kvp.Value;
                 if (state == null) continue;
+                summary.Candidates++;
                 bool meshActive = state.ghost != null && state.ghost.activeSelf;
 
                 // In flight view, skip hidden ghosts (stale positions cause wrong markers #245/#247)
-                if (!meshActive && !isMapView) continue;
+                if (!meshActive && !isMapView)
+                {
+                    summary.HiddenInFlight++;
+                    continue;
+                }
 
                 // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
                 // When the Harmony patch suppresses the icon (below atmosphere), we draw
@@ -1045,16 +1134,25 @@ namespace Parsek
                 {
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
                     if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                    {
+                        summary.NativeIcon++;
                         continue; // native icon is active — skip our marker
+                    }
                 }
                 if (kvp.Key < committed.Count)
                 {
                     if (committed[kvp.Key].IsDebris)
+                    {
+                        summary.Debris++;
                         continue;
+                    }
                     string chainId = committed[kvp.Key].ChainId;
                     if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
                         && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                    {
+                        summary.ChainNonTip++;
                         continue; // not the tip — skip duplicate
+                    }
                 }
 
                 // Resolve marker world position: use ghost mesh when active, otherwise
@@ -1066,8 +1164,18 @@ namespace Parsek
                 }
                 else
                 {
-                    if (!TryComputeGhostWorldPosition(kvp.Key, committed, currentUT, out markerPos))
+                    if (!TryComputeGhostWorldPosition(
+                            kvp.Key,
+                            committed,
+                            currentUT,
+                            out markerPos,
+                            out MapMarkerPositionFailureReason failureReason))
+                    {
+                        summary.PositionFailure++;
+                        if (failureReason == MapMarkerPositionFailureReason.MissingBody)
+                            summary.MissingBody++;
                         continue;
+                    }
                 }
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
@@ -1079,7 +1187,10 @@ namespace Parsek
                     : VesselType.Ship;
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
+                summary.Drawn++;
             }
+
+            LogMapMarkerSummary(summary);
         }
 
         /// <summary>
@@ -1087,15 +1198,32 @@ namespace Parsek
         /// Uses InterpolatePoints for smooth movement between recorded trajectory points.
         /// Returns false if the recording is out of UT range or has no trajectory data.
         /// </summary>
-        private bool TryComputeGhostWorldPosition(int recordingIndex, IReadOnlyList<Recording> committed,
-            double ut, out Vector3 worldPos)
+        private bool TryComputeGhostWorldPosition(
+            int recordingIndex,
+            IReadOnlyList<Recording> committed,
+            double ut,
+            out Vector3 worldPos,
+            out MapMarkerPositionFailureReason failureReason)
         {
             worldPos = Vector3.zero;
-            if (recordingIndex < 0 || recordingIndex >= committed.Count) return false;
+            failureReason = MapMarkerPositionFailureReason.None;
+            if (committed == null || recordingIndex < 0 || recordingIndex >= committed.Count)
+            {
+                failureReason = MapMarkerPositionFailureReason.BadRecordingIndex;
+                return false;
+            }
 
             var rec = committed[recordingIndex];
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (ut < rec.StartUT || ut > rec.EndUT) return false;
+            if (rec.Points == null || rec.Points.Count == 0)
+            {
+                failureReason = MapMarkerPositionFailureReason.NoTrajectoryPoints;
+                return false;
+            }
+            if (ut < rec.StartUT || ut > rec.EndUT)
+            {
+                failureReason = MapMarkerPositionFailureReason.OutsideTimeRange;
+                return false;
+            }
 
             int cachedIdx;
             if (!mapMarkerCachedIndices.TryGetValue(recordingIndex, out cachedIdx))
@@ -1128,7 +1256,11 @@ namespace Parsek
                 if (body != null)
                     bodyCache[before.bodyName] = body;
             }
-            if (body == null) return false;
+            if (body == null)
+            {
+                failureReason = MapMarkerPositionFailureReason.MissingBody;
+                return false;
+            }
 
             worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
             return true;

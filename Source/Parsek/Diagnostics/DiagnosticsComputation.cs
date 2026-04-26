@@ -201,7 +201,11 @@ namespace Parsek
                 if (!fi.Exists)
                 {
                     if (warnIfMissing)
-                        ParsekLog.Warn("Diagnostics", $"Missing sidecar file during storage scan: {path}");
+                        ParsekLog.WarnRateLimited(
+                            "Diagnostics",
+                            "missing-sidecar|" + path,
+                            $"Missing sidecar file during storage scan: {path}",
+                            30.0);
                     return 0;
                 }
                 return fi.Length;

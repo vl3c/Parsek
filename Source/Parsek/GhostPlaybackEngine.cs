@@ -65,6 +65,16 @@ namespace Parsek
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
+        private int frameSkipBeforeActivation;
+        private int frameSkipAnchorMissing;
+        private int frameSkipLoopSyncFailed;
+        private int frameSkipParentLoopPaused;
+        private int frameSkipWarpHidden;
+        private int frameSkipVisualLoadFailed;
+        private int frameSkipNoRenderableData;
+        private int frameSkipPlaybackDisabled;
+        private int frameSkipExternalVesselSuppressed;
+        private int frameSkipSessionSuppressed;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -231,6 +241,105 @@ namespace Parsek
             return state == null || state.loopCycleIndex != cycleIndex;
         }
 
+        private void CountFrameSkip(GhostPlaybackSkipReason reason)
+        {
+            switch (reason)
+            {
+                case GhostPlaybackSkipReason.NoRenderableData:
+                    frameSkipNoRenderableData++;
+                    break;
+                case GhostPlaybackSkipReason.PlaybackDisabled:
+                    frameSkipPlaybackDisabled++;
+                    break;
+                case GhostPlaybackSkipReason.ExternalVesselSuppressed:
+                    frameSkipExternalVesselSuppressed++;
+                    break;
+                case GhostPlaybackSkipReason.BeforeActivation:
+                    frameSkipBeforeActivation++;
+                    break;
+                case GhostPlaybackSkipReason.AnchorMissing:
+                    frameSkipAnchorMissing++;
+                    break;
+                case GhostPlaybackSkipReason.LoopSyncFailed:
+                    frameSkipLoopSyncFailed++;
+                    break;
+                case GhostPlaybackSkipReason.ParentLoopPaused:
+                    frameSkipParentLoopPaused++;
+                    break;
+                case GhostPlaybackSkipReason.WarpHidden:
+                    frameSkipWarpHidden++;
+                    break;
+                case GhostPlaybackSkipReason.VisualLoadFailed:
+                    frameSkipVisualLoadFailed++;
+                    break;
+                case GhostPlaybackSkipReason.SessionSuppressed:
+                    frameSkipSessionSuppressed++;
+                    break;
+            }
+        }
+
+        internal static bool ShouldEmitFrameSummary(GhostPlaybackFrameCounters counters)
+        {
+            return counters.spawned > 0
+                || counters.destroyed > 0
+                || counters.deferred > 0
+                || counters.beforeActivation > 0
+                || counters.anchorMissing > 0
+                || counters.loopSyncFailed > 0
+                || counters.parentLoopPaused > 0
+                || counters.warpHidden > 0
+                || counters.visualLoadFailed > 0
+                || counters.noRenderableData > 0
+                || counters.playbackDisabled > 0
+                || counters.externalVesselSuppressed > 0
+                || counters.sessionSuppressed > 0;
+        }
+
+        internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Frame: spawned={0} destroyed={1} deferred={2} " +
+                "skips[beforeActivation={3} anchorMissing={4} loopSyncFailed={5} " +
+                "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
+                "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
+                "sessionSuppressed={12}] active={13}",
+                counters.spawned,
+                counters.destroyed,
+                counters.deferred,
+                counters.beforeActivation,
+                counters.anchorMissing,
+                counters.loopSyncFailed,
+                counters.parentLoopPaused,
+                counters.warpHidden,
+                counters.visualLoadFailed,
+                counters.noRenderableData,
+                counters.playbackDisabled,
+                counters.externalVesselSuppressed,
+                counters.sessionSuppressed,
+                counters.active);
+        }
+
+        private GhostPlaybackFrameCounters BuildCurrentFrameCounters()
+        {
+            return new GhostPlaybackFrameCounters
+            {
+                spawned = frameSpawnCount,
+                destroyed = frameDestroyCount,
+                deferred = frameSpawnDeferred,
+                beforeActivation = frameSkipBeforeActivation,
+                anchorMissing = frameSkipAnchorMissing,
+                loopSyncFailed = frameSkipLoopSyncFailed,
+                parentLoopPaused = frameSkipParentLoopPaused,
+                warpHidden = frameSkipWarpHidden,
+                visualLoadFailed = frameSkipVisualLoadFailed,
+                noRenderableData = frameSkipNoRenderableData,
+                playbackDisabled = frameSkipPlaybackDisabled,
+                externalVesselSuppressed = frameSkipExternalVesselSuppressed,
+                sessionSuppressed = frameSkipSessionSuppressed,
+                active = ghostStates.Count
+            };
+        }
+
         /// <summary>
         /// Emits exactly one INFO log per (recording index, userPeriod,
         /// effectiveCadence, duration) tuple. Re-emits only when one of the
@@ -363,11 +472,6 @@ namespace Parsek
             RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 
             ResetPerFramePlaybackCounters(suppressGhosts);
-            // Phase 7 of Rewind-to-Staging (design §3.3): per-frame count of
-            // trajectories skipped because their recording is in the active
-            // session's SuppressedSubtree. Included in the frame-summary log
-            // below so session-scoped suppression is visible in KSP.log.
-            int frameSessionSuppressed = 0;
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
@@ -387,10 +491,11 @@ namespace Parsek
                 // spawn path) and keep their silent-skip behaviour.
                 if (f.skipGhost)
                 {
+                    CountFrameSkip(f.skipReason);
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f, reason: "disabled/suppressed");
+                        DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
                     }
 
                     if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
@@ -411,7 +516,11 @@ namespace Parsek
                 bool hasInterpolatedPoints = traj.Points != null && traj.Points.Count >= 2;
                 bool hasOrbitData = traj.HasOrbitSegments;
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
-                if (!HasRenderableGhostData(traj)) continue;
+                if (!HasRenderableGhostData(traj))
+                {
+                    CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                    continue;
+                }
 
                 // Phase 7 of Rewind-to-Staging (design §3.3): during an active
                 // re-fly session, skip ghosts whose source recording is in the
@@ -426,7 +535,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
                     }
-                    frameSessionSuppressed++;
+                    CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
                     continue;
                 }
 
@@ -446,6 +555,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "before activation start UT");
                     }
+                    CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                     continue;
                 }
 
@@ -464,6 +574,7 @@ namespace Parsek
                             DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
                             DestroyAllOverlapGhosts(i);
                         }
+                        CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
                         continue;
                     }
 
@@ -500,13 +611,20 @@ namespace Parsek
                         {
                             if (ghostActive)
                                 DestroyGhost(i, traj, f, reason: "parent loop sync failed");
+                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                             continue;
                         }
 
-                        if (parentPaused || suppressGhosts)
+                        bool suppressLoopSyncGhost = suppressGhosts
+                            && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                                ctx.warpRate, traj, parentLoopUT);
+                        if (parentPaused || suppressLoopSyncGhost)
                         {
                             if (state != null)
                                 DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
+                            CountFrameSkip(parentPaused
+                                ? GhostPlaybackSkipReason.ParentLoopPaused
+                                : GhostPlaybackSkipReason.WarpHidden);
                             continue;
                         }
 
@@ -543,8 +661,9 @@ namespace Parsek
                     }
                 }
 
-                // === Warp suppression: hide ghost during high warp ===
-                if (suppressGhosts && state != null)
+                // === Warp suppression: hide moving ghosts during high warp ===
+                if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                        ctx.warpRate, traj, ctx.currentUT))
                 {
                     if (ghostActive && state.ghost.activeSelf)
                     {
@@ -552,6 +671,7 @@ namespace Parsek
                         ResetGhostAppearanceTracking(state);
                     }
                     DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
                     continue;
                 }
 
@@ -583,11 +703,10 @@ namespace Parsek
             }
 
             // Post-loop: batch summary
-            if (frameSpawnCount > 0 || frameDestroyCount > 0 || frameSpawnDeferred > 0 || frameSessionSuppressed > 0)
+            GhostPlaybackFrameCounters frameCounters = BuildCurrentFrameCounters();
+            if (ShouldEmitFrameSummary(frameCounters))
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
-                    $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} " +
-                    $"deferred={frameSpawnDeferred} sessionSuppressed={frameSessionSuppressed} " +
-                    $"active={ghostStates.Count}");
+                    BuildFrameSummaryMessage(frameCounters));
 
             // Bug #414: capture elapsed time at loop end so the "main loop" phase (pure
             // dispatch cost, excluding spawn/destroy which already accumulate into their
@@ -705,6 +824,16 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
+            frameSkipBeforeActivation = 0;
+            frameSkipAnchorMissing = 0;
+            frameSkipLoopSyncFailed = 0;
+            frameSkipParentLoopPaused = 0;
+            frameSkipWarpHidden = 0;
+            frameSkipVisualLoadFailed = 0;
+            frameSkipNoRenderableData = 0;
+            frameSkipPlaybackDisabled = 0;
+            frameSkipExternalVesselSuppressed = 0;
+            frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -784,6 +913,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(i);
                     ghostActive = false;
                     return false;
@@ -831,6 +961,7 @@ namespace Parsek
                         : "entered visible distance tier");
                 if (loadStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostActive = false;
                     return false;
                 }
@@ -1036,11 +1167,73 @@ namespace Parsek
             {
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop schedule resolution failed");
+                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                 return;
             }
 
-            // High time warp: hide ghost, destroy overlaps
-            if (suppressGhosts)
+            // #381: If the period is shorter than the recording duration, successive
+            // launches overlap — use multi-cycle path.
+            if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
+            {
+                bool suppressOverlapGhosts = false;
+                if (suppressGhosts
+                    && (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                            ctx.currentUT,
+                            intervalSeconds,
+                            duration,
+                            playbackStartUT,
+                            scheduleStartUT,
+                            out double overlapLoopUT,
+                            out _)
+                        || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                            ctx.warpRate, traj, overlapLoopUT)))
+                {
+                    if (ghostActive && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ParsekLog.Info("Engine",
+                            $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
+                        OnLoopCameraAction?.Invoke(new CameraActionEvent
+                        {
+                            Index = index, Action = CameraActionType.ExitWatch,
+                            Trajectory = traj, Flags = flags
+                        });
+                    }
+                    DestroyAllOverlapGhosts(index);
+                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                    return;
+                }
+                else if (suppressGhosts)
+                {
+                    // Keep the newest stationary primary mesh visible, but continue
+                    // culling overlap clones at high warp for the original perf reason.
+                    suppressOverlapGhosts = true;
+                }
+
+                UpdateOverlapPlayback(index, traj, flags, ctx, state,
+                    intervalSeconds, duration, playbackStartUT, scheduleStartUT,
+                    suppressVisualFx, suppressOverlapGhosts);
+                return;
+            }
+
+            // --- Period >= duration: single ghost path (pause window may apply) ---
+            DestroyAllOverlapGhosts(index);
+            double loopUT;
+            long cycleIndex;
+            bool inPauseWindow;
+            if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                    out loopUT, out cycleIndex, out inPauseWindow, index))
+            {
+                if (ghostActive)
+                    DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
+                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                return;
+            }
+
+            // High time warp: hide moving loop ghosts, but keep stationary surface
+            // segments visible because their mesh is not chasing a high-rate trajectory.
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                    ctx.warpRate, traj, loopUT))
             {
                 if (ghostActive && state.ghost.activeSelf)
                 {
@@ -1055,28 +1248,7 @@ namespace Parsek
                     });
                 }
                 DestroyAllOverlapGhosts(index);
-                return;
-            }
-
-            // #381: If the period is shorter than the recording duration, successive
-            // launches overlap — use multi-cycle path.
-            if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
-            {
-                UpdateOverlapPlayback(index, traj, flags, ctx, state,
-                    intervalSeconds, duration, playbackStartUT, scheduleStartUT, suppressVisualFx);
-                return;
-            }
-
-            // --- Period >= duration: single ghost path (pause window may apply) ---
-            DestroyAllOverlapGhosts(index);
-            double loopUT;
-            long cycleIndex;
-            bool inPauseWindow;
-            if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                    out loopUT, out cycleIndex, out inPauseWindow, index))
-            {
-                if (ghostActive)
-                    DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
                 return;
             }
 
@@ -1139,7 +1311,19 @@ namespace Parsek
                     // increment frameLazyReentryBuildCount. See
                     // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
                     // preservation table.
-                    ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                    //
+                    // Suppress the retarget camera event when an explosion was just
+                    // emitted: ExplosionHoldStart already set the watch handler into
+                    // hold (watchedOverlapCycleIndex == -2) and a follow-up
+                    // RetargetToNewGhost would be ignored anyway. The contract is
+                    // "one OnLoopCameraAction per cycle boundary" — see
+                    // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold.
+                    // Non-destroyed boundaries (ExplosionHoldEnd) still need the
+                    // retarget so the watch handler swaps the bridge anchor for
+                    // the new cycle's pivot.
+                    ReusePrimaryGhostAcrossCycle(
+                        index, traj, flags, state, loopUT, cycleIndex,
+                        emitRetargetEvent: !needsExplosion);
                     // state is the same object; loaded-ghost path keeps visuals live, and
                     // pending-build path above just advances the cycle index without
                     // emitting restart side effects.
@@ -1172,6 +1356,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (loopSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(index);
                     return;
                 }
@@ -1215,7 +1400,10 @@ namespace Parsek
                         ? "continuing loop first spawn"
                         : "loop re-entered visible distance tier");
                 if (loopLoadStatus == GhostVisualLoadStatus.Failed)
+                {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     return;
+                }
                 if (loopLoadStatus == GhostVisualLoadStatus.Pending)
                     return;
             }
@@ -1253,12 +1441,14 @@ namespace Parsek
             GhostPlaybackState primaryState,
             double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
-            bool suppressVisualFx)
+            bool suppressVisualFx, bool suppressOverlapGhosts = false,
+            bool stopAfterSuppressOverlapGhostsForTesting = false)
         {
             if (ctx.currentUT < scheduleStartUT)
             {
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
+                CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
             }
 
@@ -1290,6 +1480,12 @@ namespace Parsek
                 overlaps = new List<GhostPlaybackState>();
                 overlapGhosts[index] = overlaps;
             }
+            else if (suppressOverlapGhosts)
+            {
+                DestroyAllOverlapGhosts(index);
+            }
+            if (suppressOverlapGhosts && stopAfterSuppressOverlapGhostsForTesting)
+                return;
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
@@ -1307,21 +1503,29 @@ namespace Parsek
                 // Move old primary to overlap list if still alive
                 if (primaryState != null)
                 {
-                    ghostStates.Remove(index);
-                    if (primaryState.pendingSpawnLifecycle != PendingSpawnLifecycle.None)
+                    if (suppressOverlapGhosts)
                     {
-                        // Bug #450 B2: a primary that gets demoted to the overlap list before
-                        // its split build completes must NOT later finalize as a brand-new
-                        // overlap-primary enter. The old cycle should quietly finish as an
-                        // overlap shell with no ghost-created / camera-retarget side effects.
-                        primaryState.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
-                        primaryState.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+                        DestroyGhost(index, traj, flags,
+                            reason: "stationary high-warp overlap primary advanced");
                     }
-                    if (primaryState.ghost != null)
-                        GhostPlaybackLogic.MuteAllAudio(primaryState); // overlap ghosts get no audio
-                    overlaps.Add(primaryState);
-                    ParsekLog.VerboseRateLimited("Engine", "overlap-move",
-                        $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list (audio muted)");
+                    else
+                    {
+                        ghostStates.Remove(index);
+                        if (primaryState.pendingSpawnLifecycle != PendingSpawnLifecycle.None)
+                        {
+                            // Bug #450 B2: a primary that gets demoted to the overlap list before
+                            // its split build completes must NOT later finalize as a brand-new
+                            // overlap-primary enter. The old cycle should quietly finish as an
+                            // overlap shell with no ghost-created / camera-retarget side effects.
+                            primaryState.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+                            primaryState.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+                        }
+                        if (primaryState.ghost != null)
+                            GhostPlaybackLogic.MuteAllAudio(primaryState); // overlap ghosts get no audio
+                        overlaps.Add(primaryState);
+                        ParsekLog.VerboseRateLimited("Engine", "overlap-move",
+                            $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list (audio muted)");
+                    }
                 }
 
                 // Spawn new primary for lastCycle
@@ -1334,6 +1538,7 @@ namespace Parsek
                     resetCompletedEventDedup: true);
                 if (overlapPrimarySpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                     ghostStates.Remove(index);
                     ParsekLog.Warn("Engine",
                         $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
@@ -1393,6 +1598,8 @@ namespace Parsek
                                 if (overlapPrimaryLoadStatus != GhostVisualLoadStatus.CompletedThisCall
                                     && overlapPrimaryLoadStatus != GhostVisualLoadStatus.Ready)
                                 {
+                                    if (overlapPrimaryLoadStatus == GhostVisualLoadStatus.Failed)
+                                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                                     primaryReady = false;
                                 }
                             }
@@ -1414,6 +1621,9 @@ namespace Parsek
                     }
                 }
             }
+
+            if (suppressOverlapGhosts)
+                return;
 
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
@@ -2570,10 +2780,21 @@ namespace Parsek
         /// to the ghost's post-wrap position — the <c>cameraPivot</c>
         /// Transform identity is preserved across the reuse so any hard
         /// references held by the camera code remain valid.
+        ///
+        /// Set <paramref name="emitRetargetEvent"/> to <c>false</c> when the
+        /// caller has already emitted a primary <c>OnLoopCameraAction</c> for
+        /// this cycle boundary (e.g. <c>ExplosionHoldStart</c>) and a follow-up
+        /// <c>RetargetToNewGhost</c> would either be ignored by the watch
+        /// handler (already in explosion hold) or override an explicit
+        /// camera-state decision. The destroyed-loop-cycle path in
+        /// <c>UpdateLoopingPlayback</c> uses this to keep the camera held at
+        /// the explosion site without firing a redundant retarget event
+        /// immediately after.
         /// </summary>
         internal void ReusePrimaryGhostAcrossCycle(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
-            GhostPlaybackState state, double playbackUT, long newCycleIndex)
+            GhostPlaybackState state, double playbackUT, long newCycleIndex,
+            bool emitRetargetEvent = true)
         {
             if (state == null || state.ghost == null)
             {
@@ -2697,15 +2918,37 @@ namespace Parsek
             // has moved (PrimeLoadedGhostForPlaybackUT -> positioner.PositionLoop
             // placed it at loopUT on the new cycle), so the retarget is
             // essential for watch-mode follow.
-            OnLoopCameraAction?.Invoke(new CameraActionEvent
+            //
+            // Suppressed when the caller already emitted a primary camera event
+            // for this cycle boundary (destroyed-loop ExplosionHoldStart). The
+            // watch handler ignores RetargetToNewGhost while in explosion hold
+            // (watchedOverlapCycleIndex == -2), so firing it adds API noise
+            // without changing camera behaviour and breaks the
+            // "exactly one OnLoopCameraAction per cycle boundary" contract that
+            // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold
+            // exercises. The non-destroyed branch (ExplosionHoldEnd) DOES need
+            // the retarget event so the watch handler swaps the bridge anchor
+            // for the new cycle's pivot, so the suppression only applies when
+            // the boundary fired a real explosion.
+            if (emitRetargetEvent)
             {
-                Index = index,
-                Action = CameraActionType.RetargetToNewGhost,
-                NewCycleIndex = newCycleIndex,
-                GhostPivot = state.cameraPivot,
-                Trajectory = traj,
-                Flags = flags
-            });
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index,
+                    Action = CameraActionType.RetargetToNewGhost,
+                    NewCycleIndex = newCycleIndex,
+                    GhostPivot = state.cameraPivot,
+                    Trajectory = traj,
+                    Flags = flags
+                });
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"reuse-suppress-retarget-{index}",
+                    $"Ghost #{index} \"{state.vesselName}\" loop-cycle reuse: " +
+                    $"RetargetToNewGhost suppressed (caller emitted primary boundary event; cycle={newCycleIndex})",
+                    1.0);
+            }
         }
 
         /// <summary>
@@ -2944,6 +3187,16 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
+            frameSkipBeforeActivation = 0;
+            frameSkipAnchorMissing = 0;
+            frameSkipLoopSyncFailed = 0;
+            frameSkipParentLoopPaused = 0;
+            frameSkipWarpHidden = 0;
+            frameSkipVisualLoadFailed = 0;
+            frameSkipNoRenderableData = 0;
+            frameSkipPlaybackDisabled = 0;
+            frameSkipExternalVesselSuppressed = 0;
+            frameSkipSessionSuppressed = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -2982,7 +3235,9 @@ namespace Parsek
 
         internal void UpdateOverlapPlaybackForTesting(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
-            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx)
+            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx,
+            bool suppressOverlapGhosts = false,
+            bool stopAfterSuppressOverlapGhosts = false)
         {
             if (!TryResolveLoopSchedule(
                     traj, ctx.autoLoopIntervalSeconds, index,
@@ -2993,7 +3248,8 @@ namespace Parsek
                 return;
 
             UpdateOverlapPlayback(index, traj, flags, ctx, primaryState,
-                intervalSeconds, duration, playbackStartUT, scheduleStartUT, suppressVisualFx);
+                intervalSeconds, duration, playbackStartUT, scheduleStartUT,
+                suppressVisualFx, suppressOverlapGhosts, stopAfterSuppressOverlapGhosts);
         }
 
         private GhostVisualLoadStatus TryPopulateGhostVisuals(
@@ -3219,7 +3475,10 @@ namespace Parsek
                         index, traj, state, playbackUT,
                         $"hidden-tier prewarm ({hiddenReason})");
                     if (prewarmStatus == GhostVisualLoadStatus.Failed)
+                    {
+                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
                         return false;
+                    }
                     if (prewarmStatus == GhostVisualLoadStatus.Pending)
                         return true;
                 }

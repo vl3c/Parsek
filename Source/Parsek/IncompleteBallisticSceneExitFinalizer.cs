@@ -873,7 +873,13 @@ namespace Parsek
 
             if (seededCount > 0)
             {
-                ParsekLog.Verbose("Extrapolator",
+                ParsekLog.VerboseOnChange("Extrapolator",
+                    "seed-predicted-ofr|" + (recordingId ?? "(null)"),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "seeded={0}|total={1}",
+                        seededCount,
+                        segments.Count),
                     string.Format(
                         CultureInfo.InvariantCulture,
                         "TryFinalizeRecording: seeded orbital-frame rotation on {0}/{1} predicted segments for '{2}'",

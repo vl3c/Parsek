@@ -63,6 +63,116 @@ namespace Parsek
             internal bool ShowGhosts;
         }
 
+        internal enum AtmosphericMarkerSkipReason
+        {
+            None,
+            NativeIconActive,
+            NullRecording,
+            Debris,
+            NoTrajectoryPoints,
+            OutsideTimeRange,
+            SuppressedByChainFilter,
+            OrbitSegmentActive
+        }
+
+        internal struct AtmosphericMarkerSummary
+        {
+            public string EventTypeName;
+            public int Candidates;
+            public int Drawn;
+            public int CameraUnavailable;
+            public int HiddenBySetting;
+            public int NoCommittedRecordings;
+            public int NativeIconActive;
+            public int NullRecording;
+            public int Debris;
+            public int NoTrajectoryPoints;
+            public int OutsideTimeRange;
+            public int SuppressedByChainFilter;
+            public int OrbitSegmentActive;
+            public int BracketMiss;
+            public int MissingBody;
+
+            internal bool HasSignal =>
+                Candidates > 0
+                || Drawn > 0
+                || CameraUnavailable > 0
+                || HiddenBySetting > 0
+                || NoCommittedRecordings > 0
+                || NativeIconActive > 0
+                || NullRecording > 0
+                || Debris > 0
+                || NoTrajectoryPoints > 0
+                || OutsideTimeRange > 0
+                || SuppressedByChainFilter > 0
+                || OrbitSegmentActive > 0
+                || BracketMiss > 0
+                || MissingBody > 0;
+        }
+
+        internal static string FormatAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} hiddenBySetting={4} noCommitted={5} nativeIcon={6} nullRecording={7} debris={8} noPoints={9} outsideTimeRange={10} chainSuppressed={11} orbitSegment={12} bracketMiss={13} missingBody={14}",
+                string.IsNullOrEmpty(summary.EventTypeName) ? "(unknown)" : summary.EventTypeName,
+                summary.Candidates,
+                summary.Drawn,
+                summary.CameraUnavailable,
+                summary.HiddenBySetting,
+                summary.NoCommittedRecordings,
+                summary.NativeIconActive,
+                summary.NullRecording,
+                summary.Debris,
+                summary.NoTrajectoryPoints,
+                summary.OutsideTimeRange,
+                summary.SuppressedByChainFilter,
+                summary.OrbitSegmentActive,
+                summary.BracketMiss,
+                summary.MissingBody);
+        }
+
+        private static void LogAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
+        {
+            if (!summary.HasSignal)
+                return;
+
+            ParsekLog.VerboseRateLimited(Tag,
+                "atmos-marker-summary",
+                FormatAtmosphericMarkerSummary(summary),
+                2.0);
+        }
+
+        private static void CountAtmosphericMarkerSkip(
+            ref AtmosphericMarkerSummary summary,
+            AtmosphericMarkerSkipReason reason)
+        {
+            switch (reason)
+            {
+                case AtmosphericMarkerSkipReason.NativeIconActive:
+                    summary.NativeIconActive++;
+                    break;
+                case AtmosphericMarkerSkipReason.NullRecording:
+                    summary.NullRecording++;
+                    break;
+                case AtmosphericMarkerSkipReason.Debris:
+                    summary.Debris++;
+                    break;
+                case AtmosphericMarkerSkipReason.NoTrajectoryPoints:
+                    summary.NoTrajectoryPoints++;
+                    break;
+                case AtmosphericMarkerSkipReason.OutsideTimeRange:
+                    summary.OutsideTimeRange++;
+                    break;
+                case AtmosphericMarkerSkipReason.SuppressedByChainFilter:
+                    summary.SuppressedByChainFilter++;
+                    break;
+                case AtmosphericMarkerSkipReason.OrbitSegmentActive:
+                    summary.OrbitSegmentActive++;
+                    break;
+            }
+        }
+
         void Start()
         {
             ui = new ParsekUI(UIMode.TrackingStation);
@@ -173,18 +283,37 @@ namespace Parsek
             // Repaint, which made the click-to-pin interaction dead in TS.
             Event currentEvent = Event.current;
             EventType etype = currentEvent.type;
+            var summary = new AtmosphericMarkerSummary
+            {
+                EventTypeName = etype.ToString()
+            };
             if (!ShouldProcessAtmosphericMarkerEvent(
                     etype,
                     IsPointerOverParsekWindow(currentEvent.mousePosition)))
                 return;
-            if (PlanetariumCamera.Camera == null) return;
+            if (PlanetariumCamera.Camera == null)
+            {
+                summary.CameraUnavailable++;
+                LogAtmosphericMarkerSummary(summary);
+                return;
+            }
 
             // #388: skip the whole atmospheric-marker pass when the user has
             // hidden ghosts in the tracking station.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation()) return;
+            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
+            {
+                summary.HiddenBySetting++;
+                LogAtmosphericMarkerSummary(summary);
+                return;
+            }
 
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return;
+            if (committed == null || committed.Count == 0)
+            {
+                summary.NoCommittedRecordings++;
+                LogAtmosphericMarkerSummary(summary);
+                return;
+            }
 
             double currentUT = Planetarium.GetUniversalTime();
 
@@ -193,7 +322,14 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (!ShouldDrawAtmosphericMarker(rec, i, currentUT, suppressed)) continue;
+                summary.Candidates++;
+                AtmosphericMarkerSkipReason skipReason =
+                    ClassifyAtmosphericMarkerSkip(rec, i, currentUT, suppressed);
+                if (skipReason != AtmosphericMarkerSkipReason.None)
+                {
+                    CountAtmosphericMarkerSkip(ref summary, skipReason);
+                    continue;
+                }
 
                 // Interpolate trajectory position at current UT
                 if (!atmosCachedIndices.ContainsKey(i))
@@ -202,10 +338,18 @@ namespace Parsek
                 TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
                 atmosCachedIndices[i] = cached;
 
-                if (!pt.HasValue) continue;
+                if (!pt.HasValue)
+                {
+                    summary.BracketMiss++;
+                    continue;
+                }
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
-                if (body == null) continue;
+                if (body == null)
+                {
+                    summary.MissingBody++;
+                    continue;
+                }
 
                 Vector3d worldPos = body.GetWorldSurfacePosition(
                     pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
@@ -214,12 +358,15 @@ namespace Parsek
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
                 MapMarkerRenderer.DrawMarker(
                     worldPos, rec.RecordingId, rec.VesselName ?? "(unknown)", markerColor, vtype);
+                summary.Drawn++;
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    $"lat={pt.Value.latitude:F2} lon={pt.Value.longitude:F2} alt={pt.Value.altitude:F0}");
+                        $"lat={pt.Value.latitude:F2} lon={pt.Value.longitude:F2} alt={pt.Value.altitude:F0}");
             }
+
+            LogAtmosphericMarkerSummary(summary);
         }
 
         internal bool IsPointerOverParsekWindow(Vector2 mousePosition)
@@ -444,23 +591,34 @@ namespace Parsek
             Recording rec, int recordingIndex, double currentUT,
             HashSet<string> suppressedIds)
         {
+            return ClassifyAtmosphericMarkerSkip(rec, recordingIndex, currentUT, suppressedIds)
+                == AtmosphericMarkerSkipReason.None;
+        }
+
+        internal static AtmosphericMarkerSkipReason ClassifyAtmosphericMarkerSkip(
+            Recording rec, int recordingIndex, double currentUT,
+            HashSet<string> suppressedIds)
+        {
             // A ProtoVessel exists but its icon may be suppressed (below atmosphere).
             // When suppressed, the atmospheric marker should still draw.
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
                 uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
                 if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
-                    return false;
+                    return AtmosphericMarkerSkipReason.NativeIconActive;
             }
-            if (rec == null) return false;
-            if (rec.IsDebris) return false;
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut) return false;
-            if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId)) return false;
+            if (rec == null) return AtmosphericMarkerSkipReason.NullRecording;
+            if (rec.IsDebris) return AtmosphericMarkerSkipReason.Debris;
+            if (rec.Points == null || rec.Points.Count == 0)
+                return AtmosphericMarkerSkipReason.NoTrajectoryPoints;
+            if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut)
+                return AtmosphericMarkerSkipReason.OutsideTimeRange;
+            if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
+                return AtmosphericMarkerSkipReason.SuppressedByChainFilter;
             if (rec.HasOrbitSegments
                 && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
-                return false;
-            return true;
+                return AtmosphericMarkerSkipReason.OrbitSegmentActive;
+            return AtmosphericMarkerSkipReason.None;
         }
 
         void OnDestroy()
