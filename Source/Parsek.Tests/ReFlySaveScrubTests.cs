@@ -134,6 +134,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScrubQuicksaveToSelectedSlot_DoesNotDowngradeNewerSfsSidecarEpoch()
+        {
+            const string recordingId = "rec_refly_epoch_newer_sfs";
+            SaveTestGameWithRecordingEpoch(
+                recordingId,
+                sfsSidecarEpoch: 9,
+                MakeVessel(5000u, "Selected", 444u),
+                MakeVessel(6000u, "Other", 555u));
+            WriteTrajectorySidecar(recordingId, sidecarEpoch: 7);
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_epoch_no_downgrade",
+                PidSlotMap = new Dictionary<uint, int> { { 5000u, 0 } },
+                RootPartPidMap = new Dictionary<uint, int> { { 444u, 0 } },
+            };
+
+            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
+                tempPath, rp, selectedSlotIndex: 0);
+
+            Assert.True(result.Applied);
+            Assert.Equal(0, result.SidecarEpochsRefreshed);
+            Assert.Equal(1, result.SidecarEpochRefreshSkipped);
+
+            ConfigNode root = ConfigNode.Load(tempPath);
+            ConfigNode tree = root.GetNode("RECORDING_TREE");
+            Assert.NotNull(tree);
+            ConfigNode recNode = tree.GetNode("RECORDING");
+            Assert.NotNull(recNode);
+            Assert.Equal("9", recNode.GetValue("sidecarEpoch"));
+        }
+
+        [Fact]
         public void ScrubQuicksaveToSelectedSlot_LeavesFileUntouchedWhenSelectedMissing()
         {
             SaveTestGame(MakeVessel(6000u, "Other", 555u));

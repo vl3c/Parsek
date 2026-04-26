@@ -1627,8 +1627,11 @@ namespace Parsek
             }
             else if (baseState == TerminalState.Orbiting && resolved == TerminalState.SubOrbital)
             {
+                string reason = vessel.orbit.eccentricity >= 1.0
+                    ? "orbit evidence is unbound"
+                    : "periapsis is below surface";
                 ParsekLog.Info("RecordingTree",
-                    $"DetermineTerminalState: overriding ORBITING to SubOrbital - periapsis is below surface " +
+                    $"DetermineTerminalState: overriding ORBITING to SubOrbital - {reason} " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
             }
@@ -1661,7 +1664,7 @@ namespace Parsek
 
             if (baseState == TerminalState.Orbiting
                 && situation == 32
-                && periapsisRadius <= bodyRadius)
+                && (eccentricity >= 1.0 || periapsisRadius <= bodyRadius))
             {
                 return TerminalState.SubOrbital;
             }

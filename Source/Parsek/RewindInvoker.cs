@@ -1247,7 +1247,22 @@ namespace Parsek
             }
 
             string oldValue = recordingNode.GetValue("sidecarEpoch");
-            string newValue = probe.SidecarEpoch.ToString(CultureInfo.InvariantCulture);
+            int currentEpoch;
+            bool hasCurrentEpoch = int.TryParse(oldValue, NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out currentEpoch);
+            if (hasCurrentEpoch && probe.SidecarEpoch < currentEpoch)
+            {
+                skipped++;
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly sidecar epoch refresh skipped: sidecar older than temp save " +
+                    $"rec={recordingId} sfs={currentEpoch} sidecar={probe.SidecarEpoch} path='{precPath}'");
+                return;
+            }
+
+            int targetEpoch = hasCurrentEpoch
+                ? Math.Max(currentEpoch, probe.SidecarEpoch)
+                : probe.SidecarEpoch;
+            string newValue = targetEpoch.ToString(CultureInfo.InvariantCulture);
             if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
             {
                 SetOrAddValue(recordingNode, "sidecarEpoch", newValue);

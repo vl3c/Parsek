@@ -1117,6 +1117,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingUnbound_ReturnsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 1.02,
+                periapsisRadius: 675000.0,
+                bodyRadius: 600000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
+        [Fact]
         public void DetermineTerminalStateFromOrbitEvidence_OrbitingAboveSurface_RemainsOrbiting()
         {
             var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(

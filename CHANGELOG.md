@@ -64,7 +64,7 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
 
-- Re-Fly temp-save scrub now refreshes each recording's `.sfs` `sidecarEpoch` from the current `.prec` sidecar before load, so post-merge recording-tree mutations are not rejected as stale when an older Rewind Point quicksave is used.
+- Re-Fly temp-save scrub now refreshes each recording's `.sfs` `sidecarEpoch` from the current `.prec` sidecar before load, so post-merge recording-tree mutations are not rejected as stale when an older Rewind Point quicksave is used. If the temp save already carries a newer epoch than the sidecar, the scrub keeps the newer `.sfs` value and reports the sidecar as skipped instead of downgrading.
 
 - Re-Fly temp-save scrub failures now abort before `GamePersistence.LoadGame` instead of loading an unscrubbed quicksave, and the post-load strict-strip safety net now logs one compact summary for unmatched vessels instead of one WARN per vessel.
 
@@ -92,7 +92,7 @@ All notable changes to Parsek are documented here.
 
 - Optimizer splits and boring-tail trims now stamp exact explicit start/end UT bounds after mutating the payload, preserving a stable `.sfs` timing fallback if sidecar hydration is unavailable.
 
-- Terminal-state classification now downgrades KSP `ORBITING` vessels whose captured periapsis is below the body surface to `SubOrbital`, so ballistic upper-stage arcs are no longer presented as stable orbiting final states.
+- Terminal-state classification now downgrades KSP `ORBITING` vessels whose captured periapsis is below the body surface or whose eccentricity is unbound to `SubOrbital`, so ballistic upper-stage arcs are no longer presented as stable orbiting final states.
 
 - Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
 
