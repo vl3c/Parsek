@@ -113,9 +113,11 @@ target. For each recording in that ancestry, for each `TrackSection`
 on that recording, **promote ONLY when all of the following hold:**
 
 1. `section.referenceFrame == ReferenceFrame.Relative`.
-2. `section.anchorVesselId == activeReFlyTargetVesselPid`. (The anchor
+2. `activeReFlyTargetVesselPid != 0u`. A zero active-target pid is
+   malformed / unresolved identity, not a valid anchor match.
+3. `section.anchorVesselId == activeReFlyTargetVesselPid`. (The anchor
    is exactly the re-flown vessel.)
-3. `section.absoluteFrames != null` AND
+4. `section.absoluteFrames != null` AND
    `section.absoluteFrames.Count == section.frames.Count` AND
    `Count > 0`. (Full v7 shadow coverage; partial-shadow sections are
    skipped with a Verbose log.)
@@ -126,10 +128,16 @@ on that recording, **promote ONLY when all of the following hold:**
   (a station, a base, a docked partner that isn't the re-flown
   vessel). Even if the recording is in the parent-chain ancestry, that
   section's anchor relationship is unaffected by the merge.
+- Any RELATIVE section with `anchorVesselId == 0`, even if the active
+  Re-Fly target's vessel pid is also zero. Zero is "not set" and is
+  never treated as an equality match.
 - Any RELATIVE section in a recording NOT in the parent-chain
   ancestry.
 - Any RELATIVE section in a v6 recording (or v7 recording with
-  partial-shadow coverage) — no shadow data to promote against.
+  partial-shadow coverage) — no complete shadow data to promote
+  against. These are skipped explicitly and remain on the runtime
+  recorded-anchor / fallback playback path; the pass does not claim to
+  eliminate their dead-anchor risk.
 
 **Same-PID loop sections ARE promoted.** A parent-chain recording
 whose `LoopAnchorVesselId` matches the active Re-Fly target's pid AND
@@ -230,54 +238,60 @@ The pass returns the number of recordings it promoted (for logging) and:
      newly-opened section's `frames` list WITHOUT also re-adding the
      point to flat `Recording.Points` (the comment in
      `CommitRecordedPoint` calls this out: "the point is already there
-     from SamplePosition"). A valid promoted section will therefore
-     have one more `frames[]` entry than there are unique flat
-     `Points` entries inside its UT range, because the boundary frame
-     duplicates the previous section's tail point. A naive
-     count-equals check would roll back every promotion.
-   - **Boundary ownership rule.** A section's flat-list overwrite
-     range is defined by its position relative to neighbors:
-     - **A section's `startUT` flat entry is owned by the *previous*
-       section's `endUT` overwrite when the previous section exists
-       and is also a RELATIVE section sharing the boundary** (the
-       common adjacent case via `SeedBoundaryPoint`).
-     - When a section has no previous section, OR the previous
-       section is non-RELATIVE / does NOT share a boundary at this
-       UT, the section owns its own `startUT` entry.
-     - Every section always owns its `endUT` entry (and all
-       interior frame UTs).
-     This is the "previous-owns-the-boundary" rule. It guarantees
-     each shared boundary UT in the flat list is overwritten by
-     exactly ONE section's promotion — the one ENDING at that UT
-     — eliminating the double-write/double-count problem.
+     from SamplePosition"). The number of flat entries a promoted
+     section rewrites therefore depends on boundary ownership, not just
+     `frames.Count`: a seeded `startUT` is still one existing flat
+     entry owned by the new section, while a shared `endUT` is owned by
+     the following section and is excluded from this section's rewrite.
+     A naive section-wide count check would roll back valid
+     promotions.
+   - **Boundary ownership rule follows `FindTrackSectionForUT`.**
+     `TrajectoryMath.FindTrackSectionForUT` treats all non-final
+     sections as `[startUT, endUT)` and the final section as
+     `[startUT, endUT]`. Therefore an exact shared boundary UT
+     belongs to the section STARTING at that UT, not to the previous
+     section ending there.
+     - A promoted section always owns its `startUT` flat entry when
+       that entry exists, even when it was seeded from the previous
+       section.
+     - A promoted section owns its `endUT` entry only when no following
+       TrackSection starts at the same UT. If the next section shares
+       the boundary, the next section owns that flat entry.
+     - Interior frame UTs are owned by the promoted section.
+     This "lookup-owner" rule keeps flat-list repair aligned with the
+     runtime section dispatcher. A shared boundary is still overwritten
+     at most once: by the next section if it is promoted, or by nobody
+     if that next section remains RELATIVE and therefore still owns a
+     relative-coordinate boundary point. This can leave the previous
+     section's nominal end boundary flat entry in the next section's
+     coordinate contract; that is correct only because compliant readers
+     must first dispatch the UT through `FindTrackSectionForUT` before
+     interpreting flat point coordinates.
    - **Splice algorithm (two-pass to stage decisions before
      mutation).** Compute all ownership decisions from the
      PRE-promotion section metadata, then apply mutations.
-     Otherwise the first promoted section's flip changes its
-     `referenceFrame` to Absolute mid-pass and breaks the
-     "is the previous section RELATIVE?" check for the next
-     section's claim computation.
+     Otherwise the first promoted section's flip changes the neighbor
+     metadata seen by later sections and can make the shared-boundary
+     ownership decision depend on mutation order.
 
-     Pass 1 — plan: snapshot the pre-promotion `referenceFrame`
-     of every section in the recording into a local array. For
-     each section that meets all promotion guards, compute
-     `claimsStartUT` from the snapshot:
-     - true iff there is no previous TrackSection in the recording,
-       OR the previous section's `endUT < section.startUT` (no
-       shared boundary), OR the previous section's snapshotted
-       `referenceFrame != Relative` (no `SeedBoundaryPoint`
-       contract).
-     - false otherwise — the previous section owns the shared
-       boundary entry. (Importantly, "previous section is also
-       being promoted in this pass" still resolves to the
-       previous-owns rule because the shared boundary value is
-       the same in both sections' shadow payloads, and we want
-       a single owner for clean accounting.)
+     Pass 1 — plan: snapshot the pre-promotion section list and
+     promotion eligibility before any mutation. For each section that
+     meets all promotion guards, compute:
+     - `claimsStartUT = true`. Exact section starts dispatch to the
+       current section, so a seeded `frames[0]` boundary must be
+       repaired by this section when this section promotes. This remains
+       true even if the previous section stays RELATIVE: the previous
+       non-final section's dispatch interval excludes the exact boundary.
+     - `claimsEndUT = true` iff there is no next TrackSection whose
+       `startUT` matches this section's `endUT` within the UT
+       tolerance. When the next section shares the boundary, the next
+       section owns that flat entry under `FindTrackSectionForUT`.
      Build the per-section `flatRange` from the snapshot:
-     `flatRange = [claimsStartUT ? section.startUT : firstUTAfterStartUT,
-                   section.endUT]` (left endpoint resolved via
-     binary search on `Recording.Points` for the first UT strictly
-     after `section.startUT` when `claimsStartUT` is false).
+     `flatRange = [section.startUT,
+                   claimsEndUT ? section.endUT : lastUTBeforeEndUT]`
+     (right endpoint resolved via binary search on `Recording.Points`
+     for the last UT strictly before `section.endUT` when
+     `claimsEndUT` is false).
 
      Pass 2 — execute: for each promoted section, in increasing
      `startUT` order:
@@ -299,13 +313,14 @@ The pass returns the number of recordings it promoted (for logging) and:
      - Every flat-list entry inside `flatRange` must have a matching
        section frame.
      - UTs in the flat list within `flatRange` must be strictly
-       monotonic (the boundary duplicate, if any, is excluded by the
-       half-open `flatRange` left-end when `claimsStartUT` is false).
+       monotonic. The shared end-boundary duplicate, if any, is
+       excluded by the half-open `flatRange` right-end when
+       `claimsEndUT` is false.
      - `pointsRewritten` reported per section equals the count of
        successful overwrites — exactly `frames.Count` when
-       `claimsStartUT` is true, exactly `frames.Count - 1` when it
-       is false (the boundary frame is omitted because the previous
-       section already wrote it).
+       `claimsEndUT` is true, exactly `frames.Count - 1` when it is
+       false (the shared end-boundary frame is omitted because the
+       next section owns it).
    - **On validation failure.** Roll back the section flip for that
      section, emit a `Warn` with rec id, section index, expected vs
      observed counts, and the first mismatching UT. Partial state is
@@ -376,19 +391,32 @@ code, so the implementation needs explicit signature/lookup work:
   implementation reviewer expects it.
 
 - **`MergeJournalOrchestrator.RunMerge(ReFlySessionMarker marker,
-  Recording provisional)`** also lacks a tree parameter. The
-  orchestrator resolves the tree once at the top of the method via
-  `provisional.TreeId` against `RecordingStore.CommittedTrees`
-  using a small inline scan (the same scan pattern
-  `EffectiveState.ResolveChainTerminalRecording` uses today —
-  `EffectiveState.cs:1810-1840`). Adding an `internal static
-  RecordingTree RecordingStore.FindCommittedTreeById(string)`
-  helper is a reasonable one-liner refactor if more than one
-  consumer wants it, but it is NOT a prerequisite for this plan;
-  the inline scan is small and local. We deliberately do NOT
-  change `RunMerge`'s public signature because the orchestrator
-  is called from multiple places and a signature change
-  ripple-effects more callers than the in-place branch's case.
+  Recording provisional)`** also lacks a tree parameter. Add a small
+  helper and use it in BOTH the no-crash `RunMerge` path and the
+  load-time finisher so there is a single lookup contract:
+
+  ```csharp
+  internal static RecordingTree FindCommittedTreeById(string treeId)
+  {
+      if (string.IsNullOrEmpty(treeId)) return null;
+      for (int i = 0; i < committedTrees.Count; i++)
+          if (string.Equals(committedTrees[i]?.Id, treeId, StringComparison.Ordinal))
+              return committedTrees[i];
+      return null;
+  }
+  ```
+
+  `RunMerge` resolves once near the top:
+
+  ```csharp
+  RecordingTree treeForRunMerge =
+      RecordingStore.FindCommittedTreeById(provisional.TreeId)
+      ?? RecordingStore.FindCommittedTreeById(marker.TreeId);
+  ```
+
+  We deliberately do NOT change `RunMerge`'s public signature because
+  the orchestrator is called from multiple places and a signature
+  change ripple-effects more callers than the in-place branch's case.
 
 The helper:
 1. Validates inputs (non-null marker, target, tree; target id present
@@ -457,8 +485,9 @@ The helper:
      `RelativePromotion` in the no-crash path, and recovery from
      a `RelativePromotion`-tagged journal would never happen.
      `treeForRunMerge` is resolved at the top of `RunMerge` via
-     the inline `CommittedTrees` scan from `provisional.TreeId`
-     (see "Helper API" section).
+     `RecordingStore.FindCommittedTreeById(provisional.TreeId) ??
+     RecordingStore.FindCommittedTreeById(marker.TreeId)` (see the
+     shared promotion step tree-lookup notes above).
   4. Tests use `FaultInjectionPoint = Phase.RelativePromotion`
      (the live test seam at `MergeJournalOrchestrator.cs:95`) to
      simulate a crash *inside* the new step (vs. before / after).
@@ -571,8 +600,11 @@ The helper:
   static void RunPromotionHelper(ParsekScenario scenario, MergeJournal journal)
   {
       var marker = scenario.ActiveReFlySessionMarker;
+      // If RelativePromotion is somehow persisted with a null marker,
+      // this is the same unrecoverable imprecise-scope corner as
+      // MarkerCleared-with-pre-promotion-sidecars; see Out of scope.
       if (marker == null) return;
-      RecordingTree tree = ResolveTreeById(journal.TreeId);
+      RecordingTree tree = RecordingStore.FindCommittedTreeById(journal.TreeId);
       Recording activeTarget = null;
       if (tree?.Recordings != null
           && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
@@ -602,6 +634,14 @@ The helper:
     recoverable state (per `IsPostDurablePhase`). The defensive
     re-invocation in Block 3 ensures redrive promotes sidecars even
     in that path.
+  - A journal that persists `Phase = RelativePromotion` with
+    `ActiveReFlySessionMarker == null` is treated as the same
+    unrecoverable imprecise-scope corner as `MarkerCleared` with
+    pre-promotion sidecars: the helper deliberately returns without
+    guessing, Block 3 still advances marker-clear bookkeeping, and
+    the broader load-time `Warn` described in "Out of scope" is the
+    audit signal. Do not invent a fuzzy recovery path here; the
+    precise filter needs marker fields.
   - A journal that persists `Phase = MarkerCleared` with on-disk
     sidecars STILL pre-promotion is an unrecoverable corner case
     (marker is gone on disk, helper has nothing to read). This
@@ -666,12 +706,14 @@ merges or periodic optimizer ticks.
 
 ### Helper extraction
 
-`MergeDialog.CollectActiveReFlyParentChainTerminalTipIds` already walks
-the parent-chain ancestry but returns *terminal tips* of single-parent
-ancestor chains. We need a slightly broader walk — every recording in the
-parent-chain ancestry, not just the terminal tip — so we can hit
-intermediate chain segments that also carry RELATIVE sections to the
-booster.
+`MergeDialog.CollectActiveReFlyParentChainTerminalTipIds` is useful prior
+art but is NOT enough as the implementation template. The helper must use
+the #614-safe parent-chain traversal shape from
+`GhostMapPresence.IsRecordingInParentChainOfActiveReFly`: walk
+single-parent branch points transitively AND bridge optimizer-created
+chain segments through same-`ChainId` / `ChainBranch` predecessors. A
+terminal-tip-only helper can miss older ancestor recordings after
+optimizer splitting.
 
 Extract a new pure helper:
 
@@ -682,11 +724,30 @@ internal static HashSet<string>
         string activeReFlyTargetId);
 ```
 
-Same predicate as the existing tip collector, but emits all chain members
-of every parent chain it walks (via `CollectSameChainRecordingIds`). The
-existing tip collector becomes a thin filter over this richer set. Tests
-for the existing collector continue to pass with no behavior change; new
-tests pin the broader walk.
+Implementation shape:
+
+- Resolve the active target inside the explicit `tree`.
+- Build an `activeChainIds` exclusion set from the active target's
+  same-chain members. These ids are traversal context only; do not emit
+  them as parent-chain promotion candidates.
+- Seed the walk from every active-chain member's `ParentBranchPointId`
+  and chain predecessor.
+- When visiting a branch point, proceed only if it has exactly one parent
+  recording id; multi-parent branch points remain out of scope.
+- When visiting a queued recording id that is in `activeChainIds`, only
+  enqueue its `ParentBranchPointId` and chain predecessor; do not emit it.
+- When visiting a queued recording id outside `activeChainIds`, emit every
+  recording in that ancestor's same chain (`ChainId` + `ChainBranch` +
+  `TreeId`), then enqueue each emitted recording's `ParentBranchPointId`
+  and chain predecessor so grandparents and optimizer-split ancestors are
+  reached.
+
+The existing terminal-tip collector becomes a thin filter over this richer
+set. Tests for the existing collector continue to pass with no behavior
+change; new tests pin the broader walk and the active-chain exclusion.
+The implementation PR must run the existing terminal-tip collector tests
+with zero expectation changes so the richer helper does not broaden the
+merge-dialog spawn-default behavior by accident.
 
 ### v7 format-version handling
 
@@ -703,8 +764,8 @@ contracts are unchanged.
 CHANGELOG entry for v0.8.4 (or next version):
 > Re-Fly merge now permanently promotes parent-chain upper-stage RELATIVE
 > trajectory sections to ABSOLUTE during the merge journal, eliminating
-> the dead anchor metadata and halving the post-merge sidecar size for
-> those sections.
+> dead anchor metadata and reducing post-merge sidecar size for those
+> sections.
 
 Open a new entry in `docs/dev/todo-and-known-bugs.md` titled "Post-merge
 parent-chain relative-to-absolute promotion" referencing this plan, and
@@ -775,10 +836,14 @@ data transformation).
     promoted to ABSOLUTE, `anchorVesselId == 0`, the loop now uses
     the absolute frames (per the rule documented in the scope
     section). This pins the policy decision and prevents a future
-    refactor from silently skipping same-pid loops.
+    refactor from silently skipping same-pid loops. This is the test
+    pin for the open-question #1 resolution: post-merge upper-stage /
+    same-active-pid relationships become absolute-only, while
+    docking/rendezvous/looped logistics on non-Re-Fly anchors remain
+    RELATIVE.
 
 12. **Boundary-seeded section frame does not trigger rollback;
-    previous section owns the boundary.** Synthesize a parent-chain
+    promoted next section owns the boundary.** Synthesize a parent-chain
     recording with two adjacent RELATIVE sections — section A
     (NOT in scope, anchored to a different non-Re-Fly pid) and
     section B (in scope, anchored to the active Re-Fly target).
@@ -788,35 +853,53 @@ data transformation).
     was active and now carrying section A's RELATIVE coordinates).
     Assert:
     - Section B is promoted; section A is left RELATIVE.
-    - The flat-list entry at the shared boundary UT is **NOT
-      overwritten** by section B's promotion (section A still owns
-      it because it remains RELATIVE and that flat entry must keep
-      section A's coordinates).
-    - `claimsStartUT == false` for section B; reported
-      `pointsRewritten == frames.Count - 1`.
+    - The flat-list entry at the shared boundary UT **IS
+      overwritten** by section B's promotion because
+      `TrajectoryMath.FindTrackSectionForUT` dispatches an exact
+      shared-boundary UT to section B (`[startUT,endUT)` for
+      non-final section A).
+    - `claimsStartUT == true` for section B; reported
+      `pointsRewritten == frames.Count` when section B has no
+      shared successor boundary.
     - All other section B frames map cleanly to flat-list entries
       by UT; no rollback.
 
 13. **Two consecutive promoted sections — boundary owned by the
-    PREVIOUS section.** Same recording but BOTH sections anchored
+    NEXT section.** Same recording but BOTH sections anchored
     to the active Re-Fly target (both promote). Assert:
     - Both sections promoted to ABSOLUTE.
     - The shared boundary UT's flat-list entry is overwritten
-      **exactly once, by section A** (the previous section, ending
-      at that UT — `claimsStartUT == true` for section A because it
-      has no previous neighbor; `claimsStartUT == false` for section
-      B because section A precedes it and shares the boundary).
-    - Section A's reported `pointsRewritten == A.frames.Count`;
-      section B's reported `pointsRewritten == B.frames.Count - 1`;
+      **exactly once, by section B** (the next section, starting
+      at that UT — `claimsEndUT == false` for section A because
+      section B starts at A's end, and `claimsStartUT == true` for
+      section B).
+    - Section A's reported `pointsRewritten == A.frames.Count - 1`;
+      section B's reported `pointsRewritten == B.frames.Count`;
       together they cover the union of UT ranges with no double-
       count.
     - The flat-list entry at the boundary UT after promotion
-      matches section A's last absolute-shadow value (which by
+      matches section B's first absolute-shadow value (which by
       `SeedBoundaryPoint` construction equals section B's
-      `frames[0]` value — pinning the test to the previous-section
+      promoted `frames[0]` value — pinning the test to the next-section
       owner is both semantically correct and matches the
-      "previous-owns-the-boundary" rule documented in the splice
+      `FindTrackSectionForUT`-aligned ownership rule documented in the splice
       algorithm).
+
+14. **Promoted previous section with RELATIVE next section leaves the
+    boundary for the next section.** Synthesize adjacent RELATIVE
+    sections where section A is anchored to the active Re-Fly target
+    and promotes, while section B is anchored to a station pid and
+    remains RELATIVE. Assert:
+    - Section A promotes; section B remains RELATIVE.
+    - `claimsEndUT == false` for section A because section B starts at
+      A's `endUT`.
+    - The shared boundary flat-list entry is NOT overwritten by section
+      A and still contains section B's relative-coordinate first frame.
+    - `TrajectoryMath.FindTrackSectionForUT` at the exact boundary UT
+      returns section B, so a compliant reader interprets that retained
+      relative flat entry under section B's RELATIVE contract. This pins
+      the mirror case so later cleanup does not "fix" the orphan-looking
+      boundary into the wrong coordinate frame.
 
 ### `EffectiveStateTests` additions
 
@@ -833,6 +916,19 @@ data transformation).
    the tip collector; mirror it for the broader walk.)
 
 3. **Active target with no parent chain returns empty set.**
+
+4. **Transitive grandparent is reached.** Topology:
+   `grandparent -> parent -> active`. Expected: both grandparent
+   and parent chain members are emitted. This mirrors the #614
+   parent-chain predicate and prevents a terminal-tip-only walk from
+   missing older ancestor recordings.
+
+5. **Optimizer-split chain predecessor bridges to the root.** Active
+   target is an optimizer-created chain tip whose `ParentBranchPointId`
+   is on the chain head. Expected: the helper walks the active chain
+   predecessor / same-chain context to discover the parent branch point,
+   emits the parent-chain recordings, and does NOT emit the active
+   target's own chain members as promotion candidates.
 
 ### `MergeJournalOrchestratorTests` additions
 
@@ -1011,45 +1107,32 @@ data transformation).
    **5b — handcrafted sidecar-write-failure case (helper does
    real work on reload).** This requires a test fixture that
    manufactures the unusual "Phase=RelativePromotion + sidecars
-   still RELATIVE" disk state. Two viable approaches; pick
-   whichever the test author finds clearer:
+   still RELATIVE" disk state. Use a lower-level sidecar-fail hook;
+   do not handcraft a `persistent.sfs` fixture unless the hook proves
+   impossible.
 
-   - **Lower-level sidecar-fail hook.** `SaveTreeRecordings`
-     (`ParsekScenario.cs:578-605`) calls
-     `RecordingStore.SaveRecordingFiles(rec)` per dirty
-     recording inside its loop and treats a `false` return as a
-     soft failure — logs a `WARNING: File write failed for tree
-     recording '{name}'` and continues; `tree.Save(treeNode)`
-     still serializes the `RECORDING_TREE` metadata into the
-     scenario node, and `OnSave` keeps going to write
-     `MERGE_JOURNAL`. Add a test seam at the
-     `SaveRecordingFiles` level (e.g. an
-     `internal static Func<Recording, bool>
-     SaveRecordingFilesForTesting` hook scoped per recording id)
-     so the test can return `false` for the parent-chain
-     recording specifically. Result on disk: pre-promotion
-     `.prec` (skipped this save), correct `RECORDING_TREE`
-     metadata, `MERGE_JOURNAL` with `Phase=RelativePromotion`,
-     marker still alive (the marker-null block hasn't run in
-     memory yet at this point in `RunMerge`).
-     Do NOT throw from a `SaveTreeRecordingsForTesting`-style
-     wrapper hook: `SaveTreeRecordings` does not catch, so an
-     exception would propagate up and abort `OnSave` BEFORE the
-     `MERGE_JOURNAL` is written, defeating the fixture.
-     Similarly, do NOT make a `SaveTreeRecordings`-level hook
-     a no-op: that skips `tree.Save(treeNode)` and the loaded
-     tree on reload would be missing its `RECORDING_TREE`
-     metadata, breaking the test setup unrelatedly.
-   - **Manual on-disk fixture.** Bypass `OnSave` entirely:
-     write pre-promotion `.prec` files for the parent-chain
-     recordings into the test save folder, write a
-     `persistent.sfs` carrying a `MERGE_JOURNAL` node stamped
-     `Phase=RelativePromotion` and a `ParsekScenario`
-     `ActiveReFlySessionMarker` block carrying the matching
-     `SessionId` / `ActiveReFlyRecordingId`, then call the load
-     path that triggers `RunFinisher`. This is the most direct
-     way to reach the recovery state but requires more fixture
-     plumbing than the hook-based variant.
+   `SaveTreeRecordings` (`ParsekScenario.cs:578-605`) calls
+   `RecordingStore.SaveRecordingFiles(rec)` per dirty recording inside
+   its loop and treats a `false` return as a soft failure — logs a
+   `WARNING: File write failed for tree recording '{name}'` and
+   continues; `tree.Save(treeNode)` still serializes the
+   `RECORDING_TREE` metadata into the scenario node, and `OnSave`
+   keeps going to write `MERGE_JOURNAL`. Add a test seam at the
+   `SaveRecordingFiles` level (e.g. an `internal static Func<Recording,
+   bool> SaveRecordingFilesForTesting` hook scoped per recording id) so
+   the test can return `false` for the parent-chain recording
+   specifically. Result on disk: pre-promotion `.prec` (skipped this
+   save), correct `RECORDING_TREE` metadata, `MERGE_JOURNAL` with
+   `Phase=RelativePromotion`, marker still alive (the marker-null block
+   hasn't run in memory yet at this point in `RunMerge`).
+
+   Do NOT throw from a `SaveTreeRecordingsForTesting`-style wrapper
+   hook: `SaveTreeRecordings` does not catch, so an exception would
+   propagate up and abort `OnSave` BEFORE the `MERGE_JOURNAL` is
+   written, defeating the fixture. Similarly, do NOT make a
+   `SaveTreeRecordings`-level hook a no-op: that skips
+   `tree.Save(treeNode)` and the loaded tree on reload would be missing
+   its `RECORDING_TREE` metadata, breaking the test setup unrelatedly.
 
    On reload:
    - `journal.Phase == RelativePromotion`.
@@ -1066,7 +1149,9 @@ data transformation).
    journal; after the next save the on-disk state would be
    inconsistent (marker null, journal cleared, sidecars
    RELATIVE). Pin this so a future refactor can't silently drop
-   the defensive branch.
+   the defensive branch. Tests 5a and 5b are both required coverage;
+   do not drop either, because Block 3's defensive branch otherwise
+   has no no-crash production path that exercises both sidecar states.
 
 ### `MergeDialogTests` / in-place branch wiring
 
@@ -1111,10 +1196,16 @@ passing. No changes expected.
 
 - **Old recordings without v7 shadows.** A v6 recording with only
   anchor-local frames and no shadows can never be promoted by this
-  pass. That is fine — those recordings predate this code path; they
-  continue to use the existing recorded-anchor reconstruction logic
-  (which works for them because their anchor wasn't a Re-Fly target).
-  The pass logs `skippedPartialShadow` for them and moves on.
+  pass. That does NOT mean the dead-anchor footgun is eliminated for
+  those recordings: a save recorded before v7 can be loaded after the
+  upgrade and then Re-Flown, producing a matching parent-chain
+  RELATIVE section with no `absoluteFrames` payload to copy. The
+  implementation must leave those sections RELATIVE, log the skip with
+  enough identity to audit it (`rec`, section index, anchor pid,
+  `skippedPartialShadow` / `legacyNoShadow`), and keep the existing
+  runtime recorded-anchor / fallback playback path available for them.
+  This optimizer pass is a durable cleanup for fully-shadowed v7 data,
+  not a migration for legacy RELATIVE payloads.
 
 - **Non-Re-Fly merges.** Plain `MergeCommit` without an active session
   marker doesn't trigger the pass. The dead-anchor concern only applies
@@ -1137,34 +1228,37 @@ passing. No changes expected.
   (one promotable + one preserved on the same recording) so a
   future change can't silently widen the filter.
 
-- **Recovery from a persisted `Phase=MarkerCleared` with
-  pre-promotion sidecars.** The marker is null on disk by
-  definition at `MarkerCleared`, so the finisher cannot run the
-  precise scope-filter check (it has no
-  `ActiveReFlyRecordingId` / `activeReFlyTargetVesselPid` to
-  match section anchors against — those fields live on the
-  marker, not in the journal). The no-crash path can't produce
-  this state (the helper runs in Block 2 / `RpReap` →
-  `RelativePromotion` BEFORE `MarkerCleared` advance), and
-  there's no in-orchestrator save that lands `MarkerCleared`
-  before `Durable2Done`. If a third-party mod's mid-frame
-  `SaveGame` lands this combination, the implementation cannot
-  recover the helper invocation precisely.
+- **Recovery from persisted markerless post-promotion phases with
+  pre-promotion sidecars.** The marker is null on disk by definition
+  at `MarkerCleared`, and a third-party / mid-frame save could also
+  theoretically persist `Phase=RelativePromotion` after the marker was
+  cleared by some external path. In either markerless state, the
+  finisher cannot run the precise scope-filter check (it has no
+  `ActiveReFlyRecordingId` / `activeReFlyTargetVesselPid` to match
+  section anchors against — those fields live on the marker, not in
+  the journal). The no-crash path can't produce this state (the helper
+  runs in Block 2 / `RpReap` → `RelativePromotion` BEFORE
+  `MarkerCleared` advance), and there's no in-orchestrator save that
+  lands `MarkerCleared` before `Durable2Done`. If a third-party mod's
+  mid-frame `SaveGame` lands either combination, the implementation
+  cannot recover the helper invocation precisely.
 
   **Implementable contract.** Because the precise scope-filter
   check is unavailable post-marker-clear, the implementation
-  emits a **broader** `Warn` log when, on load,
-  `journal.Phase == MarkerCleared` AND the tree referenced by
-  `journal.TreeId` contains ANY recording with at least one
-  RELATIVE TrackSection that has a non-zero `anchorVesselId` AND
-  a populated `absoluteFrames` payload. This is a superset of
-  the actually-broken case — false positives are possible (a
-  station-anchored RELATIVE section in an unrelated recording
-  would also trip the warning) — but a `Warn` is just an audit
-  signal, not a hard error, and the false-positive case is rare
-  enough to live with. The Warn message names the tree, the
-  recording id(s), and the section indices so a human reviewer
-  can confirm whether the marker-clear was justified.
+  emits a **broader** `Warn` log when, on load, either
+  `journal.Phase == MarkerCleared` OR
+  (`journal.Phase == RelativePromotion` AND
+  `ActiveReFlySessionMarker == null`), AND the tree referenced by
+  `journal.TreeId` contains ANY recording with at least one RELATIVE
+  TrackSection that has a non-zero `anchorVesselId` AND a populated
+  `absoluteFrames` payload. This is a superset of the actually-broken
+  case — false positives are possible (a station-anchored RELATIVE
+  section in an unrelated recording would also trip the warning) — but
+  a `Warn` is just an audit signal, not a hard error, and the
+  false-positive case is rare enough to live with. The Warn message
+  names the tree, the recording id(s), the section indices, and the
+  markerless journal phase so a human reviewer can confirm whether the
+  marker-clear was justified.
 
   Mitigation if the Warn ever fires in practice: a separate
   follow-up plan extends `MergeJournal` with `ActiveReFlyRecordingId`
