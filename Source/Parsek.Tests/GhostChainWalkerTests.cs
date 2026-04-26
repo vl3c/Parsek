@@ -801,6 +801,52 @@ namespace Parsek.Tests
                 l.Contains("[ChainWalker]") && l.Contains("No claims found"));
         }
 
+        /// <summary>
+        /// Regression: per-frame callers (e.g. ParsekTrackingStation.RefreshGhostActionCache)
+        /// invoke ComputeAllGhostChains every Update tick. The chain-walk diagnostic
+        /// lines (claim, chain-built, walk-to-leaf, terminate, claims-summary) must
+        /// coalesce silently when the input is stable — only the first call should
+        /// emit them, repeats with the same state-key must be suppressed via
+        /// VerboseOnChange.
+        /// </summary>
+        [Fact]
+        public void RepeatedCalls_StableInput_DoNotRespamDiagnostics()
+        {
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
+                terminal: TerminalState.Destroyed, parentBpId: "bp-dock");
+            var r1LeafB = MakeRecording("R1-leafB", 200, 1060, 1120,
+                terminal: TerminalState.Landed, parentBpId: "bp-dock");
+            var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf", "R1-leafB" });
+            var tree = MakeTree("tree-1", new[] { r1, r1Leaf, r1LeafB },
+                new[] { dockBp });
+            var trees = new List<RecordingTree> { tree };
+
+            // Warm-up call seeds VerboseOnChange state and emits each diagnostic once.
+            GhostChainWalker.ComputeAllGhostChains(trees, 900);
+            logLines.Clear();
+
+            // Subsequent calls with identical input must emit zero new lines for the
+            // per-frame-spammy diagnostics. Suppressed counters absorb the repeats.
+            for (int i = 0; i < 8; i++)
+                GhostChainWalker.ComputeAllGhostChains(trees, 900);
+
+            int spamCount = 0;
+            foreach (var l in logLines)
+            {
+                if (!l.Contains("[ChainWalker]")) continue;
+                if (l.Contains("claimed by tree=")) spamCount++;
+                else if (l.Contains("Chain built:")) spamCount++;
+                else if (l.Contains("WalkToLeaf: reached leaf=")) spamCount++;
+                else if (l.Contains("ResolveTermination:") && l.Contains("marked terminated")) spamCount++;
+                else if (l.Contains("Found claims for")) spamCount++;
+                else if (l.Contains("HasGhostingTriggerEvents:")) spamCount++;
+            }
+
+            Assert.Equal(0, spamCount);
+        }
+
         #endregion
 
         #region IsIntermediateChainLink — null/empty safety

@@ -50,6 +50,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Tracking Station with a ghost selected no longer floods `KSP.log` — the chain-walk diagnostic lines (`HasGhostingTriggerEvents`, `Vessel PID claimed`, `WalkToLeaf`, `ResolveTermination`, `Chain built`, `Found claims`) now coalesce silently when the chain state is unchanged, so per-frame `RefreshGhostActionCache` calls stop multiplying into ~30 verbose lines per frame.
 - Tracking Station ghost-detail panel now matches the rest of the Parsek window family (opaque dark style, consistent title font / padding) and no longer flickers; the always-disabled stock `Fly` / `Delete` / `Recover` buttons are gone, leaving `Materialize` on its own row with a clear hint of what it does.
 - Custom ghost map icons, ghost labels, and Parsek windows now hide while the Esc / pause overlay is open in flight, KSC, and Tracking Station, so they no longer punch through the pause menu.
 

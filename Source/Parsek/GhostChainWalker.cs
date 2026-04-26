@@ -75,8 +75,11 @@ namespace Parsek
                 return new Dictionary<uint, GhostChain>();
             }
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
+            ParsekLog.VerboseOnChange(Tag,
+                identity: "claims-summary",
+                stateKey: string.Format(ic, "{0}|{1}",
+                    claimsByPid.Count, committedTrees.Count),
+                message: string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
                     claimsByPid.Count, committedTrees.Count));
 
             // Step 4: Build chains from sorted claims
@@ -108,8 +111,12 @@ namespace Parsek
                 var chain = kvp.Value;
                 ResolveTermination(chain, committedTrees);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "chain|{0}", chain.OriginalVesselPid),
+                    stateKey: string.Format(ic, "{0}|{1}|{2:F1}|{3}",
+                        chain.Links.Count,
+                        chain.TipRecordingId ?? "null", chain.SpawnUT, chain.IsTerminated),
+                    message: string.Format(ic,
                         "Chain built: vessel={0} links={1} tip={2} spawnUT={3:F1} terminated={4}",
                         chain.OriginalVesselPid, chain.Links.Count,
                         chain.TipRecordingId ?? "null", chain.SpawnUT, chain.IsTerminated));
@@ -253,8 +260,11 @@ namespace Parsek
                 }
                 list.Add(link);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "claim|{0}|{1}", pid, tree.Id),
+                    stateKey: string.Format(ic, "{0}|{1:F1}|{2}",
+                        interactionType, bp.UT, bp.Id),
+                    message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via {2} at UT={3:F1}",
                         pid, tree.Id, interactionType, bp.UT));
             }
@@ -314,8 +324,10 @@ namespace Parsek
                 }
                 list.Add(link);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "claim-bg|{0}|{1}", pid, tree.Id),
+                    stateKey: string.Format(ic, "{0}|{1:F1}", rec.RecordingId, rec.StartUT),
+                    message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via BACKGROUND_EVENT at UT={2:F1}",
                         pid, tree.Id, rec.StartUT));
             }
@@ -617,8 +629,10 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
+            ParsekLog.VerboseOnChange(Tag,
+                identity: string.Format(ic, "walk|{0}", rec.RecordingId),
+                stateKey: string.Format(ic, "{0}|{1}", current.RecordingId, steps),
+                message: string.Format(ic,
                     "WalkToLeaf: reached leaf={0} after {1} steps from start={2}",
                     current.RecordingId, steps, rec.RecordingId));
             return current;
@@ -657,8 +671,10 @@ namespace Parsek
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered)
                 {
                     chain.IsTerminated = true;
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic, "terminate|{0}", chain.OriginalVesselPid),
+                        stateKey: string.Format(ic, "{0}|{1}", chain.TipRecordingId, ts),
+                        message: string.Format(ic,
                             "ResolveTermination: vessel={0} tip={1} terminalState={2} — marked terminated",
                             chain.OriginalVesselPid, chain.TipRecordingId, ts));
                 }

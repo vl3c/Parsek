@@ -2991,6 +2991,81 @@ flipped to assert Verbose for `alreadyClassified=1, newlyClassified=0`.
 
 ---
 
+## ~~624. Log spam: ChainWalker emits ~30 verbose lines per frame from `ParsekTrackingStation.RefreshGhostActionCache` while a ghost is selected~~
+
+**Source:** `logs/2026-04-26_2301_tracking-station-ui-and-esc-menu/KSP.log`.
+KSP.log was 26 MB / 160,108 lines, of which 134,509 (84%) were
+`[ChainWalker]` verbose lines. Steady-state shape, repeated every
+Update tick over ~3 minutes:
+
+```
+[Parsek][VERBOSE][ChainWalker] HasGhostingTriggerEvents: rec=… found=True (scanned 8 part events, 0 segment events)
+[Parsek][VERBOSE][ChainWalker] Vessel PID=… claimed by tree=… via BACKGROUND_EVENT at UT=21.8
+[Parsek][VERBOSE][ChainWalker] WalkToLeaf: reached leaf=… after 0 steps from start=…
+[Parsek][VERBOSE][ChainWalker] ResolveTermination: vessel=… tip=… terminalState=Destroyed — marked terminated
+[Parsek][VERBOSE][ChainWalker] Chain built: vessel=… links=1 tip=… spawnUT=… terminated=True
+[Parsek][VERBOSE][ChainWalker] Found claims for 6 vessel(s) across 1 committed trees
+```
+
+Counts (single playtest):
+
+```bash
+grep -c "\[ChainWalker\]" KSP.log                 # 134509
+grep -c "WalkToLeaf: reached leaf="  KSP.log      # 26034 (×6 vessels)
+grep -c "Found claims for"           KSP.log      # 4339 (calls/sec ≈ 22 = per-frame)
+```
+
+**Cause:** `ParsekTrackingStation.Update` calls
+`RefreshGhostActionCache()` every frame while a ghost is selected
+(`ParsekTrackingStation.cs:259`). The cache itself is `Time.frameCount`
+gated to one rebuild per frame, but the rebuild dispatches to
+`GhostChainWalker.ComputeAllGhostChains`, which used raw
+`ParsekLog.Verbose` for six per-vessel/per-recording diagnostic lines
+(`HasGhostingTriggerEvents` in `GhostingTriggerClassifier.cs:175`,
+`Vessel PID claimed` × 2 in `GhostChainWalker.cs:256`/`:317`,
+`WalkToLeaf reached leaf` at `:620`, `ResolveTermination` at `:660`,
+`Chain built` at `:111`, plus the `Found claims` summary at `:78`).
+With ~6 vessels in claims, a single per-frame call fanned out to ~30
+verbose lines, dominating every tracking-station session that had a
+selected ghost.
+
+**Resolution (2026-04-26):** Routed all six diagnostic emissions
+through `ParsekLog.VerboseOnChange` with state keys that capture the
+decision tuple:
+
+- `HasGhostingTriggerEvents` — identity `trigger|<recId>`,
+  state `(found, partCount, segCount)`.
+- `Vessel PID claimed via {Dock|Board|Undock|EVA|JointBreak}` —
+  identity `claim|<pid>|<treeId>`, state `(interactionType, bp.UT, bpId)`.
+- `Vessel PID claimed via BACKGROUND_EVENT` — identity
+  `claim-bg|<pid>|<treeId>`, state `(rec.RecordingId, rec.StartUT)`.
+- `WalkToLeaf reached leaf` — identity `walk|<startId>`,
+  state `(leafId, steps)`.
+- `ResolveTermination marked terminated` — identity `terminate|<pid>`,
+  state `(tipId, terminalState)`.
+- `Chain built` — identity `chain|<pid>`,
+  state `(links, tip, spawnUT, terminated)`.
+- `Found claims for N vessel(s) across N committed trees` — identity
+  `claims-summary`, state `(Nvessels, Ntrees)`.
+
+Stable per-frame rebuilds (the dominant case in the tracking station)
+now emit each diagnostic exactly once, then stay completely silent
+across identical-state repeats; the next genuine state flip surfaces
+`| suppressed=N` to confirm coalescing happened.
+
+Cold paths (`Warn` for missing parents, `Verbose` for null-tree /
+unfound-child fallbacks) remain raw `Verbose` since they are decision
+flips rather than per-frame stable repeats. Regression coverage:
+`GhostChainWalkerTests.RepeatedCalls_StableInput_DoNotRespamDiagnostics`
+(8 repeat calls after warm-up emit zero new spam lines), and
+`ChainSaveLoadTests.DeterministicReDerivation_StableInput_ReturnsIdenticalChains`
+flipped from log-count assertion to chain-result equivalence so the
+determinism guarantee survives the coalescing change.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
 ## ~~607. Misleading `Strip left N pre-existing vessel(s)` WARN reports stale, deduped count after post-supplement kill~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906-12907`:
