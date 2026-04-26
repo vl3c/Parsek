@@ -31,6 +31,10 @@ All notable changes to Parsek are documented here.
 - Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
 - Continued refactor-4 (Pass 2) with a behavior-neutral `SidecarFileCommitBatch` extraction: staged sidecar write/delete commit, rollback, and artifact cleanup now live in a focused helper while preserving the `[RecordingStore]` log tag, per-step rollback semantics from `#366`, sidecar epoch ordering, and `FilesDirty` mutation order.
 
+### Documentation
+
+- Added `docs/dev/observability-audit-2026-04-26.md` and `docs/dev/plan-observability-logging-visibility.md`, a full logging-coverage audit plus phased implementation plan covering spam controls, silent skip gates, persistence/rewind context gaps, UI/map diagnostics, and follow-up test-contract work needed to keep Parsek decisions reconstructable from `KSP.log`.
+
 ### Enhancements
 
 - `#541` Main-window navigation labels now keep `Kerbals` count-free and shorten `Career State` to `Career`, leaving the detailed roster totals inside the destination windows instead of on the launch surface.
