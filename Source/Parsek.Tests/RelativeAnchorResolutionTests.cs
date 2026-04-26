@@ -113,13 +113,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldBypassLiveAnchorForActiveReFly_SamePidButNotParent_ReturnsFalse()
+        public void ShouldBypassLiveAnchorForActiveReFly_SamePidSiblingChain_ReturnsTrue()
         {
-            // Same pid alone is too broad: a sibling/rendezvous recording can
-            // legitimately be anchored to the active vessel. Only ghosts in the
-            // active Re-Fly recording's parent chain should bypass the live
-            // anchor and reconstruct from recorded motion.
-            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+            // Repro for KSP.log 2026-04-26 a0d14b08 (Kerbal X upper stage):
+            // a sibling chain (NOT a parent of the re-flown probe) carried
+            // Relative sections anchored to the probe's PID. The earlier
+            // parent-chain-only restriction left those sections decoding
+            // against the player's live probe pose, producing visible
+            // sub-surface jumps and km-scale localOffset deltas. Match by
+            // anchorPid alone (modulo the explicit self-link guard) is
+            // correct: the only legitimately-Relative-anchored case for the
+            // active Re-Fly PID is the active recording itself, which the
+            // string-equality clause below filters out.
+            Assert.True(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
                 anchorPid: 698412738u,
                 activeReFlyPid: 698412738u,
                 victimRecordingId: "sibling-stage",

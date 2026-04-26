@@ -15852,14 +15852,17 @@ namespace Parsek
             if (anchorVesselId != activeReFlyPid)
                 return false;
 
+            // Compute the parent-chain hint for telemetry only — the bypass
+            // applies to any victim recording whose section anchor is the
+            // active Re-Fly PID, regardless of topological relationship. See
+            // RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly's
+            // docstring (PR after the 2026-04-26 sibling-chain repro).
             bool victimIsParentOfActiveReFly =
                 GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                     victimRecordingId,
                     marker.ActiveReFlyRecordingId,
                     searchTrees,
                     out _);
-            if (!victimIsParentOfActiveReFly)
-                return false;
 
             return RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
                 anchorVesselId,

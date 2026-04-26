@@ -70,8 +70,32 @@ namespace Parsek
         /// Returns true when a relative section's live anchor pid is the active
         /// Re-Fly target and therefore must not drive another recording's ghost.
         /// Those ghosts should be reconstructed from the recorded anchor
-        /// trajectory so their path remains ground-relative instead of becoming
-        /// locked to the player's current Re-Fly vessel.
+        /// trajectory (or the v7 absolute shadow) so their path remains
+        /// ground-relative instead of becoming locked to the player's current
+        /// Re-Fly vessel.
+        ///
+        /// <para>
+        /// The bypass is unconditional on the victim's topological relationship
+        /// to the active Re-Fly target: parent chains, sibling chains, and
+        /// cousin chains can all carry sections anchored to the same physical
+        /// vessel that is now being re-flown. Example from KSP.log
+        /// 2026-04-26: recording <c>a0d14b08</c> (Kerbal X upper stage) is a
+        /// sibling chain of the re-flown probe (<c>f3f1f2e6</c>), but its
+        /// post-rail-exit Relative sections are anchored to the probe's PID.
+        /// Without bypassing for sibling-chain victims, those sections decode
+        /// against the player's live probe pose and produce sub-surface jumps
+        /// of hundreds of metres. The earlier parent-chain-only gate was a
+        /// missed-case from PR #594; the only legitimate exclusion is the
+        /// active Re-Fly recording itself (the live vessel is correct for
+        /// that case by definition).
+        /// </para>
+        ///
+        /// <para>
+        /// <paramref name="victimIsParentOfActiveReFly"/> is retained as an
+        /// observability hint on the call site logs (parent-chain bypasses
+        /// are still the most common case and worth distinguishing in
+        /// telemetry); it does not gate the decision.
+        /// </para>
         /// </summary>
         internal static bool ShouldBypassLiveAnchorForActiveReFly(
             uint anchorPid,
@@ -80,14 +104,15 @@ namespace Parsek
             string activeReFlyRecordingId,
             bool victimIsParentOfActiveReFly)
         {
+            // victimIsParentOfActiveReFly is intentionally unused for the
+            // gate — see the docstring for why.
+            _ = victimIsParentOfActiveReFly;
             if (anchorPid == 0u || activeReFlyPid == 0u)
                 return false;
             if (anchorPid != activeReFlyPid)
                 return false;
             if (string.IsNullOrEmpty(victimRecordingId)
                 || string.IsNullOrEmpty(activeReFlyRecordingId))
-                return false;
-            if (!victimIsParentOfActiveReFly)
                 return false;
             return !string.Equals(
                 victimRecordingId,

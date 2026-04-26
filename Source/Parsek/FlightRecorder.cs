@@ -4295,6 +4295,24 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Rebuild treeVesselPids on every anchor-detection call. The
+                // initial cache from InitializeEnvironmentAndAnchorTracking is
+                // built ONCE at recording start, before staging spawns new
+                // chain members (probe, debris) — so a vessel that joins the
+                // tree mid-flight stays absent from the cached set forever.
+                // Concrete consequence (KSP.log 2026-04-26 a0d14b08 sections
+                // at UT 438.73 / 442.21): the probe (PID 2450432355) joined
+                // the tree at UT 140.79 but the upper stage's
+                // treeVesselPids was frozen at recording start, so when the
+                // upper stage came off rails at UT 438.71 the probe was
+                // selected as anchor again (cache said "non-tree, eligible")
+                // and the next 18 s were captured Relative against a vessel
+                // whose live pose during Re-Fly playback no longer matches
+                // the recorded one. The rebuild is O(tree members + bg map
+                // entries) and runs once per anchor-detection tick — same
+                // cost as BuildVesselInfoList itself, so amortised cost is
+                // negligible compared to physics frame work.
+                treeVesselPids = BuildTreeVesselPids();
                 var vesselInfos = BuildVesselInfoList();
                 var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(
                     RecordingVesselId, (Vector3d)v.transform.position, vesselInfos, treeVesselPids);
@@ -5264,8 +5282,54 @@ namespace Parsek
             if (resumeRef == ReferenceFrame.Relative)
             {
                 resumeAnchor = resumeSection.HasValue ? resumeSection.Value.anchorVesselId : currentAnchorPid;
-                isRelativeMode = resumeAnchor != 0;
-                currentAnchorPid = resumeAnchor;
+
+                // Validate the resume anchor before re-entering Relative. The
+                // saved anchor PID may now belong to a tree member (post-staging
+                // sibling) or to a vessel that's no longer loaded (destroyed,
+                // unloaded after time warp). In either case, decoded relative
+                // offsets at playback would multiply against the wrong pose
+                // and produce visible drift / sub-surface jumps. Same root
+                // cause as the freshly-rebuilt treeVesselPids in
+                // UpdateAnchorDetection, applied here at the resume seam so a
+                // stale-anchor restore downgrades cleanly to Absolute and
+                // lets the next anchor-detection tick re-pick a valid one.
+                //
+                // Skip the safety check when the scene's vessel list is
+                // unqueryable (xUnit / pre-FlightReady scene loads): we
+                // cannot prove the anchor is gone, so trust the saved
+                // metadata. Production paths that legitimately reach this
+                // method have FlightReady scene state available.
+                bool sceneVesselsQueryable = TryGetFlightGlobalsVesselsForResumeValidation() != null;
+                bool anchorIsTreeMember = false;
+                bool anchorLoaded = true;
+                if (sceneVesselsQueryable && resumeAnchor != 0)
+                {
+                    var freshTreePids = BuildTreeVesselPids();
+                    if (freshTreePids != null && freshTreePids.Contains(resumeAnchor))
+                        anchorIsTreeMember = true;
+                    Vessel anchorVessel = FindVesselByPid(resumeAnchor);
+                    anchorLoaded = anchorVessel != null && anchorVessel.loaded;
+                }
+                if (resumeAnchor == 0
+                    || (sceneVesselsQueryable && (anchorIsTreeMember || !anchorLoaded)))
+                {
+                    if (resumeAnchor != 0)
+                    {
+                        ParsekLog.Info("Anchor",
+                            $"RELATIVE resume rejected: anchorPid={resumeAnchor} " +
+                            $"treeMember={anchorIsTreeMember} loaded={anchorLoaded} " +
+                            $"vesselPid={RecordingVesselId} — starting ABSOLUTE section instead");
+                    }
+                    resumeAnchor = 0;
+                    resumeRef = ReferenceFrame.Absolute;
+                    isRelativeMode = false;
+                    currentAnchorPid = 0;
+                }
+                else
+                {
+                    isRelativeMode = true;
+                    currentAnchorPid = resumeAnchor;
+                }
             }
             else
             {
@@ -5279,6 +5343,46 @@ namespace Parsek
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
+
+            // Frame-mismatch repair when stale-anchor validation downgraded a
+            // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
+            // Relative section's last frame, whose lat/lon/alt fields hold
+            // anchor-local Cartesian metres (NOT body-fixed surface coords).
+            // Seeding it into a freshly-opened ABSOLUTE section would write
+            // a meaningless metre-scale "lat/lon/alt" sample at the seam,
+            // re-introducing the corrupted-trajectory class this PR closes.
+            // The parallel v7 absolute shadow already carries the focused
+            // vessel's true body-fixed position at the same UT — swap
+            // boundaryPoint to that shadow value so the new ABSOLUTE
+            // section's first sample matches its declared contract. Legacy
+            // recordings without an absolute shadow (v5 and earlier
+            // RELATIVE) fall through with no boundary seed; the next normal
+            // sample seeds the ABSOLUTE section cleanly.
+            bool downgradedRelativeToAbsolute = resumeSection.HasValue
+                && resumeSection.Value.referenceFrame == ReferenceFrame.Relative
+                && resumeRef == ReferenceFrame.Absolute;
+            if (downgradedRelativeToAbsolute)
+            {
+                if (absoluteBoundaryPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: substituting absolute-shadow boundary point " +
+                        $"at ut={absoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"in place of relative-frame boundary point");
+                    boundaryPoint = absoluteBoundaryPoint;
+                }
+                else
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no absolute-shadow " +
+                        $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
+                    boundaryPoint = null;
+                }
+                // The new section is ABSOLUTE, so absoluteBoundaryPoint will
+                // be ignored by SeedBoundaryPoint anyway — clear it for
+                // clarity.
+                absoluteBoundaryPoint = null;
+            }
 
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
@@ -6646,6 +6750,40 @@ namespace Parsek
         {
             try { return FlightGlobals.Vessels; }
             catch (TypeInitializationException) { return null; }
+        }
+
+        /// <summary>
+        /// Used by <see cref="RestoreTrackSectionAfterFalseAlarm"/> to decide
+        /// whether the scene is ready enough to validate the resumed
+        /// Relative-mode anchor. Returns null when the scene's vessel list is
+        /// unqueryable (xUnit, pre-FlightReady), in which case the resume
+        /// path skips the safety check and trusts the saved anchor metadata.
+        /// </summary>
+        private static List<Vessel> TryGetFlightGlobalsVesselsForResumeValidation()
+        {
+            if (resumeValidationVesselsOverrideForTesting != null)
+                return resumeValidationVesselsOverrideForTesting();
+            return TryGetFlightGlobalsVessels();
+        }
+
+        // Test-only seam: lets xUnit drive the stale-anchor downgrade branch
+        // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
+        // production this stays null and the helper falls back to
+        // TryGetFlightGlobalsVessels(), which returns null in xUnit and so
+        // skips the safety check entirely. Returning a non-null (possibly
+        // empty) list from the override forces the validation path to run
+        // and treat the resume anchor as unloaded → downgrade to Absolute.
+        internal static System.Func<List<Vessel>> resumeValidationVesselsOverrideForTesting;
+
+        internal static void SetResumeValidationVesselsOverrideForTesting(
+            System.Func<List<Vessel>> @override)
+        {
+            resumeValidationVesselsOverrideForTesting = @override;
+        }
+
+        internal static void ResetResumeValidationVesselsOverrideForTesting()
+        {
+            resumeValidationVesselsOverrideForTesting = null;
         }
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)

@@ -811,6 +811,90 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeSessionSuppressedSubtree_CrossChainSamePidPostRewindPeer_Included()
+        {
+            // Repro for KSP.log 2026-04-26 23:53:33 a0d14b08/29f1d9a8: an
+            // in-place Re-Fly that crossed staging produced two NEW recordings
+            // sharing the same VesselPersistentId as the origin (the live
+            // probe being re-flown), in DIFFERENT ChainIds. Without the
+            // cross-chain same-PID walk, EnqueueChainSiblings only picks up
+            // members of the origin's own chain, the destroyed sibling stays
+            // out of the closure, AppendRelations writes 0 supersede rows,
+            // and the destroyed run remains visible in the mission list +
+            // ghost playback.
+            const uint sharedPid = 2450432355u;
+            var tree = new RecordingTree { Id = "tree_kx", TreeName = "Kerbal X" };
+
+            var origin = new Recording
+            {
+                RecordingId = "f3f1f2e6", VesselName = "Kerbal X Probe (atmo)",
+                MergeState = MergeState.Immutable, TerminalStateValue = null,
+                TreeId = "tree_kx", ChainId = "chain_new", ChainIndex = 0,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 140.79,
+            };
+            var newChainTip = new Recording
+            {
+                RecordingId = "0a83aee0", VesselName = "Kerbal X Probe (exo)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Orbiting,
+                TreeId = "tree_kx", ChainId = "chain_new", ChainIndex = 1,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 163.27,
+            };
+            // Cross-chain destroyed sibling — same PID, started AFTER rewind UT
+            // (140.79 -> InvokedUT 141.36 -> sibling start 162.10).
+            var crossChainDestroyed = new Recording
+            {
+                RecordingId = "29f1d9a8", VesselName = "Kerbal X Probe (destroyed)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed,
+                TreeId = "tree_kx", ChainId = "chain_old", ChainIndex = 1,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 162.10,
+            };
+            // Pre-rewind history for the same PID — must NOT enter the closure.
+            var preRewindOrigin = new Recording
+            {
+                RecordingId = "rec_pre_rewind", VesselName = "Kerbal X Probe (pre-rewind)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed,
+                TreeId = "tree_kx", ChainId = "chain_pre", ChainIndex = 0,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 100.0,
+            };
+
+            tree.AddOrReplaceRecording(origin);
+            tree.AddOrReplaceRecording(newChainTip);
+            tree.AddOrReplaceRecording(crossChainDestroyed);
+            tree.AddOrReplaceRecording(preRewindOrigin);
+            RecordingStore.CommittedTrees.Add(tree);
+            // Closure walk reads RecordingStore.CommittedRecordings (the flat
+            // list) to build its recId->Recording map; tree-only registration
+            // would bypass it.
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddCommittedInternal(newChainTip);
+            RecordingStore.AddCommittedInternal(crossChainDestroyed);
+            RecordingStore.AddCommittedInternal(preRewindOrigin);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_test",
+                TreeId = "tree_kx",
+                ActiveReFlyRecordingId = "f3f1f2e6",
+                OriginChildRecordingId = "f3f1f2e6",
+                RewindPointId = "rp_test",
+                InvokedUT = 141.36,
+            };
+            MakeScenario(marker: marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("f3f1f2e6", closure);              // origin always
+            Assert.Contains("0a83aee0", closure);              // same-chain sibling
+            Assert.Contains("29f1d9a8", closure);              // <-- the regression: cross-chain same-PID post-rewind sibling
+            Assert.DoesNotContain("rec_pre_rewind", closure);  // pre-rewind history must stay out
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("pidPeersAdded="));
+        }
+
+        [Fact]
         public void ComputeELS_CacheInvalidatedOnTombstoneBump()
         {
             var a = new GameAction
