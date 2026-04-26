@@ -459,6 +459,10 @@ namespace Parsek
         // those have no resolvable anchor by construction and are unreachable
         // from the new path).
         internal const string TrackingStationGhostSkipRelativeAnchorUnresolved = "relative-anchor-unresolved";
+        internal const string TrackingStationGhostSkipActiveReFlyRelativeLookahead =
+            "active-refly-relative-anchor-lookahead";
+        internal const string TrackingStationGhostSkipActiveReFlyRelativeUpdate =
+            "active-refly-relative-anchor-update";
         internal const string TrackingStationSpawnSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
@@ -650,6 +654,9 @@ namespace Parsek
 
         private static readonly Dictionary<int, int> trackingStationStateVectorCachedIndices =
             new Dictionary<int, int>();
+
+        private static readonly Dictionary<int, string> activeReFlyDeferredStateVectorGhostSessions =
+            new Dictionary<int, string>();
 
         /// <summary>
         /// Stable reverse lookup: ghost vessel PID -> recording ID.
@@ -937,6 +944,204 @@ namespace Parsek
             // load-window vs steady-state distinction is auditable.
             suppressReason = "refly-relative-anchor=active relationship=parent activePidSource="
                 + activePidSource + " walkTrace=(" + walkTrace + ")";
+            return true;
+        }
+
+        internal static bool ShouldSuppressStateVectorProtoVesselForActiveReFlyAtCreateTime(
+            ReFlySessionMarker marker,
+            string resolutionBranch,
+            uint resolutionAnchorPid,
+            IPlaybackTrajectory traj,
+            double currentUT,
+            string victimRecordingId,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            out string suppressReason)
+        {
+            if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                    marker,
+                    resolutionBranch,
+                    resolutionAnchorPid,
+                    victimRecordingId,
+                    committedRecordings,
+                    committedTrees,
+                    out suppressReason))
+            {
+                return true;
+            }
+
+            string directReason = suppressReason;
+            if (TryFindActiveReFlyRelativeLookaheadSuppression(
+                    marker,
+                    traj,
+                    currentUT,
+                    victimRecordingId,
+                    committedRecordings,
+                    committedTrees,
+                    out string lookaheadReason))
+            {
+                suppressReason = string.Format(ic,
+                    "{0} currentBranch={1} direct=({2})",
+                    lookaheadReason,
+                    resolutionBranch ?? "(null)",
+                    directReason ?? "(none)");
+                return true;
+            }
+
+            suppressReason = string.Format(ic,
+                "{0} lookahead=({1})",
+                directReason ?? "not-suppressed",
+                lookaheadReason ?? "(none)");
+            return false;
+        }
+
+        internal static bool ShouldRemoveStateVectorProtoVesselForActiveReFlyOnUpdate(
+            ReFlySessionMarker marker,
+            string resolutionBranch,
+            uint resolutionAnchorPid,
+            string victimRecordingId,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            out string suppressReason)
+        {
+            if (!ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                    marker,
+                    resolutionBranch,
+                    resolutionAnchorPid,
+                    victimRecordingId,
+                    committedRecordings,
+                    committedTrees,
+                    out suppressReason))
+            {
+                return false;
+            }
+
+            suppressReason = TrackingStationGhostSkipActiveReFlyRelativeUpdate
+                + " " + suppressReason;
+            return true;
+        }
+
+        private static bool TryFindActiveReFlyRelativeLookaheadSuppression(
+            ReFlySessionMarker marker,
+            IPlaybackTrajectory traj,
+            double currentUT,
+            string victimRecordingId,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            out string suppressReason)
+        {
+            suppressReason = "lookahead-no-track-sections";
+
+            List<TrackSection> sections = traj?.TrackSections;
+            if (sections == null || sections.Count == 0)
+                return false;
+
+            int candidates = 0;
+            int skippedPast = 0;
+            int skippedNoAnchor = 0;
+            string firstReject = null;
+            string lastReject = null;
+            bool currentUtUsable = !double.IsNaN(currentUT) && !double.IsInfinity(currentUT);
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                TrackSection section = sections[i];
+                if (section.referenceFrame != ReferenceFrame.Relative)
+                    continue;
+
+                if (section.anchorVesselId == 0u)
+                {
+                    skippedNoAnchor++;
+                    continue;
+                }
+
+                if (currentUtUsable
+                    && !double.IsNaN(section.endUT)
+                    && !double.IsInfinity(section.endUT)
+                    && section.endUT < currentUT)
+                {
+                    skippedPast++;
+                    continue;
+                }
+
+                candidates++;
+                if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                        marker,
+                        "relative",
+                        section.anchorVesselId,
+                        victimRecordingId,
+                        committedRecordings,
+                        committedTrees,
+                        out string candidateReason))
+                {
+                    suppressReason = string.Format(ic,
+                        "{0} sectionIndex={1} sectionUT={2:F1}-{3:F1} " +
+                        "sectionAnchorPid={4} currentUT={5:F1} reason=({6})",
+                        TrackingStationGhostSkipActiveReFlyRelativeLookahead,
+                        i,
+                        section.startUT,
+                        section.endUT,
+                        section.anchorVesselId,
+                        currentUT,
+                        candidateReason ?? "(none)");
+                    return true;
+                }
+
+                if (firstReject == null)
+                    firstReject = candidateReason;
+                lastReject = candidateReason;
+            }
+
+            suppressReason = string.Format(ic,
+                "lookahead-no-active-refly-relative-anchor candidates={0} " +
+                "skippedPast={1} skippedNoAnchor={2} firstReject=({3}) lastReject=({4})",
+                candidates,
+                skippedPast,
+                skippedNoAnchor,
+                firstReject ?? "(none)",
+                lastReject ?? "(none)");
+            return false;
+        }
+
+        private static string GetActiveReFlyDeferredSessionKey(ReFlySessionMarker marker)
+        {
+            if (marker == null)
+                return null;
+            if (!string.IsNullOrEmpty(marker.SessionId))
+                return marker.SessionId;
+            return marker.ActiveReFlyRecordingId;
+        }
+
+        private static void MarkStateVectorGhostDeferredForActiveReFly(int recordingIndex)
+        {
+            string sessionKey = GetActiveReFlyDeferredSessionKey(SessionSuppressionState.ActiveMarker);
+            if (string.IsNullOrEmpty(sessionKey))
+                return;
+            activeReFlyDeferredStateVectorGhostSessions[recordingIndex] = sessionKey;
+        }
+
+        private static bool IsStateVectorGhostDeferredForActiveReFlySession(
+            int recordingIndex,
+            out string sessionKey)
+        {
+            sessionKey = null;
+            if (!activeReFlyDeferredStateVectorGhostSessions.TryGetValue(
+                    recordingIndex,
+                    out string storedSessionKey))
+            {
+                return false;
+            }
+
+            string activeSessionKey =
+                GetActiveReFlyDeferredSessionKey(SessionSuppressionState.ActiveMarker);
+            if (string.IsNullOrEmpty(activeSessionKey)
+                || !string.Equals(storedSessionKey, activeSessionKey, StringComparison.Ordinal))
+            {
+                activeReFlyDeferredStateVectorGhostSessions.Remove(recordingIndex);
+                return false;
+            }
+
+            sessionKey = storedSessionKey;
             return true;
         }
 
@@ -2520,6 +2725,7 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            activeReFlyDeferredStateVectorGhostSessions.Clear();
             lastKnownByRecordingIndex.Clear();
             lastKnownByChainPid.Clear();
 
@@ -4221,7 +4427,11 @@ namespace Parsek
                 if (fromCheckpoint)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT);
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                    }
                     continue;
                 }
 
@@ -4270,7 +4480,11 @@ namespace Parsek
                         }
                     }
 
-                    UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                    }
                     continue;
                 }
 
@@ -4739,6 +4953,27 @@ namespace Parsek
                 return null;
             }
 
+            if (IsStateVectorGhostDeferredForActiveReFlySession(
+                    recordingIndex,
+                    out string deferredSessionKey))
+            {
+                retryLater = true;
+                var deferred = NewDecisionFields("create-state-vector-deferred");
+                deferred.RecordingId = traj.RecordingId;
+                deferred.RecordingIndex = recordingIndex;
+                deferred.VesselName = traj.VesselName;
+                deferred.Source = "StateVector";
+                deferred.Body = point.bodyName;
+                deferred.StateVecAlt = point.altitude;
+                deferred.StateVecSpeed = point.velocity.magnitude;
+                deferred.UT = ut;
+                deferred.Reason = string.Format(ic,
+                    "active-refly-deferred-session session={0} retryLater=true",
+                    deferredSessionKey);
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(deferred));
+                return null;
+            }
+
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
 
@@ -4835,15 +5070,18 @@ namespace Parsek
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
                 RecordingStore.CommittedTrees,
                 RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
+            if (ShouldSuppressStateVectorProtoVesselForActiveReFlyAtCreateTime(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
                     resolution.AnchorPid,
+                    traj,
+                    ut,
                     traj.RecordingId,
                     RecordingStore.CommittedRecordings,
                     searchTrees,
                     out string activeReFlySuppressReason))
             {
+                MarkStateVectorGhostDeferredForActiveReFly(recordingIndex);
                 retryLater = true;
                 var suppressed = NewDecisionFields("create-state-vector-suppressed");
                 suppressed.RecordingId = traj.RecordingId;
@@ -4989,7 +5227,7 @@ namespace Parsek
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
         /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
         /// </summary>
-        internal static void UpdateGhostOrbitFromStateVectors(
+        internal static bool UpdateGhostOrbitFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
             TrajectoryPoint point,
             double ut,
@@ -4997,7 +5235,7 @@ namespace Parsek
             string stateVectorUpdateReason = null)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
-                return;
+                return false;
 
             if (vessel.orbitDriver == null)
             {
@@ -5011,7 +5249,7 @@ namespace Parsek
                 miss.UT = ut;
                 miss.Reason = "no-orbit-driver";
                 ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
-                return;
+                return false;
             }
 
             CelestialBody body = FindBodyByName(point.bodyName);
@@ -5027,7 +5265,7 @@ namespace Parsek
                 miss.UT = ut;
                 miss.Reason = "body-not-found";
                 ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
-                return;
+                return false;
             }
 
             StateVectorWorldFrame resolution =
@@ -5052,7 +5290,7 @@ namespace Parsek
                 skip.UT = ut;
                 skip.Reason = resolution.FailureReason ?? "(null)";
                 ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
-                return;
+                return false;
             }
 
             // Compute optional anchor metadata for the structured line.
@@ -5066,6 +5304,43 @@ namespace Parsek
                     anchorPosForLog = anchorRef.GetWorldPos3D();
                     localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
                 }
+            }
+
+            IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
+                RecordingStore.CommittedTrees,
+                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (ShouldRemoveStateVectorProtoVesselForActiveReFlyOnUpdate(
+                    SessionSuppressionState.ActiveMarker,
+                    resolution.Branch,
+                    resolution.AnchorPid,
+                    traj?.RecordingId,
+                    RecordingStore.CommittedRecordings,
+                    searchTrees,
+                    out string activeReFlySuppressReason))
+            {
+                MarkStateVectorGhostDeferredForActiveReFly(recordingIndex);
+                var suppressed = NewDecisionFields("update-state-vector-suppressed");
+                suppressed.RecordingId = traj?.RecordingId;
+                suppressed.RecordingIndex = recordingIndex;
+                suppressed.VesselName = traj?.VesselName;
+                suppressed.Source = "StateVector";
+                suppressed.Branch = MapResolutionBranch(resolution.Branch);
+                suppressed.Body = point.bodyName;
+                suppressed.WorldPos = resolution.WorldPos;
+                suppressed.GhostPid = vessel.persistentId;
+                suppressed.AnchorPid = resolution.AnchorPid;
+                suppressed.AnchorPos = anchorPosForLog;
+                suppressed.LocalOffset = localOffsetForLog;
+                suppressed.StateVecAlt = point.altitude;
+                suppressed.StateVecSpeed = point.velocity.magnitude;
+                suppressed.UT = ut;
+                suppressed.Reason = string.Format(ic,
+                    "{0} sess={1} removeReason={2}",
+                    activeReFlySuppressReason,
+                    SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>",
+                    TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));
+                return true;
             }
 
             // SOI transition handling (same pattern as ApplyOrbitToVessel).
@@ -5138,6 +5413,7 @@ namespace Parsek
                 AnchorPid = resolution.AnchorPid,
                 LastUT = ut
             });
+            return false;
         }
 
         /// <summary>
@@ -5969,6 +6245,7 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            activeReFlyDeferredStateVectorGhostSessions.Clear();
             lastKnownByRecordingIndex.Clear();
             lastKnownByChainPid.Clear();
             lifecycleCreatedThisTick = 0;
@@ -6027,6 +6304,7 @@ namespace Parsek
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
+            activeReFlyDeferredStateVectorGhostSessions.Clear();
             lastKnownByRecordingIndex.Clear();
             lastKnownByChainPid.Clear();
 

@@ -1115,13 +1115,20 @@ namespace Parsek
 
                         if (source == TrackingStationGhostSource.StateVectorSoiGap)
                         {
-                            GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                            if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(
                                 idx,
                                 traj,
                                 soiGapPoint,
                                 currentUT,
                                 allowOrbitalCheckpointStateVector: true,
-                                stateVectorUpdateReason: "soi-gap-state-vector-fallback");
+                                stateVectorUpdateReason: "soi-gap-state-vector-fallback"))
+                            {
+                                GhostMapPresence.RemoveGhostVesselForRecording(
+                                    idx,
+                                    GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                                if (toReDefer == null) toReDefer = new List<int>();
+                                toReDefer.Add(idx);
+                            }
                             continue;
                         }
 
@@ -1175,7 +1182,14 @@ namespace Parsek
                         }
                     }
 
-                    GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT);
+                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT))
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(
+                            idx,
+                            GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                    }
                 }
 
                 if (toReDefer != null)
