@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading.
+- `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading. The retire now persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 

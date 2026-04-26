@@ -503,7 +503,7 @@ DedupeKey / FormatRetiredMessage) so the resolver decision is unit
 testable with an injectable resolver delegate, mirroring the existing
 `GhostMapPresence.AnchorResolvableForTesting` pattern.
 
-**Tests:** 16 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
+**Tests:** 21 cases in `Source/Parsek.Tests/RelativeAnchorResolutionTests.cs`
 covering: Decide outcomes (Resolved / Retired / pid==0 short-circuit /
 null resolver), DedupeKey uniqueness across (recIdx, pid) combos and high
 bit handling, FormatRetiredMessage greppable keyword + identifying field
@@ -515,7 +515,68 @@ scenario coverage (anchor still alive in post-rewind FlightGlobals -->
 Resolved with no spurious retirement; anchor erased --> Retired with no
 freeze-path reachable). The Outcome enum has a defensive shape test that
 locks the contract to exactly two values, blocking any future "partial
-positioning" outcome.
+positioning" outcome. The P1-fix follow-up adds 5 cases pinning the
+`ShouldSkipPostPositionPipeline` predicate (true/false round-trip + pure
+function), the `GhostPlaybackState.anchorRetiredThisFrame` default + reset
+through `ClearLoadedVisualReferences`, and a 3-frame integration scenario
+that mirrors the production engine + positioner contract: frame 1 sets
+the flag and emits the one-shot WARN, frame 2 re-enters the retire branch
+on the same key without re-emitting the WARN, frame 3 resolves the anchor
+and the gate lets the activation pipeline run again. In-game coverage
+(`Source/Parsek/InGameTests/RuntimeTests.cs`,
+`Bug613_RetiredAnchor_EndsFrameInactive_NoAppearance` /
+`Bug613_DeferredSyncWithResolvedAnchor_StillActivates` /
+`Bug613_PerFrameClear_StaleFlagDoesNotLeak`) drives a full
+`engine.UpdatePlayback` frame with a mock `IGhostPositioner` whose
+`InterpolateAndPositionRelative` mimics the production retire branch
+(`SetActive(false)` plus `state.anchorRetiredThisFrame = true`); the
+asserts pin `ghost.activeSelf == false`, `appearanceCount == 0`, and the
+absence of any `[GhostAppearance]` log line on a retired frame, plus the
+positive case where deferred-sync activation still flips the ghost active
+when the anchor is resolved.
+
+**P1 review narrative (PR #594):** The first commit retired the ghost
+correctly inside the positioner (`SetActive(false)` plus the WARN), but
+review noticed that in the same `engine.RenderInRangeGhost` frame
+`ActivateGhostVisualsIfNeeded` ran unconditionally after positioning and
+flipped the ghost back to active before the frame returned. The visible
+symptom was unchanged from the original bug B repro: a (0,0,0) ghost
+appearance for one rendered frame on every per-frame call inside the
+relative section. Two fix shapes were considered:
+
+- **Option (a):** thread an explicit out-parameter / return value
+  (`AnchorOutcome` enum) up through `InterpolateAndPositionRelative` and
+  `PositionLoopGhost` so the engine can branch directly on the decision.
+  Cleanest signal but five callsites in the engine (`RenderInRangeGhost`,
+  loop-playback main, loop-primary, loop-overlap, and the `WatchSync`
+  rebuild path) plus the loop-pause window each need to consume the new
+  shape, and the watch-sync path crosses an additional helper boundary
+  (`PositionLoadedGhostAtPlaybackUT`) that does not currently take the
+  positioner. Touches the `IGhostPositioner` interface contract.
+
+- **Option (b, shipped):** single `bool anchorRetiredThisFrame` on
+  `GhostPlaybackState`. Engine clears it before each per-frame call to
+  the positioner; positioner sets it true on the retire branch; the
+  engine's existing post-position pipeline reads it and skips the
+  visuals + activation + appearance steps. Pure predicate
+  `RelativeAnchorResolution.ShouldSkipPostPositionPipeline(bool)` named
+  the gate so the call sites are reviewable from xUnit. No
+  `IGhostPositioner` signature churn, no new event types, and the flag's
+  one-frame scope is self-documenting.
+
+The shipped fix gates six engine callsites (`RenderInRangeGhost` line
+~1035, loop-playback main line ~1457, `HandleLoopPauseWindow` line ~1865
+caught in the P1 second pass, primary-loop overlap line ~1659,
+`OverlapGhost` loop line ~1796, and the `SynchronizeLoadedGhostForWatch`
+watch-sync rebuild line ~3667). Each gate calls
+`ApplyFrameVisuals(skipPartEvents=true, suppressVisualFx=true)` to tear
+down any previously-emitting plumes/audio, then early-returns / falls
+through past `ActivateGhostVisualsIfNeeded` and `TrackGhostAppearance`.
+The retire branch in `ParsekFlight.InterpolateAndPositionRelative` and
+`PositionGhostRelativeAt` (the `PositionLoopGhost` callee) now takes an
+extra `GhostPlaybackState retireSignalState` argument that may be null in
+test fixtures that drive the method without a state object; the
+production callsites always pass the live state.
 
 **Status:** Open until merged.
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -259,6 +260,156 @@ namespace Parsek.Tests
                 (RelativeAnchorResolution.Outcome[])values);
             Assert.Contains(RelativeAnchorResolution.Outcome.Retired,
                 (RelativeAnchorResolution.Outcome[])values);
+        }
+
+        #endregion
+
+        #region ShouldSkipPostPositionPipeline (PR #594 P1 gate)
+
+        [Fact]
+        public void ShouldSkipPostPositionPipeline_FlagFalse_ReturnsFalse()
+        {
+            // Steady-state path: the relative positioner did not retire the
+            // ghost this frame, so the engine must run the full post-position
+            // pipeline (ApplyFrameVisuals, ActivateGhostVisualsIfNeeded,
+            // TrackGhostAppearance). Inverting the gate here would silently
+            // suppress every visible ghost.
+            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(false));
+        }
+
+        [Fact]
+        public void ShouldSkipPostPositionPipeline_FlagTrue_ReturnsTrue()
+        {
+            // Bug #613 retire path: the relative positioner hit the
+            // unresolvable-anchor branch and set state.anchorRetiredThisFrame.
+            // The engine must skip the post-position pipeline so the
+            // SetActive(false) call from the positioner is not undone the
+            // same frame by ActivateGhostVisualsIfNeeded.
+            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(true));
+        }
+
+        [Fact]
+        public void ShouldSkipPostPositionPipeline_IsPureFunction_NoSideEffects()
+        {
+            // Pin the predicate's purity: repeated calls with the same input
+            // must return the same value, with no static-state mutation.
+            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(false));
+            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(false));
+            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(true));
+            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(true));
+            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(false));
+            // No log line should have been emitted by the predicate itself --
+            // logging is the production caller's responsibility, not the
+            // pure-function gate's.
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("ShouldSkipPostPositionPipeline"));
+        }
+
+        #endregion
+
+        #region anchorRetiredThisFrame state-flag wiring
+
+        [Fact]
+        public void GhostPlaybackState_AnchorRetiredThisFrame_DefaultsToFalse()
+        {
+            // Fresh GhostPlaybackState must have the retire flag clear so the
+            // engine's first frame for a new ghost runs the full pipeline.
+            // ClearLoadedVisualReferences must also reset the flag --
+            // previous-frame leakage would suppress the next visible frame.
+            var state = new GhostPlaybackState();
+            Assert.False(state.anchorRetiredThisFrame);
+
+            state.anchorRetiredThisFrame = true;
+            state.ClearLoadedVisualReferences();
+            Assert.False(state.anchorRetiredThisFrame);
+        }
+
+        [Fact]
+        public void RetireBranch_LogsOnceAndGatesPipeline_SimulatedIntegration()
+        {
+            // Mirrors the production retire branch contract end-to-end without
+            // touching Unity:
+            //
+            //   1. ParsekFlight.InterpolateAndPositionRelative / PositionLoopGhost
+            //      ask RelativeAnchorResolution.Decide whether the recorded
+            //      anchor pid is live.
+            //   2. On Outcome.Retired, the production code logs a one-shot
+            //      WARN under the [Anchor] tag (deduped via DedupeKey) and
+            //      sets state.anchorRetiredThisFrame = true.
+            //   3. The engine then asks ShouldSkipPostPositionPipeline --
+            //      which must return true so the SetActive(false) sticks
+            //      through the frame.
+            //
+            // Failure modes this test catches:
+            //   - flag set but predicate returns false (engine runs activation
+            //     pipeline anyway, ghost re-appears at (0,0,0)).
+            //   - flag never set (pre-fix regression: previous freeze-in-place
+            //     branch would leave the ghost frozen at world origin).
+            //   - missing/wrong WARN log line (regresses the existing one-shot
+            //     dedupe contract, breaks player support triage).
+            var liveVessels = new HashSet<uint> { 100u, 200u };
+            var loggedKeys = new HashSet<long>();
+            var state = new GhostPlaybackState();
+
+            // Frame 1: positioner runs the retire branch.
+            var outcome = RelativeAnchorResolution.Decide(
+                anchorPid: 3151978247u,
+                resolver: pid => liveVessels.Contains(pid));
+            Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
+
+            long key = RelativeAnchorResolution.DedupeKey(9, 3151978247u);
+            if (loggedKeys.Add(key))
+            {
+                ParsekLog.Warn("Anchor",
+                    RelativeAnchorResolution.FormatRetiredMessage(
+                        recordingIndex: 9,
+                        vesselName: "Kerbal X",
+                        anchorPid: 3151978247u,
+                        callsite: "InterpolateAndPositionRelative"));
+            }
+            state.anchorRetiredThisFrame = true;
+
+            // Engine: gate the post-position pipeline.
+            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame));
+
+            // One-shot WARN must have fired exactly once.
+            Assert.Equal(1,
+                logLines.Count(l => l.Contains("[WARN]")
+                    && l.Contains("[Anchor]")
+                    && l.Contains("relative-anchor-retired")));
+
+            // Frame 2: engine clears the flag at the top of the next render
+            // pass, retire branch runs again on the same (recording, anchor)
+            // -- WARN must NOT re-fire, but flag must be re-armed.
+            state.anchorRetiredThisFrame = false;
+            outcome = RelativeAnchorResolution.Decide(
+                anchorPid: 3151978247u,
+                resolver: pid => liveVessels.Contains(pid));
+            Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
+            if (loggedKeys.Add(key))
+                ParsekLog.Warn("Anchor", "should not be reachable on second hit");
+            state.anchorRetiredThisFrame = true;
+            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame));
+
+            // Still exactly one WARN line.
+            Assert.Equal(1,
+                logLines.Count(l => l.Contains("[WARN]")
+                    && l.Contains("[Anchor]")
+                    && l.Contains("relative-anchor-retired")));
+
+            // Frame 3: anchor reappears -- Decide returns Resolved, the
+            // retire flag is NOT set, and the gate must let the engine run
+            // the full pipeline so the ghost can become visible again.
+            liveVessels.Add(3151978247u);
+            state.anchorRetiredThisFrame = false;
+            outcome = RelativeAnchorResolution.Decide(
+                anchorPid: 3151978247u,
+                resolver: pid => liveVessels.Contains(pid));
+            Assert.Equal(RelativeAnchorResolution.Outcome.Resolved, outcome);
+            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame));
         }
 
         #endregion

@@ -84,5 +84,34 @@ namespace Parsek
                 $"vessel=\"{vesselName ?? "(unknown)"}\" anchorPid={anchorPid} -- " +
                 "ghost hidden during relative section (anchor unresolvable; common cause: Re-Fly rewind erased the originally recorded anchor vessel)";
         }
+
+        /// <summary>
+        /// Pure decision used by <see cref="GhostPlaybackEngine"/> after the
+        /// relative-frame positioner runs to decide whether to skip the
+        /// post-position pipeline (transient visual events,
+        /// <c>ActivateGhostVisualsIfNeeded</c>, and <c>TrackGhostAppearance</c>).
+        /// Returning true means the ghost was retired this frame and must
+        /// stay hidden -- the engine still calls <c>ApplyFrameVisuals</c> with
+        /// <c>skipPartEvents=true</c> and <c>suppressVisualFx=true</c> so any
+        /// previously-emitting plumes/audio get cleanly stopped, but no new
+        /// transient events fire from the stale (0,0,0) transform.
+        ///
+        /// <para>
+        /// PR #594 P1 review surfaced the integration bug: without this gate,
+        /// <c>ActivateGhostVisualsIfNeeded</c> unconditionally called
+        /// <c>SetActive(true)</c> the same frame the positioner had hidden
+        /// the ghost, defeating the retirement and re-rendering at the stale
+        /// (0,0,0) transform. Lifting the gate into a named pure predicate
+        /// makes the engine call site reviewable from xUnit.
+        /// </para>
+        /// </summary>
+        /// <param name="anchorRetiredThisFrame">
+        /// The per-state flag set by the relative positioner's retire branch;
+        /// cleared by the engine before each frame's positioning step.
+        /// </param>
+        internal static bool ShouldSkipPostPositionPipeline(bool anchorRetiredThisFrame)
+        {
+            return anchorRetiredThisFrame;
+        }
     }
 }
