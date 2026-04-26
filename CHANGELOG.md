@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` load-path extraction: trajectory probe/id/epoch validation, sidecar load-failure marking, post-hydration loop and endpoint repairs, terminal-orbit backfill, and snapshot fallback policy now live behind `RecordingStore` wrappers while codecs stay in their existing owners.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `TrajectoryTextSidecarCodec` extraction: text trajectory ConfigNode serialization, deserialization, section-authoritative helpers, and flat/section fallback repair now live behind unchanged `RecordingStore` wrappers.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingManifestCodec` extraction: crew end states plus resource, inventory, and crew manifests now live behind unchanged `RecordingStore` wrappers.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingTreeRecordCodec` extraction: per-record `.sfs` ConfigNode field serialization now lives behind unchanged `RecordingTree` wrappers while endpoint backfill, whole-tree save/load order, branch-point serialization, and caller migration stay outside this slice.
 
 ## 0.9.0
 

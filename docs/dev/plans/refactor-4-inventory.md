@@ -59,9 +59,12 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass1-Deferred; patch-order/reflection/UI mutation split deferred |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass1-Deferred; math/iteration-order split deferred |
 | `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass1-Deferred; optimizer identity/order split deferred |
-| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass2-Proposed; record-only codec proposal created, branch point serialization deferred |
+| `Source/Parsek/RecordingTree.cs` | 971 | Pass2-Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 | `Source/Parsek/TrajectoryTextSidecarCodec.cs` | 1,563 | Pass2-Done; text trajectory ConfigNode codec extracted behind `RecordingStore` wrappers |
 | `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass1-Deferred; KSC/flight playback sharing deferred |
+
+`RecordingTree.cs` remains listed here for pass-tracking continuity even though
+the record-only extraction drops it below the original largest-file threshold.
 
 ## Growth Since Refactor-3 Inventory
 
@@ -86,7 +89,7 @@ These deltas compare files that also existed in
 | `RecordingOptimizer.cs` | 863 | 1,621 | +758 |
 | `GhostVisualBuilder.cs` | 6,484 | 7,193 | +709 |
 | `ParsekKSC.cs` | 897 | 1,520 | +623 |
-| `RecordingTree.cs` | 1,013 | 1,615 | +602 |
+| `RecordingTree.cs` | 1,013 | 971 | -42 |
 | `VesselGhoster.cs` | 709 | 1,190 | +481 |
 | `GameStateStore.cs` | 709 | 1,138 | +429 |
 | `TrajectoryMath.cs` | 702 | 1,110 | +408 |
@@ -114,6 +117,7 @@ classification before they are assigned to extraction tiers.
 | `Source/Parsek/UI/KerbalsWindowUI.cs` | 841 | Kerbals UI surface |
 | `Source/Parsek/Patches/GhostTrackingStationPatch.cs` | 817 | Tracking Station patch surface |
 | `Source/Parsek/RecordingEndpointResolver.cs` | 816 | Endpoint resolution helper |
+| `Source/Parsek/RecordingTreeRecordCodec.cs` | 815 | New record-level `.sfs` ConfigNode codec extracted from `RecordingTree` |
 | `Source/Parsek/RevertInterceptor.cs` | 794 | Revert interception surface |
 | `Source/Parsek/ParsekTrackingStation.cs` | 778 | Tracking Station controller |
 | `Source/Parsek/EffectiveState.cs` | 744 | Rewind/effective-state logic |
@@ -165,7 +169,7 @@ clearly separated by file.
 | `GameActions/KspStatePatcher.cs` | 1,759 | Deferred; state-family patcher proposal needed |
 | `BallisticExtrapolator.cs` | 1,639 | Deferred; math/order sensitive |
 | `RecordingOptimizer.cs` | 1,621 | Deferred; optimizer identity/order sensitive |
-| `RecordingTree.cs` | 1,615 | Proposed; record-only codec proposal created, branch point serialization deferred |
+| `RecordingTree.cs` | 971 | Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 | `ParsekKSC.cs` | 1,520 | Deferred; KSC/flight playback owner proposal needed |
 | `CrewReservationManager.cs` | 1,447 | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal |
 | `EngineFxBuilder.cs` | 1,367 | Deferred; visual/FX builder work grouped with visual runtime validation |
@@ -842,8 +846,9 @@ Pass 2 discussion only: broader optimizer strategy decomposition.
 
 ### `Source/Parsek/RecordingTree.cs`
 
-This serialization/tree owner is already partly extracted, but it still has
-resource/state save-load density.
+This serialization/tree owner now keeps tree-level save/load and branch-point
+serialization while per-record `.sfs` field serialization lives in
+`RecordingTreeRecordCodec`.
 
 Pass 1 same-file candidates:
 
@@ -857,7 +862,9 @@ Pass 1 deferred:
   serialization codec question: field order, defaulting, legacy reads, and
   logging must be proposed together.
 
-Pass 2 discussion only: a recording tree serialization codec.
+Pass 2 completed: record-only `RecordingTreeRecordCodec` extracted behind
+wrappers. Branch point serialization and selective raw-record caller migration
+remain separate follow-ups.
 
 ### `Source/Parsek/ParsekKSC.cs`
 
@@ -955,12 +962,12 @@ semantic, architectural, runtime-visual, math-sensitive, or UI-order-sensitive.
 | `ParsekFlight.cs` | Done for post-switch auto-record; finalization split deferred to Pass 2. |
 | `FlightRecorder.cs` | Done for visual coverage logging; remaining part-event poller work deferred. |
 | `GhostPlaybackLogic.cs` | Done for dictionary population and part events; remaining spawn policy cleanup deferred. |
-| `RecordingStore.cs` | Pass 2 first through fifth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; tree record save/load, grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
+| `RecordingStore.cs` | Pass 2 first through fifth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
 | `GameStateRecorder.cs` | Deferred; resource/milestone/facility handler families need owner map. |
 | `GameActions/KspStatePatcher.cs` | Deferred; patch-order/reflection/UI mutation paths need state-family patcher proposal. |
 | `BallisticExtrapolator.cs` | Deferred; math and iteration-order sensitive. |
 | `RecordingOptimizer.cs` | Deferred; recording identity/order sensitive. |
-| `RecordingTree.cs` | Deferred; remaining shape belongs to serialization codec proposal. |
+| `RecordingTree.cs` | Done for record-only codec extraction; branch point serialization and selective raw-record caller migration deferred. |
 | `ParsekKSC.cs` | Deferred; useful split is KSC/flight playback architecture. |
 | `UI/TimelineWindowUI.cs` | Deferred; timeline filter/action model ownership needed. |
 | `RewindInvoker.cs` | Deferred; scene-load checkpoint sequence should remain visible until service ownership is proposed. |

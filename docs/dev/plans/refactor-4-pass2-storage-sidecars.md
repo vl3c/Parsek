@@ -2,15 +2,16 @@
 
 **Date:** 2026-04-25.
 **Worktree:** latest implementation slice in
-`Parsek-refactor-4-pass2-manifest-codec`, branch
-`refactor-4-pass2-manifest-codec`.
-**Base:** stacked on PR #554's `refactor-4-pass2-sidecar-save` branch; PR #554
-itself is intentionally left unmerged for the later 0.9.1 batch.
+`Parsek-refactor-4-pass2-tree-record-codec`, branch
+`refactor-4-pass2-tree-record-codec`.
+**Base:** stacked on the accepted but unmerged
+`refactor-4-pass2-tree-record-codec-plan` branch for the later 0.9.1 batch.
 **Status:** Proposal plus implementation checkpoints. The
 `SidecarFileCommitBatch`, save-path `RecordingSidecarStore`, load-path
-`RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and
-`RecordingManifestCodec` slices are complete; tree-record codec moves remain
-proposal-only until a separate approval.
+`RecordingSidecarStore`, `TrajectoryTextSidecarCodec`,
+`RecordingManifestCodec`, and record-only `RecordingTreeRecordCodec` slices are
+complete; branch point serialization and raw-record caller migration remain
+separate follow-ups.
 
 ## Guardrails
 
@@ -167,8 +168,8 @@ only after tests confirm identical nodes and log output.
 
 ### 5. `RecordingTreeRecordCodec`
 
-Later owner, not first. It would move record-level `.sfs` metadata serialization
-out of `RecordingTree`:
+Record-only owner, completed after manifest ownership settled. It moves
+record-level `.sfs` metadata serialization out of `RecordingTree`:
 
 - `SaveRecordingInto`
 - `LoadRecordingFrom`
@@ -176,16 +177,16 @@ out of `RecordingTree`:
 - resource/state save/load helpers
 - branch point serialization only if a second, separate pass says so
 
-This is useful, but it should wait until manifest ownership is settled because
-`SaveRecordingResourceAndState` and `LoadRecordingResourceAndState` currently
-bridge tree metadata, manifest codecs, rewind metadata, UI grouping tags, and
-legacy merge-state migration.
+This waited until manifest ownership settled because
+`SaveRecordingResourceAndState` and `LoadRecordingResourceAndState` bridge tree
+metadata, manifest codecs, rewind metadata, UI grouping tags, and legacy
+merge-state migration.
 
-Re-evaluation is now tracked in
-`docs/dev/plans/refactor-4-pass2-tree-record-codec.md`. That proposal keeps the
-first implementation slice record-only, leaves branch point serialization out of
-scope, and keeps `RecordingTree` wrappers stable until a separate review
-approves caller migration.
+Re-evaluation is tracked in
+`docs/dev/plans/refactor-4-pass2-tree-record-codec.md`. The first
+implementation slice is complete as a record-only extraction; branch point
+serialization remains out of scope, and `RecordingTree` wrappers stay stable
+until a separate review approves selective raw-record caller migration.
 
 ## RecordingStore Target State
 
@@ -225,9 +226,9 @@ details, or manifest field serialization.
    with `TrajectorySidecarBinary`. Completed as its own slice.
 5. Extract `RecordingManifestCodec` behind wrappers. Completed as its own slice.
 6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
-   start it in the same PR as sidecar orchestration. Proposal-only re-evaluation
-   is now in `refactor-4-pass2-tree-record-codec.md`; code movement waits for
-   review.
+   start it in the same PR as sidecar orchestration. The re-evaluation is in
+   `refactor-4-pass2-tree-record-codec.md`; the approved record-only extraction
+   is completed as its own slice.
 
 PR granularity:
 
@@ -236,7 +237,9 @@ PR granularity:
   commits after an explicit pre-review of the split.
 - PR 3: `TrajectoryTextSidecarCodec` first; `RecordingManifestCodec` followed
   separately.
-- PR 4: `RecordingTreeRecordCodec` only.
+- PR 4: `RecordingTreeRecordCodec` record-only extraction.
+- PR 5: optional selective raw-record caller migration, only if the wrapper exit
+  criteria in `refactor-4-pass2-tree-record-codec.md` are met.
 
 ## Validation Scope
 
@@ -433,3 +436,30 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo
 ```
 
 Latest focused run passed 163 tests; the non-injection gate passed 9,051 tests.
+
+## Implementation Checkpoint - RecordingTreeRecordCodec
+
+Approved record-only slice stacked on the tree-record codec proposal branch and
+kept behind `RecordingTree` wrappers:
+
+- Added `Source/Parsek/RecordingTreeRecordCodec.cs`.
+- Moved per-record `.sfs` ConfigNode serialization/deserialization bodies out
+  of `RecordingTree`: `SaveRecordingInto`, `LoadRecordingFrom`,
+  `SaveRecordingResourceAndState`, `LoadRecordingResourceAndState`, and the
+  private playback/linkage helpers.
+- Kept existing `RecordingTree` wrapper signatures stable for production and
+  test call sites.
+- Kept endpoint backfill and the final `LoadRecordingFrom` verbose summary in
+  the `RecordingTree.LoadRecordingFrom` wrapper.
+- Left tree-level save/load ordering, branch point serialization, manifest
+  wrappers, and caller migration outside this slice.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~RecordingFieldExtensionTests|FullyQualifiedName~RecordingTreeTests|FullyQualifiedName~TreeCommitTests|FullyQualifiedName~LegacyMigrationTests|FullyQualifiedName~LoopAnchorTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~RewindLoggingTests|FullyQualifiedName~RewindSpawnSuppressionTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~BackgroundSplitTests|FullyQualifiedName~GhostOnlyRecordingTests|FullyQualifiedName~TerrainCorrectorTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
+```
+
+Latest focused run passed 370 tests; the non-injection gate passed 9,051 tests.

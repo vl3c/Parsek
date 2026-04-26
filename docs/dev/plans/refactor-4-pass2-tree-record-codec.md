@@ -1,12 +1,13 @@
 # Refactor-4 Pass 2 - RecordingTreeRecordCodec Proposal
 
 **Date:** 2026-04-26.
-**Worktree:** `Parsek-refactor-4-pass2-tree-record-codec-plan`, branch
-`refactor-4-pass2-tree-record-codec-plan`.
+**Worktree:** `Parsek-refactor-4-pass2-tree-record-codec`, branch
+`refactor-4-pass2-tree-record-codec`.
 **Base:** stacked on the accepted but unmerged
-`refactor-4-pass2-manifest-codec` branch for the later 0.9.1 batch.
-**Status:** Proposal only. Do not implement the codec extraction until this
-plan is reviewed.
+`refactor-4-pass2-tree-record-codec-plan` branch for the later 0.9.1 batch.
+**Status:** Proposal plus implementation checkpoint. The record-only codec
+extraction is complete; branch point serialization and selective raw-record
+caller migration remain separate follow-ups.
 
 ## Goal
 
@@ -195,6 +196,30 @@ If a later branch-point slice is approved, add:
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~BranchPointExtensionTests|FullyQualifiedName~BranchPointRewindPointIdRoundTripTests|FullyQualifiedName~MergeEventDetectionTests|FullyQualifiedName~RecordingTreeTests"
 ```
 
-No in-game canary is required for this proposal-only PR. The implementation PR
+No in-game canary is required for the proposal-only PR. Implementation slices
 should use the same runtime canary standard as the preceding sidecar/codec
 slices if review identifies any load-order or fallback-policy movement.
+
+## Implementation Checkpoint
+
+The approved record-only slice was implemented in
+`refactor-4-pass2-tree-record-codec`:
+
+- Added `Source/Parsek/RecordingTreeRecordCodec.cs`.
+- Moved raw per-record `.sfs` ConfigNode field serialization/deserialization
+  bodies behind unchanged `RecordingTree` wrappers.
+- Kept `RecordingEndpointResolver.BackfillEndpointDecision(rec,
+  "RecordingTree.LoadRecordingFrom")` and the final `LoadRecordingFrom` verbose
+  summary in the `RecordingTree.LoadRecordingFrom` wrapper.
+- Left `SaveBranchPointInto`, `LoadBranchPointFrom`, tree-level `Save`/`Load`,
+  direct caller migration, and manifest wrapper deletion out of scope.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~RecordingFieldExtensionTests|FullyQualifiedName~RecordingTreeTests|FullyQualifiedName~TreeCommitTests|FullyQualifiedName~LegacyMigrationTests|FullyQualifiedName~LoopAnchorTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~RewindLoggingTests|FullyQualifiedName~RewindSpawnSuppressionTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~BackgroundSplitTests|FullyQualifiedName~GhostOnlyRecordingTests|FullyQualifiedName~TerrainCorrectorTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
+```
+
+Latest focused run passed 370 tests; the non-injection gate passed 9,051 tests.
