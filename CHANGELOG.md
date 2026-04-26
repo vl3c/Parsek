@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the recalculation walk skips the stand-in recreate when the original was placed by the rescue path AND is still on a live vessel, so fresh reservations on the active player vessel still get their swap stand-in.
+- `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; every recalculation walk for the lifetime of the rescue skips the stand-in recreate when the original was placed by the rescue path AND is still on a live vessel, so fresh reservations on the active player vessel still get their swap stand-in.
 
 - Re-Fly slot precondition log no longer spams `KSP.log` with thousands of identical `slot-ok` lines per session; the on-change gate now uses a per-call-site decision cache that reliably suppresses repeats from the OnGUI draw loop.
 

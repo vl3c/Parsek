@@ -4786,7 +4786,7 @@ namespace Parsek.InGameTests
         /// regression which uses a roster-free seam.
         /// </summary>
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
-            Description = "#615 marker survives Rescue + Unreserve sequence end-to-end (P1 review second pass)")]
+            Description = "#615 marker survives Rescue + Unreserve and persists across walks (P1 review third pass)")]
         public void RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives()
         {
             var roster = HighLogic.CurrentGame?.CrewRoster;
@@ -4876,17 +4876,31 @@ namespace Parsek.InGameTests
                     CrewReservationManager.CrewReplacements.ContainsKey(victim.name),
                     $"After Unreserve: replacement dict entry for '{victim.name}' must be cleared");
 
-                // Step 3: pin the consume contract — when ApplyToRoster's
-                // guard fires, ConsumeRescuePlaced one-shots the marker.
-                bool consumed = CrewReservationManager.ConsumeRescuePlaced(victim.name);
-                InGameAssert.IsTrue(consumed,
-                    $"ConsumeRescuePlaced('{victim.name}') must report true on first call");
-                InGameAssert.IsFalse(CrewReservationManager.IsRescuePlaced(victim.name),
-                    "After Consume: marker must be cleared");
+                // Step 3: P1 review (third pass) — the marker must be
+                // PERSISTENT across walks, not consumed when the
+                // ApplyToRoster guard fires. The reservation slot is rebuilt
+                // every recalc walk while slot.Chain survives, so the guard
+                // must observe the same marker on every subsequent walk for
+                // the lifetime of the rescue. RecalculateAndPatch fires from
+                // 14+ call sites per session (warp exit, save load, scene
+                // transition, KSC spending, etc.) and the previous one-shot
+                // consume design failed on the very next trigger.
+                //
+                // Pin the persistence contract: the marker must survive an
+                // arbitrary number of "guard observations" (here we just
+                // re-read IsRescuePlaced repeatedly because we cannot run
+                // ApplyToRoster against the live KerbalsModule from this
+                // in-game test without disturbing the production state).
+                for (int walk = 1; walk <= 3; walk++)
+                {
+                    InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                        $"Walk {walk}: marker for '{victim.name}' must persist " +
+                        "(P1 review third pass — guard does not consume on fire)");
+                }
 
                 ParsekLog.Info("TestRunner",
-                    $"#615 P1 review second pass: '{victim.name}' marker survived " +
-                    "Rescue + Unreserve and was correctly consumed by guard simulation");
+                    $"#615 P1 review third pass: '{victim.name}' marker survived " +
+                    "Rescue + Unreserve and persists across multiple walks (not consumed)");
             }
             finally
             {

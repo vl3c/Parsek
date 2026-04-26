@@ -30,7 +30,7 @@ namespace Parsek
         // to be on the active player vessel without ever passing through the
         // rescue path.
         //
-        // Lifecycle (P1 review, second pass):
+        // Lifecycle (P1 review, third pass):
         //   - Set by VesselSpawner.RescueReservedMissingCrewInSnapshot for
         //     each kerbal flipped to Available.
         //   - The spawn path immediately calls UnreserveCrewInSnapshot on the
@@ -38,13 +38,23 @@ namespace Parsek
         //     CleanUpReplacement. The marker MUST survive that step so the
         //     subsequent ApplyToRoster walk can read it. CleanUpReplacement
         //     no longer clears the marker.
-        //   - One-shot consumed when the ApplyToRoster guard fires (via
-        //     ConsumeRescuePlaced) so a second walk on the same recalc cycle
-        //     does not accidentally guard again, and a future fresh
-        //     reservation of the same name sees a clean signal.
+        //   - PERSISTENT across ApplyToRoster walks. The reservation slot is
+        //     rebuilt on every recalc walk while the historical chain entry
+        //     survives in slot.Chain, so the guard must fire on EVERY
+        //     subsequent ApplyToRoster pass for the lifetime of the rescue.
+        //     RecalculateAndPatch fires from 14+ call sites (every commit,
+        //     KSC spending event, vessel recovery, warp exit, scene
+        //     transition, save load) — a one-shot-consume design fails on
+        //     the very next trigger because the slot re-presents the kerbal
+        //     as needing a stand-in and IsRescuePlaced=false routes the
+        //     guard to the legitimate-recreate path.
         //   - Bulk-cleared by LoadCrewReplacements / RestoreReplacements /
         //     ClearReplacements / ResetReplacementsForTesting on session /
-        //     rewind / wipe-all boundaries.
+        //     rewind / wipe-all boundaries. Within a session the marker
+        //     accumulates harmlessly: the ApplyToRoster guard predicate also
+        //     requires isOnLiveVessel, so a stale marker for a kerbal who
+        //     is no longer on a vessel falls through to the legitimate
+        //     recreate path.
         private static readonly HashSet<string> rescuePlacedKerbals
             = new HashSet<string>(System.StringComparer.Ordinal);
 
@@ -92,16 +102,38 @@ namespace Parsek
         /// <see cref="ResetReplacementsForTesting"/>) and by the test fixture.
         ///
         /// <para>
-        /// P1 review (second pass): per-name <see cref="CleanUpReplacement"/>
-        /// no longer calls this. The Re-Fly spawn pipeline calls
+        /// P1 review (third pass): per-name <see cref="CleanUpReplacement"/>
+        /// does NOT call this. The Re-Fly spawn pipeline calls
         /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
         /// (which calls <see cref="MarkRescuePlaced"/>) and immediately
         /// follows with <see cref="UnreserveCrewInSnapshot"/> on the SAME
         /// snapshot, which would clear the marker through CleanUpReplacement
         /// before the next <see cref="KerbalsModule.ApplyToRoster"/> walk
-        /// could observe it. The marker now survives the unreserve step and
-        /// is consumed once by <see cref="ConsumeRescuePlaced"/> when the
-        /// ApplyToRoster guard fires.
+        /// could observe it.
+        /// </para>
+        ///
+        /// <para>
+        /// The <see cref="KerbalsModule.ApplyToRoster"/> guard also does NOT
+        /// clear the marker when it fires. The reservation slot is rebuilt on
+        /// every recalc walk while <c>slot.Chain</c> persists the historical
+        /// stand-in name, so the guard must observe the same marker on every
+        /// subsequent walk for the lifetime of the rescue. The previous
+        /// review pass installed a one-shot consume here that broke on the
+        /// very next <see cref="LedgerOrchestrator.RecalculateAndPatch"/>
+        /// trigger (warp exit, save load, scene transition, KSC spending,
+        /// any of 14+ call sites): once the merge-tail walk consumed the
+        /// marker, every subsequent walk took the "live-but-no-marker"
+        /// branch and regenerated the stand-in.
+        /// </para>
+        ///
+        /// <para>
+        /// The marker is now cleared ONLY by the bulk lifecycle paths
+        /// listed above, on session / rewind / wipe-all boundaries. Within
+        /// a session it accumulates harmlessly because the
+        /// <see cref="KerbalsModule.ApplyToRoster"/> predicate also requires
+        /// the kerbal to be on a live vessel — a stale-true marker for a
+        /// kerbal who is no longer on any vessel falls through to the
+        /// legitimate-recreate path.
         /// </para>
         /// </summary>
         internal static void ClearRescuePlaced(string kerbalName)
@@ -112,40 +144,6 @@ namespace Parsek
                 ParsekLog.Verbose("CrewReservation",
                     $"Cleared rescue-placed marker: '{kerbalName}' (bulk lifecycle)");
             }
-        }
-
-        /// <summary>
-        /// One-shot consume: remove <paramref name="kerbalName"/> from the
-        /// rescue-placed set after the <see cref="KerbalsModule.ApplyToRoster"/>
-        /// guard has used it to skip stand-in regeneration. Called by the
-        /// guard inside ApplyToRoster step 1 so the marker does not pile up
-        /// indefinitely across recalc walks.
-        ///
-        /// <para>
-        /// Why a separate method: <see cref="ClearRescuePlaced"/> represents
-        /// "session / rewind / wipe-all boundary". This method represents
-        /// "the guard fired and observed this marker; it has done its job".
-        /// Logged distinctly so KSP.log shows whether the marker was consumed
-        /// by the guard (expected post-spawn) or wiped by a bulk path
-        /// (expected at scene transitions).
-        /// </para>
-        ///
-        /// <para>
-        /// Returns true if a marker was actually present and removed. Used
-        /// by tests to pin the consume contract.
-        /// </para>
-        /// </summary>
-        internal static bool ConsumeRescuePlaced(string kerbalName)
-        {
-            if (string.IsNullOrEmpty(kerbalName)) return false;
-            if (rescuePlacedKerbals.Remove(kerbalName))
-            {
-                ParsekLog.Verbose("CrewReservation",
-                    $"Consumed rescue-placed marker: '{kerbalName}' " +
-                    "(ApplyToRoster guard fired; marker one-shot)");
-                return true;
-            }
-            return false;
         }
 
         #endregion
@@ -267,11 +265,14 @@ namespace Parsek
                 }
 
                 crewReplacements.Clear();
-                // #615 P1 review (second pass): load-bearing — CleanUpReplacement
-                // no longer clears per-name rescue markers (the spawn pipeline
-                // depends on the marker surviving UnreserveCrewInSnapshot so
-                // the next ApplyToRoster walk can observe it). ClearReplacements
-                // is the wipe-all path, so we wipe the marker set here too.
+                // #615 P1 review (third pass): load-bearing — neither the
+                // per-name CleanUpReplacement nor the ApplyToRoster guard
+                // clears per-name rescue markers (the spawn pipeline depends
+                // on the marker surviving UnreserveCrewInSnapshot, and the
+                // marker must persist across multiple recalc walks because
+                // the slot is rebuilt every walk while slot.Chain survives).
+                // ClearReplacements is a bulk wipe-all path, so we wipe the
+                // marker set here too.
                 rescuePlacedKerbals.Clear();
                 CrewLog("Cleared all crew replacements (and rescue-placed marker set)");
             }
@@ -741,17 +742,19 @@ namespace Parsek
             // Always remove the mapping
             crewReplacements.Remove(originalName);
 
-            // #615 P1 review (second pass): the rescue-placed marker is
+            // #615 P1 review (third pass): the rescue-placed marker is
             // INTENTIONALLY NOT cleared here. The Re-Fly spawn pipeline runs
             // RescueReservedMissingCrewInSnapshot (sets the marker) and then
             // immediately runs UnreserveCrewInSnapshot on the same snapshot —
             // the original code path that landed in this method. Clearing the
             // marker here wiped it before the next ApplyToRoster walk could
             // observe it, and the stand-in churning bug PR #595 was meant to
-            // fix returned in production. The marker is now consumed by
-            // ApplyToRoster's guard via ConsumeRescuePlaced (one-shot per
-            // walk) and bulk-cleared on session / rewind / wipe-all
-            // boundaries by Load / Restore / Clear / Reset paths.
+            // fix returned in production. The marker is PERSISTENT across
+            // ApplyToRoster walks (the guard does not consume it on fire
+            // either; see KerbalsModule.cs and the ClearRescuePlaced doc
+            // for the full lifecycle) and is bulk-cleared only on session /
+            // rewind / wipe-all boundaries by Load / Restore / Clear /
+            // Reset paths.
 
             // Find the replacement in the roster
             ProtoCrewMember replacement = null;
@@ -1682,8 +1685,10 @@ namespace Parsek
         /// <see cref="UnreserveCrewInSnapshot"/> path requires a live KSP
         /// <see cref="HighLogic.CurrentGame"/> + <see cref="KerbalRoster"/>,
         /// which xUnit cannot stand up. This seam asserts the production
-        /// invariant that the per-name unreserve does NOT clear the
-        /// rescue-placed marker — exercised by
+        /// invariant (P1 review third pass) that the per-name unreserve does
+        /// NOT clear the rescue-placed marker, and the marker stays set so
+        /// every subsequent <see cref="KerbalsModule.ApplyToRoster"/> walk
+        /// observes it — exercised by
         /// <see cref="RescueCompletionGuardTests"/>.
         /// </summary>
         internal static void CleanUpReplacementForTesting(string originalName)

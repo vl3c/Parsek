@@ -1029,7 +1029,6 @@ namespace Parsek
                 int skippedRescuedOriginal = 0;
                 int guardDeclinedLiveButNoMarker = 0;
                 int guardDeclinedMarkerButNotLive = 0;
-                int markerConsumed = 0;
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
@@ -1086,18 +1085,36 @@ namespace Parsek
                                 $"Rescue-completion guard: kerbal '{replacedName}' already placed on " +
                                 $"active vessel via rescue path (rescuePlaced=true, onLiveVessel=true) " +
                                 $"— skipping stand-in '{standInLabel}' " +
-                                $"for slot '{slot.OwnerName}' depth {i}");
+                                $"for slot '{slot.OwnerName}' depth {i} " +
+                                "(marker persistent — not consumed on fire)");
                             skippedRescuedOriginal++;
-                            // P1 review (second pass): one-shot consume the
-                            // rescue-placed marker so it does not pile up
-                            // across walks. The marker survives the spawn
-                            // pipeline's UnreserveCrewInSnapshot (the bug PR
-                            // #595 originally tried to guard against) by
-                            // virtue of CleanUpReplacement no longer clearing
-                            // it; ConsumeRescuePlaced takes ownership of
-                            // pruning the entry once the guard observed it.
-                            if (CrewReservationManager.ConsumeRescuePlaced(replacedName))
-                                markerConsumed++;
+                            // P1 review (third pass): the marker is NOT
+                            // consumed here. The reservation slot is rebuilt
+                            // on every recalc walk while the historical chain
+                            // entry survives in slot.Chain, so the guard must
+                            // fire on EVERY subsequent ApplyToRoster pass for
+                            // the lifetime of the rescue. The previous
+                            // one-shot consume design (review pass two) failed
+                            // because RecalculateAndPatch is invoked from 14+
+                            // call sites — every commit, KSC spending event,
+                            // vessel recovery, warp exit (ParsekFlight.cs
+                            // :6366), scene transition, and save load
+                            // re-runs the walk. Once the marker was consumed
+                            // by the merge-tail walk, the very next trigger
+                            // saw IsRescuePlaced=false, took the
+                            // "live-but-no-marker" branch, and regenerated
+                            // the stand-in — exactly the lines 16106-16109
+                            // symptom the original bug repro reported.
+                            //
+                            // The marker is now cleared ONLY by the bulk
+                            // lifecycle paths (LoadCrewReplacements,
+                            // RestoreReplacements, ClearReplacements,
+                            // ResetReplacementsForTesting) at session /
+                            // rewind / wipe-all boundaries. Within a session,
+                            // it accumulates harmlessly: the predicate also
+                            // requires isOnLiveVessel, so a stale marker for
+                            // a kerbal who is no longer on a vessel falls
+                            // through to the legitimate-recreate path.
                             continue;
                         }
                         if (isOnLiveVessel && !isRescuePlaced)
@@ -1176,13 +1193,18 @@ namespace Parsek
                     || guardDeclinedLiveButNoMarker > 0
                     || guardDeclinedMarkerButNotLive > 0)
                 {
-                    // P1 review (second pass): aggregate outcome of the
+                    // P1 review (third pass): aggregate outcome of the
                     // rescue-completion guard for this walk so KSP.log shows
-                    // fired vs. declined counts at a glance, including how
-                    // many markers were one-shot consumed.
+                    // fired vs. declined counts at a glance. The marker is
+                    // PERSISTENT across walks (not consumed when the guard
+                    // fires) — the slot is rebuilt every recalc pass while
+                    // the historical chain entry survives, so the guard must
+                    // observe the same marker on every subsequent walk for
+                    // the lifetime of the rescue. Bulk lifecycle paths wipe
+                    // the marker set on session boundaries.
                     ParsekLog.Info(Tag,
                         $"Rescue-completion guard summary: fired={skippedRescuedOriginal} " +
-                        $"(markersConsumed={markerConsumed}) " +
+                        "(marker persistent — preserved across walks) " +
                         $"declinedLiveButNoMarker={guardDeclinedLiveButNoMarker} " +
                         $"declinedMarkerButNotLive={guardDeclinedMarkerButNotLive}");
                 }
