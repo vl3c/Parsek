@@ -779,10 +779,12 @@ created a `Ghost: Kerbal X` ProtoVessel at `15:12:55.943`:
   `13.2m` to `52.7m`.
 
 That is the visible/clickable duplicate tracking the live booster/probe at a
-recorded relative offset. The native orbit icon is suppressed (`KSP.log:14879`
-shows `drawIcons=NONE iconSuppressed=True`), but the GhostMap vessel still
-exists and Parsek's custom map-marker/UI path can still present an interactive
-ghost marker.
+recorded relative offset. `KSP.log:14879` shows the native orbit icon hidden
+for GhostOrbitLine's `terminal-below-atmosphere` reason (`drawIcons=NONE
+iconSuppressed=True`); that is not the Re-Fly suppression gate. The important
+point is that the ProtoVessel itself remains registered and therefore can
+still participate in click / targeting / marker behavior even when the native
+icon is hidden.
 
 **Cause:** PR #601's active-Re-Fly relative-anchor suppression is only checked
 when `GhostMapPresence.CreateGhostVesselFromStateVectors` creates a new
@@ -823,7 +825,7 @@ continues to work for in-place Re-Fly load windows.
 
 ---
 
-## 617. Re-Fly upper-stage live playback still takes the relative-anchor retire path instead of the PR #601 bypass
+## 617. Re-Fly upper-stage live playback still intermittently takes the relative-anchor retire path despite recorded fallback succeeding nearby
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
 This is the relative-anchor lock / pop-out observed for the post-178s
@@ -844,19 +846,33 @@ starts a relative playback section anchored to the active booster/probe:
   `activeFrame=Relative` with `anchorPid=3314061462`
 
 This proves the parent-chain / active-anchor predicate is sound: GhostMap sees
-the bad relationship and suppresses it. The live playback positioner callsite
-does not use that same bypass and instead enters the retire/hide path.
+the bad relationship and suppresses it. The live playback path still reaches
+the retire/hide branch in at least one invocation. The precise mechanics need
+one more trace pass before implementation: `KSP.log:16056` logs
+`source=recorded` for the same recording and millisecond as the
+`relative-anchor-retired` WARN, and `KSP.log:16070` logs `source=recorded`
+again two seconds later.
 
-**Cause:** PR #601 wired the new relative-anchor suppression/resolution behavior
-into GhostMap `create-state-vector` and the broader Flight relative playback
-dispatch, but missed the concrete `ParsekFlight.InterpolateAndPositionRelative`
-/ `PositionGhostRelativeAt` anchor-retire callsite. That method still resolves
-through `TryResolveRelativeAnchorPose`, then hides the ghost and emits
-`relative-anchor-retired` when it cannot use the anchor. For the in-place
-Re-Fly case, the anchor pid is not an unrelated missing vessel: it is the
-active Re-Fly target, and the victim recording is an upper-stage parent-chain
-recording. The same case should bypass live-active anchoring and use the
-recorded anchor pose/fallback policy consistently with the GhostMap decision.
+**Cause candidates:** PR #601 clearly did not make all live relative playback
+surfaces consistent, but the "missed callsite" is not proven yet. Two shapes
+fit the log:
+
+- Two distinct playback invocations reach the same
+  `InterpolateAndPositionRelative` retire branch on the same frame. One path
+  uses the recorded fallback successfully, while a loop / overlap / watch-sync
+  or other sibling surface still retires the ghost. The hardcoded
+  `callsite=InterpolateAndPositionRelative` string would make both surfaces
+  look identical in `KSP.log`.
+- A single resolver path succeeds on most frames but fails for a narrow
+  coverage gap. For example, the active Re-Fly target's pre-merge / mutating
+  anchor trajectory may not provide recorded anchor coverage for the requested
+  UT, so `TryResolveRelativeAnchorPose` falls through to the retire branch on
+  that frame.
+
+Either way, for the in-place Re-Fly case the anchor pid is not an unrelated
+missing vessel: it is the active Re-Fly target, and the victim recording is an
+upper-stage parent-chain recording. The same relationship should not lock the
+ghost to the live booster/probe or produce a stale retired-frame appearance.
 
 **Relevant code:** `Source/Parsek/ParsekFlight.cs`:
 `IGhostPositioner.InterpolateAndPositionRelative` delegates into
@@ -866,16 +882,17 @@ warning. `GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
 already has the active-marker, pending-tree search, and parent-chain predicate
 needed to classify this as the bad Re-Fly relationship.
 
-**Fix direction:** share the PR #601 active-Re-Fly parent-chain decision with
-the live relative positioner. For this specific in-place Re-Fly relationship,
-do not lock the visual ghost to the live booster/probe and do not produce a
-stale appearance from the retired branch. Either reconstruct from the recorded
-anchor pose when available or suppress the visual/marker for the session, but
-the behavior must be consistent across GhostMap create/update and live
-playback. Regression coverage should assert that the `InterpolateAndPositionRelative`
-callsite does not emit `relative-anchor-retired` for a parent-chain victim
-anchored to the active Re-Fly target while unrelated relative-anchor recordings
-retain the existing retire behavior.
+**Fix direction:** first trace which surface emits the WARN and whether
+`TryResolveRelativeAnchorPose` has partial-coverage failures for active Re-Fly
+anchor recordings. Then share the PR #601 active-Re-Fly parent-chain decision
+with every live relative positioner surface. For this specific in-place Re-Fly
+relationship, do not lock the visual ghost to the live booster/probe and do
+not produce a stale appearance from the retired branch. Either reconstruct
+from the recorded anchor pose when available or suppress the visual/marker for
+the session, but the behavior must be consistent across GhostMap create/update
+and live playback. Regression coverage should pin both possible shapes:
+multiple caller surfaces through the same positioner, and recorded-anchor
+coverage gaps for the active Re-Fly target's pre-merge trajectory.
 
 **Status:** Open.
 
@@ -922,6 +939,22 @@ dialog and supersede code also mix topology leaf-ness with chain-terminal
 semantics: `BuildDefaultVesselDecisions` can log `854fdf...` as a leaf even
 though the effective terminal chain tip is `e77d90...`.
 
+**Open product/semantics question:** the upper-stage chain was created during
+the original flight before any Re-Fly. There are two plausible intents:
+
+- Treat the Re-Fly merge as replacing the whole stale future of this branch,
+  so ancestor chains that were never separately confirmed should default to
+  ghost-only or superseded cleanup.
+- Treat the Re-Fly as an in-place continuation of one specific probe recording,
+  preserving parent/ancestor flight history unless the user explicitly chooses
+  otherwise.
+
+Do not implement destructive ancestor cleanup until the desired behavior is
+confirmed. It is possible that fixing items 616 and 617 removes the visible
+duplicate symptoms while leaving the upper-stage history intact, making this
+entry a lower-priority merge-dialog/defaults question rather than required
+cleanup.
+
 **Relevant code:** `MergeDialog.TryCommitReFlySupersede` builds the full-chain
 skip set from the provisional's own `TreeId + ChainId + ChainBranch`, then
 passes that target to `SupersedeCommit.AppendRelations`. That deliberately
@@ -931,16 +964,18 @@ can create new chain tips before `TryCommitReFlySupersede` runs, so merge
 decisions made before or without chain-tip awareness leave those new tips
 visible/spawnable.
 
-**Fix direction:** teach the re-fly merge cleanup to include ancestor chains
-that are logically superseded by the in-place Re-Fly, not just the active
-target's own chain. The expansion should walk from the active origin through
-the parent branch-point topology and chain-predecessor/tip links, then apply
-the right action per relationship: keep the active in-place chain visible as
-the new flight, but ghost-only or supersede stale parent-chain terminal tips
-that represent the old future being replaced. `BuildDefaultVesselDecisions`
-should use effective chain terminal records when deciding spawnability, so an
-optimizer-created tip like `e77d90...` cannot evade the ghost-only decision
-through a head/tip mismatch.
+**Possible fix direction, if ancestor cleanup is confirmed:** teach the
+re-fly merge cleanup to include ancestor chains that are logically superseded
+by the in-place Re-Fly, not just the active target's own chain. The expansion
+should walk from the active origin through the parent branch-point topology and
+chain-predecessor/tip links, then apply the right action per relationship:
+keep the active in-place chain visible as the new flight, but default stale
+parent-chain terminal tips that represent the old future to ghost-only in the
+dialog, with a user override before any history is discarded. Avoid
+unconditional supersede of ancestor chains until the UX contract is clear.
+`BuildDefaultVesselDecisions` should use effective chain terminal records when
+deciding spawnability, so an optimizer-created tip like `e77d90...` cannot
+evade the ghost-only decision through a head/tip mismatch.
 
 Regression coverage should model the exact tree: root upper-stage head
 `854fdf...`, optimizer tip `e77d90...`, branch point to active probe
@@ -973,7 +1008,8 @@ with `dist=179769313486232...m`, which is `double.MaxValue` formatted as a
 literal distance. `ParsekFlight.ResolveUnresolvedRelativeSectionDistanceFallback`
 intentionally returns `double.MaxValue` for unresolved relative sections, but
 the zone-transition log should render that state as `unresolved` rather than a
-physically meaningful distance.
+physically meaningful distance. This is downstream of item 617's retire path;
+fixing 617 should make it rarer, but the formatter should still be defensive.
 
 **Phantom orbiting cleanup is late:** after the re-fly merge, a phantom
 orbiting `Kerbal X` survived into the next rewind staging save. `KSP.log:19138`
@@ -981,13 +1017,50 @@ strips one `Kerbal X` by name, and `KSP.log:19217` strips an orphaned orbiting
 `Kerbal X` from `flightState`. That cleanup path works as a later quickload /
 rewind defense, but merge-time cleanup should not rely on a subsequent rewind
 to remove the artifact. This is likely downstream of item 618's stale
-upper-stage chain-tip survival.
+upper-stage chain-tip survival. If item 618 is deferred, keep this as a
+defense-in-depth cleanup gap.
 
-**Landed probe spawn stability:** later playback of `#9 "Kerbal X Probe"`
-spawns a landed vessel with no `PART` subnodes in the collision bounds path
-(`KSP.log:21349`), then KSP removes it for a NaN orbit at `KSP.log:21374` and
-Parsek queues a respawn at `KSP.log:21375-21378`. This may be separate from
-Re-Fly cleanup, but it is suspicious enough to keep with the same repro log.
+**Status:** Open.
+
+---
+
+## 620. Landed probe terminal spawn can produce a NaN orbit and enter a spawn-death retry loop
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This was first
+noticed during the same postmerge Re-Fly investigation, but it is a separate
+snapshot / spawn-integrity bug rather than a relative-anchor issue.
+
+**Evidence:** later playback of `#9 "Kerbal X Probe"` reaches its landed
+terminal materialization and immediately dies:
+
+- `KSP.log:21340-21345`: playback completes, watch exits, and Parsek queues a
+  warp-deferred spawn for `#9 "Kerbal X Probe"`.
+- `KSP.log:21349`: collision bounds falls back because the spawn snapshot has
+  `no PART subnodes`.
+- `KSP.log:21354-21360`: Parsek respawns the vessel as `LANDED`.
+- `KSP.log:21365-21374`: KSP reports `M : Infinity`, `Radius: NaN`,
+  `vel: [NaN, NaN, NaN]`, then `[OrbitDriver Warning!]: Kerbal X Probe had a
+  NaN Orbit and was removed.`
+- `KSP.log:21375-21378`: Parsek detects the spawn death and resets the policy
+  for another deferred spawn.
+
+**Cause hypothesis:** the terminal landed snapshot is structurally incomplete
+or corrupted for KSP load purposes. The missing `PART` subnodes already prove
+the snapshot is not a normal loadable vessel tree, and KSP's NaN orbit removal
+suggests the landed/orbit metadata written into the ProtoVessel is invalid or
+not sufficiently normalized for a landed terminal spawn. The retry policy then
+treats the immediate removal as a spawn-death retryable failure, which can
+produce repeated respawn attempts instead of quarantining the bad snapshot.
+
+**Fix direction:** investigate the snapshot source for recording
+`7e0f795600c34137a763017caefd3da4` / `#9` and the landed spawn path in
+`VesselSpawner`. Add a validation gate before terminal materialization:
+snapshots with no `PART` subnodes or non-finite orbit/surface metadata should
+not be loaded into KSP as real vessels. They should either remain ghost-only
+with a clear WARN or be repaired from a valid terminal/live snapshot before
+spawn. The spawn-death retry loop should also cap or permanently abandon
+snapshots that KSP removes for NaN orbit immediately after load, so one corrupt
+terminal cannot churn indefinitely.
 
 **Status:** Open.
 
