@@ -443,6 +443,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SafeGetFileSize_MissingFile_RepeatedScansWarnRateLimited()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+            string nonExistent = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}.prec");
+
+            for (int i = 0; i < 5; i++)
+            {
+                long size = DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: true);
+                Assert.Equal(0L, size);
+            }
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(nonExistent)));
+
+            clockSeconds += 31.0;
+            DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(nonExistent)
+                && l.Contains("suppressed=4"));
+        }
+
+        [Fact]
         public void SafeGetFileSize_MissingFile_WarnIfMissingFalse_NoWarning()
         {
             string nonExistent = System.IO.Path.Combine(

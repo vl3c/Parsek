@@ -150,7 +150,14 @@ namespace Parsek
                 result.OriginalPatchLimit = source.PatchLimit;
                 result.AppliedPatchLimit = Math.Max(result.OriginalPatchLimit, normalizedLimit);
 
-                ParsekLog.Info("PatchedSnapshot",
+                ParsekLog.VerboseOnChange("PatchedSnapshot",
+                    "snapshot-start|" + safeVesselName,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "patchLimit={0}|captureLimit={1}|applied={2}",
+                        result.OriginalPatchLimit,
+                        normalizedLimit,
+                        result.AppliedPatchLimit),
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} snapshotUT={snapshotUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"patchLimit={result.OriginalPatchLimit} captureLimit={normalizedLimit}");
 
@@ -189,7 +196,15 @@ namespace Parsek
                         {
                             result.FailureReason = PatchedConicSnapshotFailureReason.MissingPatchBody;
                             result.HasTruncatedTail = true;
-                            ParsekLog.Verbose("PatchedSnapshot",
+                            ParsekLog.VerboseOnChange("PatchedSnapshot",
+                                "snapshot-truncated|" + safeVesselName,
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "patchIndex={0}|body={1}|valid={2}|reason={3}",
+                                    failedPatchIndex,
+                                    MissingPatchBodySentinel,
+                                    failedPatchIndex,
+                                    result.FailureReason),
                                 $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
                                 $"body={MissingPatchBodySentinel}; truncated chain after {failedPatchIndex} valid patch(es), " +
                                 "keeping partial result");
@@ -223,7 +238,16 @@ namespace Parsek
                 if (!result.EncounteredManeuverNode && patch != null && result.CapturedPatchCount >= normalizedLimit)
                     result.HasTruncatedTail = true;
 
-                ParsekLog.Verbose("PatchedSnapshot",
+                ParsekLog.VerboseOnChange("PatchedSnapshot",
+                    "snapshot-captured|" + safeVesselName,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "captured={0}|truncated={1}|maneuver={2}|lastBody={3}|failure={4}",
+                        result.CapturedPatchCount,
+                        result.HasTruncatedTail,
+                        result.EncounteredManeuverNode,
+                        result.LastCapturedBodyName ?? "(none)",
+                        result.FailureReason),
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} captured={result.CapturedPatchCount} " +
                     $"hasTruncatedTail={result.HasTruncatedTail} encounteredManeuverNode={result.EncounteredManeuverNode} " +
                     $"lastBody={result.LastCapturedBodyName ?? "(none)"}");

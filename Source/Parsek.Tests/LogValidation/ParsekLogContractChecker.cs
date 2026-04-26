@@ -10,12 +10,23 @@ namespace Parsek.Tests.LogValidation
     /// they validate that logging itself happened correctly.
     ///
     /// Rules migrated to in-game tests (InGameTests/LogContractTests.cs):
-    ///   FMT-001 (structured format), FMT-002 (valid levels), SES-002 (SessionStart format),
-    ///   WRN-001 (no WARNING: prefix), RAT-001 (suppressed count), REC-002 (stop metrics),
+    ///   SES-002 (SessionStart format), RAT-001 (suppressed count), REC-002 (stop metrics),
     ///   RES-001 (non-negative resources), RES-002 (finite resources), ERR-001 (error format).
+    ///
+    /// FMT-001/FMT-002/WRN-001 stay here too because only post-hoc validation sees
+    /// real production log lines emitted by every call site, not just synthetic
+    /// ParsekLog primitive output.
     /// </summary>
     internal static class ParsekLogContractChecker
     {
+        private static readonly HashSet<string> AllowedLevels = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "INFO",
+            "VERBOSE",
+            "WARN",
+            "ERROR"
+        };
+
         private static readonly Regex SessionStartPattern = new Regex(
             @"^SessionStart runUtc=(?<utc>\d+)$",
             RegexOptions.Compiled);
@@ -55,7 +66,37 @@ namespace Parsek.Tests.LogValidation
             foreach (KspLogEntry entry in latestSession)
             {
                 if (!entry.IsStructured)
+                {
+                    violations.Add(new LogViolation(
+                        code: "FMT-001",
+                        lineNumber: entry.LineNumber,
+                        message: "Parsek line is not in structured [Parsek][LEVEL][Subsystem] format.",
+                        rawLine: entry.RawLine));
                     continue;
+                }
+
+                if (!AllowedLevels.Contains(entry.Level ?? string.Empty))
+                {
+                    violations.Add(new LogViolation(
+                        code: "FMT-002",
+                        lineNumber: entry.LineNumber,
+                        message: $"Invalid Parsek log level '{entry.Level ?? "(null)"}'.",
+                        rawLine: entry.RawLine));
+                }
+
+                if (string.Equals(entry.Level, "WARN", StringComparison.Ordinal))
+                {
+                    string message = (entry.Message ?? string.Empty).TrimStart();
+                    if (message.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
+                        message.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        violations.Add(new LogViolation(
+                            code: "WRN-001",
+                            lineNumber: entry.LineNumber,
+                            message: "WARN payload must not start with a redundant WARNING:/WARN: prefix.",
+                            rawLine: entry.RawLine));
+                    }
+                }
 
                 if (IsSessionStart(entry))
                     sessionMarkerCount++;
@@ -104,7 +145,7 @@ namespace Parsek.Tests.LogValidation
             if (!string.Equals(entry.Subsystem, "Init", StringComparison.Ordinal))
                 return false;
 
-            return (entry.Message ?? string.Empty).StartsWith("SessionStart runUtc=", StringComparison.Ordinal);
+            return SessionStartPattern.IsMatch(entry.Message ?? string.Empty);
         }
 
         private static bool IsRecordingStart(KspLogEntry entry)

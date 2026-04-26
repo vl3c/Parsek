@@ -121,6 +121,18 @@ namespace Parsek
         internal static int lifecycleDestroyedThisTick;
         internal static int lifecycleUpdatedThisTick;
 
+        internal struct GhostMapVisibilityCounters
+        {
+            public int uniqueTracked;
+            public int recordingTracked;
+            public int chainTracked;
+            public int mapObjectMissing;
+            public int orbitRendererMissing;
+            public int orbitRendererDisabled;
+            public int drawIconsNotAll;
+            public int iconSuppressed;
+        }
+
         /// <summary>
         /// Decision-line field bag for the structured GhostMap log lines.
         /// All numeric fields default to NaN; the builder omits NaN-valued slots.
@@ -194,13 +206,13 @@ namespace Parsek
         /// </summary>
         internal static void EmitLifecycleSummary(string scope, double currentUT)
         {
+            GhostMapVisibilityCounters visibility = CollectMapVisibilityCounters();
             ParsekLog.VerboseRateLimited(
                 Tag,
                 "gm-lifecycle-summary",
-                string.Format(ic,
-                    "lifecycle-summary: scope={0} vesselsTracked={1} created={2} destroyed={3} updated={4} currentUT={5:F1} scene={6}",
-                    scope ?? "(unspecified)",
-                    vesselsByRecordingIndex.Count,
+                BuildLifecycleSummaryMessage(
+                    scope,
+                    visibility,
                     lifecycleCreatedThisTick,
                     lifecycleDestroyedThisTick,
                     lifecycleUpdatedThisTick,
@@ -210,6 +222,119 @@ namespace Parsek
             lifecycleCreatedThisTick = 0;
             lifecycleDestroyedThisTick = 0;
             lifecycleUpdatedThisTick = 0;
+        }
+
+        internal static string BuildLifecycleSummaryMessage(
+            string scope,
+            GhostMapVisibilityCounters visibility,
+            int created,
+            int destroyed,
+            int updated,
+            double currentUT,
+            string scene)
+        {
+            return string.Format(ic,
+                "lifecycle-summary: scope={0} vesselsTracked={1} recordingTracked={2} chainTracked={3} " +
+                "created={4} destroyed={5} updated={6} currentUT={7:F1} scene={8} " +
+                "mapVisibility[mapObjMissing={9} orbitRendererMissing={10} orbitRendererDisabled={11} " +
+                "drawIconsNotAll={12} iconSuppressed={13}]",
+                scope ?? "(unspecified)",
+                visibility.uniqueTracked,
+                visibility.recordingTracked,
+                visibility.chainTracked,
+                created,
+                destroyed,
+                updated,
+                currentUT,
+                scene ?? "n/a",
+                visibility.mapObjectMissing,
+                visibility.orbitRendererMissing,
+                visibility.orbitRendererDisabled,
+                visibility.drawIconsNotAll,
+                visibility.iconSuppressed);
+        }
+
+        internal static string BuildGhostProtoVesselVisibilityState(
+            bool hasMapObject,
+            bool hasOrbitRenderer,
+            bool orbitRendererEnabled,
+            string drawIcons,
+            bool nativeIconSuppressed,
+            bool rendererForceEnabled)
+        {
+            string visibilityReason;
+            if (!hasMapObject)
+                visibilityReason = "map-object-missing";
+            else if (!hasOrbitRenderer)
+                visibilityReason = "orbit-renderer-missing";
+            else if (!orbitRendererEnabled)
+                visibilityReason = "orbit-renderer-disabled";
+            else if (rendererForceEnabled)
+                visibilityReason = "renderer-force-enabled";
+            else if (!string.Equals(drawIcons, OrbitRendererBase.DrawIcons.ALL.ToString(), StringComparison.Ordinal))
+                visibilityReason = "draw-icons-not-all";
+            else if (nativeIconSuppressed)
+                visibilityReason = "native-icon-suppressed";
+            else
+                visibilityReason = "visible";
+
+            return string.Format(ic,
+                "mapObj={0} orbitRenderer={1} rendererEnabled={2} drawIcons={3} nativeIconSuppressed={4} " +
+                "rendererForceEnabled={5} visibilityReason={6}",
+                hasMapObject,
+                hasOrbitRenderer,
+                orbitRendererEnabled,
+                string.IsNullOrEmpty(drawIcons) ? "(none)" : drawIcons,
+                nativeIconSuppressed,
+                rendererForceEnabled,
+                visibilityReason);
+        }
+
+        private static GhostMapVisibilityCounters CollectMapVisibilityCounters()
+        {
+            var counters = new GhostMapVisibilityCounters
+            {
+                recordingTracked = vesselsByRecordingIndex.Count,
+                chainTracked = vesselsByChainPid.Count
+            };
+            var seenPids = new HashSet<uint>();
+
+            foreach (Vessel vessel in vesselsByRecordingIndex.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+            foreach (Vessel vessel in vesselsByChainPid.Values)
+                CountMapVisibility(vessel, ref counters, seenPids);
+
+            return counters;
+        }
+
+        private static void CountMapVisibility(
+            Vessel vessel,
+            ref GhostMapVisibilityCounters counters,
+            HashSet<uint> seenPids)
+        {
+            if (vessel == null)
+                return;
+
+            uint pid = vessel.persistentId;
+            if (pid != 0 && !seenPids.Add(pid))
+                return;
+
+            counters.uniqueTracked++;
+            if (vessel.mapObject == null)
+                counters.mapObjectMissing++;
+            if (vessel.orbitRenderer == null)
+            {
+                counters.orbitRendererMissing++;
+            }
+            else
+            {
+                if (!vessel.orbitRenderer.enabled)
+                    counters.orbitRendererDisabled++;
+                if (vessel.orbitRenderer.drawIcons != OrbitRendererBase.DrawIcons.ALL)
+                    counters.drawIconsNotAll++;
+            }
+            if (pid != 0 && ghostsWithSuppressedIcon.Contains(pid))
+                counters.iconSuppressed++;
         }
 
         private static string GetCurrentSceneName()
@@ -633,11 +758,23 @@ namespace Parsek
         /// mapped. Suppression is rejected with
         /// <c>not-suppressed-not-parent-of-refly-target</c> when the victim is
         /// not in the active Re-Fly recording's parent chain.</param>
-        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>.
-        /// Tests pass a list directly; production passes the live property.</param>
-        /// <param name="committedTrees">Snapshot of <see cref="RecordingStore.CommittedTrees"/>
-        /// for BranchPoint topology lookup. Tests pass a list directly;
-        /// production passes the live property.</param>
+        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>
+        /// (the flat committed list). Used as a secondary lookup source for
+        /// the active Re-Fly recording's PID. At Re-Fly load time the active
+        /// recording's tree has been moved into <c>PendingTree</c> so its
+        /// recordings are NOT in this list (#611 P1 follow-up); the primary
+        /// lookup now walks <paramref name="committedTrees"/>, which production
+        /// composes from CommittedTrees ++ PendingTree via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>. Tests pass a
+        /// list directly; production passes the live property.</param>
+        /// <param name="committedTrees">Trees searched for both BranchPoint
+        /// topology lookup AND the active Re-Fly recording's PID. Production
+        /// composes <see cref="RecordingStore.CommittedTrees"/> ++
+        /// <see cref="RecordingStore.PendingTree"/> via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>; tests pass a
+        /// list directly. Despite the legacy parameter name, this list MUST
+        /// include the pending tree for the load-window predicate to fire
+        /// (#611 P1 follow-up).</param>
         /// <param name="suppressReason">On true, a structured human-readable
         /// reason for the log line including the relationship scope. On false,
         /// set to "not-suppressed-..." describing which gate clause rejected
@@ -695,27 +832,54 @@ namespace Parsek
                 return false;
             }
 
-            if (committedRecordings == null)
-            {
-                suppressReason = "not-suppressed-no-committed-recordings";
-                return false;
-            }
-
+            // #611 P1 follow-up: the PID lookup MUST search the composed trees
+            // (committed ++ pending) and not just the flat CommittedRecordings
+            // list. At Re-Fly load time TryRestoreActiveTreeNode has just
+            // detached this tree from CommittedTrees (and therefore from
+            // CommittedRecordings) and re-stashed it as PendingTree, so the
+            // flat list lookup that ran first would silently bail with
+            // not-suppressed-active-rec-pid-unknown -- before the new
+            // pending-tree topology walk got a chance to run -- and the
+            // doubled ProtoVessel still got created.
             uint activeReFlyPid = 0u;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            string activePidSource = "<not-found>";
+            if (committedTrees != null)
             {
-                Recording rec = committedRecordings[i];
-                if (rec == null) continue;
-                if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
-                        StringComparison.Ordinal))
-                    continue;
-                activeReFlyPid = rec.VesselPersistentId;
-                break;
+                for (int t = 0; t < committedTrees.Count && activeReFlyPid == 0u; t++)
+                {
+                    RecordingTree tree = committedTrees[t];
+                    if (tree == null || tree.Recordings == null) continue;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        activePidSource = "search-tree:" + (tree.Id ?? "<no-id>");
+                    }
+                }
+            }
+            if (activeReFlyPid == 0u && committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording rec = committedRecordings[i];
+                    if (rec == null) continue;
+                    if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                            StringComparison.Ordinal))
+                        continue;
+                    activeReFlyPid = rec.VesselPersistentId;
+                    activePidSource = "committed-recordings-flat-list";
+                    break;
+                }
             }
 
             if (activeReFlyPid == 0u)
             {
-                suppressReason = "not-suppressed-active-rec-pid-unknown";
+                int treeCount = committedTrees != null ? committedTrees.Count : 0;
+                int recCount = committedRecordings != null ? committedRecordings.Count : 0;
+                suppressReason = "not-suppressed-active-rec-pid-unknown searchTrees="
+                    + treeCount + " committedRecordings=" + recCount
+                    + " activeRecId=" + (marker.ActiveReFlyRecordingId ?? "<null>");
                 return false;
             }
 
@@ -753,13 +917,26 @@ namespace Parsek
             if (!IsRecordingInParentChainOfActiveReFly(
                     victimRecordingId,
                     marker.ActiveReFlyRecordingId,
-                    committedTrees))
+                    committedTrees,
+                    out string walkTrace))
             {
-                suppressReason = "not-suppressed-not-parent-of-refly-target";
+                // #611: append the BFS walk trace so the rejection log line
+                // carries enough detail to diagnose missing-active-tree /
+                // missing-parent-BP / topology-mismatch cases.
+                suppressReason = "not-suppressed-not-parent-of-refly-target walkTrace=("
+                    + walkTrace + ")";
                 return false;
             }
 
-            suppressReason = "refly-relative-anchor=active relationship=parent";
+            // Bubble the trace into the success reason too so the
+            // create-state-vector-suppressed log line can show the chain
+            // that was matched. Helps reviewers / playtest log scrapers
+            // confirm the gate fired for the right relationship.
+            // #611 P1 follow-up: also include where the active PID was
+            // resolved (which tree, or the flat fallback list) so the
+            // load-window vs steady-state distinction is auditable.
+            suppressReason = "refly-relative-anchor=active relationship=parent activePidSource="
+                + activePidSource + " walkTrace=(" + walkTrace + ")";
             return true;
         }
 
@@ -772,27 +949,55 @@ namespace Parsek
         /// in the opposite direction. Returns false on any structural defect
         /// (null trees / missing tree / missing recording / cycle), erring on
         /// the side of NOT suppressing.
+        ///
+        /// <para><b>Observability (#611):</b> emits a single Verbose
+        /// <c>[GhostMap] parent-chain-walk</c> log line per call describing
+        /// the search outcome (active-found-in tree id / source label,
+        /// visitedBPs count + ids, parents-encountered count + ids, terminate
+        /// reason). Mirrors the existing <c>SessionSuppressedSubtree</c>
+        /// summary line so the same structured-grep tooling works for both
+        /// closures.</para>
+        ///
+        /// <para><b>#611 fix:</b> at Re-Fly load time the active recording
+        /// lives in <see cref="RecordingStore.PendingTree"/>, NOT
+        /// <see cref="RecordingStore.CommittedTrees"/> (the committed copy is
+        /// removed by <c>TryRestoreActiveTreeNode</c>'s post-splice
+        /// <c>RemoveCommittedTreeById</c>). Callers must therefore compose
+        /// <paramref name="searchTrees"/> from BOTH committed + pending so
+        /// the active-tree lookup succeeds whether the load just happened
+        /// or the player is in steady-state flight.</para>
         /// </summary>
+        /// <param name="searchTrees">Trees to search. Production callers
+        /// compose <see cref="RecordingStore.CommittedTrees"/> ++
+        /// <see cref="RecordingStore.PendingTree"/> (when present). Tests
+        /// pass an explicit list.</param>
+        /// <param name="walkTrace">Diagnostic summary for the caller's
+        /// structured log line. Always populated, even on early-return.</param>
         internal static bool IsRecordingInParentChainOfActiveReFly(
             string victimRecordingId,
             string activeRecordingId,
-            IReadOnlyList<RecordingTree> committedTrees)
+            IReadOnlyList<RecordingTree> searchTrees,
+            out string walkTrace)
         {
+            walkTrace = "no-input";
             if (string.IsNullOrEmpty(victimRecordingId)
                 || string.IsNullOrEmpty(activeRecordingId)
-                || committedTrees == null)
+                || searchTrees == null)
             {
                 return false;
             }
 
-            // Locate the tree containing the active recording and seed the
-            // queue with the active recording's ParentBranchPointId.
+            // Locate the tree containing the active recording. Search every
+            // input tree so a Pending-Limbo-stashed tree (Re-Fly load window)
+            // is found alongside committed trees.
             RecordingTree tree = null;
             Recording active = null;
-            for (int i = 0; i < committedTrees.Count; i++)
+            int treesSearched = 0;
+            for (int i = 0; i < searchTrees.Count; i++)
             {
-                RecordingTree t = committedTrees[i];
+                RecordingTree t = searchTrees[i];
                 if (t?.Recordings == null) continue;
+                treesSearched++;
                 if (t.Recordings.TryGetValue(activeRecordingId, out Recording rec)
                     && rec != null)
                 {
@@ -801,12 +1006,27 @@ namespace Parsek
                     break;
                 }
             }
-            if (tree == null || active == null) return false;
-            if (string.IsNullOrEmpty(active.ParentBranchPointId)) return false;
+            if (tree == null || active == null)
+            {
+                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "active-not-found activeId={0} treesSearched={1}",
+                    activeRecordingId, treesSearched);
+                return false;
+            }
+            if (string.IsNullOrEmpty(active.ParentBranchPointId))
+            {
+                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "active-has-no-parent-bp activeId={0} treeId={1}",
+                    activeRecordingId, tree.Id ?? "<no-id>");
+                return false;
+            }
 
             var pendingBPs = new Queue<string>();
             var visitedBPs = new HashSet<string>();
             var visitedRecs = new HashSet<string>();
+            var bpTrace = new List<string>();
+            var parentTrace = new List<string>();
+            int bpsNotFound = 0;
             pendingBPs.Enqueue(active.ParentBranchPointId);
 
             while (pendingBPs.Count > 0)
@@ -825,7 +1045,14 @@ namespace Parsek
                         break;
                     }
                 }
-                if (bp?.ParentRecordingIds == null) continue;
+                if (bp == null)
+                {
+                    bpsNotFound++;
+                    bpTrace.Add(bpId + ":not-found");
+                    continue;
+                }
+                bpTrace.Add(bpId + ":parents=" + (bp.ParentRecordingIds?.Count ?? 0));
+                if (bp.ParentRecordingIds == null) continue;
 
                 for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
                 {
@@ -833,8 +1060,18 @@ namespace Parsek
                     if (string.IsNullOrEmpty(parentId) || !visitedRecs.Add(parentId))
                         continue;
 
+                    parentTrace.Add(parentId);
                     if (string.Equals(parentId, victimRecordingId, StringComparison.Ordinal))
+                    {
+                        walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "found-victim-in-parent-chain activeId={0} treeId={1} victim={2} " +
+                            "visitedBPs={3} parentsEncountered={4} bps=[{5}] parents=[{6}]",
+                            activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                            visitedBPs.Count, visitedRecs.Count,
+                            string.Join(",", bpTrace.ToArray()),
+                            string.Join(",", parentTrace.ToArray()));
                         return true;
+                    }
 
                     if (tree.Recordings.TryGetValue(parentId, out Recording parent)
                         && parent != null
@@ -845,7 +1082,70 @@ namespace Parsek
                 }
             }
 
+            walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "exhausted-without-victim activeId={0} treeId={1} victim={2} " +
+                "visitedBPs={3} parentsEncountered={4} bpsNotFound={5} bps=[{6}] parents=[{7}]",
+                activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                visitedBPs.Count, visitedRecs.Count, bpsNotFound,
+                string.Join(",", bpTrace.ToArray()),
+                string.Join(",", parentTrace.ToArray()));
             return false;
+        }
+
+        /// <summary>
+        /// #611: composes the search-tree list for the Re-Fly suppression
+        /// predicate. Production callers pass <see cref="RecordingStore.CommittedTrees"/>
+        /// and (when present) <see cref="RecordingStore.PendingTree"/>; tests
+        /// pass an explicit list. Pure-static so unit tests can construct
+        /// arbitrary topologies without touching <c>RecordingStore</c>.
+        /// <para>
+        /// The list MUST include the pending tree because at Re-Fly load
+        /// time <see cref="ParsekScenario.TryRestoreActiveTreeNode"/> calls
+        /// <see cref="RecordingStore.RemoveCommittedTreeById"/> after the
+        /// splice runs, leaving the freshly-loaded tree only as PendingTree.
+        /// A predicate that searched only committed trees would silently
+        /// fail the active-recording lookup during the load window — which
+        /// is exactly when the doubled-vessel ProtoVessel get created (#611).
+        /// </para>
+        /// <para>
+        /// The pending tree is appended (not prepended) so the existing
+        /// tie-break behaviour for in-memory committedTrees still wins on
+        /// id collisions; the BFS walk's first-match-wins loop then
+        /// terminates at the same tree it would have found pre-#611 in the
+        /// steady state, and falls through to the pending tree only when
+        /// committed-trees lookup misses — matching the diagnosed bug
+        /// shape.
+        /// </para>
+        /// </summary>
+        internal static IReadOnlyList<RecordingTree> ComposeSearchTreesForReFlySuppression(
+            IReadOnlyList<RecordingTree> committedTrees,
+            RecordingTree pendingTree)
+        {
+            int committedCount = committedTrees?.Count ?? 0;
+            bool hasPending = pendingTree != null;
+            if (!hasPending) return committedTrees ?? Array.Empty<RecordingTree>();
+
+            var result = new List<RecordingTree>(committedCount + 1);
+            for (int i = 0; i < committedCount; i++)
+            {
+                RecordingTree t = committedTrees[i];
+                if (t == null) continue;
+                if (string.Equals(t.Id, pendingTree.Id, StringComparison.Ordinal))
+                {
+                    // Same tree id in both — drop the committed entry and
+                    // keep only the pending copy. At the moment both are
+                    // present (load-time transient), pending carries the
+                    // post-splice + post-refresh shape that the predicate
+                    // needs to walk; committed is the pre-load snapshot.
+                    // Skipping committed here avoids double-walk +
+                    // visited-set churn; the pending append below makes
+                    // the tree visible to the search.
+                    continue;
+                }
+                result.Add(t);
+            }
+            result.Add(pendingTree);
+            return result;
         }
 
         private static double GetCurrentUTSafe()
@@ -2061,10 +2361,12 @@ namespace Parsek
             int indexCount = vesselsByRecordingIndex.Count;
             if (chainCount == 0 && indexCount == 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag,
+                    "remove-all-empty|" + (reason ?? "(none)"),
                     string.Format(ic,
                         "RemoveAllGhostVessels: no ghost vessels to remove (reason={0})",
-                        reason));
+                        reason),
+                    30.0);
                 return;
             }
 
@@ -4404,13 +4706,21 @@ namespace Parsek
             // true so the flight-scene caller leaves its pending-map entry
             // intact (otherwise the recording would never get a map ghost
             // again after the Re-Fly session ends).
+            // #611: at Re-Fly load time the active recording lives in
+            // PendingTree (not CommittedTrees, which the load-side
+            // RemoveCommittedTreeById call has just emptied for this tree).
+            // Compose the search list so the parent-chain walk can find the
+            // active recording in either committed or pending state.
+            IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
+                RecordingStore.CommittedTrees,
+                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
             if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
                     resolution.AnchorPid,
                     traj.RecordingId,
                     RecordingStore.CommittedRecordings,
-                    RecordingStore.CommittedTrees,
+                    searchTrees,
                     out string activeReFlySuppressReason))
             {
                 retryLater = true;
@@ -4433,6 +4743,35 @@ namespace Parsek
                     SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));
                 return null;
+            }
+
+            // #611: when a Re-Fly session is active but the predicate
+            // declined to suppress, emit a Verbose decision line so the
+            // playtest log records WHY the gate didn't fire — without this,
+            // a successful create-state-vector-done line is the only signal
+            // and we can't tell whether the predicate ran or skipped which
+            // reject branch it took. Skip when no Re-Fly session is active
+            // (the gate is trivially a no-op then; logging would spam every
+            // ProtoVessel create).
+            if (SessionSuppressionState.ActiveMarker != null
+                && !string.IsNullOrEmpty(activeReFlySuppressReason))
+            {
+                var notSuppressed = NewDecisionFields("create-state-vector-not-suppressed-during-refly");
+                notSuppressed.RecordingId = traj.RecordingId;
+                notSuppressed.RecordingIndex = recordingIndex;
+                notSuppressed.VesselName = traj.VesselName;
+                notSuppressed.Source = "StateVector";
+                notSuppressed.Branch = MapResolutionBranch(resolution.Branch);
+                notSuppressed.Body = point.bodyName;
+                notSuppressed.AnchorPid = resolution.AnchorPid;
+                notSuppressed.StateVecAlt = point.altitude;
+                notSuppressed.StateVecSpeed = point.velocity.magnitude;
+                notSuppressed.UT = ut;
+                notSuppressed.Reason = string.Format(ic,
+                    "{0} sess={1}",
+                    activeReFlySuppressReason,
+                    SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>");
+                ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(notSuppressed));
             }
 
             Vector3d worldPos = resolution.WorldPos;
@@ -5421,14 +5760,13 @@ namespace Parsek
                     out int lastVisibleIndex,
                     out bool carriedAcrossGap))
             {
-                ParsekLog.VerboseRateLimited(Tag,
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-segment|{0}", vesselPid),
                     string.Format(ic,
-                        "visible-window-{0}-{1:F3}-{2:F3}-{3:F3}-{4:F3}-{5}",
-                        vesselPid,
+                        "segment|rec={0}|segment={1:F3}-{2:F3}|gap={3}",
+                        recordingIndex,
                         segment.startUT,
                         segment.endUT,
-                        startUT,
-                        endUT,
                         carriedAcrossGap ? "gap" : "segment"),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} recIndex={1} ut={2:F2} body={3} " +
@@ -5443,8 +5781,7 @@ namespace Parsek
                         endUT,
                         firstVisibleIndex,
                         lastVisibleIndex,
-                        carriedAcrossGap),
-                    1.0);
+                        carriedAcrossGap));
 
                 if (PlaybackOrbitDiagnostics.TryBuildMapPredictedTailLog(
                     recordingIndex,
@@ -5469,26 +5806,26 @@ namespace Parsek
                 && recordingIndex < committed.Count
                 && committed[recordingIndex].HasOrbitSegments)
             {
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-none",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-none|{0}", vesselPid),
+                    string.Format(ic, "none|rec={0}", recordingIndex),
                     string.Format(ic,
                         "Map-visible orbit window unavailable source=none reason=no-active-equivalent-segment " +
                         "pid={0} recIndex={1} ut={2:F2} — " +
                         "no active or equivalent same-orbit segment chain",
-                        vesselPid, recordingIndex, currentUT),
-                    1.0);
+                        vesselPid, recordingIndex, currentUT));
             }
 
             if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
             {
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-stored-bounds-fallback",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-stored-bounds|{0}", vesselPid),
+                    string.Format(ic, "stored-bounds|{0:F3}-{1:F3}", startUT, endUT),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",
-                        vesselPid, currentUT, startUT, endUT),
-                    1.0);
+                        vesselPid, currentUT, startUT, endUT));
                 return true;
             }
 
@@ -5946,12 +6283,14 @@ namespace Parsek
 
                 // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
                 // may create the renderer in a disabled state.
+                bool rendererForceEnabled = false;
                 if (v.orbitRenderer != null)
                 {
                     v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
                     v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                     if (!v.orbitRenderer.enabled)
                     {
+                        rendererForceEnabled = true;
                         v.orbitRenderer.enabled = true;
                         ParsekLog.Verbose(Tag, string.Format(ic,
                             "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
@@ -5967,16 +6306,24 @@ namespace Parsek
                     v.vesselType = vtype;
                 }
 
+                string mapVisibilityState = BuildGhostProtoVesselVisibilityState(
+                    v.mapObject != null,
+                    v.orbitRenderer != null,
+                    v.orbitRenderer != null && v.orbitRenderer.enabled,
+                    v.orbitRenderer != null ? v.orbitRenderer.drawIcons.ToString() : "(none)",
+                    ghostsWithSuppressedIcon.Contains(v.persistentId),
+                    rendererForceEnabled);
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} " +
-                        "orbitSource={6}{7} | {8} mapObj={9} orbitRenderer={10} scene={11}",
+                        "orbitSource={6}{7} | {8} {9} scene={10}",
                         vesselName, v.persistentId,
                         vtype, body.name, orbit.semiMajorAxis, logContext,
                         string.IsNullOrEmpty(orbitSource) ? "(unspecified)" : orbitSource,
                         string.IsNullOrEmpty(orbitSourceDetail) ? string.Empty : " " + orbitSourceDetail,
                         driverState,
-                        v.mapObject != null, v.orbitRenderer != null,
+                        mapVisibilityState,
                         HighLogic.LoadedScene));
 
                 return v;
