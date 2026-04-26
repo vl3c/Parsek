@@ -1037,7 +1037,8 @@ namespace Parsek
             if (retired)
             {
                 ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                    skipPartEvents: true, suppressVisualFx: true);
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
             }
             else
             {
@@ -1499,7 +1500,8 @@ namespace Parsek
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
                 // NOT log appearance. See the matching gate in RenderInRangeGhost.
                 ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
-                    skipPartEvents: true, suppressVisualFx: true);
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
             }
             else
             {
@@ -1699,7 +1701,8 @@ namespace Parsek
                                 primaryState.anchorRetiredThisFrame))
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
-                                skipPartEvents: true, suppressVisualFx: true);
+                                skipPartEvents: true, suppressVisualFx: true,
+                                allowTransientEffects: false);
                         }
                         else
                         {
@@ -1857,7 +1860,8 @@ namespace Parsek
                         ovState.anchorRetiredThisFrame))
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
-                        skipPartEvents: true, suppressVisualFx: true);
+                        skipPartEvents: true, suppressVisualFx: true,
+                        allowTransientEffects: false);
                 }
                 else
                 {
