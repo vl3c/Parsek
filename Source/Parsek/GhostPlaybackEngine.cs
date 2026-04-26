@@ -979,6 +979,13 @@ namespace Parsek
 
             double visiblePlaybackUT = ResolveVisiblePlaybackUT(traj, state, ctx.currentUT);
 
+            // Bug #613 (PR #594 P1): clear the per-frame retire signal before
+            // positioning so a stale value from a previous frame's relative
+            // section can't leak into the current frame's pipeline. The
+            // relative positioner sets it back to true if the recorded anchor
+            // is unresolvable.
+            state.anchorRetiredThisFrame = false;
+
             // Position the ghost
             if (hasInterpolatedPoints)
             {
@@ -1016,24 +1023,56 @@ namespace Parsek
                 positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
             }
 
-            // Apply visual events
-            ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
-            bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-            if (ShouldRestoreDeferredRuntimeFxState(
-                    activatedDeferredState,
-                    suppressVisualFx || zoneResult.suppressVisualFx))
-                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-            TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
-                reason: "playback", requestedPlaybackUT: ctx.currentUT);
+            // Bug #613 (PR #594 P1): when the relative positioner retired the
+            // ghost (anchor unresolvable post-rewind), call ApplyFrameVisuals
+            // with skipPartEvents=true and suppressVisualFx=true so any
+            // previously-emitting plumes/audio get cleanly stopped, but no
+            // new transient events fire from the stale (0,0,0) transform.
+            // Skip ActivateGhostVisualsIfNeeded -- otherwise it would
+            // unconditionally re-show the ghost the same frame we hid it.
+            // Skip TrackGhostAppearance -- logging a root=(0,0,0) appearance
+            // for a retired ghost was the original misleading symptom.
+            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            if (retired)
+            {
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+            }
+            else
+            {
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
+                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                if (ShouldRestoreDeferredRuntimeFxState(
+                        activatedDeferredState,
+                        suppressVisualFx || zoneResult.suppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                    reason: "playback", requestedPlaybackUT: ctx.currentUT);
+            }
 
             // Run early-destroyed-debris completion for its side effects (event
             // emission, explosion FX). The helper's return value doesn't gate
             // the outer result: the ghost has already been rendered above this
             // line, so RenderInRangeGhost must report true regardless of
             // whether the completion fired or was skipped. #369 cosmetic.
-            if (allowEarlyDestroyedDebrisCompletion)
+            //
+            // Bug #613 (PR #594 P1 round 2): when the relative-frame retire
+            // gate fired, the ghost was just hidden at (0,0,0) — running
+            // TryHandleEarlyDestroyedDebrisCompletion here would still see
+            // ghostActive==true (computed from HasLoadedGhostVisuals BEFORE
+            // positioning) and would TriggerExplosionIfDestroyed at the stale
+            // transform plus mark explosionFired and queue the completion
+            // event. Skip the helper entirely on retired frames; if the anchor
+            // resolves on a later frame, the normal completion path will
+            // handle it from a real position.
+            if (allowEarlyDestroyedDebrisCompletion && !retired)
                 TryHandleEarlyDestroyedDebrisCompletion(i, traj, f, ctx, state, ghostActive, hasPointData);
+            else if (allowEarlyDestroyedDebrisCompletion && retired)
+                ParsekLog.VerboseRateLimited("Engine", $"early-completion-suppressed-{i}",
+                    $"early-completion suppressed: anchor retired ghost #{i} \"{traj.VesselName}\"");
 
             return true;
         }
@@ -1268,34 +1307,56 @@ namespace Parsek
                 else
                 {
                 // Position at the loop endpoint so explosion appears at the real loop end.
+                    // Bug #613 (PR #594 P1 round 2): clear retire signal so we
+                    // can detect a fresh retirement raised by the loop-endpoint
+                    // positioner (PositionGhostAtLoopEndpoint -> PositionLoop ->
+                    // relative-frame retire branch). Without this, the side
+                    // effects below (explosion FX, ExplosionHold camera event,
+                    // LoopRestarted with ExplosionPosition) all fire from a
+                    // stale (0,0,0) transform when the LoopAnchor pid is
+                    // unresolvable post-rewind.
+                    state.anchorRetiredThisFrame = false;
                     PositionGhostAtLoopEndpoint(index, traj, state);
 
-                    bool needsExplosion = !state.explosionFired
+                    bool loopEndpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                        state.anchorRetiredThisFrame);
+
+                    bool needsExplosion = !loopEndpointRetired
+                    && !state.explosionFired
                     && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                         traj, ResolveLoopPlaybackEndpointUT(traj));
+
+                    if (loopEndpointRetired)
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"loop-endpoint-suppressed-{index}",
+                            $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" cycle={cycleIndex}");
+                    }
 
                     if (needsExplosion)
                         TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
 
                     // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
-                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    if (!loopEndpointRetired)
                     {
-                        Index = index,
-                        Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
-                        AnchorPosition = state.ghost.transform.position,
-                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
-                        Trajectory = traj, Flags = flags
-                    });
+                        OnLoopCameraAction?.Invoke(new CameraActionEvent
+                        {
+                            Index = index,
+                            Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
+                            AnchorPosition = state.ghost.transform.position,
+                            HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
+                            Trajectory = traj, Flags = flags
+                        });
 
-                    // Fire loop restarted event
-                    OnLoopRestarted?.Invoke(new LoopRestartedEvent
-                    {
-                        Index = index, Trajectory = traj, State = state, Flags = flags,
-                        PreviousCycleIndex = state.loopCycleIndex,
-                        NewCycleIndex = cycleIndex,
-                        ExplosionFired = needsExplosion,
-                        ExplosionPosition = state.ghost.transform.position
-                    });
+                        // Fire loop restarted event
+                        OnLoopRestarted?.Invoke(new LoopRestartedEvent
+                        {
+                            Index = index, Trajectory = traj, State = state, Flags = flags,
+                            PreviousCycleIndex = state.loopCycleIndex,
+                            NewCycleIndex = cycleIndex,
+                            ExplosionFired = needsExplosion,
+                            ExplosionPosition = state.ghost.transform.position
+                        });
+                    }
 
                     GhostPlaybackLogic.ResetReentryFx(state, index);
 
@@ -1323,7 +1384,11 @@ namespace Parsek
                     // the new cycle's pivot.
                     ReusePrimaryGhostAcrossCycle(
                         index, traj, flags, state, loopUT, cycleIndex,
-                        emitRetargetEvent: !needsExplosion);
+                        // #613 P1 round 2: also suppress retarget when retired —
+                        // the ghost was just hidden and there is no real
+                        // (post-positioning) world position to anchor a camera
+                        // retarget on this cycle boundary.
+                        emitRetargetEvent: !needsExplosion && !loopEndpointRetired);
                     // state is the same object; loaded-ghost path keeps visuals live, and
                     // pending-build path above just advances the cycle index without
                     // emitting restart side effects.
@@ -1420,16 +1485,33 @@ namespace Parsek
                 return;
             }
 
+            // Bug #613 (PR #594 P1): clear the per-frame retire signal before
+            // positioning. The relative loop positioner sets it back to true
+            // if the recorded anchor is unresolvable.
+            state.anchorRetiredThisFrame = false;
+
             // Position the loop ghost
             positioner.PositionLoop(index, traj, state, loopUT, effectiveSuppressVisualFx);
 
             // Apply visual events
-            if (!skipLoopPartEvents)
-                ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, effectiveSuppressVisualFx);
-            if (ShouldRestoreDeferredRuntimeFxState(
-                    ActivateGhostVisualsIfNeeded(state),
-                    effectiveSuppressVisualFx))
-                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+            if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    state.anchorRetiredThisFrame))
+            {
+                // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
+                // NOT log appearance. See the matching gate in RenderInRangeGhost.
+                ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+            }
+            else
+            {
+                if (!skipLoopPartEvents)
+                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, effectiveSuppressVisualFx);
+                if (ShouldRestoreDeferredRuntimeFxState(
+                        ActivateGhostVisualsIfNeeded(state),
+                        effectiveSuppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+            }
         }
 
         /// <summary>
@@ -1610,14 +1692,28 @@ namespace Parsek
                     {
                         GhostPlaybackLogic.ApplyDistanceLodFidelity(primaryState, zoneResult.reduceFidelity);
                         bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+                        // Bug #613 (PR #594 P1): clear retire signal before
+                        // positioning; gate visuals/activation/appearance on
+                        // it after.
+                        primaryState.anchorRetiredThisFrame = false;
                         positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
-                        ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
-                            zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                        if (ShouldRestoreDeferredRuntimeFxState(
-                                ActivateGhostVisualsIfNeeded(primaryState),
-                                effectiveSuppressVisualFx))
-                            GhostPlaybackLogic.RestoreDeferredRuntimeFxState(primaryState);
-                        TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
+                        if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                                primaryState.anchorRetiredThisFrame))
+                        {
+                            ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
+                                skipPartEvents: true, suppressVisualFx: true,
+                                allowTransientEffects: false);
+                        }
+                        else
+                        {
+                            ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
+                                zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                            if (ShouldRestoreDeferredRuntimeFxState(
+                                    ActivateGhostVisualsIfNeeded(primaryState),
+                                    effectiveSuppressVisualFx))
+                                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(primaryState);
+                            TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
+                        }
                     }
                 }
             }
@@ -1665,37 +1761,58 @@ namespace Parsek
                 // Expired cycle
                 if (phase > duration)
                 {
+                    // Bug #613 (PR #594 P1 round 2): clear retire signal so
+                    // PositionGhostAtLoopEndpoint -> PositionLoop -> relative
+                    // retire branch can flag this overlap expiry. Without the
+                    // gate, an unresolvable LoopAnchor pid would let the
+                    // explosion + ExplosionHold camera event + OverlapExpired
+                    // payload fire from a stale (0,0,0) transform.
+                    bool overlapExpiryRetired = false;
                     if (ovState.ghost != null)
+                    {
+                        ovState.anchorRetiredThisFrame = false;
                         PositionGhostAtLoopEndpoint(index, traj, ovState);
-                    bool triggerExplosionAtExpiry = !ovState.explosionFired
+                        overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            ovState.anchorRetiredThisFrame);
+                    }
+                    bool triggerExplosionAtExpiry = !overlapExpiryRetired
+                        && !ovState.explosionFired
                         && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                             traj, ResolveLoopPlaybackEndpointUT(traj));
+                    if (overlapExpiryRetired)
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"overlap-expiry-suppressed-{index}",
+                            $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" overlap-cycle={cycle}");
+                    }
                     if (triggerExplosionAtExpiry)
                     {
                         TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
                     }
 
                     // Fire camera event for overlap expiry
-                    OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                    if (!overlapExpiryRetired)
                     {
-                        Index = index,
-                        Action = triggerExplosionAtExpiry
-                            ? CameraActionType.ExplosionHoldStart
-                            : CameraActionType.ExplosionHoldEnd,
-                        NewCycleIndex = cycle,
-                        AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
-                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
-                        Trajectory = traj, Flags = flags
-                    });
+                        OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                        {
+                            Index = index,
+                            Action = triggerExplosionAtExpiry
+                                ? CameraActionType.ExplosionHoldStart
+                                : CameraActionType.ExplosionHoldEnd,
+                            NewCycleIndex = cycle,
+                            AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
+                            HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
+                            Trajectory = traj, Flags = flags
+                        });
 
-                    // Fire overlap expired event
-                    OnOverlapExpired?.Invoke(new OverlapExpiredEvent
-                    {
-                        Index = index, Trajectory = traj, State = ovState, Flags = flags,
-                        CycleIndex = cycle,
-                        ExplosionFired = triggerExplosionAtExpiry,
-                        ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
-                    });
+                        // Fire overlap expired event
+                        OnOverlapExpired?.Invoke(new OverlapExpiredEvent
+                        {
+                            Index = index, Trajectory = traj, State = ovState, Flags = flags,
+                            CycleIndex = cycle,
+                            ExplosionFired = triggerExplosionAtExpiry,
+                            ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
+                        });
+                    }
 
                     ParsekLog.VerboseRateLimited("Engine", "overlap-expired",
                         $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
@@ -1735,14 +1852,27 @@ namespace Parsek
 
                 GhostPlaybackLogic.ApplyDistanceLodFidelity(ovState, zoneResult.reduceFidelity);
                 bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+                // Bug #613 (PR #594 P1): clear retire signal before
+                // positioning; gate visuals/activation/appearance on it after.
+                ovState.anchorRetiredThisFrame = false;
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
-                ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
-                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                if (ShouldRestoreDeferredRuntimeFxState(
-                        ActivateGhostVisualsIfNeeded(ovState),
-                        effectiveSuppressVisualFx))
-                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(ovState);
-                TrackGhostAppearance(index, traj, ovState, loopUT, "loop-overlap");
+                if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                        ovState.anchorRetiredThisFrame))
+                {
+                    ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
+                        skipPartEvents: true, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                }
+                else
+                {
+                    ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                    if (ShouldRestoreDeferredRuntimeFxState(
+                            ActivateGhostVisualsIfNeeded(ovState),
+                            effectiveSuppressVisualFx))
+                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(ovState);
+                    TrackGhostAppearance(index, traj, ovState, loopUT, "loop-overlap");
+                }
             }
         }
 
@@ -1754,7 +1884,16 @@ namespace Parsek
         private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, float warpRate)
         {
+            // Bug #613 (PR #594 P1): clear retire signal before positioning;
+            // gate visuals/activation/appearance on it after. The loop-pause
+            // window calls PositionGhostAtLoopEndpoint -> positioner.PositionLoop,
+            // which routes through the relative-frame retire branch when
+            // traj.LoopAnchorVesselId is unresolvable (same Re-Fly rewind
+            // failure mode covered by the per-frame gate above).
+            state.anchorRetiredThisFrame = false;
             PositionGhostAtLoopEndpoint(index, traj, state);
+            bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
             // clamped altitude (#282). Don't overwrite it here with the raw
             // recording-end altitude on the first pause-window frame, or the
@@ -1766,10 +1905,21 @@ namespace Parsek
                     ? traj.Points[traj.Points.Count - 1].bodyName
                     : null;
             }
-            if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+            // Bug #613 (PR #594 P1 round 2): when retired, the explosion side
+            // effect would fire from the stale (0,0,0) loop-endpoint transform.
+            // Skip TriggerExplosionIfDestroyed; if the recording's loop endpoint
+            // really was a destruction, the next replay with a resolvable
+            // anchor will produce the explosion at the real position.
+            if (!loopPauseRetired
+                && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                     traj, ResolveLoopPlaybackEndpointUT(traj)))
             {
                 TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            }
+            else if (loopPauseRetired)
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"loop-pause-suppressed-{index}",
+                    $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj?.VesselName}\" loop-pause");
             }
             if (!state.pauseHidden)
             {
@@ -1783,6 +1933,25 @@ namespace Parsek
             {
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
+            }
+            // Bug #613 (PR #594 P1): if the loop-endpoint position landed in a
+            // relative section whose anchor pid is unresolvable, the retire
+            // branch already called SetActive(false). Skip the
+            // ActivateGhostVisualsIfNeeded + TrackGhostAppearance pair here so
+            // the same-frame reactivation race can't undo the hide.
+            //
+            // P3 (round 2): HideAllGhostParts above only calls MuteAllAudio —
+            // any previously-emitting engine plumes / RCS / reentry FX
+            // continue rendering at the (0,0,0) retired position. The other
+            // five PR #594 visibility gates already call
+            // ApplyFrameVisuals(suppressVisualFx:true) for FX teardown; do
+            // the same here so the loop-pause window matches that contract.
+            if (loopPauseRetired)
+            {
+                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+                return;
             }
             ActivateGhostVisualsIfNeeded(state);
             double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);
@@ -3225,6 +3394,14 @@ namespace Parsek
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
 
+        // Bug #613 (PR #594 P1 round 2) test seams: in-game tests need to
+        // observe whether TryHandleEarlyDestroyedDebrisCompletion ran on the
+        // retire frame. Both sets / lists are private; expose count-only
+        // accessors so the test file does not need InternalsVisibleTo
+        // gymnastics to peek at internal state.
+        internal int Bug613TestEarlyDestroyedCount => earlyDestroyedDebrisCompleted.Count;
+        internal int Bug613TestDeferredCompletedCount => deferredCompletedEvents.Count;
+
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring
         // a full UpdatePlayback pass or live KSP scene objects.
@@ -3577,14 +3754,29 @@ namespace Parsek
 
             state.playbackIndex = 0;
             state.partEventIndex = 0;
+            // Bug #613 (PR #594 P1): clear retire signal before positioning;
+            // gate visuals/activation/appearance on it after. Watch-sync runs
+            // through the same relative-frame positioner as the per-frame
+            // path, so it has the same vulnerability to a stale anchor pid.
+            state.anchorRetiredThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
-            ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
-                skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-            if (ShouldRestoreDeferredRuntimeFxState(
-                    ActivateGhostVisualsIfNeeded(state),
-                    suppressVisualFx: false))
-                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-            TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+            if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    state.anchorRetiredThisFrame))
+            {
+                ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+            }
+            else
+            {
+                ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                    skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
+                if (ShouldRestoreDeferredRuntimeFxState(
+                        ActivateGhostVisualsIfNeeded(state),
+                        suppressVisualFx: false))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+            }
         }
 
         private void PositionLoadedGhostAtPlaybackUT(

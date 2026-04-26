@@ -13814,8 +13814,16 @@ namespace Parsek
 
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
+            // PR #594 P1 review fix: pass `state` so the relative-frame
+            // retirement branch can set state.anchorRetiredThisFrame, which
+            // the engine's per-frame loop reads to skip ApplyFrameVisuals'
+            // transient events, ActivateGhostVisualsIfNeeded, and
+            // TrackGhostAppearance. Without this signal, the engine's
+            // unconditional SetActive(true) at the end of the frame would
+            // re-show the just-hidden ghost at its stale (0,0,0) transform.
             InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
                 ut, anchorVesselId, traj.RecordingFormatVersion,
+                index, traj.VesselName, state,
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
@@ -14161,8 +14169,12 @@ namespace Parsek
                 useAnchor = false;
             }
             InterpolationResult interpResult;
+            // PR #594 P1 review fix: pass `state` so the relative-frame
+            // retirement branch can set state.anchorRetiredThisFrame for
+            // the loop-playback path. Same rationale as in
+            // IGhostPositioner.InterpolateAndPositionRelative above.
             PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
-                index, index * 10000, useAnchor,
+                index, index * 10000, useAnchor, state,
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
@@ -15223,6 +15235,7 @@ namespace Parsek
             int recIdx,
             int ghostIdSalt,
             bool useAnchor,
+            GhostPlaybackState retireSignalState,
             bool allowActivation,
             out InterpolationResult interpResult)
         {
@@ -15258,6 +15271,7 @@ namespace Parsek
                     InterpolateAndPositionRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
                         rec.LoopAnchorVesselId, rec.RecordingFormatVersion,
+                        recIdx, rec.VesselName, retireSignalState,
                         allowActivation, out interpResult);
                     return;
                 }
@@ -15281,6 +15295,9 @@ namespace Parsek
             double targetUT,
             uint anchorVesselId,
             int recordingFormatVersion,
+            int recordingIndex,
+            string recordingVesselName,
+            GhostPlaybackState retireSignalState,
             bool allowActivation,
             out InterpolationResult interpResult)
         {
@@ -15301,6 +15318,9 @@ namespace Parsek
                     frames[0],
                     anchorVesselId,
                     recordingFormatVersion,
+                    recordingIndex,
+                    recordingVesselName,
+                    retireSignalState,
                     allowActivation);
                 interpResult = new InterpolationResult(frames[0].velocity, frames[0].bodyName, 0);
                 return;
@@ -15317,6 +15337,9 @@ namespace Parsek
                     before,
                     anchorVesselId,
                     recordingFormatVersion,
+                    recordingIndex,
+                    recordingVesselName,
+                    retireSignalState,
                     allowActivation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, 0);
                 return;
@@ -15393,18 +15416,41 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — keep ghost at its last position instead of hiding.
-                // RELATIVE frames store dx/dy/dz meter offsets, not geographic coordinates,
-                // so we can't position the ghost. But hiding it during watch mode is worse
-                // than freezing it in place. The ghost stays visible at its last known
-                // position from the previous ABSOLUTE section.
-                long key = ((long)anchorVesselId << 32);
+                // Anchor unresolvable -- retire the ghost for this relative
+                // section. Bug #613 (2026-04-26): a Re-Fly rewind erased the
+                // originally recorded anchor vessel, so its pid never
+                // re-existed in the post-rewind FlightGlobals. The previous
+                // "freeze in place" branch left a freshly-spawned ghost at
+                // (0,0,0) with a bogus reported distance. Hiding strictly
+                // dominates: if the anchor reappears on a later frame the
+                // engine will re-enter this method and reposition; if it does
+                // not, the ghost stays gracefully hidden instead of marooned
+                // at the world origin.
+                //
+                // PR #594 P1 review fix: the SetActive(false) call alone is
+                // not enough -- the engine's per-frame
+                // ActivateGhostVisualsIfNeeded would unconditionally
+                // re-activate the ghost the same frame, defeating the hide.
+                // We now signal the retirement to the engine via
+                // GhostPlaybackState.anchorRetiredThisFrame so the engine
+                // skips ApplyFrameVisuals' transient events,
+                // ActivateGhostVisualsIfNeeded, and TrackGhostAppearance for
+                // this frame. retireSignalState may be null in test fixtures
+                // that drive this method without a state object.
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long key = RelativeAnchorResolution.DedupeKey(recordingIndex, anchorVesselId);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found — " +
-                        $"ghost frozen at last known position (RELATIVE offsets unusable without anchor)");
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recordingIndex,
+                            recordingVesselName,
+                            anchorVesselId,
+                            "InterpolateAndPositionRelative"));
 
-                // Return zero result — the ghost stays where it was positioned last frame
+                // Return zero result -- ghost stays hidden until the next
+                // absolute section or until the anchor resolves.
                 interpResult = InterpolationResult.Zero;
             }
         }
@@ -15418,6 +15464,9 @@ namespace Parsek
             TrajectoryPoint point,
             uint anchorVesselId,
             int recordingFormatVersion,
+            int recordingIndex,
+            string recordingVesselName,
+            GhostPlaybackState retireSignalState,
             bool allowActivation)
         {
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
@@ -15460,14 +15509,25 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — keep ghost at its last position instead of hiding.
-                // Same rationale as InterpolateAndPositionRelative: freezing in place is
-                // better than disappearing during watch mode.
-                long key = ((long)anchorVesselId << 32);
+                // Anchor unresolvable -- retire the ghost. See the matching
+                // branch in InterpolateAndPositionRelative for the full
+                // rationale (bug #613, 2026-04-26): freezing a freshly-spawned
+                // ghost left it at (0,0,0) with a bogus distance after a
+                // Re-Fly rewind erased the originally recorded anchor. The
+                // retireSignalState flag is what makes the SetActive(false)
+                // call actually persist through the frame -- see PR #594
+                // P1 review notes on GhostPlaybackState.anchorRetiredThisFrame.
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long key = RelativeAnchorResolution.DedupeKey(recordingIndex, anchorVesselId);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found — " +
-                        $"ghost frozen at last known position");
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recordingIndex,
+                            recordingVesselName,
+                            anchorVesselId,
+                            "PositionGhostRelativeAt"));
             }
         }
 
