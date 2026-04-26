@@ -1048,25 +1048,58 @@ namespace Parsek
                         // info log firing once per recalc walk for kerbals the
                         // player can already see in their pod.
                         //
+                        // P1 review fix: the predicate uses TWO signals — the
+                        // rescue-specific marker set by
+                        // RescueReservedMissingCrewInSnapshot (#608/#609) AND
+                        // the live-vessel check. Either one alone is wrong:
+                        //   - "on a live vessel" alone fires for fresh
+                        //     reservations where the kerbal is on the active
+                        //     player vessel and was never rescued — that
+                        //     legitimate case needs a stand-in generated for
+                        //     SwapReservedCrewInFlight to swap.
+                        //   - "rescue-placed marker" alone fires after the
+                        //     rescued vessel was destroyed — the kerbal is
+                        //     no longer on any vessel, the stand-in is
+                        //     genuinely needed, the recreate must run.
+                        // Combined, the guard fires only when the rescue path
+                        // actually placed this kerbal AND they are still on a
+                        // loaded non-ghost vessel — exactly the bug-repro
+                        // happy path. The chain entry stays as historical
+                        // metadata so a later rewind / re-fly can
+                        // deterministically reuse the same name.
+                        //
                         // The "person being replaced at depth i" is the slot
-                        // owner at depth 0 and the prior chain entry at deeper
-                        // levels. If that name is on any non-ghost loaded
-                        // vessel, the rescue is effective for this depth and
-                        // the stand-in is no longer needed in the roster — the
-                        // chain entry stays as historical metadata so a later
-                        // rewind / re-fly can deterministically reuse the same
-                        // name when the original is reservation-locked again.
+                        // owner at depth 0 and the prior chain entry at
+                        // deeper levels.
                         string replacedName = i == 0 ? slot.OwnerName : slot.Chain[i - 1];
-                        if (!string.IsNullOrEmpty(replacedName)
-                            && roster.IsKerbalOnLiveVessel(replacedName))
+                        bool isRescuePlaced = !string.IsNullOrEmpty(replacedName)
+                            && CrewReservationManager.IsRescuePlaced(replacedName);
+                        bool isOnLiveVessel = !string.IsNullOrEmpty(replacedName)
+                            && roster.IsKerbalOnLiveVessel(replacedName);
+                        if (isRescuePlaced && isOnLiveVessel)
                         {
                             string standInLabel = slot.Chain[i] ?? "<pending>";
                             ParsekLog.Verbose(Tag,
                                 $"Rescue-completion guard: kerbal '{replacedName}' already placed on " +
-                                $"active vessel via rescue path — skipping stand-in '{standInLabel}' " +
+                                $"active vessel via rescue path (rescuePlaced=true, onLiveVessel=true) " +
+                                $"— skipping stand-in '{standInLabel}' " +
                                 $"for slot '{slot.OwnerName}' depth {i}");
                             skippedRescuedOriginal++;
                             continue;
+                        }
+                        if (isOnLiveVessel && !isRescuePlaced)
+                        {
+                            // P1 review case: legitimate fresh reservation
+                            // where the player has the original on the active
+                            // vessel without ever passing through the rescue
+                            // path. Stand-in must still be generated /
+                            // recreated so SwapReservedCrewInFlight has a
+                            // mapping to swap with. Log the decision so
+                            // KSP.log shows the guard considered + declined.
+                            ParsekLog.Verbose(Tag,
+                                $"Rescue-completion guard declined: kerbal '{replacedName}' on a live " +
+                                $"vessel but no rescue marker — proceeding with stand-in for slot " +
+                                $"'{slot.OwnerName}' depth {i} (legitimate fresh reservation)");
                         }
 
                         if (slot.Chain[i] != null)
@@ -1081,8 +1114,9 @@ namespace Parsek
                                 // declined and this fall-through path fired instead.
                                 ParsekLog.Verbose(Tag,
                                     $"Stand-in recreate: '{slot.Chain[i]}' missing from roster, " +
-                                    $"replaced='{replacedName}' not on live vessel — proceeding to " +
-                                    $"recreate for slot '{slot.OwnerName}' depth {i}");
+                                    $"replaced='{replacedName}' rescuePlaced={isRescuePlaced} " +
+                                    $"onLiveVessel={isOnLiveVessel} — proceeding to recreate for " +
+                                    $"slot '{slot.OwnerName}' depth {i}");
                                 if (!roster.TryRecreateStandIn(slot.Chain[i], slot.OwnerTrait))
                                     ParsekLog.Warn(Tag,
                                         $"Failed to recreate stand-in '{slot.Chain[i]}'");

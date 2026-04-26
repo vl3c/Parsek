@@ -25,10 +25,19 @@ namespace Parsek.Tests
     /// </para>
     ///
     /// <para>
-    /// Test fixtures use a fake <see cref="KerbalsModule.IKerbalRosterFacade"/>
-    /// from <see cref="KerbalLoadDiagnosticsTests"/>'s test infrastructure,
-    /// extended with <c>MarkOnLiveVessel</c> to model the rescue having
-    /// placed the original kerbal back on a loaded vessel.
+    /// P1 review: the guard's predicate combines TWO signals — the
+    /// rescue-specific marker set by
+    /// <see cref="CrewReservationManager.MarkRescuePlaced"/> from the
+    /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/> path
+    /// (#608/#609) AND a live-vessel check. Either one alone is wrong:
+    ///   - "on a live vessel" alone fires for fresh reservations where the
+    ///     kerbal is on the active player vessel and was never rescued, so
+    ///     <see cref="SwapReservedCrewInFlight"/> would have nothing to swap.
+    ///   - "rescue-placed marker" alone fires after the rescued vessel was
+    ///     destroyed — the kerbal is no longer on any vessel, the stand-in
+    ///     is genuinely needed, the recreate must run.
+    /// Combined, the guard fires only when the rescue path actually placed
+    /// this kerbal AND they are still on a loaded non-ghost vessel.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -169,19 +178,23 @@ namespace Parsek.Tests
         /// Happy path matching the bug repro (KSP.log lines ~16106-16109): the
         /// rescue path placed the original three crew back into the spawned
         /// vessel and the spawn's UnreserveCrewInSnapshot removed their
-        /// stand-ins from the roster. The next recalc walk's ApplyToRoster
-        /// must NOT recreate those stand-ins, must log the rescue-completion
-        /// guard skip line per kerbal, and must surface the per-walk summary
+        /// stand-ins from the roster. Both signals fire (rescue-placed marker
+        /// AND on-live-vessel) — the next recalc walk's ApplyToRoster must
+        /// NOT recreate those stand-ins, must log the rescue-completion guard
+        /// skip line per kerbal, and must surface the per-walk summary
         /// counter.
         /// </summary>
         [Fact]
-        public void ApplyToRoster_OriginalsOnLiveVessel_GuardSkipsRecreate()
+        public void ApplyToRoster_RescuePlacedAndOnLiveVessel_GuardSkipsRecreate()
         {
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            // Rescue path: originals are now on a live vessel and the
-            // historical stand-ins are NOT in the roster.
+            // Rescue path ran for all three: marker set + on a live vessel,
+            // historical stand-ins NOT in the roster.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
             var roster = new GuardFakeRoster();
             roster.MarkOnLiveVessel("Jebediah Kerman");
             roster.MarkOnLiveVessel("Bill Kerman");
@@ -198,7 +211,8 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard")
                 && l.Contains("Jebediah Kerman")
-                && l.Contains("already placed on active vessel via rescue path")
+                && l.Contains("rescuePlaced=true")
+                && l.Contains("onLiveVessel=true")
                 && l.Contains("Erilan Kerman"));
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -230,25 +244,126 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Negative path: rescue did not happen for one of the crew (e.g.
-        /// the spawn snapshot crewed only Jeb back into the pod; Bill / Bob
-        /// were lost or stayed on a non-loaded vessel). The guard must fire
-        /// only for Jeb and let the legitimate recreate path run for Bill /
-        /// Bob, with the explicit Verbose preamble that pins the
-        /// fall-through path.
+        /// **P1 review regression test.** Active-vessel-not-rescue case: the
+        /// reserved kerbal is seated on the active player vessel and was
+        /// NEVER rescued. With the original (broken) predicate that only
+        /// checked <c>IsKerbalOnLiveVessel</c>, the guard would fire and
+        /// <c>TryCreateGeneratedStandIn</c> would be skipped, leaving
+        /// <see cref="SwapReservedCrewInFlight"/> with nothing to swap. The
+        /// fixed predicate requires the rescue-placed marker too — the
+        /// reservation here is fresh, no marker, so the guard must NOT fire,
+        /// and <see cref="CrewReservationManager.SetReplacement"/> must end
+        /// up with a mapping for SwapReservedCrewInFlight to consume.
         /// </summary>
         [Fact]
-        public void ApplyToRoster_OneOriginalOnLiveVessel_OnlyThatStandInSkipped()
+        public void ApplyToRoster_OnLiveVesselButNotRescuePlaced_GuardDeclines_StandInGenerated()
+        {
+            // Pre-loaded slot for Jeb with NO chain entry (fresh slot — depth 0
+            // will be a null pending-generation placeholder after PostWalk).
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var jebSlot = slotsNode.AddNode("SLOT");
+            jebSlot.AddValue("owner", "Jebediah Kerman");
+            jebSlot.AddValue("trait", "Pilot");
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-fresh",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 100,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Aboard },
+                },
+            };
+            var snap = new ConfigNode("VESSEL");
+            snap.AddNode("PART").AddValue("crew", "Jebediah Kerman");
+            rec.GhostVisualSnapshot = snap;
+            rec.VesselSnapshot = snap;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            module.Reset();
+            module.PrePass(new List<GameAction>());
+            module.ProcessAction(MakeAssignmentAction("Jebediah Kerman", "Pilot",
+                recordingId: "rec-fresh"));
+            module.PostWalk();
+
+            Assert.True(module.Slots.ContainsKey("Jebediah Kerman"));
+            Assert.Single(module.Slots["Jebediah Kerman"].Chain);
+            Assert.Null(module.Slots["Jebediah Kerman"].Chain[0]);
+
+            // Active player vessel: Jeb is seated. NO rescue marker — this is
+            // a fresh reservation, the kerbal happens to be on the player's
+            // own ship and rescue path never ran for him.
+            var roster = new GuardFakeRoster();
+            roster.MarkOnLiveVessel("Jebediah Kerman");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // Stand-in must be generated (the bug the reviewer caught: the
+            // pre-fix guard would skip this).
+            Assert.NotNull(module.Slots["Jebediah Kerman"].Chain[0]);
+            string standInName = module.Slots["Jebediah Kerman"].Chain[0];
+            Assert.True(roster.Contains(standInName));
+
+            // SetReplacement must have populated the mapping for
+            // SwapReservedCrewInFlight.
+            Assert.True(CrewReservationManager.CrewReplacements
+                .ContainsKey("Jebediah Kerman"),
+                "CrewReservationManager mapping must exist for SwapReservedCrewInFlight");
+            Assert.Equal(standInName,
+                CrewReservationManager.CrewReplacements["Jebediah Kerman"]);
+
+            // The "Rescue-completion guard:" skip line must NOT fire — but
+            // the "guard declined" diagnostic must, so the decision is
+            // visible in KSP.log.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard:")
+                && l.Contains("skipping stand-in"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard declined")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("legitimate fresh reservation"));
+            // The summary counter line must NOT fire (no skipped stand-ins).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard fired"));
+
+            // The generate path's normal log fires.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in generated:")
+                && l.Contains(standInName));
+        }
+
+        /// <summary>
+        /// Mixed case: rescue path ran for one of three (Jeb), the other two
+        /// (Bill / Bob) were lost — their slot.Chain[0] stand-ins were
+        /// removed by UnreserveCrewInSnapshot but no rescue happened for them
+        /// and no original is on a live vessel for them. The guard must fire
+        /// only for Jeb and let the legitimate recreate path run for Bill /
+        /// Bob with the explicit Verbose preamble that pins the fall-through
+        /// path.
+        /// </summary>
+        [Fact]
+        public void ApplyToRoster_OnlyOneRescuePlaced_OnlyThatStandInSkipped()
         {
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
             var roster = new GuardFakeRoster();
             roster.MarkOnLiveVessel("Jebediah Kerman");
-            // Bill and Bob were not rescued — their slot.Chain[0] stand-ins
-            // were removed by UnreserveCrewInSnapshot but no original is on
-            // a live vessel for them. ApplyToRoster must fall through to
-            // TryRecreateStandIn for those two.
+            // Bill and Bob were not rescued and not on a live vessel.
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -259,7 +374,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
-                && l.Contains("Rescue-completion guard")
+                && l.Contains("Rescue-completion guard:")
                 && l.Contains("Jebediah Kerman")
                 && l.Contains("Erilan Kerman"));
 
@@ -267,12 +382,13 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Stand-in recreate:")
                 && l.Contains("Debgas Kerman")
-                && l.Contains("not on live vessel"));
+                && l.Contains("rescuePlaced=False")
+                && l.Contains("onLiveVessel=False"));
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Stand-in recreate:")
                 && l.Contains("Rodbro Kerman")
-                && l.Contains("not on live vessel"));
+                && l.Contains("rescuePlaced=False"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -293,19 +409,20 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Negative path: rescue did not happen at all (no original on a live
+        /// Negative path: rescue did not happen at all (no marker, no live
         /// vessel). The guard must NOT fire and the legacy recreate path
         /// must fire for every chain entry. Pinning this path proves the
         /// guard does not break the historical "stand-in vanished from the
         /// roster between walks" recovery path.
         /// </summary>
         [Fact]
-        public void ApplyToRoster_NoOriginalOnLiveVessel_NoGuardFires()
+        public void ApplyToRoster_NoRescueMarkerAndNotOnLiveVessel_NoGuardFires()
         {
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            var roster = new GuardFakeRoster(); // nobody on a live vessel
+            var roster = new GuardFakeRoster(); // nobody on a live vessel,
+                                                // no rescue marker either
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -316,10 +433,14 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KerbalsModule]")
-                && l.Contains("Rescue-completion guard:"));
+                && l.Contains("Rescue-completion guard:")
+                && l.Contains("skipping stand-in"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard fired"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard declined"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -328,26 +449,68 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Edge case: original AND historical stand-in are both somehow on
-        /// loaded vessels (e.g. the player undocked the stand-in onto a
-        /// separate craft before rescue). The guard must still fire for the
-        /// slot's depth-0 entry because slot.OwnerName is on a live vessel,
-        /// and ApplyToRoster must not double-create the stand-in. This is
-        /// the defense-in-depth path that complements the existing Spawner
-        /// "Crew dedup" warn at line 18769 of the bug log.
+        /// Rescue marker exists but the vessel was destroyed after rescue —
+        /// kerbal is no longer on a live vessel. The combined predicate must
+        /// fall through to the legitimate recreate path: the stand-in is
+        /// genuinely needed because the original is no longer in scene. This
+        /// pins the "marker without live-vessel must not fire" half of the
+        /// combined predicate.
         /// </summary>
         [Fact]
-        public void ApplyToRoster_OriginalOnLiveVessel_StandInAlreadyAvailable_NoChange()
+        public void ApplyToRoster_RescueMarkerButNotOnLiveVessel_GuardDeclines_StandInRecreated()
         {
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            // No MarkOnLiveVessel call — the rescued vessel was destroyed.
+
             var roster = new GuardFakeRoster();
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // Stand-in must be recreated — the rescue is no longer effective.
+            Assert.True(roster.Contains("Erilan Kerman"));
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard:")
+                && l.Contains("skipping stand-in")
+                && l.Contains("Jebediah Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in recreate:")
+                && l.Contains("Erilan Kerman")
+                && l.Contains("rescuePlaced=True")
+                && l.Contains("onLiveVessel=False"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Recreated stand-in 'Erilan Kerman'"));
+        }
+
+        /// <summary>
+        /// Defense-in-depth: rescue placed Jeb (marker + live vessel) AND the
+        /// stand-in is somehow already in the roster (e.g. from a prior walk
+        /// that didn't fully clean up). The guard fires (no recreate), and
+        /// no spurious "Failed to recreate stand-in" warn appears.
+        /// </summary>
+        [Fact]
+        public void ApplyToRoster_RescueComplete_StandInAlreadyAvailable_NoChange()
+        {
+            var module = BuildModuleWithChainedReservations(
+                "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
+
             // Pre-existing stand-in entries (already in roster from a prior
             // walk that wasn't fully cleaned up).
+            var roster = new GuardFakeRoster();
             roster.Add("Erilan Kerman", ProtoCrewMember.RosterStatus.Available);
             roster.Add("Debgas Kerman", ProtoCrewMember.RosterStatus.Available);
             roster.Add("Rodbro Kerman", ProtoCrewMember.RosterStatus.Available);
+
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
             roster.MarkOnLiveVessel("Jebediah Kerman");
             roster.MarkOnLiveVessel("Bill Kerman");
             roster.MarkOnLiveVessel("Bob Kerman");
@@ -370,13 +533,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Edge case: pending generation (slot.Chain[i] == null), original
-        /// on a live vessel. The guard must skip the
+        /// Pending generation (slot.Chain[i] == null) AND the rescue path
+        /// successfully placed the original. The guard must skip the
         /// <c>TryCreateGeneratedStandIn</c> path so a brand-new replacement
-        /// is not minted while the player still has the original.
+        /// is not minted while the rescue is still effective.
         /// </summary>
         [Fact]
-        public void ApplyToRoster_PendingGeneration_OriginalOnLiveVessel_GuardSkipsCreate()
+        public void ApplyToRoster_PendingGeneration_RescueComplete_GuardSkipsCreate()
         {
             var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
@@ -419,11 +582,11 @@ namespace Parsek.Tests
                 module.ProcessAction(actions[i]);
             module.PostWalk();
 
-            // Confirm the placeholder was added at depth 0.
             Assert.True(module.Slots.ContainsKey("Jebediah Kerman"));
             Assert.Single(module.Slots["Jebediah Kerman"].Chain);
             Assert.Null(module.Slots["Jebediah Kerman"].Chain[0]);
 
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
             var roster = new GuardFakeRoster();
             roster.MarkOnLiveVessel("Jebediah Kerman");
 
@@ -436,12 +599,54 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
-                && l.Contains("Rescue-completion guard")
+                && l.Contains("Rescue-completion guard:")
                 && l.Contains("Jebediah Kerman")
+                && l.Contains("rescuePlaced=true")
+                && l.Contains("onLiveVessel=true")
                 && l.Contains("<pending>"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Stand-in generated:"));
+        }
+
+        /// <summary>
+        /// Lifecycle: <see cref="CrewReservationManager.CleanUpReplacement"/>
+        /// must clear the rescue-placed marker when it removes the
+        /// reservation. Otherwise a future fresh reservation of the same
+        /// name would see a stale "rescue happened" signal and the guard
+        /// would incorrectly skip stand-in generation.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_ClearedWhenReplacementRemoved()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            // Idempotent: clearing again does not throw, just no-ops.
+            CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+        }
+
+        /// <summary>
+        /// Lifecycle: <see cref="CrewReservationManager.ResetReplacementsForTesting"/>
+        /// clears both the replacement dict and the rescue-placed marker
+        /// set, so test fixtures see a clean signal between cases.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_ClearedByReset()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.True(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
+
+            CrewReservationManager.ResetReplacementsForTesting();
+
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
         }
 
         // ---------- Test-only roster facade --------------------------------

@@ -21,6 +21,75 @@ namespace Parsek
         /// </summary>
         internal static IReadOnlyDictionary<string, string> CrewReplacements => crewReplacements;
 
+        // ── #615 rescue-completion marker (P1 review) ──────────────────────
+        // Set of kerbal names that the Parsek spawn pipeline's
+        // RescueReservedMissingCrewInSnapshot flipped from Reserved+Missing to
+        // Available immediately before ProtoVessel.Load placed them onto a
+        // Parsek-spawned vessel. This is the rescue-specific signal the
+        // ApplyToRoster guard reads — it does NOT fire for kerbals who happen
+        // to be on the active player vessel without ever passing through the
+        // rescue path. Cleared on full reset / load to keep it from going
+        // stale across sessions; per-name entries get pruned when
+        // UnreserveCrewInSnapshot drops the corresponding replacement (the
+        // reservation is going away too, so the marker is no longer
+        // meaningful).
+        private static readonly HashSet<string> rescuePlacedKerbals
+            = new HashSet<string>(System.StringComparer.Ordinal);
+
+        /// <summary>
+        /// Read-only access to the rescue-placed kerbal set.
+        /// </summary>
+        internal static IReadOnlyCollection<string> RescuePlacedKerbals => rescuePlacedKerbals;
+
+        /// <summary>
+        /// True if <paramref name="kerbalName"/> was placed onto a
+        /// Parsek-spawned vessel by the <c>VesselSpawner</c> rescue path
+        /// (#608/#609). Used by <see cref="KerbalsModule.ApplyToRoster"/>
+        /// (#615 P1 review) as the rescue-specific signal that the
+        /// historical stand-in must NOT be recreated. Returns false for
+        /// kerbals who are on the active player vessel without ever having
+        /// passed through the rescue path — those are legitimate reservations
+        /// awaiting their stand-in.
+        /// </summary>
+        internal static bool IsRescuePlaced(string kerbalName)
+        {
+            return !string.IsNullOrEmpty(kerbalName) && rescuePlacedKerbals.Contains(kerbalName);
+        }
+
+        /// <summary>
+        /// Mark <paramref name="kerbalName"/> as placed onto a Parsek-spawned
+        /// vessel by the rescue path. Called from
+        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
+        /// for every kerbal it actually flipped to <c>Available</c>.
+        /// Idempotent.
+        /// </summary>
+        internal static void MarkRescuePlaced(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return;
+            if (rescuePlacedKerbals.Add(kerbalName))
+            {
+                ParsekLog.Verbose("CrewReservation",
+                    $"Marked rescue-placed: '{kerbalName}' (#608/#609 rescue path; #615 guard signal)");
+            }
+        }
+
+        /// <summary>
+        /// Remove <paramref name="kerbalName"/> from the rescue-placed set.
+        /// Called from <see cref="CleanUpReplacement"/> when a reservation is
+        /// going away — the marker is no longer meaningful at that point and
+        /// stale entries would mask legitimate future reservations of the
+        /// same name.
+        /// </summary>
+        internal static void ClearRescuePlaced(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return;
+            if (rescuePlacedKerbals.Remove(kerbalName))
+            {
+                ParsekLog.Verbose("CrewReservation",
+                    $"Cleared rescue-placed marker: '{kerbalName}' (reservation released)");
+            }
+        }
+
         #endregion
 
         #region Public Methods
@@ -128,6 +197,7 @@ namespace Parsek
             if (roster == null)
             {
                 crewReplacements.Clear();
+                rescuePlacedKerbals.Clear();
                 return;
             }
 
@@ -139,6 +209,11 @@ namespace Parsek
                 }
 
                 crewReplacements.Clear();
+                // #615 P1 review: defense-in-depth — CleanUpReplacement above
+                // already clears each name's rescue-placed marker; this catches
+                // any orphan entries whose original name was missing from
+                // crewReplacements before the loop started.
+                rescuePlacedKerbals.Clear();
                 CrewLog("Cleared all crew replacements");
             }
         }
@@ -606,6 +681,14 @@ namespace Parsek
 
             // Always remove the mapping
             crewReplacements.Remove(originalName);
+
+            // #615 P1 review: the rescue-placed marker is keyed by the
+            // ORIGINAL kerbal's name, not the stand-in. The marker is no
+            // longer meaningful once the reservation is released — keep it
+            // around and a future fresh reservation of the same name would
+            // see a stale "rescue happened" signal and the ApplyToRoster
+            // guard would incorrectly skip stand-in generation.
+            ClearRescuePlaced(originalName);
 
             // Find the replacement in the roster
             ProtoCrewMember replacement = null;
@@ -1506,10 +1589,13 @@ namespace Parsek
 
         /// <summary>
         /// Clears replacement dictionary without roster access. For unit tests only.
+        /// Also clears the #615 rescue-placed marker set so test fixtures see
+        /// a clean rescue signal between cases.
         /// </summary>
         internal static void ResetReplacementsForTesting()
         {
             crewReplacements.Clear();
+            rescuePlacedKerbals.Clear();
         }
 
         /// <summary>
@@ -1533,6 +1619,12 @@ namespace Parsek
         internal static void RestoreReplacements(IReadOnlyDictionary<string, string> replacements)
         {
             crewReplacements.Clear();
+            // #615 P1 review: rewind-quickload reconciliation rewinds time —
+            // the in-memory rescue-placed markers from after the quicksave's
+            // captured UT no longer apply. The replacement dict is being
+            // re-seeded from the bundle; rescue markers should restart empty
+            // and re-populate as the post-load spawn pipeline runs.
+            rescuePlacedKerbals.Clear();
             if (replacements == null) return;
             foreach (var kv in replacements)
             {
@@ -1547,6 +1639,12 @@ namespace Parsek
         internal static void LoadCrewReplacements(ConfigNode node)
         {
             crewReplacements.Clear();
+            // #615 P1 review: rescue-placed markers are session-scoped — the
+            // rescue path runs in-flight, the marker drives the next walk's
+            // ApplyToRoster decision, and the marker has no persisted home.
+            // A cold load starts a new session, so any leftover entries from
+            // a prior in-memory state are stale.
+            rescuePlacedKerbals.Clear();
 
             ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
             if (replacementsNode == null)

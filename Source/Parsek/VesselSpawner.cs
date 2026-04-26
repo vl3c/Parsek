@@ -2710,6 +2710,14 @@ namespace Parsek
                         if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing) continue;
                         pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                         rescued++;
+                        // #615 P1 review: mark this kerbal so the next
+                        // ApplyToRoster walk's rescue-completion guard knows
+                        // the original was placed by the spawn pipeline (not
+                        // just sitting on the active player vessel by
+                        // coincidence). The marker is keyed by the original
+                        // kerbal's name and cleared when the reservation is
+                        // released.
+                        CrewReservationManager.MarkRescuePlaced(name);
                         ParsekLog.Info("Spawner",
                             $"Rescued reserved+Missing crew '{name}' → Available before snapshot load (#608/#609)");
                     }
