@@ -1508,6 +1508,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             ClearGhostSkipReasonLogState();
 
@@ -13225,6 +13226,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             ClearGhostSkipReasonLogState();
         }
@@ -13917,9 +13919,29 @@ namespace Parsek
             if (state?.ghost == null || traj?.Points == null) return;
             // Find the relative TrackSection to get section-local frames
             int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
-            var sectionFrames = (sectionIdx >= 0 && traj.TrackSections[sectionIdx].frames != null)
-                ? traj.TrackSections[sectionIdx].frames
+            TrackSection section = sectionIdx >= 0 ? traj.TrackSections[sectionIdx] : default(TrackSection);
+            var sectionFrames = (sectionIdx >= 0 && section.frames != null)
+                ? section.frames
                 : traj.Points;
+            uint sectionAnchorVesselId = sectionIdx >= 0 && section.anchorVesselId != 0
+                ? section.anchorVesselId
+                : anchorVesselId;
+
+            if (sectionIdx >= 0
+                && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                    index, traj, section, sectionAnchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+            {
+                int absolutePlaybackIdx = state.playbackIndex;
+                InterpolationResult absoluteInterpResult;
+                InterpolateAndPosition(state.ghost, absoluteFrames, null,
+                    ref absolutePlaybackIdx, ut, index * 10000, out absoluteInterpResult,
+                    allowActivation: ShouldAutoActivateGhost(state),
+                    skipOrbitSegments: true);
+                state.SetInterpolated(absoluteInterpResult);
+                state.playbackIndex = absolutePlaybackIdx;
+                return;
+            }
+
             long relKey = ((long)index << 32) | anchorVesselId;
             if (loggedRelativeStart.Add(relKey))
             {
@@ -14647,6 +14669,8 @@ namespace Parsek
 
         // Tracks which (recording index, anchor PID) combos have been logged for relative playback start
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
+        private readonly HashSet<string> loggedRelativeAbsoluteShadowStart =
+            new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         private readonly HashSet<string> recordedAnchorSeenRecordingIds =
@@ -15532,6 +15556,72 @@ namespace Parsek
                 victimIsParentOfActiveReFly);
         }
 
+        bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+            int recordingIndex,
+            IPlaybackTrajectory trajectory,
+            TrackSection section,
+            uint anchorVesselId,
+            out List<TrajectoryPoint> absoluteFrames)
+        {
+            absoluteFrames = null;
+            if (trajectory == null
+                || section.referenceFrame != ReferenceFrame.Relative
+                || anchorVesselId == 0
+                || section.absoluteFrames == null
+                || section.absoluteFrames.Count < 2
+                || string.IsNullOrEmpty(trajectory.RecordingId))
+            {
+                return false;
+            }
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null
+                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                || !string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            IReadOnlyList<RecordingTree> searchTrees =
+                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (!ShouldBypassLiveRelativeAnchorForActiveReFly(
+                    anchorVesselId,
+                    trajectory.RecordingId,
+                    marker,
+                    searchTrees))
+            {
+                return false;
+            }
+
+            absoluteFrames = section.absoluteFrames;
+            string logKey = string.Concat(
+                trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
+                "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
+            if (loggedRelativeAbsoluteShadowStart.Add(logKey))
+            {
+                ParsekLog.Info("Playback",
+                    $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
+                    $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
+                    $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
+                    $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
+                    $"reason=active-refly-parent-chain");
+            }
+            return true;
+        }
+
+        private static string ShortRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return "-";
+            return recordingId.Length <= 8 ? recordingId : recordingId.Substring(0, 8);
+        }
+
         bool TryResolveActiveReFlyPid(
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> searchTrees,
@@ -16147,26 +16237,39 @@ namespace Parsek
                 return;
             }
 
-            if (useAnchor)
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
+            if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
             {
-                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
-                if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
-                {
-                    var section = rec.TrackSections[sectionIdx];
-                    var sectionFrames = section.frames ?? rec.Points;
+                var section = rec.TrackSections[sectionIdx];
+                var sectionFrames = section.frames ?? rec.Points;
+                uint anchorVesselId = section.anchorVesselId != 0
+                    ? section.anchorVesselId
+                    : rec.LoopAnchorVesselId;
 
-                    long relKey = ((long)recIdx << 32) | rec.LoopAnchorVesselId;
+                if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                        recIdx, rec, section, anchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+                {
+                    InterpolateAndPosition(ghost, absoluteFrames, null,
+                        ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
+                        allowActivation: allowActivation,
+                        skipOrbitSegments: true);
+                    return;
+                }
+
+                if (useAnchor)
+                {
+                    long relKey = ((long)recIdx << 32) | anchorVesselId;
                     if (loggedRelativeStart.Add(relKey))
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
-                            $"\"{rec.VesselName}\" anchorPid={rec.LoopAnchorVesselId} " +
+                            $"\"{rec.VesselName}\" anchorPid={anchorVesselId} " +
                             $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
                     InterpolateAndPositionRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
-                        rec.LoopAnchorVesselId, rec.RecordingFormatVersion,
+                        anchorVesselId, rec.RecordingFormatVersion,
                         recIdx, rec.RecordingId, rec.VesselName, retireSignalState,
                         allowActivation, out interpResult);
                     return;

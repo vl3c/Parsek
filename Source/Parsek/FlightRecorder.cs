@@ -4061,6 +4061,7 @@ namespace Parsek
                 startUT = ut,
                 source = source,
                 frames = new List<TrajectoryPoint>(),
+                absoluteFrames = refFrame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
                 checkpoints = new List<OrbitSegment>(),
                 minAltitude = float.NaN,
                 maxAltitude = float.NaN
@@ -4154,6 +4155,7 @@ namespace Parsek
             var currentSource = currentTrackSection.source;
             uint currentAnchor = currentTrackSection.anchorVesselId;
             TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
+            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
 
             CloseCurrentTrackSection(ut);
             StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
@@ -4163,7 +4165,7 @@ namespace Parsek
 
             // Only absolute/relative sections carry sparse frame payloads.
             if (currentRef != ReferenceFrame.OrbitalCheckpoint)
-                SeedBoundaryPoint(boundaryPoint);
+                SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
 
             ParsekLog.Verbose("Recorder",
                 $"Serialization checkpoint: env={currentEnv} ref={currentRef} " +
@@ -5272,6 +5274,9 @@ namespace Parsek
             TrajectoryPoint? boundaryPoint = resumeSection.HasValue
                 ? GetLastFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
+            TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
+                ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
+                : (TrajectoryPoint?)null;
 
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
@@ -5294,7 +5299,7 @@ namespace Parsek
             }
 
             if (resumeRef != ReferenceFrame.OrbitalCheckpoint)
-                SeedBoundaryPoint(boundaryPoint);
+                SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
         }
 
         private bool TryGetFalseAlarmResumeTrackSection(out TrackSection section)
@@ -5489,9 +5494,10 @@ namespace Parsek
             }
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT);
+            TrajectoryPoint absolutePoint = point;
 
-            ApplyRelativeOffset(ref point, v);
-            CommitRecordedPoint(point, v);
+            bool relativeApplied = ApplyRelativeOffset(ref point, v);
+            CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
         }
 
         /// <summary>
@@ -5545,6 +5551,7 @@ namespace Parsek
                     // Capture boundary point to seed the new section (#283).
                     // Same reference frame on both sides, so the point is directly reusable.
                     TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
+                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
 
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(currentUT);
@@ -5553,7 +5560,7 @@ namespace Parsek
                     if (isRelativeMode)
                         currentTrackSection.anchorVesselId = currentAnchorPid;
 
-                    SeedBoundaryPoint(boundaryPoint);
+                    SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
                 }
             }
         }
@@ -5563,10 +5570,10 @@ namespace Parsek
         /// RELATIVE-frame contract. If the anchor is no longer loaded, force-exits
         /// RELATIVE mode and starts a new ABSOLUTE TrackSection.
         /// </summary>
-        private void ApplyRelativeOffset(ref TrajectoryPoint point, Vessel v)
+        private bool ApplyRelativeOffset(ref TrajectoryPoint point, Vessel v)
         {
             if (!isRelativeMode || currentAnchorPid == 0)
-                return;
+                return false;
 
             Vessel anchor = FindVesselByPid(currentAnchorPid);
             if (anchor != null)
@@ -5604,6 +5611,7 @@ namespace Parsek
                     $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
                     $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m",
                     2.0);
+                return true;
             }
             else
             {
@@ -5625,6 +5633,7 @@ namespace Parsek
                 ParsekLog.Info("Anchor",
                     $"RELATIVE mode force-exited: anchor pid={oldAnchor} unloaded, " +
                     $"new ABSOLUTE section started");
+                return false;
             }
         }
 
@@ -5633,7 +5642,7 @@ namespace Parsek
         /// updates last-recorded bookkeeping, refreshes the backup snapshot, and emits periodic
         /// diagnostic logging.
         /// </summary>
-        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v)
+        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
         {
             // Guard: detect time regression (quickload/revert during recording).
             // Trim all points recorded after the new time to maintain monotonicity.
@@ -5658,6 +5667,13 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                    && absoluteShadowPoint.HasValue)
+                {
+                    if (currentTrackSection.absoluteFrames == null)
+                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
 
@@ -5750,6 +5766,21 @@ namespace Parsek
                 if (frameTrimIdx < currentTrackSection.frames.Count)
                     currentTrackSection.frames.RemoveRange(frameTrimIdx,
                         currentTrackSection.frames.Count - frameTrimIdx);
+            }
+            if (trackSectionActive && currentTrackSection.absoluteFrames != null)
+            {
+                int shadowTrimIdx = currentTrackSection.absoluteFrames.Count;
+                for (int i = 0; i < currentTrackSection.absoluteFrames.Count; i++)
+                {
+                    if (currentTrackSection.absoluteFrames[i].ut >= newUT)
+                    {
+                        shadowTrimIdx = i;
+                        break;
+                    }
+                }
+                if (shadowTrimIdx < currentTrackSection.absoluteFrames.Count)
+                    currentTrackSection.absoluteFrames.RemoveRange(shadowTrimIdx,
+                        currentTrackSection.absoluteFrames.Count - shadowTrimIdx);
             }
 
             // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
@@ -5884,9 +5915,10 @@ namespace Parsek
                 v,
                 currentVelocity,
                 Planetarium.GetUniversalTime());
-            ApplyRelativeOffset(ref point, v);
+            TrajectoryPoint absolutePoint = point;
+            bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
-            CommitRecordedPoint(point, v);
+            CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
         }
 
@@ -5982,13 +6014,14 @@ namespace Parsek
                 return;
             }
 
-            if (activeRec.RecordingFormatVersion >= RecordingStore.CurrentRecordingFormatVersion
-                || activeRec.RecordingFormatVersion != RecordingStore.PredictedOrbitSegmentFormatVersion)
+            if (activeRec.RecordingFormatVersion >= RecordingStore.CurrentRecordingFormatVersion)
             {
                 return;
             }
 
-            if (HasRelativeTrackSections(activeRec))
+            bool hasRelativeTrackSections = HasRelativeTrackSections(activeRec);
+            if (hasRelativeTrackSections
+                && activeRec.RecordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
             {
                 ParsekLog.Info("Recorder",
                     $"Relative contract preserved: recording={activeRec.RecordingId} " +
@@ -5997,6 +6030,9 @@ namespace Parsek
                     $"reason={reason} existingRelativeSections=true");
                 return;
             }
+
+            if (activeRec.RecordingFormatVersion < RecordingStore.PredictedOrbitSegmentFormatVersion)
+                return;
 
             int previousVersion = activeRec.RecordingFormatVersion;
             activeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
@@ -6019,6 +6055,14 @@ namespace Parsek
             return null;
         }
 
+        private TrajectoryPoint? GetLastTrackSectionAbsoluteFrame()
+        {
+            if (trackSectionActive && currentTrackSection.absoluteFrames != null
+                && currentTrackSection.absoluteFrames.Count > 0)
+                return currentTrackSection.absoluteFrames[currentTrackSection.absoluteFrames.Count - 1];
+            return null;
+        }
+
         /// <summary>
         /// Returns the last payload frame from the most recently closed TrackSection, or null
         /// if no closed section carries sparse frames.
@@ -6030,6 +6074,13 @@ namespace Parsek
             return null;
         }
 
+        private static TrajectoryPoint? GetLastAbsoluteFrameFromTrackSection(TrackSection section)
+        {
+            if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                return section.absoluteFrames[section.absoluteFrames.Count - 1];
+            return null;
+        }
+
         /// <summary>
         /// Seeds the current (newly opened) TrackSection with a boundary point from the
         /// previous section. Eliminates the physics-frame gap that causes position
@@ -6037,11 +6088,18 @@ namespace Parsek
         /// Only writes to the TrackSection frames — does NOT dual-write to the flat
         /// Recording list (the point is already there from SamplePosition).
         /// </summary>
-        private void SeedBoundaryPoint(TrajectoryPoint? point)
+        private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? absoluteShadowPoint = null)
         {
             if (!point.HasValue) return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
+            if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                && absoluteShadowPoint.HasValue)
+            {
+                if (currentTrackSection.absoluteFrames == null)
+                    currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
+                currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+            }
             UpdateTrackSectionAltitude((float)point.Value.altitude);
             ParsekLog.Verbose("Recorder",
                 $"Boundary point seeded: ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");

@@ -57,7 +57,8 @@ namespace Parsek
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
-        public const int CurrentRecordingFormatVersion = RelativeLocalFrameFormatVersion;
+        public const int RelativeAbsoluteShadowFormatVersion = 7;
+        public const int CurrentRecordingFormatVersion = RelativeAbsoluteShadowFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -83,6 +84,7 @@ namespace Parsek
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
         // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
         // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
+        // v7: RELATIVE TrackSections also store absolute planet-relative shadow points
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
@@ -419,7 +421,7 @@ namespace Parsek
                     ? new List<SegmentEvent>(segmentEvents)
                     : new List<SegmentEvent>(),
                 TrackSections = trackSections != null
-                    ? new List<TrackSection>(trackSections)
+                    ? Recording.DeepCopyTrackSections(trackSections)
                     : new List<TrackSection>(),
                 VesselName = vesselName
             };
@@ -3821,6 +3823,11 @@ namespace Parsek
         private static void SerializePoint(ConfigNode parent, TrajectoryPoint pt, CultureInfo ic)
         {
             ConfigNode ptNode = parent.AddNode("POINT");
+            SerializePointValues(ptNode, pt, ic);
+        }
+
+        private static void SerializePointValues(ConfigNode ptNode, TrajectoryPoint pt, CultureInfo ic)
+        {
             ptNode.AddValue("ut", pt.ut.ToString("R", ic));
             ptNode.AddValue("lat", pt.latitude.ToString("R", ic));
             ptNode.AddValue("lon", pt.longitude.ToString("R", ic));
@@ -5191,6 +5198,20 @@ namespace Parsek
                         for (int i = 0; i < frames.Count; i++)
                             SerializePoint(tsNode, frames[i], ic);
                     }
+
+                    if (track.referenceFrame == ReferenceFrame.Relative
+                        && recordingFormatVersion >= RelativeAbsoluteShadowFormatVersion)
+                    {
+                        var absoluteFrames = track.absoluteFrames;
+                        if (absoluteFrames != null)
+                        {
+                            for (int i = 0; i < absoluteFrames.Count; i++)
+                            {
+                                ConfigNode ptNode = tsNode.AddNode("ABSOLUTE_POINT");
+                                SerializePointValues(ptNode, absoluteFrames[i], ic);
+                            }
+                        }
+                    }
                 }
                 else if (track.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
@@ -5321,6 +5342,14 @@ namespace Parsek
                     ConfigNode[] ptNodes = tsNode.GetNodes("POINT");
                     for (int i = 0; i < ptNodes.Length; i++)
                         section.frames.Add(DeserializePoint(ptNodes[i], ns, ic));
+
+                    if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        section.absoluteFrames = new List<TrajectoryPoint>();
+                        ConfigNode[] absPtNodes = tsNode.GetNodes("ABSOLUTE_POINT");
+                        for (int i = 0; i < absPtNodes.Length; i++)
+                            section.absoluteFrames.Add(DeserializePoint(absPtNodes[i], ns, ic));
+                    }
                 }
                 else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
@@ -5340,6 +5369,8 @@ namespace Parsek
                     section.frames = new List<TrajectoryPoint>();
                 if (section.checkpoints == null)
                     section.checkpoints = new List<OrbitSegment>();
+                if (section.referenceFrame == ReferenceFrame.Relative && section.absoluteFrames == null)
+                    section.absoluteFrames = new List<TrajectoryPoint>();
 
                 tracks.Add(section);
             }
@@ -6552,9 +6583,10 @@ namespace Parsek
         /// state was promoted (see
         /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
         /// Every other lag is rejected: v5 added serialized
-        /// <c>OrbitSegment.isPredicted</c> and v6 changed RELATIVE TrackSection point
-        /// semantics, so a v3 sidecar paired with a v5- or v6-tagged recording indicates
-        /// stale or incomplete trajectory data on disk that the runtime test must catch.
+        /// <c>OrbitSegment.isPredicted</c>, v6 changed RELATIVE TrackSection point
+        /// semantics, and v7 added RELATIVE absolute shadow points, so a v3 sidecar
+        /// paired with a v5+ recording indicates stale or incomplete trajectory data
+        /// on disk that the runtime test must catch.
         /// </summary>
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
         {

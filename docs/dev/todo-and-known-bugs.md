@@ -1130,6 +1130,20 @@ branch belongs to that half's time range.
 
 ---
 
+## ~~623. Parent-chain upper-stage ghosts use booster-relative playback during booster Re-Fly instead of planet-relative playback~~
+
+**Source:** follow-up analysis from `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log` and user clarification on 2026-04-26: ghost playback of the upper stage during booster Re-Fly should use the absolute trajectory relative to the planet, not a relative trajectory to the booster.
+
+**Evidence:** relative mode is entered at recording time by proximity, not by Re-Fly playback intent. `FlightRecorder.UpdateAnchorDetection` selects the nearest valid loaded in-flight vessel and enters `ReferenceFrame.Relative` when it is inside the 2300m physics-bubble entry threshold, staying relative until 2500m. After staging, the upper stage and booster/probe were close, loaded, and in flight, so the upper-stage recording legitimately entered a relative section anchored to the booster/probe PID. `FlightRecorder.ApplyRelativeOffset` then overwrote the section's ordinary `TrajectoryPoint` lat/lon/alt fields with anchor-local offsets, leaving no independent planet-relative samples in the relative section payload. Later Re-Fly playback could only reconstruct through an anchor trajectory, which made the upper stage appear at a constant or inaccurate offset from the re-flown booster/probe.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. Recording format v7 adds `TrackSection.absoluteFrames`: relative sections continue storing anchor-local frames for docking/rendezvous playback, but also persist a planet-relative absolute shadow frame for each relative sample. The text and binary sidecar codecs round-trip the shadow payload, deep-copy and merge/optimizer trim paths preserve it, and active in-place Re-Fly parent-chain playback now prefers the absolute shadow path when the relative anchor is the active Re-Fly target. Old v6 relative recordings without shadow frames still fall back to the existing recorded-anchor reconstruction rather than being made unplayable.
+
+**Tests:** `TrajectorySidecarBinaryTests.WriteRead_RelativeSection_PreservesAbsoluteShadowFrames`, `TrajectorySidecarBinaryTests.TryProbe_MapsVersionToEncodingAndSupport` v7 coverage, `TrajectorySidecarProbeVersionContractTests.Probe_V6SidecarV7Recording_RejectedAsStale`, `SessionMergerTests.ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames`, and `RecordingOptimizerTests` coverage for boring-tail and overlapping-section shadow-frame trims.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
 ## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:

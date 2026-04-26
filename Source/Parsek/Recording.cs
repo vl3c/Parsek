@@ -721,6 +721,7 @@ namespace Parsek
                 var s = source[i];
                 var copy = s;
                 copy.frames = s.frames != null ? new List<TrajectoryPoint>(s.frames) : null;
+                copy.absoluteFrames = s.absoluteFrames != null ? new List<TrajectoryPoint>(s.absoluteFrames) : null;
                 copy.checkpoints = s.checkpoints != null ? new List<OrbitSegment>(s.checkpoints) : null;
                 result.Add(copy);
             }

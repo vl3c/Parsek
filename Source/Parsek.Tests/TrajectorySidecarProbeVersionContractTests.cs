@@ -16,8 +16,9 @@ namespace Parsek.Tests
     /// in-memory format version from v3 to v4 (launch-to-launch loop interval) without
     /// rewriting the sidecar, because v4 is a metadata-only change — the binary layout is
     /// identical to v3. The runtime test was first relaxed to <c>probe &lt;= rec</c>, but that
-    /// was too broad: v5 adds serialized <c>OrbitSegment.isPredicted</c> and v6 changes
-    /// RELATIVE TrackSection point semantics, so a v3 sidecar paired with a v5/v6 recording
+    /// was too broad: v5 adds serialized <c>OrbitSegment.isPredicted</c>, v6 changes
+    /// RELATIVE TrackSection point semantics, and v7 adds RELATIVE absolute shadow points,
+    /// so a v3 sidecar paired with a v5+ recording
     /// indicates stale binary data on disk that the test must catch.
     /// <para>
     /// The narrow contract enforced by
@@ -197,6 +198,22 @@ namespace Parsek.Tests
                     probeFormatVersion: RecordingStore.LaunchToLaunchLoopIntervalFormatVersion,
                     recordingFormatVersion: RecordingStore.RelativeLocalFrameFormatVersion),
                 "v4 sidecar with v6 recording is a multi-bump binary lag and must be rejected.");
+        }
+
+        /// <summary>
+        /// A v6 sidecar paired with a v7 recording is missing the additive RELATIVE
+        /// absolute-shadow payload. The runtime contract still rejects it so parent-chain
+        /// Re-Fly playback cannot silently fall back to stale anchor-relative data.
+        /// </summary>
+        [Fact]
+        public void Probe_V6SidecarV7Recording_RejectedAsStale()
+        {
+            Assert.False(
+                RecordingStore.IsAcceptableSidecarVersionLag(
+                    probeFormatVersion: RecordingStore.RelativeLocalFrameFormatVersion,
+                    recordingFormatVersion: RecordingStore.RelativeAbsoluteShadowFormatVersion),
+                "v6 sidecar with v7 recording is missing RELATIVE absolute shadow points " +
+                "and must be rejected.");
         }
 
         /// <summary>

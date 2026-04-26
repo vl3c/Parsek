@@ -100,6 +100,18 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static TrajectoryPoint PointAt(double ut, double altitude = 0)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                altitude = altitude,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+        }
+
         #endregion
 
         #region CanAutoMerge
@@ -3743,6 +3755,97 @@ namespace Parsek.Tests
             Assert.Null(second.EvaCrewName);
             Assert.Null(rec.ParentRecordingId);
             Assert.Null(second.ParentRecordingId);
+        }
+
+        #endregion
+
+        #region Relative Absolute Shadow Optimizer Trims
+
+        [Fact]
+        public void TrimBoringTailPayload_RelativeSection_TrimsAbsoluteShadowFrames()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 10,
+                endUT = 40,
+                frames = new List<TrajectoryPoint>
+                {
+                    PointAt(10),
+                    PointAt(20),
+                    PointAt(30),
+                    PointAt(40),
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    PointAt(10, 100),
+                    PointAt(20, 200),
+                    PointAt(30, 300),
+                    PointAt(40, 400),
+                },
+            };
+            MethodInfo method = typeof(RecordingOptimizer).GetMethod(
+                "TryTrimTrackSectionPayload",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            object[] args = { section, 25.0 };
+            bool trimmed = (bool)method.Invoke(null, args);
+            section = (TrackSection)args[0];
+
+            Assert.True(trimmed);
+            Assert.Equal(new[] { 10.0, 20.0 }, section.frames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 10.0, 20.0 }, section.absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(20, section.endUT);
+        }
+
+        [Fact]
+        public void TrimOverlappingSectionFrames_RelativeSection_TrimsAbsoluteShadowFrames()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    environment = SegmentEnvironment.Atmospheric,
+                    startUT = 10,
+                    endUT = 20,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        PointAt(10),
+                        PointAt(20),
+                    },
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 15,
+                    endUT = 30,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        PointAt(15),
+                        PointAt(21),
+                        PointAt(30),
+                    },
+                    absoluteFrames = new List<TrajectoryPoint>
+                    {
+                        PointAt(15, 150),
+                        PointAt(21, 210),
+                        PointAt(30, 300),
+                    },
+                },
+            };
+            MethodInfo method = typeof(RecordingOptimizer).GetMethod(
+                "TrimOverlappingSectionFrames",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            method.Invoke(null, new object[] { sections });
+
+            Assert.Equal(new[] { 21.0, 30.0 }, sections[1].frames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 21.0, 30.0 }, sections[1].absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(21, sections[1].startUT);
+            Assert.Equal(30, sections[1].endUT);
         }
 
         #endregion
