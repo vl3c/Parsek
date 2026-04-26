@@ -78,6 +78,10 @@ All notable changes to Parsek are documented here.
 
 - Breakup coalescing now drops dead-on-arrival controlled children whenever their live vessel is already gone, even if a pre-captured snapshot exists, preventing single-point `Unknown` 0s rows from being committed after Re-Fly merge.
 
+- Breakup coalescing now rejects unrelated stock asteroid/comet vessels discovered by the deferred joint-break global scan, preventing an AsteroidSpawner race from recording an asteroid as a controllable split child and creating duplicate, non-invokable Unfinished Flight rows.
+
+- Unfinished Flight membership and commit-time crash promotion now require the recording to resolve to a real RewindPoint child slot, so debris siblings under the same branch point no longer surface as disabled `Fly` rows.
+
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
 
 - Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands; watch range also has 300 km entry / 305 km exit hysteresis so near-cutoff transfers do not immediately pop the camera back out.
