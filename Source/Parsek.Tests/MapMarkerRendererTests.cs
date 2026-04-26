@@ -145,6 +145,32 @@ namespace Parsek.Tests
             Assert.NotEqual(stationColor.g, labelColor.g);
         }
 
+        [Fact]
+        public void WithMarkerOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color markerColor = MapMarkerRenderer.WithMarkerOpacity(source, sticky: false);
+
+            Assert.Equal(source.r, markerColor.r);
+            Assert.Equal(source.g, markerColor.g);
+            Assert.Equal(source.b, markerColor.b);
+            Assert.Equal(0.8f, markerColor.a, 0.001f);
+        }
+
+        [Fact]
+        public void WithMarkerOpacity_UsesFullAlphaWhenPinned()
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color markerColor = MapMarkerRenderer.WithMarkerOpacity(source, sticky: true);
+
+            Assert.Equal(source.r, markerColor.r);
+            Assert.Equal(source.g, markerColor.g);
+            Assert.Equal(source.b, markerColor.b);
+            Assert.Equal(1f, markerColor.a, 0.001f);
+        }
+
         // IsToggleClick — only left-button MouseDown toggles sticky state.
         // Non-left clicks must pass through so stock map/tracking handlers can
         // still react normally. The production click handler gates on this

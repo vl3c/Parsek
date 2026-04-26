@@ -2606,6 +2606,29 @@ namespace Parsek.InGameTests
             return rec;
         }
 
+        // Runtime canary for the opacity contract. Actual GUI drawing still
+        // requires OnGUI; this pins the Unity Color values the renderer applies.
+        [InGameTest(Category = "MapView",
+            Description = "MapMarkerRenderer marker opacity matches pinned/unpinned state")]
+        public void MapMarkerOpacityMatchesPinnedState()
+        {
+            Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+
+            Color unpinned = MapMarkerRenderer.WithMarkerOpacity(source, sticky: false);
+            InGameAssert.ApproxEqual(source.r, unpinned.r, 0.0001f, "unpinned red should be preserved");
+            InGameAssert.ApproxEqual(source.g, unpinned.g, 0.0001f, "unpinned green should be preserved");
+            InGameAssert.ApproxEqual(source.b, unpinned.b, 0.0001f, "unpinned blue should be preserved");
+            InGameAssert.ApproxEqual(0.8f, unpinned.a, 0.0001f,
+                "unpinned marker alpha should be 80%");
+
+            Color pinned = MapMarkerRenderer.WithMarkerOpacity(source, sticky: true);
+            InGameAssert.ApproxEqual(source.r, pinned.r, 0.0001f, "pinned red should be preserved");
+            InGameAssert.ApproxEqual(source.g, pinned.g, 0.0001f, "pinned green should be preserved");
+            InGameAssert.ApproxEqual(source.b, pinned.b, 0.0001f, "pinned blue should be preserved");
+            InGameAssert.ApproxEqual(1f, pinned.a, 0.0001f,
+                "pinned marker alpha should be 100%");
+        }
+
         // Verify that MapMarkerRenderer's per-type icon entries match the live
         // MapNode.iconSprites array for every vessel type in
         // StockIconIndexByVesselType. Regressions here would mean ghost icons

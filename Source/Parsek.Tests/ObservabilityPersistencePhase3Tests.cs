@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Xunit;
 
@@ -150,6 +151,84 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnSaveScenarioLifecycleExceptionLog_IncludesTopLevelContextAndRecState()
+        {
+            string previousSaveFolder = HighLogic.SaveFolder;
+            try
+            {
+                HighLogic.SaveFolder = "observability_save";
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "rec_committed",
+                    VesselName = "Committed Vessel"
+                });
+
+                var pendingTree = new RecordingTree
+                {
+                    Id = "tree_save_pending",
+                    TreeName = "Save Pending"
+                };
+                pendingTree.Recordings["rec_save_pending"] = new Recording
+                {
+                    RecordingId = "rec_save_pending",
+                    VesselName = "Pending Save Vessel"
+                };
+                RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+                var scenario = new ParsekScenario
+                {
+                    ActiveReFlySessionMarker = new ReFlySessionMarker
+                    {
+                        SessionId = "sess_save_log",
+                        TreeId = "tree_save_live",
+                        ActiveReFlyRecordingId = "rec_save_active",
+                        OriginChildRecordingId = "rec_save_origin",
+                        RewindPointId = "rp_save_log"
+                    },
+                    ActiveMergeJournal = new MergeJournal
+                    {
+                        JournalId = "journal_save_log",
+                        SessionId = "sess_save_log",
+                        TreeId = "tree_save_live",
+                        Phase = MergeJournal.Phases.Durable1Done
+                    }
+                };
+                SetPrivateField(scenario, "scenarioSaveFolder", "observability_save");
+
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    scenario.ExecuteOnSaveLifecyclePhaseForTesting(
+                        "recordings",
+                        () => throw new InvalidOperationException("save boom")));
+
+                Assert.Equal("save boom", ex.Message);
+                string errorLine = logLines.FirstOrDefault(line =>
+                    line.Contains("[ERROR][Scenario]") &&
+                    line.Contains("OnSave: exception"));
+                Assert.NotNull(errorLine);
+                Assert.Contains("phase=recordings", errorLine);
+                Assert.Contains("saveFolder=<null>", errorLine);
+                Assert.Contains("scenarioSaveFolder=observability_save", errorLine);
+                Assert.Contains("committedRecordings=1", errorLine);
+                Assert.Contains("committedTrees=0", errorLine);
+                Assert.Contains("pendingTree=id=tree_save_pending,state=Limbo,recordings=1", errorLine);
+                Assert.Contains(
+                    "marker=sess=sess_save_log,tree=tree_save_live,active=rec_save_active,origin=rec_save_origin,rp=rp_save_log",
+                    errorLine);
+                Assert.Contains(
+                    "journal=journal_save_log,sess=sess_save_log,tree=tree_save_live,phase=Durable1Done",
+                    errorLine);
+                Assert.Contains("ex=InvalidOperationException:save boom", errorLine);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[INFO][RecState]") &&
+                    line.Contains("[OnSave:exception]"));
+            }
+            finally
+            {
+                HighLogic.SaveFolder = previousSaveFolder;
+            }
+        }
+
+        [Fact]
         public void SnapshotSidecarInvalidLog_IncludesRecordingPathEpochAndProbeContext()
         {
             string vesselPath = Path.Combine(tempDir, "rec_sidecar_vessel.craft");
@@ -174,6 +253,38 @@ namespace Parsek.Tests
                 line.Contains("fileKind=vessel") &&
                 line.Contains(vesselPath) &&
                 line.Contains("failure='binary header truncated'"));
+        }
+
+        [Fact]
+        public void SnapshotSidecarUnsupportedLog_IncludesProbeVersionContext()
+        {
+            string vesselPath = Path.Combine(tempDir, "rec_sidecar_unsupported_vessel.craft");
+            int unsupportedVersion = SnapshotSidecarCodec.CurrentVersion + 1;
+            WriteSnapshotSidecarHeader(vesselPath, unsupportedVersion, codec: 1);
+            var rec = new Recording
+            {
+                RecordingId = "rec_sidecar_unsupported",
+                SidecarEpoch = 8,
+                GhostSnapshotMode = GhostSnapshotMode.Separate
+            };
+
+            RecordingStore.SnapshotSidecarLoadSummary summary =
+                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+
+            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
+            Assert.Equal("snapshot-vessel-unsupported", summary.FailureReason);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][RecordingStore]") &&
+                line.Contains("unsupported vessel snapshot sidecar") &&
+                line.Contains("id=rec_sidecar_unsupported") &&
+                line.Contains("epoch=8") &&
+                line.Contains("ghostSnapshotMode=Separate") &&
+                line.Contains("fileKind=vessel") &&
+                line.Contains(vesselPath) &&
+                line.Contains("supported=False") &&
+                line.Contains("encoding=UnknownBinary") &&
+                line.Contains("version=" + unsupportedVersion) &&
+                line.Contains("failure='unsupported snapshot sidecar version " + unsupportedVersion + " codec 1'"));
         }
 
         [Fact]
@@ -417,6 +528,80 @@ namespace Parsek.Tests
             Assert.Contains("reason='Rewind point is marked corrupted'", slotLines[1]);
         }
 
+        // Regression: production log 2026-04-26_1025 showed 1389 identical
+        // slot-ok emits over 6 seconds for the same rp/slot. The existing
+        // 2-call test was insufficient. Drive 200 consecutive calls and
+        // assert at most one emit fires.
+        [Fact]
+        public void RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk()
+        {
+            string quicksavePath = WriteQuicksave("GAME\n{\n  FLIGHTSTATE\n  {\n  }\n}\n");
+            var slot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_spam_repro",
+                QuicksaveFilename = "Parsek/RewindPoints/rp_spam_repro.sfs",
+                ChildSlots = new List<ChildSlot> { slot }
+            };
+            RewindInvoker.ResolveAbsoluteQuicksavePathOverrideForTesting = _ => quicksavePath;
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+
+            for (int i = 0; i < 200; i++)
+            {
+                Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+            }
+
+            Assert.Single(LogLinesContaining("CanInvokeSlot:"));
+        }
+
+        // Regression: Recordings window closed + Timeline window open was the
+        // production scenario where DrawIfOpen previously cleared the slot
+        // decision cache every OnGUI pass, re-spamming slot-ok per frame
+        // because TimelineWindowUI's Fly button still calls
+        // CanInvokeRewindPointSlot. The follow-up removed the per-pass clear,
+        // and ClearAllRewindSlotCanInvokeLogState is now reserved for actual
+        // close transitions and scene loads. This test pins that the cache
+        // survives steady Timeline-only calls.
+        [Fact]
+        public void RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose()
+        {
+            string quicksavePath = WriteQuicksave("GAME\n{\n  FLIGHTSTATE\n  {\n  }\n}\n");
+            var slot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_timeline_only",
+                QuicksaveFilename = "Parsek/RewindPoints/rp_timeline_only.sfs",
+                ChildSlots = new List<ChildSlot> { slot }
+            };
+            RewindInvoker.ResolveAbsoluteQuicksavePathOverrideForTesting = _ => quicksavePath;
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+
+            // Simulate Recordings open: Timeline calls seed the cache.
+            Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+
+            // Simulate Recordings window close transition: ClearAll fires once.
+            RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
+
+            // Simulate the steady Recordings-closed + Timeline-open state.
+            // Pre-follow-up DrawIfOpen called ClearAll on every pass; that path
+            // is gone now, so Timeline's per-frame calls should suppress.
+            for (int i = 0; i < 200; i++)
+            {
+                Assert.True(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+            }
+
+            // Expect: 1 emit before close, 1 emit after close+first-Timeline-call.
+            Assert.Equal(2, LogLinesContaining("CanInvokeSlot:").Count);
+        }
+
         private string WriteQuicksave(string contents)
         {
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + ".sfs");
@@ -460,6 +645,29 @@ namespace Parsek.Tests
 
             throw new InvalidOperationException(
                 "Could not locate repo root from " + AppContext.BaseDirectory);
+        }
+
+        private static void WriteSnapshotSidecarHeader(string path, int version, byte codec)
+        {
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PRKS"));
+                writer.Write(version);
+                writer.Write(codec);
+                writer.Write(0);
+                writer.Write(0);
+                writer.Write(0u);
+            }
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
         }
     }
 }
