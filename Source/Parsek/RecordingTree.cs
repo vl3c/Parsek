@@ -1602,30 +1602,76 @@ namespace Parsek
 
         /// <summary>
         /// Assigns terminal state based on vessel situation, with orbit-aware override.
-        /// KSP reports SUB_ORBITAL for off-rails physics vessels even when they have a
-        /// bound (elliptical) orbit above the surface. This overload checks the vessel's
-        /// actual orbit to correct the classification.
+        /// KSP can report SUB_ORBITAL for a vessel with a stable bound orbit, and
+        /// ORBITING for a ballistic coast whose periapsis is below the body surface.
+        /// This overload checks the vessel's actual orbit to correct both cases.
         /// </summary>
         internal static TerminalState DetermineTerminalState(int situation, Vessel vessel)
         {
             TerminalState baseState = DetermineTerminalState(situation);
+            if (vessel?.orbit == null || vessel.orbit.referenceBody == null)
+                return baseState;
 
-            // Override SUB_ORBITAL to Orbiting when the vessel actually has a bound orbit
-            // above the body surface. KSP reports SUB_ORBITAL for off-rails vessels near
-            // a body (e.g., Mun orbit) even when eccentricity < 1 and periapsis is above
-            // the surface.
-            if (situation == 16 && vessel?.orbit != null
-                && vessel.orbit.eccentricity < 1.0
-                && vessel.orbit.PeR > vessel.orbit.referenceBody.Radius)
+            TerminalState resolved = DetermineTerminalStateFromOrbitEvidence(
+                situation,
+                vessel.orbit.eccentricity,
+                vessel.orbit.PeR,
+                vessel.orbit.referenceBody.Radius);
+
+            if (baseState == TerminalState.SubOrbital && resolved == TerminalState.Orbiting)
             {
                 ParsekLog.Info("RecordingTree",
-                    $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting — vessel has bound orbit " +
+                    $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting - vessel has bound orbit " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
+            }
+            else if (baseState == TerminalState.Orbiting && resolved == TerminalState.SubOrbital)
+            {
+                ParsekLog.Info("RecordingTree",
+                    $"DetermineTerminalState: overriding ORBITING to SubOrbital - periapsis is below surface " +
+                    $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
+                    $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
+            }
+
+            return resolved;
+        }
+
+        internal static TerminalState DetermineTerminalStateFromOrbitEvidence(
+            int situation,
+            double eccentricity,
+            double periapsisRadius,
+            double bodyRadius)
+        {
+            TerminalState baseState = DetermineTerminalState(situation);
+            if (!IsFinite(eccentricity)
+                || !IsFinite(periapsisRadius)
+                || !IsFinite(bodyRadius)
+                || bodyRadius <= 0.0)
+            {
+                return baseState;
+            }
+
+            if (baseState == TerminalState.SubOrbital
+                && situation == 16
+                && eccentricity < 1.0
+                && periapsisRadius > bodyRadius)
+            {
                 return TerminalState.Orbiting;
             }
 
+            if (baseState == TerminalState.Orbiting
+                && situation == 32
+                && periapsisRadius <= bodyRadius)
+            {
+                return TerminalState.SubOrbital;
+            }
+
             return baseState;
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         static bool IsNonSpawnableTerminal(TerminalState terminalState)

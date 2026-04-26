@@ -740,6 +740,10 @@ namespace Parsek.Tests
             Assert.True(rec.StartUT < rec.EndUT);
             Assert.True(second.StartUT < second.EndUT);
             Assert.True(rec.EndUT <= second.StartUT);
+            Assert.Equal(rec.StartUT, rec.ExplicitStartUT);
+            Assert.Equal(rec.EndUT, rec.ExplicitEndUT);
+            Assert.Equal(second.StartUT, second.ExplicitStartUT);
+            Assert.Equal(second.EndUT, second.ExplicitEndUT);
         }
 
         [Fact]
@@ -2373,16 +2377,17 @@ namespace Parsek.Tests
             // finalize-time value because the getter prefers ExplicitEndUT over
             // the actual trajectory bounds, so the player sees the full original
             // duration in the Recordings table and the ghost plays past the end
-            // of the trimmed trajectory. Post-trim, ExplicitEndUT must be NaN or
-            // clamped to the new authoritative bounds.
+            // of the trimmed trajectory. Post-trim, ExplicitEndUT must be clamped
+            // to the new authoritative bounds.
             var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
             rec.ExplicitEndUT = 17630; // simulate scene-exit-time finalize value
             var recordings = new List<Recording> { rec };
 
             Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
-            Assert.True(double.IsNaN(rec.ExplicitEndUT),
-                "ExplicitEndUT must be cleared after trim so Recording.EndUT reflects the trimmed trajectory.");
+            Assert.False(double.IsNaN(rec.ExplicitEndUT),
+                "ExplicitEndUT must be stamped after trim so .sfs metadata remains a sidecar-failure fallback.");
+            Assert.Equal(rec.EndUT, rec.ExplicitEndUT);
             // EndUT should now be close to trimUT (17030 + 10 = 17040), not 17630.
             Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1,
                 $"Post-trim EndUT should be trimmed, got {rec.EndUT}");

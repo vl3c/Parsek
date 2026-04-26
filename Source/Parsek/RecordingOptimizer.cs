@@ -591,11 +591,11 @@ namespace Parsek
             second.CachedStats = null;
             second.CachedStatsPointCount = 0;
 
-            // 14. Clear explicit UT on both (Points define the range)
-            original.ExplicitStartUT = double.NaN;
-            original.ExplicitEndUT = double.NaN;
-            second.ExplicitStartUT = double.NaN;
-            second.ExplicitEndUT = double.NaN;
+            // Persist exact payload bounds as a metadata fallback. If a future
+            // load cannot hydrate the sidecar, the .sfs still carries the split
+            // half's real time window instead of a stale finalize-time range.
+            StampExplicitBoundsFromPayload(original, "RecordingOptimizer.SplitAtSection.FirstHalf");
+            StampExplicitBoundsFromPayload(second, "RecordingOptimizer.SplitAtSection.SecondHalf");
 
             ParsekLog.Info("Optimizer",
                 $"SplitAtSection: split {original.RecordingId} at UT={splitUT:F1} " +
@@ -1671,17 +1671,10 @@ namespace Parsek
 
             RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
 
-            // Clamp ExplicitEndUT to the new trajectory bounds. Without this, the
-            // Recording.EndUT getter falls back to the old finalize-time
-            // ExplicitEndUT (set by the recorder when scene exit fires), so rec.EndUT
-            // stays at the original value even though the trim physically removed all
-            // points, sections, and events past trimUT. That's what the player sees
-            // as "trim not applied": the Recordings table keeps showing the full
-            // pre-trim duration and ghost playback treats the recording as lasting
-            // until the stale ExplicitEndUT. Setting ExplicitEndUT = NaN lets the
-            // getter use the now-authoritative actual-trajectory bounds (max of last
-            // Points[].ut, last TrackSection endUT, last OrbitSegment endUT).
-            rec.ExplicitEndUT = double.NaN;
+            // Persist exact payload bounds as a metadata fallback. Without this,
+            // a sidecar hydration failure leaves the .sfs with the stale
+            // finalize-time range and the trimmed recording looks untrimmed.
+            StampExplicitBoundsFromPayload(rec, "RecordingOptimizer.TrimBoringTail");
 
             // Strip events past the new EndUT (they're inert during playback but
             // waste memory and disk space in serialized sidecar files)
@@ -1704,6 +1697,30 @@ namespace Parsek
                 $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)})");
             return true;
+        }
+
+        private static void StampExplicitBoundsFromPayload(Recording rec, string context)
+        {
+            if (rec == null) return;
+
+            rec.ExplicitStartUT = double.NaN;
+            rec.ExplicitEndUT = double.NaN;
+
+            double startUT;
+            double endUT;
+            if (!PlaybackTrajectoryBoundsResolver.TryGetGhostPlayablePayloadBounds(rec, out startUT, out endUT))
+                return;
+            if (double.IsNaN(startUT) || double.IsInfinity(startUT)
+                || double.IsNaN(endUT) || double.IsInfinity(endUT)
+                || endUT < startUT)
+                return;
+
+            rec.ExplicitStartUT = startUT;
+            rec.ExplicitEndUT = endUT;
+            ParsekLog.Verbose("Optimizer",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: stamped explicit bounds rec={1} startUT={2:R} endUT={3:R}",
+                    context ?? "RecordingOptimizer", rec.RecordingId ?? "<none>", startUT, endUT));
         }
 
         private static bool TryTrimTrackSectionPayload(ref TrackSection sec, double trimUT)

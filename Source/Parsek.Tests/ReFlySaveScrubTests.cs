@@ -9,14 +9,17 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public sealed class ReFlySaveScrubTests : IDisposable
     {
+        private readonly string tempDir;
         private readonly string tempPath;
         private readonly bool priorSuppressLogging;
 
         public ReFlySaveScrubTests()
         {
-            tempPath = Path.Combine(
+            tempDir = Path.Combine(
                 Path.GetTempPath(),
-                "parsek_refly_scrub_" + Guid.NewGuid().ToString("N") + ".sfs");
+                "parsek_refly_scrub_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            tempPath = Path.Combine(tempDir, "persistent.sfs");
             priorSuppressLogging = ParsekLog.SuppressLogging;
             ParsekLog.SuppressLogging = true;
         }
@@ -24,7 +27,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.SuppressLogging = priorSuppressLogging;
-            try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
             catch { }
         }
 
@@ -99,6 +102,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScrubQuicksaveToSelectedSlot_RefreshesRecordingSidecarEpochsFromCurrentSidecar()
+        {
+            const string recordingId = "rec_refly_epoch";
+            SaveTestGameWithRecordingEpoch(
+                recordingId,
+                sfsSidecarEpoch: 2,
+                MakeVessel(5000u, "Selected", 444u),
+                MakeVessel(6000u, "Other", 555u));
+            WriteTrajectorySidecar(recordingId, sidecarEpoch: 7);
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_epoch_refresh",
+                PidSlotMap = new Dictionary<uint, int> { { 5000u, 0 } },
+                RootPartPidMap = new Dictionary<uint, int> { { 444u, 0 } },
+            };
+
+            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
+                tempPath, rp, selectedSlotIndex: 0);
+
+            Assert.True(result.Applied);
+            Assert.Equal(1, result.SidecarEpochsRefreshed);
+            Assert.Equal(0, result.SidecarEpochRefreshSkipped);
+
+            ConfigNode root = ConfigNode.Load(tempPath);
+            ConfigNode tree = root.GetNode("RECORDING_TREE");
+            Assert.NotNull(tree);
+            ConfigNode recNode = tree.GetNode("RECORDING");
+            Assert.NotNull(recNode);
+            Assert.Equal("7", recNode.GetValue("sidecarEpoch"));
+        }
+
+        [Fact]
         public void ScrubQuicksaveToSelectedSlot_LeavesFileUntouchedWhenSelectedMissing()
         {
             SaveTestGame(MakeVessel(6000u, "Other", 555u));
@@ -146,6 +181,36 @@ namespace Parsek.Tests
             for (int i = 0; i < vessels.Length; i++)
                 flightState.AddNode(vessels[i]);
             root.Save(tempPath);
+        }
+
+        private void SaveTestGameWithRecordingEpoch(
+            string recordingId, int sfsSidecarEpoch, params ConfigNode[] vessels)
+        {
+            var root = new ConfigNode("GAME");
+            var flightState = root.AddNode("FLIGHTSTATE");
+            flightState.AddValue("UT", "100");
+            flightState.AddValue("activeVessel", Math.Max(0, vessels.Length - 1).ToString(CultureInfo.InvariantCulture));
+            for (int i = 0; i < vessels.Length; i++)
+                flightState.AddNode(vessels[i]);
+
+            var tree = root.AddNode("RECORDING_TREE");
+            var rec = tree.AddNode("RECORDING");
+            rec.AddValue("recordingId", recordingId);
+            rec.AddValue("sidecarEpoch", sfsSidecarEpoch.ToString(CultureInfo.InvariantCulture));
+            root.Save(tempPath);
+        }
+
+        private string WriteTrajectorySidecar(string recordingId, int sidecarEpoch)
+        {
+            string relativePath = RecordingPaths.BuildTrajectoryRelativePath(recordingId);
+            string path = Path.Combine(tempDir, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+            var rec = new Recording { RecordingId = recordingId };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 2.0, bodyName = "Kerbin" });
+            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch);
+            return path;
         }
 
         private ConfigNode LoadFlightState()

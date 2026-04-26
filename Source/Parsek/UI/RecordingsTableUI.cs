@@ -1071,6 +1071,7 @@ namespace Parsek
             // handled inline per-row as before.
             // TODO(phase 6+): migrate recording table to recording-id-keyed rows.
             var committed = RecordingStore.CommittedRecordings;
+            var supersedes = CurrentRecordingSupersedesForDisplay();
             double now = Planetarium.GetUniversalTime();
             recordingsWindowTooltipText = string.Empty;
 
@@ -1171,6 +1172,7 @@ namespace Parsek
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
+                    if (IsSupersededForDisplay(rec, supersedes)) continue;
                     // Skip recordings that belong to groups (drawn inside group trees)
                     if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0) continue;
 
@@ -1288,6 +1290,7 @@ namespace Parsek
         private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
+            if (IsSupersededForDisplay(rec, CurrentRecordingSupersedesForDisplay())) return false;
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
 
             // Cross-link: detect target row during draw pass
@@ -4897,11 +4900,14 @@ namespace Parsek
             grpToRecs = new Dictionary<string, List<int>>();
             // chainId -> list of recording indices
             chainToRecs = new Dictionary<string, List<int>>();
+            var supersedes = CurrentRecordingSupersedesForDisplay();
 
             for (int row = 0; row < sortedIndices.Length; row++)
             {
                 int ri = sortedIndices[row];
                 var rec = committed[ri];
+                if (IsSupersededForDisplay(rec, supersedes))
+                    continue;
 
                 // Multi-group: recording appears in each group it belongs to
                 if (rec.RecordingGroups != null)
@@ -4981,6 +4987,21 @@ namespace Parsek
                 }
                 if (!anyInGrp) rootChainIds.Add(kvp.Key);
             }
+        }
+
+        private static IReadOnlyList<RecordingSupersedeRelation> CurrentRecordingSupersedesForDisplay()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingSupersedes;
+        }
+
+        private static bool IsSupersededForDisplay(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return EffectiveState.IsSupersededByRelation(rec, supersedes);
         }
     }
 }

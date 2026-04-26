@@ -216,6 +216,14 @@ namespace Parsek.Tests
             Assert.False(EffectiveState.IsVisible(rec, list));
         }
 
+        [Fact]
+        public void IsSupersededByRelation_NotCommittedSuperseded_True()
+        {
+            var rec = Rec("rec_A", MergeState.NotCommitted);
+            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") };
+            Assert.True(EffectiveState.IsSupersededByRelation(rec, list));
+        }
+
         // =====================================================================
         // IsUnfinishedFlight
         // =====================================================================
