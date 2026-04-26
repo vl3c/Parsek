@@ -57,6 +57,9 @@ suppression, renderer force-enable, and watched-ghost map-focus restore blockers
 Review follow-up: map-focus restore logging now uses one stable on-change
 identity with the watched recording/pid/reason in the state key, avoiding
 per-recording cache growth while preserving reason-change visibility.
+Review follow-up: Flight scene teardown now clears ghost-skip reason state and
+the matching `Flight|ghost-skip|` `VerboseOnChange` identities, with coverage
+showing per-recording skip reasons re-emit after scene cleanup.
 Remaining observability audit items stay open.
 
 Phase 3 persistence/rewind observability is closed on
