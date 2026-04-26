@@ -175,7 +175,24 @@ namespace Parsek.Tests
                 };
                 RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
 
-                var scenario = new ParsekScenario();
+                var scenario = new ParsekScenario
+                {
+                    ActiveReFlySessionMarker = new ReFlySessionMarker
+                    {
+                        SessionId = "sess_save_log",
+                        TreeId = "tree_save_live",
+                        ActiveReFlyRecordingId = "rec_save_active",
+                        OriginChildRecordingId = "rec_save_origin",
+                        RewindPointId = "rp_save_log"
+                    },
+                    ActiveMergeJournal = new MergeJournal
+                    {
+                        JournalId = "journal_save_log",
+                        SessionId = "sess_save_log",
+                        TreeId = "tree_save_live",
+                        Phase = MergeJournal.Phases.Durable1Done
+                    }
+                };
                 SetPrivateField(scenario, "scenarioSaveFolder", "observability_save");
 
                 var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -194,6 +211,12 @@ namespace Parsek.Tests
                 Assert.Contains("committedRecordings=1", errorLine);
                 Assert.Contains("committedTrees=0", errorLine);
                 Assert.Contains("pendingTree=id=tree_save_pending,state=Limbo,recordings=1", errorLine);
+                Assert.Contains(
+                    "marker=sess=sess_save_log,tree=tree_save_live,active=rec_save_active,origin=rec_save_origin,rp=rp_save_log",
+                    errorLine);
+                Assert.Contains(
+                    "journal=journal_save_log,sess=sess_save_log,tree=tree_save_live,phase=Durable1Done",
+                    errorLine);
                 Assert.Contains("ex=InvalidOperationException:save boom", errorLine);
                 Assert.Contains(logLines, line =>
                     line.Contains("[INFO][RecState]") &&

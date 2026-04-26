@@ -297,6 +297,7 @@ namespace Parsek.Tests
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
             SetPrivateField(host, "chainManager", new ChainSegmentManager());
+            SetPrivateField(host, "activeGhostChains", new Dictionary<uint, GhostChain>());
             SetPrivateField(host, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
             return host;
         }

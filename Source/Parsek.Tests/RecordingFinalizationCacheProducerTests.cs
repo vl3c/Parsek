@@ -230,6 +230,7 @@ namespace Parsek.Tests
             double clockSeconds = 0.0;
             ParsekLog.ClockOverrideForTesting = () => clockSeconds;
             const uint sharedVesselPid = 111u;
+            // Intentional: VerboseOnChange identity is keyed by recordingId, not vessel pid.
             var first = new Recording
             {
                 RecordingId = "rec-refresh-a",
