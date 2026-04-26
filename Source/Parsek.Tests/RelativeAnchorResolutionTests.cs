@@ -176,6 +176,64 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region SelectAnchorFrameSource
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassUsesRecordedEvenWhenLiveAnchorExists()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: true,
+                recordedFallbackAvailable: false);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Recorded, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassUsesRecordedFallbackForPartialCoverage()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.RecordedFallback, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassRetiresWhenNoRecordedPoseExists()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: false);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Retired, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_UnrelatedAnchorKeepsLiveAndDoesNotUseFallbackOnly()
+        {
+            var live = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: false,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+            var missingLive = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: false,
+                bypassLiveAnchorForActiveReFly: false,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Live, live);
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Retired, missingLive);
+        }
+
+        #endregion
+
         #region RecordedAnchorPointListCoversUT
 
         [Fact]
@@ -232,6 +290,20 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(null, 100.0));
             Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(
                 new List<TrajectoryPoint>(), 100.0));
+        }
+
+        [Fact]
+        public void DistanceOutsideRecordedAnchorCoverage_ReportsEndpointFallbackGap()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }
+            };
+
+            Assert.Equal(0.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 105.0));
+            Assert.Equal(2.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 98.0));
+            Assert.Equal(3.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 113.0));
         }
 
         #endregion

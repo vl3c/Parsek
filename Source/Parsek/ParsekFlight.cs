@@ -15409,15 +15409,32 @@ namespace Parsek
                 && ShouldBypassLiveRelativeAnchorForActiveReFly(
                     anchorVesselId, victimRecordingId, marker, searchTrees);
 
+            RelativeAnchorPose livePose = default(RelativeAnchorPose);
+            bool liveAnchorAvailable = false;
             if (!bypassLiveAnchor)
             {
                 Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
                 if (anchor != null)
                 {
-                    pose.worldPos = anchor.GetWorldPos3D();
-                    pose.worldRotation = anchor.transform.rotation;
-                    pose.fromRecordedTrajectory = false;
-                    return IsFiniteVector3d(pose.worldPos);
+                    livePose.worldPos = anchor.GetWorldPos3D();
+                    livePose.worldRotation = anchor.transform.rotation;
+                    livePose.fromRecordedTrajectory = false;
+                    liveAnchorAvailable = IsFiniteVector3d(livePose.worldPos);
+                }
+            }
+
+            if (liveAnchorAvailable && !bypassLiveAnchor)
+            {
+                RelativeAnchorResolution.AnchorFrameSource liveSource =
+                    RelativeAnchorResolution.SelectAnchorFrameSource(
+                        liveAnchorAvailable,
+                        bypassLiveAnchor,
+                        recordedAnchorAvailable: false,
+                        recordedFallbackAvailable: false);
+                if (liveSource == RelativeAnchorResolution.AnchorFrameSource.Live)
+                {
+                    pose = livePose;
+                    return true;
                 }
             }
 
@@ -15428,8 +15445,47 @@ namespace Parsek
                     RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
             }
 
-            return TryResolveRecordedAnchorPose(
-                anchorVesselId, victimRecordingId, targetUT, searchTrees, out pose);
+            bool recordedAnchorAvailable = TryResolveRecordedAnchorPoseWithCoverage(
+                anchorVesselId,
+                victimRecordingId,
+                targetUT,
+                searchTrees,
+                requireCoverage: true,
+                out RelativeAnchorPose recordedPose);
+
+            bool recordedFallbackAvailable = false;
+            RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
+            if (!recordedAnchorAvailable && bypassLiveAnchor)
+            {
+                recordedFallbackAvailable = TryResolveRecordedAnchorPoseWithCoverage(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    searchTrees,
+                    requireCoverage: false,
+                    out recordedFallbackPose);
+            }
+
+            RelativeAnchorResolution.AnchorFrameSource source =
+                RelativeAnchorResolution.SelectAnchorFrameSource(
+                    liveAnchorAvailable,
+                    bypassLiveAnchor,
+                    recordedAnchorAvailable,
+                    recordedFallbackAvailable);
+            switch (source)
+            {
+                case RelativeAnchorResolution.AnchorFrameSource.Live:
+                    pose = livePose;
+                    return true;
+                case RelativeAnchorResolution.AnchorFrameSource.Recorded:
+                    pose = recordedPose;
+                    return true;
+                case RelativeAnchorResolution.AnchorFrameSource.RecordedFallback:
+                    pose = recordedFallbackPose;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         bool ShouldBypassLiveRelativeAnchorForActiveReFly(
@@ -15520,11 +15576,12 @@ namespace Parsek
             return false;
         }
 
-        bool TryResolveRecordedAnchorPose(
+        bool TryResolveRecordedAnchorPoseWithCoverage(
             uint anchorVesselId,
             string victimRecordingId,
             double targetUT,
             IReadOnlyList<RecordingTree> searchTrees,
+            bool requireCoverage,
             out RelativeAnchorPose pose)
         {
             pose = default(RelativeAnchorPose);
@@ -15544,7 +15601,7 @@ namespace Parsek
                     {
                         if (TryResolveRecordedAnchorPoseFromCandidate(
                                 rec, anchorVesselId, victimRecordingId,
-                                targetUT, seenRecordingIds, out pose))
+                                targetUT, seenRecordingIds, requireCoverage, out pose))
                         {
                             seenRecordingIds.Clear();
                             return true;
@@ -15560,7 +15617,7 @@ namespace Parsek
                 {
                     if (TryResolveRecordedAnchorPoseFromCandidate(
                             committed[i], anchorVesselId, victimRecordingId,
-                            targetUT, seenRecordingIds, out pose))
+                            targetUT, seenRecordingIds, requireCoverage, out pose))
                     {
                         seenRecordingIds.Clear();
                         return true;
@@ -15578,6 +15635,7 @@ namespace Parsek
             string victimRecordingId,
             double targetUT,
             HashSet<string> seenRecordingIds,
+            bool requireCoverage,
             out RelativeAnchorPose pose)
         {
             pose = default(RelativeAnchorPose);
@@ -15596,11 +15654,21 @@ namespace Parsek
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, targetUT);
                 if (sectionIdx < 0)
-                    return false;
+                {
+                    return requireCoverage
+                        ? false
+                        : TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose);
+                }
 
                 TrackSection section = rec.TrackSections[sectionIdx];
                 if (section.referenceFrame != ReferenceFrame.Absolute)
-                    return false;
+                {
+                    return requireCoverage
+                        ? false
+                        : TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose);
+                }
 
                 List<TrajectoryPoint> anchorPoints =
                     section.frames != null && section.frames.Count > 0
@@ -15609,15 +15677,70 @@ namespace Parsek
                 return TryResolveRecordedAnchorPointPose(
                     anchorPoints,
                     targetUT,
-                    requireCoverage: true,
+                    requireCoverage: requireCoverage,
                     out pose);
             }
 
             return TryResolveRecordedAnchorPointPose(
                 rec.Points,
                 targetUT,
-                requireCoverage: true,
+                requireCoverage: requireCoverage,
                 out pose);
+        }
+
+        bool TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+            Recording rec,
+            double targetUT,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            List<TrajectoryPoint> bestPoints = null;
+            double bestGap = double.MaxValue;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection section = rec.TrackSections[i];
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                    continue;
+
+                List<TrajectoryPoint> points =
+                    section.frames != null && section.frames.Count > 0
+                        ? section.frames
+                        : rec.Points;
+                if (points == null || points.Count == 0)
+                    continue;
+
+                double gap = DistanceOutsideRecordedAnchorCoverage(points, targetUT);
+                if (gap < bestGap)
+                {
+                    bestGap = gap;
+                    bestPoints = points;
+                }
+            }
+
+            return TryResolveRecordedAnchorPointPose(
+                bestPoints,
+                targetUT,
+                requireCoverage: false,
+                out pose);
+        }
+
+        internal static double DistanceOutsideRecordedAnchorCoverage(
+            List<TrajectoryPoint> points,
+            double targetUT)
+        {
+            if (points == null || points.Count == 0)
+                return double.MaxValue;
+
+            double firstUT = points[0].ut;
+            double lastUT = points[points.Count - 1].ut;
+            if (targetUT < firstUT)
+                return firstUT - targetUT;
+            if (targetUT > lastUT)
+                return targetUT - lastUT;
+            return 0.0;
         }
 
         internal static bool RecordedAnchorPointListCoversUT(

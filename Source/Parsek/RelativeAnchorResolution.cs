@@ -34,6 +34,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Frame source selected for a relative-section anchor.
+        /// </summary>
+        internal enum AnchorFrameSource
+        {
+            /// <summary>Use the currently loaded live vessel as the anchor.</summary>
+            Live,
+
+            /// <summary>Use an exact recorded anchor pose at the requested UT.</summary>
+            Recorded,
+
+            /// <summary>Use a recorded endpoint/bracket fallback because exact coverage is unavailable.</summary>
+            RecordedFallback,
+
+            /// <summary>No safe anchor pose exists; hide the ghost for this frame.</summary>
+            Retired,
+        }
+
+        /// <summary>
         /// Decides whether the anchor referenced by a relative track section
         /// is resolvable. Returns <see cref="Outcome.Resolved"/> when the
         /// resolver reports a live vessel; <see cref="Outcome.Retired"/>
@@ -75,6 +93,36 @@ namespace Parsek
                 victimRecordingId,
                 activeReFlyRecordingId,
                 StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure source-selection helper for relative anchor playback. Active
+        /// in-place Re-Fly parent-chain victims must never fall through to the
+        /// live anchor: if recorded coverage is partial they may use the
+        /// recorded fallback, and if even that is unavailable they retire.
+        /// Unrelated anchors keep the older behavior: live anchor first, then
+        /// exact recorded coverage only.
+        /// </summary>
+        internal static AnchorFrameSource SelectAnchorFrameSource(
+            bool liveAnchorAvailable,
+            bool bypassLiveAnchorForActiveReFly,
+            bool recordedAnchorAvailable,
+            bool recordedFallbackAvailable)
+        {
+            if (bypassLiveAnchorForActiveReFly)
+            {
+                if (recordedAnchorAvailable)
+                    return AnchorFrameSource.Recorded;
+                return recordedFallbackAvailable
+                    ? AnchorFrameSource.RecordedFallback
+                    : AnchorFrameSource.Retired;
+            }
+
+            if (liveAnchorAvailable)
+                return AnchorFrameSource.Live;
+            return recordedAnchorAvailable
+                ? AnchorFrameSource.Recorded
+                : AnchorFrameSource.Retired;
         }
 
         /// <summary>
