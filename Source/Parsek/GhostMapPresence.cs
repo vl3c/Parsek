@@ -637,7 +637,7 @@ namespace Parsek
         /// (the flat committed list). Used as a secondary lookup source for
         /// the active Re-Fly recording's PID. At Re-Fly load time the active
         /// recording's tree has been moved into <c>PendingTree</c> so its
-        /// recordings are NOT in this list (#609 P1 follow-up); the primary
+        /// recordings are NOT in this list (#611 P1 follow-up); the primary
         /// lookup now walks <paramref name="committedTrees"/>, which production
         /// composes from CommittedTrees ++ PendingTree via
         /// <see cref="ComposeSearchTreesForReFlySuppression"/>. Tests pass a
@@ -649,7 +649,7 @@ namespace Parsek
         /// <see cref="ComposeSearchTreesForReFlySuppression"/>; tests pass a
         /// list directly. Despite the legacy parameter name, this list MUST
         /// include the pending tree for the load-window predicate to fire
-        /// (#609 P1 follow-up).</param>
+        /// (#611 P1 follow-up).</param>
         /// <param name="suppressReason">On true, a structured human-readable
         /// reason for the log line including the relationship scope. On false,
         /// set to "not-suppressed-..." describing which gate clause rejected
@@ -707,7 +707,7 @@ namespace Parsek
                 return false;
             }
 
-            // #609 P1 follow-up: the PID lookup MUST search the composed trees
+            // #611 P1 follow-up: the PID lookup MUST search the composed trees
             // (committed ++ pending) and not just the flat CommittedRecordings
             // list. At Re-Fly load time TryRestoreActiveTreeNode has just
             // detached this tree from CommittedTrees (and therefore from
@@ -795,7 +795,7 @@ namespace Parsek
                     committedTrees,
                     out string walkTrace))
             {
-                // #609: append the BFS walk trace so the rejection log line
+                // #611: append the BFS walk trace so the rejection log line
                 // carries enough detail to diagnose missing-active-tree /
                 // missing-parent-BP / topology-mismatch cases.
                 suppressReason = "not-suppressed-not-parent-of-refly-target walkTrace=("
@@ -807,7 +807,7 @@ namespace Parsek
             // create-state-vector-suppressed log line can show the chain
             // that was matched. Helps reviewers / playtest log scrapers
             // confirm the gate fired for the right relationship.
-            // #609 P1 follow-up: also include where the active PID was
+            // #611 P1 follow-up: also include where the active PID was
             // resolved (which tree, or the flat fallback list) so the
             // load-window vs steady-state distinction is auditable.
             suppressReason = "refly-relative-anchor=active relationship=parent activePidSource="
@@ -825,7 +825,7 @@ namespace Parsek
         /// (null trees / missing tree / missing recording / cycle), erring on
         /// the side of NOT suppressing.
         ///
-        /// <para><b>Observability (#609):</b> emits a single Verbose
+        /// <para><b>Observability (#611):</b> emits a single Verbose
         /// <c>[GhostMap] parent-chain-walk</c> log line per call describing
         /// the search outcome (active-found-in tree id / source label,
         /// visitedBPs count + ids, parents-encountered count + ids, terminate
@@ -833,7 +833,7 @@ namespace Parsek
         /// summary line so the same structured-grep tooling works for both
         /// closures.</para>
         ///
-        /// <para><b>#609 fix:</b> at Re-Fly load time the active recording
+        /// <para><b>#611 fix:</b> at Re-Fly load time the active recording
         /// lives in <see cref="RecordingStore.PendingTree"/>, NOT
         /// <see cref="RecordingStore.CommittedTrees"/> (the committed copy is
         /// removed by <c>TryRestoreActiveTreeNode</c>'s post-splice
@@ -968,7 +968,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #609: composes the search-tree list for the Re-Fly suppression
+        /// #611: composes the search-tree list for the Re-Fly suppression
         /// predicate. Production callers pass <see cref="RecordingStore.CommittedTrees"/>
         /// and (when present) <see cref="RecordingStore.PendingTree"/>; tests
         /// pass an explicit list. Pure-static so unit tests can construct
@@ -980,13 +980,13 @@ namespace Parsek
         /// splice runs, leaving the freshly-loaded tree only as PendingTree.
         /// A predicate that searched only committed trees would silently
         /// fail the active-recording lookup during the load window — which
-        /// is exactly when the doubled-vessel ProtoVessel get created (#609).
+        /// is exactly when the doubled-vessel ProtoVessel get created (#611).
         /// </para>
         /// <para>
         /// The pending tree is appended (not prepended) so the existing
         /// tie-break behaviour for in-memory committedTrees still wins on
         /// id collisions; the BFS walk's first-match-wins loop then
-        /// terminates at the same tree it would have found pre-#609 in the
+        /// terminates at the same tree it would have found pre-#611 in the
         /// steady state, and falls through to the pending tree only when
         /// committed-trees lookup misses — matching the diagnosed bug
         /// shape.
@@ -4579,7 +4579,7 @@ namespace Parsek
             // true so the flight-scene caller leaves its pending-map entry
             // intact (otherwise the recording would never get a map ghost
             // again after the Re-Fly session ends).
-            // #609: at Re-Fly load time the active recording lives in
+            // #611: at Re-Fly load time the active recording lives in
             // PendingTree (not CommittedTrees, which the load-side
             // RemoveCommittedTreeById call has just emptied for this tree).
             // Compose the search list so the parent-chain walk can find the
@@ -4618,7 +4618,7 @@ namespace Parsek
                 return null;
             }
 
-            // #609: when a Re-Fly session is active but the predicate
+            // #611: when a Re-Fly session is active but the predicate
             // declined to suppress, emit a Verbose decision line so the
             // playtest log records WHY the gate didn't fire — without this,
             // a successful create-state-vector-done line is the only signal

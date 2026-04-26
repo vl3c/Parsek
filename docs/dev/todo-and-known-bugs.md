@@ -174,7 +174,7 @@ already pins this case.
 ## ~~610. Quickload-resume tail trim destroys other vessels' continued recordings during Re-Fly load~~
 
 **Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. Same
-playtest as `#609`. The user reported "the exo recording of the upper
+playtest as `#611`. The user reported "the exo recording of the upper
 stage again disappeared after booster Re-Fly" — even though `#601`
 (PR #575) was supposed to splice post-RP recordings back from the
 committed tree before the committed copy is detached.
@@ -255,7 +255,7 @@ tree). All 8947 tests pass.
 
 ---
 
-## ~~609. Re-Fly doubled-vessel suppression silently fails when active tree is in PendingTree (load window)~~
+## ~~611. Re-Fly doubled-vessel suppression silently fails when active tree is in PendingTree (load window)~~
 
 **Source:** `logs/2026-04-26_0118_refly-postfix-still-broken/KSP.log`. After
 `#587 third facet` (PR #574) and its P2 review follow-up landed and shipped,

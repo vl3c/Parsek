@@ -517,7 +517,7 @@ namespace Parsek.Tests
         public void NotSuppressed_WhenActiveReFlyRecordingMissingFromCommittedList()
         {
             // Defensive: a stale marker whose active recording id is not in
-            // the committed list (NOR in any pending tree, after #609 P1)
+            // the committed list (NOR in any pending tree, after #611 P1)
             // cannot be safely matched — bail out with a distinct reason
             // rather than silently turning into a tautology.
             var marker = InPlaceMarker("rec-missing-from-store");
@@ -569,7 +569,7 @@ namespace Parsek.Tests
         [Fact]
         public void NotSuppressed_WhenCommittedListIsNull_AndTreeRecsHaveNoPid()
         {
-            // #609 P1 follow-up: the predicate tolerates a null
+            // #611 P1 follow-up: the predicate tolerates a null
             // `committedRecordings` and falls back to the search-tree walk.
             // When the search trees also can't yield a non-zero PID for the
             // active recording, the gate bails with the unified
@@ -793,7 +793,7 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // #609: production playtest hit a "doubled vessel still visible"
+        // #611: production playtest hit a "doubled vessel still visible"
         // outcome despite PR #574's parent-chain gate. Diagnosis: at Re-Fly
         // load time, TryRestoreActiveTreeNode calls
         // RecordingStore.RemoveCommittedTreeById on the same tree whose
@@ -884,7 +884,7 @@ namespace Parsek.Tests
         [Fact]
         public void Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree()
         {
-            // #609 P1 review follow-up: the user-visible bug is the
+            // #611 P1 review follow-up: the user-visible bug is the
             // doubled ProtoVessel, and the predicate's first PID-resolution
             // lookup walked only `RecordingStore.CommittedRecordings`. At
             // Re-Fly load time `TryRestoreActiveTreeNode` calls
@@ -1000,7 +1000,7 @@ namespace Parsek.Tests
         [Fact]
         public void IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList()
         {
-            // The exact #609 production shape: at Re-Fly load time,
+            // The exact #611 production shape: at Re-Fly load time,
             // CommittedTrees has been emptied for this tree (post
             // RemoveCommittedTreeById), and the active recording lives in
             // PendingTree. The BFS walk must see both.
@@ -1049,7 +1049,7 @@ namespace Parsek.Tests
         public void IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape()
         {
             // When the active recording is missing from every search tree
-            // (the production bug shape pre-#609), the trace must say so
+            // (the production bug shape pre-#611), the trace must say so
             // explicitly so the playtest log reader can see "ah, the lookup
             // failed because committed was empty / pending wasn't passed".
             Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
