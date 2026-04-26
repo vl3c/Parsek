@@ -85,6 +85,29 @@ signatures:
 wrapper names. This keeps stack traces, tests, and review diffs focused on the
 mechanical owner move.
 
+## Wrapper Exit Criteria
+
+The wrappers are not the intended permanent architecture; they are the safety
+boundary for PR B. After the record-only extraction lands and is reviewed, a
+separate cleanup proposal should decide whether to migrate direct callers to
+`RecordingTreeRecordCodec`.
+
+Caller migration is appropriate only after all of these are true:
+
+- the record-only codec extraction has passed the focused tree/record tests and
+  the non-injection suite gate;
+- the PR B review confirms the codec is limited to raw record ConfigNode
+  reads/writes, with endpoint repair and tree-level policy still outside it;
+- no branch-point codec work is being reviewed in the same PR;
+- production callers can move without changing tree-level save/load order,
+  repair order, log text, or test setup semantics.
+
+If those conditions are met, the follow-up should migrate only call sites that
+want raw record serialization. `RecordingTree.Save` and `RecordingTree.Load`
+should still retain their facade role for whole-tree persistence, ordering, and
+repair orchestration. If the conditions are not met, keeping wrappers is an
+explicit transitional state, not a final design.
+
 ## Policy Boundaries
 
 Most record fields are plain serialization, but several lines are policy or
@@ -126,7 +149,7 @@ must either stay in `RecordingTree` or be called out explicitly before it moves.
 - `SaveBranchPointInto` and `LoadBranchPointFrom`.
 - Tree-level `Save` and `Load` header fields.
 - Recording ordering, branch point ordering, or node ordering.
-- Call-site migrations from `RecordingTree` wrappers to the new codec.
+- Call-site migrations from `RecordingTree` wrappers to the new codec in PR B.
 - Manifest wrapper deletion from `RecordingStore`.
 - New schema fields, key renames, log wording changes, or fallback changes.
 - Any behavior change to endpoint backfill, loop migration, sidecar epoch,
@@ -144,8 +167,10 @@ that should be a separate follow-up proposal and PR.
   after PR A review.
 - PR C: optional branch-point codec extraction, only after PR B review and a
   separate approval.
-- Post-Pass 2 cleanup: consider direct caller/test migrations and manifest
-  wrapper deletion only after the tree-record codec is accepted.
+- PR D: if PR B review confirms the wrapper exit criteria above, migrate
+  direct raw-record serialization callers and tests to `RecordingTreeRecordCodec`.
+- Post-Pass 2 cleanup: consider manifest wrapper deletion only after the
+  tree-record codec and any approved caller migration are accepted.
 
 ## Validation Plan
 
