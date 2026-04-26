@@ -667,6 +667,7 @@ namespace Parsek
                 int mixedParentHalts = 0;
                 int childrenAdded = 0;
                 int siblingsAdded = 0;
+                int pidPeersAdded = 0;
 
                 while (queue.Count > 0)
                 {
@@ -686,6 +687,23 @@ namespace Parsek
                     // null-`ChildBranchPointId` early-return, so a HEAD with
                     // no BP descendants still propagates to its siblings.
                     EnqueueChainSiblings(currentRec, recById, queue, result, ref siblingsAdded);
+
+                    // Cross-chain same-PID peer expansion: in-place re-fly that
+                    // crosses staging spawns sibling chains for the SAME physical
+                    // vessel (same VesselPersistentId) but in DIFFERENT ChainIds.
+                    // Example from KSP.log 2026-04-26: origin f3f1f2e6 (chain
+                    // 301a95f0) re-flew the probe; staging produced new chain
+                    // 0a83aee0 (correctly picked up by EnqueueChainSiblings) AND
+                    // a destroyed sibling 29f1d9a8 in chain 73e8a066 (PID
+                    // 2450432355 == origin's PID). Without this walk the
+                    // destroyed sibling never enters the closure, AppendRelations
+                    // sees subtreeCount=2 with both members chain-skipped, and
+                    // 0 supersede rows are written → the destroyed run stays
+                    // visible in mission list / ghost playback. Gated on
+                    // StartUT > marker.InvokedUT so pre-rewind PID history is
+                    // not collapsed into the closure.
+                    EnqueuePidPeerSiblings(
+                        currentRec, recById, queue, result, marker, ref pidPeersAdded);
 
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
@@ -724,7 +742,7 @@ namespace Parsek
 
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
-                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} mixedParentHalts={mixedParentHalts})");
+                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} mixedParentHalts={mixedParentHalts})");
 
                 return suppressionCache;
             }
@@ -829,6 +847,64 @@ namespace Parsek
                 // RecordingStore.cs:2018-2019, multi-segment chains, and
                 // the "origin is itself a TIP" symmetric case (HashSet
                 // dedup prevents revisits).
+                queue.Enqueue(cand.RecordingId);
+            }
+        }
+
+        // Same-PID peer expansion across ChainId boundaries. EnqueueChainSiblings
+        // only crosses the SplitAtSection boundary (HEAD↔TIP within one chain).
+        // In-place re-fly that crosses staging additionally creates entirely
+        // separate chains for the same physical vessel — those are the
+        // recordings that belong in the suppressed closure but escape both the
+        // ChainId walk and the BranchPoint walk because they have neither a
+        // parent BP linking back to origin nor a shared ChainId. Match by
+        // (TreeId, VesselPersistentId) and gate strictly on StartUT >
+        // InvokedUT-epsilon so prior-flight history for the same physical
+        // vessel — which legitimately predates the rewind point — is never
+        // collapsed into the closure.
+        //
+        // Epsilon picked to absorb float rounding from `Recording.StartUT`
+        // (which derives from sampler-stamped UTs) without admitting any real
+        // pre-rewind sample. The recorder samples at ≥10 Hz; 0.05 s is half a
+        // typical sample interval, so a recording whose first sample is at
+        // marker.InvokedUT exactly is treated as part of the closure (it was
+        // started by the re-fly resume), while one stamped 0.1+ s before is
+        // treated as prior history.
+        internal const double PidPeerStartUtEpsilonSeconds = 0.05;
+
+        private static void EnqueuePidPeerSiblings(
+            Recording rec,
+            Dictionary<string, Recording> recById,
+            Queue<string> queue,
+            HashSet<string> result,
+            ReFlySessionMarker marker,
+            ref int pidPeersAdded)
+        {
+            if (rec == null) return;
+            if (rec.VesselPersistentId == 0) return;
+            if (string.IsNullOrEmpty(rec.TreeId)) return;
+            if (marker == null) return;
+            if (double.IsNaN(marker.InvokedUT) || double.IsInfinity(marker.InvokedUT)) return;
+
+            double minStart = marker.InvokedUT - PidPeerStartUtEpsilonSeconds;
+            foreach (var cand in recById.Values)
+            {
+                if (cand == null) continue;
+                if (ReferenceEquals(cand, rec)) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (cand.VesselPersistentId != rec.VesselPersistentId) continue;
+                if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
+                if (result.Contains(cand.RecordingId)) continue;
+
+                // Pre-rewind history guard: same physical vessel, same tree, but
+                // started before the rewind point — that recording is the prior
+                // life of the vessel and must not be superseded. Only post-rewind
+                // peers belong in the closure.
+                double candStart = cand.StartUT;
+                if (double.IsNaN(candStart) || candStart < minStart) continue;
+
+                result.Add(cand.RecordingId);
+                pidPeersAdded++;
                 queue.Enqueue(cand.RecordingId);
             }
         }

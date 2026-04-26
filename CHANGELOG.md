@@ -50,6 +50,10 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly merge now supersedes destroyed sibling recordings that share the in-place origin's vessel across chain boundaries, so a destroyed run no longer lingers in the mission list and as a ghost after re-flying.
+- Re-Fly ghosts whose relative-frame anchor matches the re-flown vessel — not just direct parents but any sibling chain too — now play back at their recorded ground-relative positions instead of locking onto the player's live pose, eliminating the upper-stage ghost map jumps and below-ground renders.
+- Recorder no longer re-enters Relative mode against a stale anchor when an off-rails vessel comes back into focus, so post-rail recording sections capture clean Absolute trajectories instead of offsets to a vessel that's no longer there.
+
 - Recording finalizer no longer classifies an orbit as `Orbiting` when its periapsis is inside the body's atmosphere. A grazing low-Kerbin orbit (Pe ≈ 36 km) used to be locked in as a stable orbit at scene exit even though the trajectory will deorbit within a couple of orbits via drag; the recording now finalizes as `SubOrbital` so the ballistic-tail extrapolator can carry it to the actual destruction point.
 
 - Recording-with-no-crew bug after re-launch: when a player relaunched a vessel whose original crew was still aboard a previous mission (forcing stand-in substitution in the editor), the FLIGHT-scene roster sweep deleted the just-substituted stand-ins before recording started, leaving the seats empty in the persisted vessel snapshot and the new recording's crew permanently empty. The displaced-unused branch now retains stand-ins that are currently seated on a live vessel.
