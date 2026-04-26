@@ -2119,6 +2119,11 @@ namespace Parsek
             }
         }
 
+        internal void ExecuteOnSaveLifecyclePhaseForTesting(string phase, Action body)
+        {
+            ExecuteScenarioLifecyclePhaseForTesting("OnSave", phase, body);
+        }
+
         private void LogScenarioLifecycleException(string lifecycle, string phase, Exception ex)
         {
             try
