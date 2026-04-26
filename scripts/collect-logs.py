@@ -196,7 +196,12 @@ def run_log_validation(ksp_log_path, out_dir):
     """Run the KSP.log contract validator and save results."""
     test_csproj = REPO_ROOT / "Source" / "Parsek.Tests" / "Parsek.Tests.csproj"
     if not test_csproj.is_file():
-        print("  (skipped -- test project not found)")
+        write_log_validation_failure(
+            out_dir,
+            ksp_log_path,
+            "test project not found",
+            f"Expected test project at {test_csproj}")
+        print("  log-validation.txt  (FAILED)")
         return
 
     env = os.environ.copy()
@@ -227,6 +232,21 @@ def run_log_validation(ksp_log_path, out_dir):
 
     status = "PASSED" if result.returncode == 0 else "FAILED"
     print(f"  log-validation.txt  ({status})")
+
+
+def write_log_validation_failure(out_dir, ksp_log_path, reason, detail=""):
+    """Write a failed validation artifact when validation could not complete."""
+    output_lines = [
+        "KSP.log validation: FAILED",
+        f"Log path: {ksp_log_path}",
+        "",
+        f"Validation did not complete: {reason}",
+    ]
+    if detail:
+        output_lines.append(str(detail))
+
+    validation_file = out_dir / "log-validation.txt"
+    validation_file.write_text("\n".join(output_lines), encoding="utf-8")
 
 
 def main():
@@ -317,9 +337,19 @@ def main():
         print("Log validation:")
         try:
             run_log_validation(ksp_log, out_dir)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            write_log_validation_failure(
+                out_dir,
+                ksp_log,
+                "timed out after 60s",
+                str(exc))
             print("  (timed out after 60s)")
         except Exception as e:
+            write_log_validation_failure(
+                out_dir,
+                ksp_log,
+                "unexpected validation error",
+                str(e))
             print(f"  (error: {e})")
         print()
 

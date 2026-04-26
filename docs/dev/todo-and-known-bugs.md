@@ -29,6 +29,10 @@ from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
   event aggregation, production warning-prefix cleanup, and low-risk
   cleanup/reflection summaries.
 
+Phase 0 guardrails started on `observability/guardrails`: retained-log signal
+analysis, stricter post-hoc log validation, and guaranteed validation artifacts
+from `collect-logs.py`.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
