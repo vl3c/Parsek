@@ -222,7 +222,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[Rewind]") &&
-                l.Contains("Strip strict: stripping unmatched v=999"));
+                l.Contains("Strip strict: stripping 1 unmatched vessel") &&
+                l.Contains("999:Upper Stage"));
         }
 
         [Fact]

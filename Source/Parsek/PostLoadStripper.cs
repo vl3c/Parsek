@@ -173,11 +173,18 @@ namespace Parsek
                 }
             }
 
+            if (strictUnmatched.Count > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Strip strict: stripping {strictUnmatched.Count} unmatched vessel(s) " +
+                    $"[{FormatVesselListForLog(strictUnmatched)}]");
+            }
+
             for (int i = 0; i < strictUnmatched.Count; i++)
             {
                 var v = strictUnmatched[i];
                 if (v == null) continue;
-                ParsekLog.Warn(Tag,
+                ParsekLog.Verbose(Tag,
                     $"Strip strict: stripping unmatched v={v.PersistentId} name='{v.VesselName}'");
                 StripVessel(v, result);
             }
@@ -193,6 +200,25 @@ namespace Parsek
                 $"fallbackMatches={result.FallbackMatches}");
 
             return result;
+        }
+
+        private static string FormatVesselListForLog(IList<IStrippableVessel> vessels)
+        {
+            if (vessels == null || vessels.Count == 0)
+                return "";
+
+            const int MaxEntries = 8;
+            var entries = new List<string>();
+            int count = Math.Min(vessels.Count, MaxEntries);
+            for (int i = 0; i < count; i++)
+            {
+                var v = vessels[i];
+                if (v == null) continue;
+                entries.Add($"{v.PersistentId}:{v.VesselName ?? "<unnamed>"}");
+            }
+            if (vessels.Count > MaxEntries)
+                entries.Add($"+{vessels.Count - MaxEntries} more");
+            return string.Join(", ", entries.ToArray());
         }
 
         private static void StripVessel(IStrippableVessel v, PostLoadStripResult result)

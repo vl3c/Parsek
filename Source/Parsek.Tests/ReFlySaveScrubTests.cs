@@ -117,6 +117,26 @@ namespace Parsek.Tests
             Assert.Equal("6000", vessels[0].GetValue("persistentId"));
         }
 
+        [Fact]
+        public void RequireSelectedSlotScrubApplied_ThrowsWhenSelectedMissing()
+        {
+            SaveTestGame(MakeVessel(6000u, "Other", 555u));
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_missing_throw",
+                PidSlotMap = new Dictionary<uint, int> { { 1234u, 0 } },
+            };
+
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
+                RewindInvoker.RequireSelectedSlotScrubApplied(
+                    tempPath, rp, selectedSlotIndex: 0));
+
+            Assert.Contains("refusing to load unscrubbed quicksave", ex.Message);
+            ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
+            Assert.Single(vessels);
+            Assert.Equal("6000", vessels[0].GetValue("persistentId"));
+        }
+
         private void SaveTestGame(params ConfigNode[] vessels)
         {
             var root = new ConfigNode("GAME");

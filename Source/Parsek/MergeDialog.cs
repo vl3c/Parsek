@@ -449,6 +449,8 @@ namespace Parsek
                     {
                         supersedeTargetRec = sessionOwnedTip;
                     }
+                    supersedeTargetRec = EnsureInPlaceSupersedeTargetHasTerminalState(
+                        supersedeTargetRec, marker.SessionId);
                     bool resolvedToDifferentTip = supersedeTargetRec != null
                         && !object.ReferenceEquals(supersedeTargetRec, provisional)
                         && !string.Equals(supersedeTargetRec.RecordingId,
@@ -924,6 +926,34 @@ namespace Parsek
             }
 
             return best ?? provisional;
+        }
+
+        internal static Recording EnsureInPlaceSupersedeTargetHasTerminalState(
+            Recording supersedeTarget,
+            string sessionId)
+        {
+            if (supersedeTarget == null || supersedeTarget.TerminalStateValue.HasValue)
+                return supersedeTarget;
+
+            if (supersedeTarget.SceneExitSituation >= 0)
+            {
+                supersedeTarget.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState(supersedeTarget.SceneExitSituation);
+                RecordingEndpointResolver.RefreshEndpointDecision(
+                    supersedeTarget,
+                    "MergeDialog.InPlaceSupersedeTargetSceneExitRepair");
+                ParsekLog.Warn("MergeDialog",
+                    $"TryCommitReFlySupersede: repaired null terminal on in-place supersede target " +
+                    $"id={supersedeTarget.RecordingId} from SceneExitSituation={supersedeTarget.SceneExitSituation} " +
+                    $"terminal={supersedeTarget.TerminalStateValue} sess={sessionId ?? "<none>"}");
+                return supersedeTarget;
+            }
+
+            ParsekLog.Warn("MergeDialog",
+                $"TryCommitReFlySupersede: in-place supersede target " +
+                $"id={supersedeTarget.RecordingId ?? "<null>"} still has null terminal and no " +
+                $"SceneExitSituation repair source (sess={sessionId ?? "<none>"})");
+            return supersedeTarget;
         }
 
         private static void ApplyActiveReFlyParentChainDefaults(

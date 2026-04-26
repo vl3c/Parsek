@@ -1797,6 +1797,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_NoSplitNullTerminal_RepairsFromSceneExitSituation()
+        {
+            var origin = Rec("rec_scene_exit_origin", "tree_scene_exit",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            origin.SceneExitSituation = 2; // Vessel.Situations.SPLASHED
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_scene_exit");
+            var tree = new RecordingTree
+            {
+                Id = "tree_scene_exit",
+                TreeName = "tree_scene_exit",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_scene_exit_origin",
+                provisionalId: "rec_scene_exit_origin",
+                treeId: "tree_scene_exit",
+                sessionId: "sess_scene_exit");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            Assert.Equal(TerminalState.Splashed, origin.TerminalStateValue);
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") &&
+                l.Contains("repaired null terminal") &&
+                l.Contains("rec_scene_exit_origin") &&
+                l.Contains("terminal=Splashed"));
+        }
+
+        [Fact]
         public void ValidateSupersedeTarget_ReasonStrings()
         {
             string reason;

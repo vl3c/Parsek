@@ -1063,14 +1063,21 @@ namespace Parsek
             CopyQuicksaveToSaveRoot(rp, sessionId, out tempAbsolutePath, out tempLoadName);
             if (!string.IsNullOrEmpty(tempAbsolutePath) && selected != null)
             {
-                ReFlySaveScrubResult scrubResult = ScrubQuicksaveToSelectedSlotForReFly(
-                    tempAbsolutePath, rp, selected.SlotIndex);
-                if (!scrubResult.Applied)
-                {
-                    throw new InvalidOperationException(
-                        "Re-Fly temp save scrub failed; refusing to load unscrubbed quicksave");
-                }
+                RequireSelectedSlotScrubApplied(tempAbsolutePath, rp, selected.SlotIndex);
             }
+        }
+
+        internal static ReFlySaveScrubResult RequireSelectedSlotScrubApplied(
+            string tempAbsolutePath, RewindPoint rp, int selectedSlotIndex)
+        {
+            ReFlySaveScrubResult scrubResult = ScrubQuicksaveToSelectedSlotForReFly(
+                tempAbsolutePath, rp, selectedSlotIndex);
+            if (!scrubResult.Applied)
+            {
+                throw new InvalidOperationException(
+                    "Re-Fly temp save scrub failed; refusing to load unscrubbed quicksave");
+            }
+            return scrubResult;
         }
 
         internal struct ReFlySaveScrubResult
