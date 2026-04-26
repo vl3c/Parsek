@@ -1138,7 +1138,9 @@ branch belongs to that half's time range.
 
 **Resolution (2026-04-26):** CLOSED for v0.8.3. Recording format v7 adds `TrackSection.absoluteFrames`: relative sections continue storing anchor-local frames for docking/rendezvous playback, but also persist a planet-relative absolute shadow frame for each relative sample. The text and binary sidecar codecs round-trip the shadow payload, deep-copy and merge/optimizer trim paths preserve it, and active in-place Re-Fly parent-chain playback now prefers the absolute shadow path when the relative anchor is the active Re-Fly target. Old v6 relative recordings without shadow frames still fall back to the existing recorded-anchor reconstruction rather than being made unplayable.
 
-**Tests:** `TrajectorySidecarBinaryTests.WriteRead_RelativeSection_PreservesAbsoluteShadowFrames`, `TrajectorySidecarBinaryTests.TryProbe_MapsVersionToEncodingAndSupport` v7 coverage, `TrajectorySidecarProbeVersionContractTests.Probe_V6SidecarV7Recording_RejectedAsStale`, `SessionMergerTests.ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames`, and `RecordingOptimizerTests` coverage for boring-tail and overlapping-section shadow-frame trims.
+**Follow-up (2026-04-26, `logs/2026-04-26_1923_refly-upper-stage-still-broken`):** the v7 path was active (`RELATIVE absolute shadow playback`), but the first absolute-shadow frame in the relative section was later than the section start. The visual ghost therefore clamped to the first later shadow point at the moment the Re-Fly loaded, producing the user's "initially behind the booster / inaccurate" path. Fixed by seeding a relative-section boundary frame with both the anchor-local payload and the planet-relative shadow at RELATIVE entry, plus a playback bridge that uses the previous absolute section's last point for already-recorded v7 sections whose shadow starts late.
+
+**Tests:** `TrajectorySidecarBinaryTests.WriteRead_RelativeSection_PreservesAbsoluteShadowFrames`, `TrajectorySidecarBinaryTests.TryProbe_MapsVersionToEncodingAndSupport` v7 coverage, `TrajectorySidecarProbeVersionContractTests.Probe_V6SidecarV7Recording_RejectedAsStale`, `SessionMergerTests.ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames`, `RecordingOptimizerTests` coverage for boring-tail and overlapping-section shadow-frame trims, and `RelativeAnchorResolutionTests.TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary`.
 
 **Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
@@ -3713,6 +3715,8 @@ compat), `SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching`
 (union), `SuppressedSubtreeKill_RespectsProtectedPids` (`#573`
 contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 (structured log assertion)).
+
+**Follow-up (2026-04-26, `logs/2026-04-26_1923_refly-upper-stage-still-broken`):** the rewind quicksave `parsek_rw_63bd3f.sfs` contained two full `VESSEL` blocks named `Kerbal X`: an old orbiting upper-stage vessel (`persistentId=3130558916`, `lastUT=264.30`) and the launch/start vessel (`persistentId=2708531065`). The post-load supplement killed three matching `Kerbal X Debris` vessels, then explicitly warned `Strip left vessels=1 ... [Kerbal X]`, which matches the user's clickable-parts copy. Technical conclusion: a Re-Fly invocation must load a slot-local save view where the selected slot is the only real KSP vessel. Fixed by scrubbing the root-level temp SFS copy before `GamePersistence.LoadGame`, keyed by the selected slot's vessel/root-part ids and leaving the original RP save plus `persistent.sfs` untouched. The strict `PostLoadStripper` path and active-parent-chain kill-eligible name expansion remain defense-in-depth after load. Regression coverage: `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_RemovesEveryNonSelectedVessel`, `PostLoadStripperTests.StrictStrip_StripsUnmatchedVessels`, and `Bug587StripPreExistingDebrisTests.ResolveDebris_InPlaceMarker_KillsNameMatchingParentChainRec`.
 
 **Status:** CLOSED 2026-04-27.
 

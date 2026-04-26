@@ -4311,12 +4311,14 @@ namespace Parsek
                     var ic = CultureInfo.InvariantCulture;
                     isRelativeMode = true;
                     currentAnchorPid = anchorPid;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    double boundaryUT = Planetarium.GetUniversalTime();
+                    CloseCurrentTrackSection(boundaryUT);
                     var env = environmentHysteresis != null
                         ? environmentHysteresis.CurrentEnvironment
                         : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Relative, Planetarium.GetUniversalTime());
+                    StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
                     currentTrackSection.anchorVesselId = currentAnchorPid;
+                    SeedRelativeBoundaryPoint(v, currentAnchorPid, boundaryUT);
                     ParsekLog.Info("Anchor",
                         $"RELATIVE mode entered: anchorPid={currentAnchorPid} " +
                         $"dist={anchorDist.ToString("F1", ic)}m " +
@@ -5578,40 +5580,7 @@ namespace Parsek
             Vessel anchor = FindVesselByPid(currentAnchorPid);
             if (anchor != null)
             {
-                int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
-                bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
-                    recordingFormatVersion);
-                Vector3d offset;
-                if (useLocalContract)
-                {
-                    offset = TrajectoryMath.ComputeRelativeLocalOffset(
-                        v.GetWorldPos3D(),
-                        anchor.GetWorldPos3D(),
-                        anchor.transform.rotation);
-                    point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                        v.transform.rotation,
-                        anchor.transform.rotation);
-                }
-                else
-                {
-                    Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
-                        v.latitude, v.longitude, v.altitude);
-                    Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
-                        anchor.latitude, anchor.longitude, anchor.altitude);
-                    offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
-                }
-
-                point.latitude = offset.x;   // dx
-                point.longitude = offset.y;  // dy
-                point.altitude = offset.z;   // dz
-                // bodyName stays the same — both vessels are on the same body
-
-                ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
-                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
-                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m",
-                    2.0);
-                return true;
+                return ApplyRelativeOffsetForAnchor(ref point, v, anchor, currentAnchorPid, logSample: true);
             }
             else
             {
@@ -5635,6 +5604,76 @@ namespace Parsek
                     $"new ABSOLUTE section started");
                 return false;
             }
+        }
+
+        private bool ApplyRelativeOffsetForAnchor(
+            ref TrajectoryPoint point,
+            Vessel v,
+            Vessel anchor,
+            uint anchorPid,
+            bool logSample)
+        {
+            if (v == null || anchor == null || anchorPid == 0u)
+                return false;
+
+            int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
+            bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
+                recordingFormatVersion);
+            Vector3d offset;
+            if (useLocalContract)
+            {
+                offset = TrajectoryMath.ComputeRelativeLocalOffset(
+                    v.GetWorldPos3D(),
+                    anchor.GetWorldPos3D(),
+                    anchor.transform.rotation);
+                point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                    v.transform.rotation,
+                    anchor.transform.rotation);
+            }
+            else
+            {
+                Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
+                    v.latitude, v.longitude, v.altitude);
+                Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
+                    anchor.latitude, anchor.longitude, anchor.altitude);
+                offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+            }
+
+            point.latitude = offset.x;
+            point.longitude = offset.y;
+            point.altitude = offset.z;
+
+            if (logSample)
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
+                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                    $"anchorPid={anchorPid} |offset|={offset.magnitude:F2}m",
+                    2.0);
+            }
+            return true;
+        }
+
+        private void SeedRelativeBoundaryPoint(Vessel v, uint anchorPid, double boundaryUT)
+        {
+            if (v == null || anchorPid == 0u)
+                return;
+            Vessel anchor = FindVesselByPid(anchorPid);
+            if (anchor == null)
+                return;
+
+            TrajectoryPoint absolutePoint = BuildTrajectoryPoint(
+                v,
+                SampleCurrentVelocity(v),
+                boundaryUT);
+            TrajectoryPoint relativePoint = absolutePoint;
+            if (!ApplyRelativeOffsetForAnchor(ref relativePoint, v, anchor, anchorPid, logSample: false))
+                return;
+
+            SeedBoundaryPoint(relativePoint, absolutePoint);
+            ParsekLog.Verbose("Anchor",
+                $"RELATIVE boundary seeded: anchorPid={anchorPid} " +
+                $"ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

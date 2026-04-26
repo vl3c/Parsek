@@ -13929,7 +13929,7 @@ namespace Parsek
 
             if (sectionIdx >= 0
                 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                    index, traj, section, sectionAnchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+                    index, traj, section, sectionAnchorVesselId, ut, out List<TrajectoryPoint> absoluteFrames))
             {
                 int absolutePlaybackIdx = state.playbackIndex;
                 InterpolationResult absoluteInterpResult;
@@ -15142,6 +15142,15 @@ namespace Parsek
                         uint anchorPid = section.anchorVesselId != 0
                             ? section.anchorVesselId
                             : traj.LoopAnchorVesselId;
+                        if (anchorPid != 0 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                                index, traj, section, anchorPid, playbackUT, out List<TrajectoryPoint> absoluteFrames))
+                        {
+                            return TryResolvePointWorldPosition(
+                                absoluteFrames,
+                                ref cachedIndex,
+                                playbackUT,
+                                out worldPos);
+                        }
                         if (anchorPid != 0 && TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
@@ -15561,6 +15570,7 @@ namespace Parsek
             IPlaybackTrajectory trajectory,
             TrackSection section,
             uint anchorVesselId,
+            double targetUT,
             out List<TrajectoryPoint> absoluteFrames)
         {
             absoluteFrames = null;
@@ -15568,7 +15578,7 @@ namespace Parsek
                 || section.referenceFrame != ReferenceFrame.Relative
                 || anchorVesselId == 0
                 || section.absoluteFrames == null
-                || section.absoluteFrames.Count < 2
+                || section.absoluteFrames.Count < 1
                 || string.IsNullOrEmpty(trajectory.RecordingId))
             {
                 return false;
@@ -15599,7 +15609,10 @@ namespace Parsek
                 return false;
             }
 
-            absoluteFrames = section.absoluteFrames;
+            absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
+                trajectory,
+                section,
+                targetUT);
             string logKey = string.Concat(
                 trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
                 "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
@@ -15613,6 +15626,82 @@ namespace Parsek
                     $"reason=active-refly-parent-chain");
             }
             return true;
+        }
+
+        private List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+            IPlaybackTrajectory trajectory,
+            TrackSection section,
+            double targetUT)
+        {
+            List<TrajectoryPoint> absoluteFrames = section.absoluteFrames;
+            if (absoluteFrames == null || absoluteFrames.Count == 0)
+                return absoluteFrames;
+            if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
+                return absoluteFrames;
+            if (targetUT >= absoluteFrames[0].ut)
+                return absoluteFrames;
+
+            TrajectoryPoint bridge;
+            if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
+                return absoluteFrames;
+            if (bridge.ut >= absoluteFrames[0].ut - 0.0001)
+                return absoluteFrames;
+
+            var bridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+            bridged.Add(bridge);
+            bridged.AddRange(absoluteFrames);
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                string.Concat(
+                    "absolute-shadow-bridge|",
+                    trajectory?.RecordingId ?? "(none)",
+                    "|",
+                    section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RELATIVE absolute shadow bridge inserted: recording={0} targetUT={1:F2} " +
+                    "bridgeUT={2:F2} firstShadowUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                    ShortRecordingId(trajectory?.RecordingId),
+                    targetUT,
+                    bridge.ut,
+                    absoluteFrames[0].ut,
+                    section.startUT,
+                    section.endUT),
+                30.0);
+            return bridged;
+        }
+
+        internal static bool TryFindAbsoluteShadowBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            bool found = false;
+            double bestUT = double.NegativeInfinity;
+            double cutoffUT = Math.Max(targetUT, relativeSection.startUT) + 0.0001;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    if (section.referenceFrame != ReferenceFrame.Absolute || section.frames == null)
+                        continue;
+                    for (int j = 0; j < section.frames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.frames[j];
+                        if (candidate.ut > cutoffUT || candidate.ut <= bestUT)
+                            continue;
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
         }
 
         private static string ShortRecordingId(string recordingId)
@@ -16247,7 +16336,7 @@ namespace Parsek
                     : rec.LoopAnchorVesselId;
 
                 if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                        recIdx, rec, section, anchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+                        recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
                 {
                     InterpolateAndPosition(ghost, absoluteFrames, null,
                         ref playbackIdx, loopUT, ghostIdSalt, out interpResult,

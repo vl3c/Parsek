@@ -56,6 +56,10 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly in-place continuations now freeze the active recording's pre-Re-Fly trajectory at invoke time and use that frozen copy for parent-chain relative-anchor playback, so upper-stage ghosts no longer replay at a constant offset from the newly flown booster/probe path.
 
+- Re-Fly parent-chain relative sections now seed and bridge the v7 absolute-shadow trajectory at the RELATIVE boundary, preventing upper-stage ghosts from clamping forward to the first later shadow sample and appearing behind or far off the booster immediately after Fly.
+
+- Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
+
 - Re-Fly parent-chain suppression now reuses the composed committed-plus-pending tree search view across stable frames, avoiding per-frame list allocations in visual ghost playback and GhostMap state-vector updates while still invalidating when the committed tree list mutates.
 
 - Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.

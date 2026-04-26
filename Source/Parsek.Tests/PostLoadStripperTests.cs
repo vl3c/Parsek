@@ -47,6 +47,7 @@ namespace Parsek.Tests
             public Vessel LiveVessel => null; // tests do not construct live Unity objects
             public bool Died { get; private set; }
             public bool ThrowOnDie { get; set; }
+            public Action OnDie { get; set; }
             // Captures GameStateRecorder.SuppressCrewEvents at the moment
             // Die() runs so the StripVessel_DiePathIsGuarded test can verify
             // the suppression guard is active across the silent-removal path.
@@ -55,18 +56,19 @@ namespace Parsek.Tests
             {
                 SuppressCrewObservedDuringDie = GameStateRecorder.SuppressCrewEvents;
                 if (ThrowOnDie) throw new InvalidOperationException("simulated");
+                OnDie?.Invoke();
                 Died = true;
             }
         }
 
         private sealed class StubEnumeration : IVesselEnumeration
         {
-            private readonly List<IStrippableVessel> vessels;
+            public readonly List<IStrippableVessel> Vessels;
             public StubEnumeration(IEnumerable<IStrippableVessel> v)
             {
-                vessels = new List<IStrippableVessel>(v ?? Array.Empty<IStrippableVessel>());
+                Vessels = new List<IStrippableVessel>(v ?? Array.Empty<IStrippableVessel>());
             }
-            public IEnumerable<IStrippableVessel> EnumerateVessels() => vessels;
+            public IEnumerable<IStrippableVessel> EnumerateVessels() => Vessels;
         }
 
         private static RewindPoint MakeRp(
@@ -192,6 +194,67 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Strip leaveAlone") &&
                 l.Contains("unrelated v=999"));
+        }
+
+        [Fact]
+        public void StrictStrip_StripsUnmatchedVessels()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 400u, 0 },
+            });
+            var selected = new StubVessel { PersistentId = 400, VesselName = "Selected" };
+            var unrelated = new StubVessel { PersistentId = 999, VesselName = "Upper Stage" };
+            var source = new StubEnumeration(new IStrippableVessel[] { selected, unrelated });
+
+            var result = PostLoadStripper.Strip(
+                rp,
+                selectedSlotIndex: 0,
+                source,
+                stripUnmatchedVessels: true);
+
+            Assert.Equal(400u, result.SelectedPid);
+            Assert.False(selected.Died);
+            Assert.True(unrelated.Died);
+            Assert.Contains(999u, result.StrippedPids);
+            Assert.Equal(0, result.LeftAlone);
+            Assert.Empty(result.LeftAlonePidNames);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Rewind]") &&
+                l.Contains("Strip strict: stripping unmatched v=999"));
+        }
+
+        [Fact]
+        public void StrictStrip_SnapshotsBeforeDieMutatesSource()
+        {
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 400u, 0 },
+            });
+            var selected = new StubVessel { PersistentId = 400, VesselName = "Selected" };
+            var unrelatedA = new StubVessel { PersistentId = 901, VesselName = "A" };
+            var unrelatedB = new StubVessel { PersistentId = 902, VesselName = "B" };
+            var source = new StubEnumeration(new IStrippableVessel[]
+            {
+                selected,
+                unrelatedA,
+                unrelatedB,
+            });
+            unrelatedA.OnDie = () => source.Vessels.Remove(unrelatedB);
+
+            var result = PostLoadStripper.Strip(
+                rp,
+                selectedSlotIndex: 0,
+                source,
+                stripUnmatchedVessels: true);
+
+            Assert.Equal(400u, result.SelectedPid);
+            Assert.False(selected.Died);
+            Assert.True(unrelatedA.Died);
+            Assert.True(unrelatedB.Died);
+            Assert.Contains(901u, result.StrippedPids);
+            Assert.Contains(902u, result.StrippedPids);
         }
 
         [Fact]

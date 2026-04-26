@@ -16,7 +16,7 @@ namespace Parsek
     ///   <item><description>Skip ghost ProtoVessels (<see cref="GhostMapPresence.IsGhostMapVessel"/>) - §7.38.</description></item>
     ///   <item><description>Primary match via <see cref="RewindPoint.PidSlotMap"/> by <c>Vessel.persistentId</c>.</description></item>
     ///   <item><description>Fallback match via <see cref="RewindPoint.RootPartPidMap"/> by <c>rootPart.persistentId</c>.</description></item>
-    ///   <item><description>Non-matches are left alone (§7.39).</description></item>
+    ///   <item><description>Non-matches are left alone (§7.39) unless the caller opts into strict Re-Fly stripping.</description></item>
     /// </list>
     /// A vessel that matches the <c>selectedSlotIndex</c> parameter is left
     /// in place and returned via <see cref="PostLoadStripResult.SelectedVessel"/>;
@@ -39,9 +39,16 @@ namespace Parsek
         /// Runs the post-load strip using the default <see cref="DefaultVesselEnumeration"/>
         /// that reads live <c>FlightGlobals.Vessels</c>.
         /// </summary>
-        internal static PostLoadStripResult Strip(RewindPoint rp, int selectedSlotIndex)
+        internal static PostLoadStripResult Strip(
+            RewindPoint rp,
+            int selectedSlotIndex,
+            bool stripUnmatchedVessels = false)
         {
-            return Strip(rp, selectedSlotIndex, DefaultVesselEnumeration.Instance);
+            return Strip(
+                rp,
+                selectedSlotIndex,
+                DefaultVesselEnumeration.Instance,
+                stripUnmatchedVessels);
         }
 
         /// <summary>
@@ -49,7 +56,10 @@ namespace Parsek
         /// so the algorithm operates on mock candidates.
         /// </summary>
         internal static PostLoadStripResult Strip(
-            RewindPoint rp, int selectedSlotIndex, IVesselEnumeration source)
+            RewindPoint rp,
+            int selectedSlotIndex,
+            IVesselEnumeration source,
+            bool stripUnmatchedVessels = false)
         {
             var result = new PostLoadStripResult
             {
@@ -81,9 +91,16 @@ namespace Parsek
                 return result;
             }
 
-            var matches = new List<(IStrippableVessel v, int slotIdx)>();
-
+            var snapshot = new List<IStrippableVessel>();
             foreach (var v in candidates)
+            {
+                if (v != null) snapshot.Add(v);
+            }
+
+            var matches = new List<(IStrippableVessel v, int slotIdx)>();
+            var strictUnmatched = new List<IStrippableVessel>();
+
+            foreach (var v in snapshot)
             {
                 if (v == null) continue;
 
@@ -118,6 +135,12 @@ namespace Parsek
                     continue;
                 }
 
+                if (stripUnmatchedVessels)
+                {
+                    strictUnmatched.Add(v);
+                    continue;
+                }
+
                 // Unrelated vessel.
                 result.LeftAlone++;
                 if (!string.IsNullOrEmpty(v.VesselName))
@@ -148,6 +171,15 @@ namespace Parsek
                 {
                     StripVessel(m.v, result);
                 }
+            }
+
+            for (int i = 0; i < strictUnmatched.Count; i++)
+            {
+                var v = strictUnmatched[i];
+                if (v == null) continue;
+                ParsekLog.Warn(Tag,
+                    $"Strip strict: stripping unmatched v={v.PersistentId} name='{v.VesselName}'");
+                StripVessel(v, result);
             }
 
             result.SelectedVessel = selected?.LiveVessel;

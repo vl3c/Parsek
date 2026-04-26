@@ -307,6 +307,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary()
+        {
+            var absoluteSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 90.0,
+                endUT = 100.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 95.0, latitude = 1.0 },
+                    new TrajectoryPoint { ut = 99.5, latitude = 2.0 },
+                }
+            };
+            var relativeSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0 },
+                    new TrajectoryPoint { ut = 105.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0, latitude = 3.0 },
+                    new TrajectoryPoint { ut = 105.0, latitude = 4.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                TrackSections = new List<TrackSection> { absoluteSection, relativeSection }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.True(ParsekFlight.TryFindAbsoluteShadowBridgeFrame(
+                rec, relativeSection, 100.2, out bridge));
+            Assert.Equal(99.5, bridge.ut);
+            Assert.Equal(2.0, bridge.latitude);
+        }
+
+        [Fact]
         public void ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap()
         {
             Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.0));
