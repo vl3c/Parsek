@@ -230,6 +230,20 @@ namespace Parsek.Tests
                 && l.Contains("Rescue-completion guard fired")
                 && l.Contains("skipped 3 stand-in"));
 
+            // P1 review (second pass): the per-walk summary line surfaces
+            // fired vs declined counts and how many markers were consumed.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard summary")
+                && l.Contains("fired=3")
+                && l.Contains("markersConsumed=3"));
+
+            // P1 review (second pass): markers were one-shot consumed by
+            // the guard (no longer accumulate across walks).
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bob Kerman"));
+
             // The per-slot recreated/created counters must report zero.
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -610,28 +624,228 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Lifecycle: <see cref="CrewReservationManager.CleanUpReplacement"/>
-        /// must clear the rescue-placed marker when it removes the
-        /// reservation. Otherwise a future fresh reservation of the same
-        /// name would see a stale "rescue happened" signal and the guard
-        /// would incorrectly skip stand-in generation.
+        /// **P1 review (second pass) — production lifecycle regression.**
+        ///
+        /// <para>
+        /// The ORIGINAL P1 fix had per-name <see cref="CrewReservationManager.CleanUpReplacement"/>
+        /// clear the rescue-placed marker. In production the spawn pipeline
+        /// (<see cref="VesselSpawner.RespawnVessel"/> /
+        /// <see cref="VesselSpawner.SpawnAtPosition"/>) calls
+        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
+        /// (which calls <see cref="CrewReservationManager.MarkRescuePlaced"/>)
+        /// and IMMEDIATELY follows with
+        /// <see cref="CrewReservationManager.UnreserveCrewInSnapshot"/> on the
+        /// SAME snapshot — and the unreserve goes through CleanUpReplacement
+        /// for every reserved kerbal in the snapshot. The marker is cleared
+        /// before the next <see cref="KerbalsModule.ApplyToRoster"/> walk
+        /// reads it; the guard reads <c>IsRescuePlaced=false</c>; the stand-in
+        /// is regenerated; the bug PR #595 was meant to fix returns.
+        /// </para>
+        ///
+        /// <para>
+        /// The fix: <c>CleanUpReplacement</c> no longer clears the marker.
+        /// The marker survives the unreserve, the guard observes it on the
+        /// next walk, and <c>ConsumeRescuePlaced</c> takes ownership of
+        /// pruning the entry once the guard fired. This test exercises the
+        /// dictionary half of <c>UnreserveCrewInSnapshot</c> directly via the
+        /// <c>CleanUpReplacementForTesting</c> seam — matches what the
+        /// production code path does to the marker contract — and then runs
+        /// <c>ApplyToRoster</c> end-to-end to prove the marker survives.
+        /// </para>
+        ///
+        /// <para>
+        /// The full <c>UnreserveCrewInSnapshot</c> path is roster-gated and
+        /// short-circuits without a live <see cref="HighLogic.CurrentGame"/>,
+        /// so the in-game test
+        /// <c>RuntimeTests.RescueCompletionGuard_RescueThenUnreserveThenApplyToRoster_MarkerSurvives</c>
+        /// reinforces this with the actual production call site under a real
+        /// roster.
+        /// </para>
         /// </summary>
         [Fact]
-        public void RescuePlacedMarker_ClearedWhenReplacementRemoved()
+        public void RescueThenUnreserveThenApplyToRoster_GuardFiresAndStandInNotRegenerated()
+        {
+            var module = BuildModuleWithChainedReservations(
+                "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
+
+            // Step 1: simulate the spawn pipeline's rescue path. Replacement
+            // mappings exist (rebuilt by the recalc walk's PostWalk); the
+            // rescue helper sets the marker for each kerbal it flipped from
+            // Missing to Available.
+            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
+            CrewReservationManager.SeedReplacementForTesting("Bill Kerman", "Debgas Kerman");
+            CrewReservationManager.SeedReplacementForTesting("Bob Kerman", "Rodbro Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+
+            // Step 2: simulate the spawn pipeline's UnreserveCrewInSnapshot
+            // — runs CleanUpReplacement for each reserved kerbal in the
+            // snapshot. Pre-fix this cleared the marker; post-fix it must NOT.
+            CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
+            CrewReservationManager.CleanUpReplacementForTesting("Bill Kerman");
+            CrewReservationManager.CleanUpReplacementForTesting("Bob Kerman");
+
+            // Pin the contract: the marker MUST survive the per-name unreserve.
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
+                "Marker for 'Jebediah Kerman' must survive CleanUpReplacement (P1 review second pass)");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Bill Kerman"),
+                "Marker for 'Bill Kerman' must survive CleanUpReplacement (P1 review second pass)");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Bob Kerman"),
+                "Marker for 'Bob Kerman' must survive CleanUpReplacement (P1 review second pass)");
+            // The replacement dict was wiped per-name (matches production).
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Bill Kerman"));
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Bob Kerman"));
+
+            // Step 3: the next ApplyToRoster walk runs. Originals are still
+            // on the (rescued) live vessel; both signals fire; the guard
+            // skips the historical stand-ins; the marker is one-shot consumed.
+            var roster = new GuardFakeRoster();
+            roster.MarkOnLiveVessel("Jebediah Kerman");
+            roster.MarkOnLiveVessel("Bill Kerman");
+            roster.MarkOnLiveVessel("Bob Kerman");
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // No stand-in was regenerated.
+            Assert.False(roster.Contains("Erilan Kerman"));
+            Assert.False(roster.Contains("Debgas Kerman"));
+            Assert.False(roster.Contains("Rodbro Kerman"));
+
+            // Per-kerbal guard skip lines fired.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("Erilan Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard fired")
+                && l.Contains("skipped 3 stand-in"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard summary")
+                && l.Contains("fired=3")
+                && l.Contains("markersConsumed=3"));
+
+            // Marker was one-shot consumed by the guard.
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
+                "Marker must be consumed by ApplyToRoster guard (one-shot semantics)");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bob Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservation]")
+                && l.Contains("Consumed rescue-placed marker")
+                && l.Contains("Jebediah Kerman"));
+        }
+
+        /// <summary>
+        /// Lifecycle pin: per-name <see cref="CrewReservationManager.CleanUpReplacement"/>
+        /// (exercised by <see cref="CrewReservationManager.UnreserveCrewInSnapshot"/>
+        /// in production) does NOT clear the rescue-placed marker. This is
+        /// the new contract installed by the P1 review second pass — pre-fix
+        /// the marker was cleared here and the guard never observed it on
+        /// the next walk.
+        /// </summary>
+        [Fact]
+        public void CleanUpReplacement_DoesNotClearRescuePlacedMarker()
+        {
+            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+
+            CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
+
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
+                "Per-name CleanUpReplacement must NOT clear the rescue-placed marker");
+        }
+
+        /// <summary>
+        /// Lifecycle pin: <see cref="CrewReservationManager.ConsumeRescuePlaced"/>
+        /// is the one-shot consume the <see cref="KerbalsModule.ApplyToRoster"/>
+        /// guard uses. Returns true on first call, false on subsequent calls;
+        /// emits a distinct "Consumed" Verbose log distinguishable from the
+        /// bulk-lifecycle "Cleared" log.
+        /// </summary>
+        [Fact]
+        public void ConsumeRescuePlaced_OneShotSemantics()
         {
             CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
+            logLines.Clear();
+            bool first = CrewReservationManager.ConsumeRescuePlaced("Jebediah Kerman");
+            bool second = CrewReservationManager.ConsumeRescuePlaced("Jebediah Kerman");
+
+            Assert.True(first, "First Consume must report true (marker was present)");
+            Assert.False(second, "Second Consume must report false (marker already gone)");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservation]")
+                && l.Contains("Consumed rescue-placed marker")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("ApplyToRoster guard fired"));
+        }
+
+        /// <summary>
+        /// Lifecycle pin: <see cref="CrewReservationManager.ClearRescuePlaced"/>
+        /// remains usable for the bulk lifecycle paths and the test fixture.
+        /// Distinct from <see cref="CrewReservationManager.ConsumeRescuePlaced"/>
+        /// (one-shot guard observation) — see the "bulk lifecycle" Verbose
+        /// log fragment.
+        /// </summary>
+        [Fact]
+        public void ClearRescuePlaced_BulkLifecycleSemantics()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            logLines.Clear();
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
-            // Idempotent: clearing again does not throw, just no-ops.
+            // Idempotent on second call (no log on no-op).
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservation]")
+                && l.Contains("Cleared rescue-placed marker")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("bulk lifecycle"));
+        }
+
+        /// <summary>
+        /// Death + revive re-mark cycle: a kerbal can be marked, consumed,
+        /// then marked again on a subsequent rescue and the guard fires
+        /// fresh. This pins the idempotent re-mark contract — important for
+        /// repeated Re-Fly cycles on the same kerbal.
+        /// </summary>
+        [Fact]
+        public void MarkRescuePlaced_AfterConsume_IdempotentRemark()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.ConsumeRescuePlaced("Jebediah Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            // Second rescue cycle: re-mark must work.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            // Idempotent: marking an already-marked kerbal is a no-op.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            // Consume cleans up.
+            Assert.True(CrewReservationManager.ConsumeRescuePlaced("Jebediah Kerman"));
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
         }
 
         /// <summary>
-        /// Lifecycle: <see cref="CrewReservationManager.ResetReplacementsForTesting"/>
+        /// Lifecycle pin: <see cref="CrewReservationManager.ResetReplacementsForTesting"/>
         /// clears both the replacement dict and the rescue-placed marker
         /// set, so test fixtures see a clean signal between cases.
         /// </summary>
@@ -647,6 +861,49 @@ namespace Parsek.Tests
 
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
             Assert.False(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
+        }
+
+        /// <summary>
+        /// Lifecycle pin: <see cref="CrewReservationManager.RestoreReplacements"/>
+        /// (Rewind-to-Staging Phase 6 reconciliation) clears the marker set
+        /// when re-seeding the replacement dict from the captured bundle.
+        /// The post-load spawn pipeline re-populates the markers as it runs.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_ClearedByRestoreReplacements()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            var captured = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Erilan Kerman" },
+            };
+            CrewReservationManager.RestoreReplacements(captured);
+
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.False(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
+            Assert.True(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+        }
+
+        /// <summary>
+        /// Lifecycle pin: <see cref="CrewReservationManager.LoadCrewReplacements"/>
+        /// (cold-load) clears the marker set. Markers are session-scoped:
+        /// the rescue path runs in-flight, the marker drives the next
+        /// recalc walk's guard decision; a cold load starts a new session.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_ClearedByLoadCrewReplacements()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            // Empty save load: no CREW_REPLACEMENTS node.
+            var node = new ConfigNode("PARSEK");
+            CrewReservationManager.LoadCrewReplacements(node);
+
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
         }
 
         // ---------- Test-only roster facade --------------------------------

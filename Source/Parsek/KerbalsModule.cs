@@ -1027,6 +1027,9 @@ namespace Parsek
 
                 // Step 1: Create missing stand-ins
                 int skippedRescuedOriginal = 0;
+                int guardDeclinedLiveButNoMarker = 0;
+                int guardDeclinedMarkerButNotLive = 0;
+                int markerConsumed = 0;
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
@@ -1085,6 +1088,16 @@ namespace Parsek
                                 $"— skipping stand-in '{standInLabel}' " +
                                 $"for slot '{slot.OwnerName}' depth {i}");
                             skippedRescuedOriginal++;
+                            // P1 review (second pass): one-shot consume the
+                            // rescue-placed marker so it does not pile up
+                            // across walks. The marker survives the spawn
+                            // pipeline's UnreserveCrewInSnapshot (the bug PR
+                            // #595 originally tried to guard against) by
+                            // virtue of CleanUpReplacement no longer clearing
+                            // it; ConsumeRescuePlaced takes ownership of
+                            // pruning the entry once the guard observed it.
+                            if (CrewReservationManager.ConsumeRescuePlaced(replacedName))
+                                markerConsumed++;
                             continue;
                         }
                         if (isOnLiveVessel && !isRescuePlaced)
@@ -1100,6 +1113,15 @@ namespace Parsek
                                 $"Rescue-completion guard declined: kerbal '{replacedName}' on a live " +
                                 $"vessel but no rescue marker — proceeding with stand-in for slot " +
                                 $"'{slot.OwnerName}' depth {i} (legitimate fresh reservation)");
+                            guardDeclinedLiveButNoMarker++;
+                        }
+                        else if (isRescuePlaced && !isOnLiveVessel)
+                        {
+                            // Marker present but the rescued vessel is gone
+                            // (e.g. destroyed after rescue). The stand-in is
+                            // genuinely needed; log the decision so a stale
+                            // marker is visible in KSP.log.
+                            guardDeclinedMarkerButNotLive++;
                         }
 
                         if (slot.Chain[i] != null)
@@ -1150,6 +1172,20 @@ namespace Parsek
                     }
                 }
 
+                if (skippedRescuedOriginal > 0
+                    || guardDeclinedLiveButNoMarker > 0
+                    || guardDeclinedMarkerButNotLive > 0)
+                {
+                    // P1 review (second pass): aggregate outcome of the
+                    // rescue-completion guard for this walk so KSP.log shows
+                    // fired vs. declined counts at a glance, including how
+                    // many markers were one-shot consumed.
+                    ParsekLog.Info(Tag,
+                        $"Rescue-completion guard summary: fired={skippedRescuedOriginal} " +
+                        $"(markersConsumed={markerConsumed}) " +
+                        $"declinedLiveButNoMarker={guardDeclinedLiveButNoMarker} " +
+                        $"declinedMarkerButNotLive={guardDeclinedMarkerButNotLive}");
+                }
                 if (skippedRescuedOriginal > 0)
                     ParsekLog.Info(Tag,
                         $"Rescue-completion guard fired: skipped {skippedRescuedOriginal} stand-in " +

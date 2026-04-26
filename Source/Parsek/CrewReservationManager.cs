@@ -21,18 +21,30 @@ namespace Parsek
         /// </summary>
         internal static IReadOnlyDictionary<string, string> CrewReplacements => crewReplacements;
 
-        // ── #615 rescue-completion marker (P1 review) ──────────────────────
+        // ── #615 rescue-completion marker (P1 review follow-up) ────────────
         // Set of kerbal names that the Parsek spawn pipeline's
         // RescueReservedMissingCrewInSnapshot flipped from Reserved+Missing to
         // Available immediately before ProtoVessel.Load placed them onto a
         // Parsek-spawned vessel. This is the rescue-specific signal the
         // ApplyToRoster guard reads — it does NOT fire for kerbals who happen
         // to be on the active player vessel without ever passing through the
-        // rescue path. Cleared on full reset / load to keep it from going
-        // stale across sessions; per-name entries get pruned when
-        // UnreserveCrewInSnapshot drops the corresponding replacement (the
-        // reservation is going away too, so the marker is no longer
-        // meaningful).
+        // rescue path.
+        //
+        // Lifecycle (P1 review, second pass):
+        //   - Set by VesselSpawner.RescueReservedMissingCrewInSnapshot for
+        //     each kerbal flipped to Available.
+        //   - The spawn path immediately calls UnreserveCrewInSnapshot on the
+        //     same snapshot, which used to clear the marker through
+        //     CleanUpReplacement. The marker MUST survive that step so the
+        //     subsequent ApplyToRoster walk can read it. CleanUpReplacement
+        //     no longer clears the marker.
+        //   - One-shot consumed when the ApplyToRoster guard fires (via
+        //     ConsumeRescuePlaced) so a second walk on the same recalc cycle
+        //     does not accidentally guard again, and a future fresh
+        //     reservation of the same name sees a clean signal.
+        //   - Bulk-cleared by LoadCrewReplacements / RestoreReplacements /
+        //     ClearReplacements / ResetReplacementsForTesting on session /
+        //     rewind / wipe-all boundaries.
         private static readonly HashSet<string> rescuePlacedKerbals
             = new HashSet<string>(System.StringComparer.Ordinal);
 
@@ -75,10 +87,22 @@ namespace Parsek
 
         /// <summary>
         /// Remove <paramref name="kerbalName"/> from the rescue-placed set.
-        /// Called from <see cref="CleanUpReplacement"/> when a reservation is
-        /// going away — the marker is no longer meaningful at that point and
-        /// stale entries would mask legitimate future reservations of the
-        /// same name.
+        /// Used by bulk lifecycle paths (<see cref="LoadCrewReplacements"/>,
+        /// <see cref="RestoreReplacements"/>, <see cref="ClearReplacements"/>,
+        /// <see cref="ResetReplacementsForTesting"/>) and by the test fixture.
+        ///
+        /// <para>
+        /// P1 review (second pass): per-name <see cref="CleanUpReplacement"/>
+        /// no longer calls this. The Re-Fly spawn pipeline calls
+        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
+        /// (which calls <see cref="MarkRescuePlaced"/>) and immediately
+        /// follows with <see cref="UnreserveCrewInSnapshot"/> on the SAME
+        /// snapshot, which would clear the marker through CleanUpReplacement
+        /// before the next <see cref="KerbalsModule.ApplyToRoster"/> walk
+        /// could observe it. The marker now survives the unreserve step and
+        /// is consumed once by <see cref="ConsumeRescuePlaced"/> when the
+        /// ApplyToRoster guard fires.
+        /// </para>
         /// </summary>
         internal static void ClearRescuePlaced(string kerbalName)
         {
@@ -86,8 +110,42 @@ namespace Parsek
             if (rescuePlacedKerbals.Remove(kerbalName))
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Cleared rescue-placed marker: '{kerbalName}' (reservation released)");
+                    $"Cleared rescue-placed marker: '{kerbalName}' (bulk lifecycle)");
             }
+        }
+
+        /// <summary>
+        /// One-shot consume: remove <paramref name="kerbalName"/> from the
+        /// rescue-placed set after the <see cref="KerbalsModule.ApplyToRoster"/>
+        /// guard has used it to skip stand-in regeneration. Called by the
+        /// guard inside ApplyToRoster step 1 so the marker does not pile up
+        /// indefinitely across recalc walks.
+        ///
+        /// <para>
+        /// Why a separate method: <see cref="ClearRescuePlaced"/> represents
+        /// "session / rewind / wipe-all boundary". This method represents
+        /// "the guard fired and observed this marker; it has done its job".
+        /// Logged distinctly so KSP.log shows whether the marker was consumed
+        /// by the guard (expected post-spawn) or wiped by a bulk path
+        /// (expected at scene transitions).
+        /// </para>
+        ///
+        /// <para>
+        /// Returns true if a marker was actually present and removed. Used
+        /// by tests to pin the consume contract.
+        /// </para>
+        /// </summary>
+        internal static bool ConsumeRescuePlaced(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return false;
+            if (rescuePlacedKerbals.Remove(kerbalName))
+            {
+                ParsekLog.Verbose("CrewReservation",
+                    $"Consumed rescue-placed marker: '{kerbalName}' " +
+                    "(ApplyToRoster guard fired; marker one-shot)");
+                return true;
+            }
+            return false;
         }
 
         #endregion
@@ -209,12 +267,13 @@ namespace Parsek
                 }
 
                 crewReplacements.Clear();
-                // #615 P1 review: defense-in-depth — CleanUpReplacement above
-                // already clears each name's rescue-placed marker; this catches
-                // any orphan entries whose original name was missing from
-                // crewReplacements before the loop started.
+                // #615 P1 review (second pass): load-bearing — CleanUpReplacement
+                // no longer clears per-name rescue markers (the spawn pipeline
+                // depends on the marker surviving UnreserveCrewInSnapshot so
+                // the next ApplyToRoster walk can observe it). ClearReplacements
+                // is the wipe-all path, so we wipe the marker set here too.
                 rescuePlacedKerbals.Clear();
-                CrewLog("Cleared all crew replacements");
+                CrewLog("Cleared all crew replacements (and rescue-placed marker set)");
             }
         }
 
@@ -682,13 +741,17 @@ namespace Parsek
             // Always remove the mapping
             crewReplacements.Remove(originalName);
 
-            // #615 P1 review: the rescue-placed marker is keyed by the
-            // ORIGINAL kerbal's name, not the stand-in. The marker is no
-            // longer meaningful once the reservation is released — keep it
-            // around and a future fresh reservation of the same name would
-            // see a stale "rescue happened" signal and the ApplyToRoster
-            // guard would incorrectly skip stand-in generation.
-            ClearRescuePlaced(originalName);
+            // #615 P1 review (second pass): the rescue-placed marker is
+            // INTENTIONALLY NOT cleared here. The Re-Fly spawn pipeline runs
+            // RescueReservedMissingCrewInSnapshot (sets the marker) and then
+            // immediately runs UnreserveCrewInSnapshot on the same snapshot —
+            // the original code path that landed in this method. Clearing the
+            // marker here wiped it before the next ApplyToRoster walk could
+            // observe it, and the stand-in churning bug PR #595 was meant to
+            // fix returned in production. The marker is now consumed by
+            // ApplyToRoster's guard via ConsumeRescuePlaced (one-shot per
+            // walk) and bulk-cleared on session / rewind / wipe-all
+            // boundaries by Load / Restore / Clear / Reset paths.
 
             // Find the replacement in the roster
             ProtoCrewMember replacement = null;
@@ -1596,6 +1659,41 @@ namespace Parsek
         {
             crewReplacements.Clear();
             rescuePlacedKerbals.Clear();
+        }
+
+        /// <summary>
+        /// Seeds the crew replacement dictionary directly so a test can
+        /// simulate the post-reserve state without driving a real
+        /// <see cref="HighLogic.CurrentGame"/>. Used by the P1-review-second-pass
+        /// regression that exercises the
+        /// Rescue → Unreserve → ApplyToRoster sequence end-to-end.
+        /// </summary>
+        internal static void SeedReplacementForTesting(string originalName, string replacementName)
+        {
+            if (string.IsNullOrEmpty(originalName) || string.IsNullOrEmpty(replacementName))
+                return;
+            crewReplacements[originalName] = replacementName;
+        }
+
+        /// <summary>
+        /// Test seam mirroring the dictionary-management half of
+        /// <see cref="CleanUpReplacement"/> (the only half that touches the
+        /// rescue-placed marker contract). The full
+        /// <see cref="UnreserveCrewInSnapshot"/> path requires a live KSP
+        /// <see cref="HighLogic.CurrentGame"/> + <see cref="KerbalRoster"/>,
+        /// which xUnit cannot stand up. This seam asserts the production
+        /// invariant that the per-name unreserve does NOT clear the
+        /// rescue-placed marker — exercised by
+        /// <see cref="RescueCompletionGuardTests"/>.
+        /// </summary>
+        internal static void CleanUpReplacementForTesting(string originalName)
+        {
+            if (string.IsNullOrEmpty(originalName)) return;
+            // Mirrors the production CleanUpReplacement dictionary path:
+            // remove the entry, do NOT touch the rescue-placed marker. The
+            // roster-touching cleanup is intentionally omitted because
+            // it has no effect on the marker contract.
+            crewReplacements.Remove(originalName);
         }
 
         /// <summary>
