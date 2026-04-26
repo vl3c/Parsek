@@ -437,6 +437,30 @@ namespace Parsek.Tests
             Assert.Equal(2, secondEmits);
         }
 
+        [Fact]
+        public void RemoveAllGhostVessels_NoGhosts_RateLimitsRepeatedCleanupLogs()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            for (int i = 0; i < 4; i++)
+                GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][VERBOSE][GhostMap]")
+                && l.Contains("RemoveAllGhostVessels: no ghost vessels to remove")
+                && l.Contains("reason=scene-cleanup")));
+
+            clockSeconds += 31.0;
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][GhostMap]")
+                && l.Contains("RemoveAllGhostVessels: no ghost vessels to remove")
+                && l.Contains("reason=scene-cleanup")
+                && l.Contains("suppressed=3"));
+        }
+
         #endregion
 
         #region ResolveVesselType

@@ -2236,10 +2236,12 @@ namespace Parsek
             int indexCount = vesselsByRecordingIndex.Count;
             if (chainCount == 0 && indexCount == 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag,
+                    "remove-all-empty|" + (reason ?? "(none)"),
                     string.Format(ic,
                         "RemoveAllGhostVessels: no ghost vessels to remove (reason={0})",
-                        reason));
+                        reason),
+                    30.0);
                 return;
             }
 
@@ -5633,14 +5635,13 @@ namespace Parsek
                     out int lastVisibleIndex,
                     out bool carriedAcrossGap))
             {
-                ParsekLog.VerboseRateLimited(Tag,
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-segment|{0}", vesselPid),
                     string.Format(ic,
-                        "visible-window-{0}-{1:F3}-{2:F3}-{3:F3}-{4:F3}-{5}",
-                        vesselPid,
+                        "segment|rec={0}|segment={1:F3}-{2:F3}|gap={3}",
+                        recordingIndex,
                         segment.startUT,
                         segment.endUT,
-                        startUT,
-                        endUT,
                         carriedAcrossGap ? "gap" : "segment"),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} recIndex={1} ut={2:F2} body={3} " +
@@ -5655,8 +5656,7 @@ namespace Parsek
                         endUT,
                         firstVisibleIndex,
                         lastVisibleIndex,
-                        carriedAcrossGap),
-                    1.0);
+                        carriedAcrossGap));
 
                 if (PlaybackOrbitDiagnostics.TryBuildMapPredictedTailLog(
                     recordingIndex,
@@ -5681,26 +5681,26 @@ namespace Parsek
                 && recordingIndex < committed.Count
                 && committed[recordingIndex].HasOrbitSegments)
             {
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-none",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-none|{0}", vesselPid),
+                    string.Format(ic, "none|rec={0}", recordingIndex),
                     string.Format(ic,
                         "Map-visible orbit window unavailable source=none reason=no-active-equivalent-segment " +
                         "pid={0} recIndex={1} ut={2:F2} — " +
                         "no active or equivalent same-orbit segment chain",
-                        vesselPid, recordingIndex, currentUT),
-                    1.0);
+                        vesselPid, recordingIndex, currentUT));
             }
 
             if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
             {
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
-                ParsekLog.VerboseRateLimited(Tag,
-                    "visible-window-stored-bounds-fallback",
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "visible-window-stored-bounds|{0}", vesselPid),
+                    string.Format(ic, "stored-bounds|{0:F3}-{1:F3}", startUT, endUT),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",
-                        vesselPid, currentUT, startUT, endUT),
-                    1.0);
+                        vesselPid, currentUT, startUT, endUT));
                 return true;
             }
 

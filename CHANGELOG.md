@@ -59,7 +59,9 @@ All notable changes to Parsek are documented here.
 
 - `#605` Map-view `HasOrbitData(IPlaybackTrajectory)` no longer floods `KSP.log` with ~1678 identical `body=… sma=… result=True` lines per session. The diagnostic now emits once per state change keyed on `(recording, body, sma)` and surfaces a `| suppressed=N` counter on the next flip.
 
-- `#606` `FinalizerCache refresh summary` periodic no-op passes (no fresh classification) now log at Verbose instead of Info, so the 156× `recordingsExamined=1 alreadyClassified=0 newlyClassified=0` per session no longer drowns real classification milestones. Every 64th consecutive no-delta pass still emits at Info as a long-session backstop.
+- `#606` Finalizer cache diagnostics now keep classification context while collapsing stable no-op refreshes.
+
+- Phase 1 observability spam hygiene now keeps finalization, map, diagnostics, KSC playback, ledger, and sandbox patch logs useful without repeating stable no-op decisions.
 
 - `#607` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys at warn time scoped to the (pid, name) pairs the stripper actually left alone, with belt-and-suspenders exclusion of the actively re-flown vessel, freshly stripped pids, and any GhostMap ProtoVessel — so the WARN can no longer be tripped by the active vessel, a ghost, or a same-name vessel from a parallel flight, and the structured payload now carries `leftAlonePidsAlive=N excludedSelected=N excludedStripped=N excludedGhostMap=N`.
 

@@ -170,35 +170,104 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Backstop: every Nth no-delta pass still fires Info so a long
-        /// session has discoverable markers in case the diagnostic is needed
-        /// post-hoc. Lines emitted at Info under the backstop are tagged with
-        /// <c>backstop=every64thNoDeltaPass</c>.
+        /// Stable no-delta refresh summaries are time-rate-limited by
+        /// owner/recording/state. The second emission carries suppressed=N
+        /// instead of producing one exact repeat per periodic refresh.
         /// </summary>
         [Fact]
-        public void LogRefreshSummary_NoDeltaBackstop_PromotesEvery64thPassToInfo()
+        public void LogRefreshSummary_NoDeltaStablePass_RateLimitsRepeats()
         {
-            // 64 no-delta passes is the configured cadence; the 64th
-            // emission promotes back to Info, the next 63 stay Verbose.
-            for (int i = 0; i < 64; i++)
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            for (int i = 0; i < 10; i++)
             {
                 RecordingFinalizationCacheProducer.LogRefreshSummary(
                     FinalizationCacheOwner.ActiveRecorder,
                     "periodic",
                     recordingsExamined: 1,
                     alreadyClassified: 0,
-                    newlyClassified: 0);
+                    newlyClassified: 0,
+                    recordingId: "rec-stable-finalizer",
+                    vesselPid: 42u,
+                    status: FinalizationCacheStatus.Fresh,
+                    terminalState: TerminalState.Orbiting,
+                    predictedSegmentCount: 1);
             }
 
-            Assert.Equal(63, CountLogLines(
+            Assert.Equal(1, CountLogLines(
                 "[Parsek][VERBOSE][Extrapolator]",
                 "FinalizerCache refresh summary",
                 "reason=periodic"));
+
+            clockSeconds += 31.0;
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                recordingsExamined: 1,
+                alreadyClassified: 0,
+                newlyClassified: 0,
+                recordingId: "rec-stable-finalizer",
+                vesselPid: 42u,
+                status: FinalizationCacheStatus.Fresh,
+                terminalState: TerminalState.Orbiting,
+                predictedSegmentCount: 1);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
+                && l.Contains("FinalizerCache refresh summary")
+                && l.Contains("rec=rec-stable-finalizer")
+                && l.Contains("suppressed=9"));
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "rec-stable-finalizer"));
+        }
+
+        [Fact]
+        public void LogRefreshSummary_RepeatedClassification_InfoOnceThenVerboseRateLimited()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            for (int i = 0; i < 5; i++)
+            {
+                RecordingFinalizationCacheProducer.LogRefreshSummary(
+                    FinalizationCacheOwner.BackgroundLoaded,
+                    "background_periodic",
+                    recordingsExamined: 1,
+                    alreadyClassified: 0,
+                    newlyClassified: 1,
+                    recordingId: "rec-destroyed-finalizer",
+                    vesselPid: 77u,
+                    status: FinalizationCacheStatus.Fresh,
+                    terminalState: TerminalState.Destroyed,
+                    predictedSegmentCount: 0);
+            }
+
             Assert.Equal(1, CountLogLines(
                 "[Parsek][INFO][Extrapolator]",
                 "FinalizerCache refresh summary",
-                "backstop=every64thNoDeltaPass",
-                "suppressedNoDeltaPasses=63"));
+                "rec=rec-destroyed-finalizer"));
+
+            clockSeconds += 31.0;
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                recordingsExamined: 1,
+                alreadyClassified: 0,
+                newlyClassified: 1,
+                recordingId: "rec-destroyed-finalizer",
+                vesselPid: 77u,
+                status: FinalizationCacheStatus.Fresh,
+                terminalState: TerminalState.Destroyed,
+                predictedSegmentCount: 0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
+                && l.Contains("FinalizerCache refresh summary")
+                && l.Contains("rec=rec-destroyed-finalizer")
+                && l.Contains("suppressed=3"));
         }
 
         [Fact]
@@ -375,7 +444,7 @@ namespace Parsek.Tests
                 "recordingsExamined=1",
                 "alreadyClassified=1",
                 "newlyClassified=0"));
-            Assert.Equal(2, CountLogLines(
+            Assert.Equal(1, CountLogLines(
                 "[Parsek][VERBOSE][Extrapolator]",
                 "FinalizerCache refresh summary",
                 "recordingsExamined=1",

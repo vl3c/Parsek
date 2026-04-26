@@ -197,14 +197,39 @@ namespace Parsek
             string cutoffLabel = utCutoff.HasValue
                 ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "null";
-            ParsekLog.Info("RecalcEngine",
+            string stateKey = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "total={0}|after={1}|cutoff={2}|filtered={3}|sorted={4}|first={5}:{6}|strategy={7}|second={8}:{9}|facilities={10}",
+                actions.Count,
+                effective.Count,
+                cutoffLabel,
+                filteredOut,
+                walk.Sorted.Count,
+                firstTierModules.Count,
+                walk.FirstTierDispatches,
+                walk.StrategyDispatches,
+                secondTierModules.Count,
+                walk.SecondTierDispatches,
+                walk.FacilitiesDispatches);
+            string message =
                 $"Recalculate complete: actionsTotal={actions.Count}, " +
                 $"actionsAfterCutoff={effective.Count}, cutoffUT={cutoffLabel}, " +
                 $"filteredOut={filteredOut}, walkedSorted={walk.Sorted.Count}, " +
                 $"firstTier={firstTierModules.Count} modules ({walk.FirstTierDispatches} dispatches), " +
                 $"strategy={walk.StrategyDispatches} dispatches, " +
                 $"secondTier={secondTierModules.Count} modules ({walk.SecondTierDispatches} dispatches), " +
-                $"facilities={walk.FacilitiesDispatches} dispatches");
+                $"facilities={walk.FacilitiesDispatches} dispatches";
+            if (utCutoff.HasValue)
+            {
+                ParsekLog.Verbose("RecalcEngine", message);
+            }
+            else
+            {
+                ParsekLog.VerboseOnChange("RecalcEngine",
+                    "recalculate-summary",
+                    stateKey,
+                    message);
+            }
         }
 
         /// <summary>

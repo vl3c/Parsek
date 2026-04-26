@@ -37,6 +37,18 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        private int CountLogs(string subsystemToken, string messageToken)
+        {
+            int count = 0;
+            foreach (string line in logLines)
+            {
+                if (line.Contains(subsystemToken) && line.Contains(messageToken))
+                    count++;
+            }
+
+            return count;
+        }
+
         // ================================================================
         // Initialize
         // ================================================================
@@ -173,6 +185,19 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("RecalculateAndPatch complete") && l.Contains("0 actions"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_RepeatedNoopSummaries_EmitOnce()
+        {
+            LedgerOrchestrator.Initialize();
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(1, CountLogs("[LedgerOrchestrator]", "RecalculateAndPatch: actionsTotal=0"));
+            Assert.Equal(1, CountLogs("[LedgerOrchestrator]", "RecalculateAndPatch complete: 0 actions walked"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchAll complete"));
         }
 
         [Fact]

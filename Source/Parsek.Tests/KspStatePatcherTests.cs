@@ -45,6 +45,18 @@ namespace Parsek.Tests
             GameStateRecorder.IsReplayingActions = false;
         }
 
+        private int CountLogs(string subsystemToken, string messageToken)
+        {
+            int count = 0;
+            foreach (string line in logLines)
+            {
+                if (line.Contains(subsystemToken) && line.Contains(messageToken))
+                    count++;
+            }
+
+            return count;
+        }
+
         // ================================================================
         // PatchScience — null singleton
         // ================================================================
@@ -632,6 +644,23 @@ namespace Parsek.Tests
             // Should have logged completion
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void PatchAll_RepeatedSandboxNoop_LogsStableSkipsOnce()
+        {
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            var milestones = new MilestonesModule();
+            var facilities = new FacilitiesModule();
+
+            KspStatePatcher.PatchAll(science, funds, reputation, milestones, facilities);
+            KspStatePatcher.PatchAll(science, funds, reputation, milestones, facilities);
+
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchTechTree: no target tech set supplied"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchFunds: Funding.Instance is null"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchAll complete"));
         }
 
         // ================================================================
