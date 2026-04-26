@@ -555,7 +555,11 @@ namespace Parsek
                 // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
-                RescueReservedMissingCrewInSnapshot(spawnNode);
+                // #615 P1 review (fourth pass): collect rescued names; the
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
+                // when the new vessel's persistentId is known.
+                var rescuedNames = new List<string>();
+                RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
 
                 // Remove dead/missing crew from snapshot to avoid resurrecting them
                 RemoveDeadCrewFromSnapshot(spawnNode);
@@ -604,6 +608,21 @@ namespace Parsek
                 ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                // #615 P1 review (fourth pass): now that pv.vesselRef has a
+                // persistentId, mark each rescued kerbal with the new vessel's
+                // pid so the ApplyToRoster guard can scope the rescue marker
+                // to the actual vessel the kerbal was placed onto.
+                ulong respawnedVesselPid = pv.vesselRef.persistentId;
+                for (int rn = 0; rn < rescuedNames.Count; rn++)
+                {
+                    CrewReservationManager.MarkRescuePlaced(
+                        rescuedNames[rn], respawnedVesselPid);
+                }
+                if (rescuedNames.Count > 0)
+                    ParsekLog.Info("Spawner",
+                        $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
+                        $"(vesselPid={respawnedVesselPid}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
                 return pv.vesselRef.persistentId;
@@ -973,7 +992,11 @@ namespace Parsek
                 // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
-                RescueReservedMissingCrewInSnapshot(spawnNode);
+                // #615 P1 review (fourth pass): collect rescued names; the
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
+                // when the new vessel's persistentId is known.
+                var rescuedNames = new List<string>();
+                RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
                 RemoveDeadCrewFromSnapshot(spawnNode);
                 EnsureCrewExistInRoster(spawnNode);
                 if (excludeCrew != null && excludeCrew.Count > 0)
@@ -1013,6 +1036,21 @@ namespace Parsek
                 ApplyPostSpawnStabilization(pv.vesselRef, sit);
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                // #615 P1 review (fourth pass): now that pv.vesselRef has a
+                // persistentId, mark each rescued kerbal with the new vessel's
+                // pid so the ApplyToRoster guard can scope the rescue marker
+                // to the actual vessel the kerbal was placed onto.
+                ulong spawnedAtPositionVesselPid = pv.vesselRef.persistentId;
+                for (int rn = 0; rn < rescuedNames.Count; rn++)
+                {
+                    CrewReservationManager.MarkRescuePlaced(
+                        rescuedNames[rn], spawnedAtPositionVesselPid);
+                }
+                if (rescuedNames.Count > 0)
+                    ParsekLog.Info("Spawner",
+                        $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
+                        $"(vesselPid={spawnedAtPositionVesselPid}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m)");
@@ -2683,6 +2721,23 @@ namespace Parsek
         /// </summary>
         public static void RescueReservedMissingCrewInSnapshot(ConfigNode snapshot)
         {
+            RescueReservedMissingCrewInSnapshot(snapshot, null);
+        }
+
+        /// <summary>
+        /// Pid-scoping overload (#615 P1 review fourth pass). Collects the
+        /// names actually flipped from Missing -> Available into
+        /// <paramref name="rescuedNames"/> so the caller can call
+        /// <see cref="CrewReservationManager.MarkRescuePlaced(string, ulong)"/>
+        /// for each name once <c>ProtoVessel.Load</c> has assigned the new
+        /// vessel's persistentId. The marker MUST be pid-scoped: a stale
+        /// name-only marker from a long-past rescue would suppress a later
+        /// unrelated fresh reservation for the same kerbal who happens to be
+        /// on the active player vessel.
+        /// </summary>
+        public static void RescueReservedMissingCrewInSnapshot(
+            ConfigNode snapshot, List<string> rescuedNames)
+        {
             if (snapshot == null) return;
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
@@ -2710,15 +2765,22 @@ namespace Parsek
                         if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing) continue;
                         pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                         rescued++;
+                        // #615 P1 review (fourth pass): the rescue-placed
+                        // marker is now pid-scoped — the caller marks each
+                        // rescued name with the spawned vessel's pid AFTER
+                        // ProtoVessel.Load assigns one. Collect rescued names
+                        // here so the caller can wire them to the new pid.
+                        if (rescuedNames != null)
+                            rescuedNames.Add(name);
                         ParsekLog.Info("Spawner",
-                            $"Rescued reserved+Missing crew '{name}' → Available before snapshot load (#608/#609)");
+                            $"Rescued reserved+Missing crew '{name}' -> Available before snapshot load (#608/#609; pending pid mark)");
                     }
                 }
             }
 
             if (rescued > 0)
                 ParsekLog.Info("Spawner",
-                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) → Available (#608/#609)");
+                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) -> Available (#608/#609; rescuedNames={(rescuedNames != null ? rescuedNames.Count.ToString() : "null")})");
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
