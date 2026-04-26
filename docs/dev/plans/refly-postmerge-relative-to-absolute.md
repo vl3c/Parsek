@@ -160,7 +160,7 @@ that mix.
 ```csharp
 internal static int RunReFlyParentChainAbsolutePromotionPass(
     RecordingTree tree,
-    List<Recording> recordings,
+    IReadOnlyList<Recording> recordings,
     string activeReFlyTargetRecordingId,
     uint activeReFlyTargetVesselPid)
 ```
@@ -175,6 +175,15 @@ explicit tree wiring before they can invoke the helper — see the
 needs a signature change to take the tree; the orchestrator does an
 inline `CommittedTrees` scan). The pass returns 0 with a `Warn` if
 `tree` is null or doesn't contain `activeReFlyTargetRecordingId`.
+
+`recordings` is `IReadOnlyList<Recording>` (matching the public type
+of `RecordingStore.CommittedRecordings` at `RecordingStore.cs:314`)
+so callers can pass `RecordingStore.CommittedRecordings` directly
+without going through a backing-list accessor that doesn't exist.
+The pass MUTATES individual `Recording` objects (flipping
+`TrackSection.referenceFrame`, replacing `frames`, splicing
+`Recording.Points` entries) but does NOT add to or remove from the
+outer collection — `IReadOnlyList<Recording>` is sufficient.
 
 The pass returns the number of recordings it promoted (for logging) and:
 
@@ -226,34 +235,54 @@ The pass returns the number of recordings it promoted (for logging) and:
      `Points` entries inside its UT range, because the boundary frame
      duplicates the previous section's tail point. A naive
      count-equals check would roll back every promotion.
-   - **Splice algorithm.** For each promoted section:
-     1. Binary-search `Recording.Points` for entries with
-        `point.ut >= section.startUT && point.ut <= section.endUT`.
-     2. For each section frame, find the matching flat-list entry by
-        `ut` (within `1e-6` tolerance for floating-point noise — UTs
-        are written from the same source so equality should be exact,
-        but allow tolerance defensively). The boundary frame at
-        `section.startUT` may map to the last point of the *previous*
-        section in the flat list — that's expected; either skip it
-        (the previous section's flat entry already carries the
-        previous section's reference-frame coordinates, which is
-        correct for that section, not this one — promoting it would
-        corrupt the previous section's data) or, if the previous
-        section is also being promoted, both are absolute-shadow
-        values and writing either is fine. The simpler rule: skip
-        the boundary frame's flat-list overwrite when the previous
-        section is NOT being promoted in this pass.
-     3. For the rest of the section's frames (non-boundary), overwrite
-        the matching flat-list entry's `latitude/longitude/altitude/`
-        `rotation` fields with the absolute-shadow values.
+   - **Boundary ownership rule.** A section's flat-list overwrite
+     range is defined by its position relative to neighbors:
+     - **A section's `startUT` flat entry is owned by the *previous*
+       section's `endUT` overwrite when the previous section exists
+       and is also a RELATIVE section sharing the boundary** (the
+       common adjacent case via `SeedBoundaryPoint`).
+     - When a section has no previous section, OR the previous
+       section is non-RELATIVE / does NOT share a boundary at this
+       UT, the section owns its own `startUT` entry.
+     - Every section always owns its `endUT` entry (and all
+       interior frame UTs).
+     This is the "previous-owns-the-boundary" rule. It guarantees
+     each shared boundary UT in the flat list is overwritten by
+     exactly ONE section's promotion — the one ENDING at that UT
+     — eliminating the double-write/double-count problem.
+   - **Splice algorithm.** For each promoted section, in increasing
+     `startUT` order across all promoted sections of the recording:
+     1. Compute `claimsStartUT`: true iff there is no previous
+        TrackSection in the recording, OR the previous section's
+        `endUT < section.startUT` (no shared boundary), OR the
+        previous section's `referenceFrame != Relative` (no
+        SeedBoundaryPoint contract). Otherwise false — the previous
+        section owns the shared boundary entry.
+     2. Build the rewrite range:
+        `flatRange = [claimsStartUT ? section.startUT : firstUTAfterStartUT,
+                      section.endUT]` (inclusive on both ends; left
+        end is the first UT strictly after `section.startUT` when
+        `claimsStartUT` is false — find via binary search).
+     3. Binary-search `Recording.Points` for entries with `ut` in
+        `flatRange`. For each matched flat entry, find the section
+        frame with the same `ut` (within `1e-6` tolerance) and
+        overwrite the flat entry's
+        `latitude/longitude/altitude/rotation/velocity` with the
+        section frame's absolute-shadow values (which are now in
+        `section.frames` after the in-place flip).
    - **Validation invariants.** Before any rewrite lands:
-     - Every non-boundary section frame must find a matching
+     - Every section frame at UT in `flatRange` must find a matching
        flat-list entry within tolerance.
-     - Every flat-list entry inside `(section.startUT, section.endUT]`
-       (excluding the section's start boundary) must have a matching
+     - Every flat-list entry inside `flatRange` must have a matching
        section frame.
-     - UTs in the flat list within the section's range must be
-       monotonic with no duplicates other than the boundary case.
+     - UTs in the flat list within `flatRange` must be strictly
+       monotonic (the boundary duplicate, if any, is excluded by the
+       half-open `flatRange` left-end when `claimsStartUT` is false).
+     - `pointsRewritten` reported per section equals the count of
+       successful overwrites — exactly `frames.Count` when
+       `claimsStartUT` is true, exactly `frames.Count - 1` when it
+       is false (the boundary frame is omitted because the previous
+       section already wrote it).
    - **On validation failure.** Roll back the section flip for that
      section, emit a `Warn` with rec id, section index, expected vs
      observed counts, and the first mismatching UT. Partial state is
@@ -409,44 +438,63 @@ The helper:
     post-Durable1 phase and walks forward through
     `CompleteFromPostDurable`.
 
-  **Critical finisher-side change.** The existing finisher pattern
-  (`CompleteFromPostDurable`, `MergeJournalOrchestrator.cs:355-393`)
-  only walks phase markers forward — it does NOT re-execute the
-  work for `RpReap` or `MarkerCleared`. That works for those phases
-  because their work is either idempotent state mutation
-  (`MarkerCleared` nulls a field) or one-shot cleanup that the
-  reaper handles separately (`RpReap`'s RP file deletion). The
-  promotion helper is different: its work is load-bearing on the
-  in-memory state captured by the eventual `durable2` save. If the
-  finisher just sets `phase=RelativePromotion` without calling the
-  helper, the next `durable2` write will persist pre-promotion
-  sidecars — defeating the entire purpose.
+  **Finisher-side wiring (matches existing pattern).** The existing
+  `CompleteFromPostDurable` (`MergeJournalOrchestrator.cs:355-393`)
+  already re-executes real work for the post-Durable1 phases — not
+  just walking markers. From `Durable1Done` it runs
+  `TagRpsForReap(scenario.ActiveReFlySessionMarker, scenario)` and
+  `RewindPointReaper.ReapOrphanedRPs()` before advancing to
+  `RpReap` (lines 360-366); from `RpReap` it nulls
+  `scenario.ActiveReFlySessionMarker`, calls
+  `BumpSupersedeStateVersion`, and emits the `End reason=merged`
+  log before advancing to `MarkerCleared` (lines 368-381). The new
+  helper invocation slots into this same pattern: when
+  `journal.Phase == RpReap`, the finisher runs the helper BEFORE
+  the marker-clear block (so the marker is still alive when the
+  helper reads it), then continues with the existing marker-clear
+  work, then advances to `MarkerCleared`. This is NOT a deviation
+  from the existing finisher behavior — it's the same "re-execute
+  load-bearing work + advance the phase" structure already used by
+  the RpReap branch.
 
-  Therefore `CompleteFromPostDurable` MUST invoke the helper when
-  walking from `Durable1Done` (or `RpReap`) past
-  `RelativePromotion`. The finisher reads
-  `scenario.ActiveReFlySessionMarker` (still alive on disk per
-  above), resolves the tree from `journal.TreeId` via the inline
-  `CommittedTrees` scan, looks up the active target recording from
-  `tree.Recordings[marker.ActiveReFlyRecordingId]`, and calls
-  `SupersedeCommit.PromoteParentChainRelativeToAbsolute`. The
-  helper is idempotent so a second invocation on already-promoted
-  data is a structured "nothing to promote" log line and zero
-  mutation. Then the finisher advances through `MarkerCleared`
-  (which nulls the marker — the marker is no longer needed because
-  promotion just used it) and `Durable2Done` (which fires a
-  `finisher-durable2` save), landing the promoted sidecars on disk.
+  Concretely the new finisher code:
+  ```csharp
+  if (journal.Phase == MergeJournal.Phases.RpReap)
+  {
+      // NEW: invoke promotion helper before clearing the marker.
+      var marker = scenario.ActiveReFlySessionMarker;
+      if (marker != null)
+      {
+          RecordingTree tree = ResolveTreeById(journal.TreeId);
+          Recording activeTarget = tree?.Recordings != null
+              && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+              ? tree.Recordings.GetValueOrDefault(marker.ActiveReFlyRecordingId)
+              : null;
+          if (tree != null && activeTarget != null)
+              SupersedeCommit.PromoteParentChainRelativeToAbsolute(
+                  marker, activeTarget, tree);
+      }
+      AdvancePhase(scenario, MergeJournal.Phases.RelativePromotion);
 
-  This is a deliberate deviation from the no-op finisher pattern
-  for the existing intermediate phases; document the deviation in
-  the orchestrator code comment so a future refactor doesn't
-  silently drop the helper invocation. Alternative considered:
-  fold the helper into `RpReap`'s body (no new phase), but then
-  the test seam is `Phase.RpReap` for both the existing RP work
-  and the new promotion — harder to debug regressions in one vs
-  the other. The explicit phase wins on (a) clear log-grep landmark,
-  (b) targeted fault injection, (c) the redrive contract being
-  obvious from the orchestrator code.
+      // EXISTING: marker null + bump + log + AdvancePhase(MarkerCleared).
+      … (unchanged existing block) …
+  }
+  ```
+
+  The implementation MUST preserve the existing TagRpsForReap +
+  ReapOrphanedRPs work in the `Durable1Done` branch and the existing
+  marker-null + state-version-bump + End-log work in the `RpReap`
+  branch. The new RelativePromotion advance lives BETWEEN those two
+  blocks of existing work. Add a code comment naming this contract
+  so a future refactor doesn't drop the helper invocation while
+  pulling the new advance out separately.
+
+  Alternative considered: fold the helper into `RpReap`'s body
+  (no new phase), reusing the existing block. We rejected this so
+  the test seam `Phase.RelativePromotion` is targeted to the new
+  promotion work alone and not conflated with the existing RP
+  cleanup — clearer log-grep landmark and fault-injection
+  semantics.
 
 #### Why not unify the two paths instead?
 
@@ -576,24 +624,46 @@ data transformation).
     section). This pins the policy decision and prevents a future
     refactor from silently skipping same-pid loops.
 
-12. **Boundary-seeded section frame does not trigger rollback.**
-    Synthesize a parent-chain recording where the promoted RELATIVE
-    section starts with a boundary-seeded frame (frame[0] duplicates
-    the previous section's last UT, but the flat `Recording.Points`
-    list has only one entry at that UT). Assert: section is
-    promoted, the boundary frame's flat-list overwrite is skipped
-    (because the previous section is NOT being promoted), all other
-    section frames map cleanly to flat-list entries by UT, no
-    rollback. Asserts on log line: `pointsRewritten = frames.Count - 1`
-    when the boundary case applies.
+12. **Boundary-seeded section frame does not trigger rollback;
+    previous section owns the boundary.** Synthesize a parent-chain
+    recording with two adjacent RELATIVE sections — section A
+    (NOT in scope, anchored to a different non-Re-Fly pid) and
+    section B (in scope, anchored to the active Re-Fly target).
+    Section B's `frames[0]` is a boundary-seeded duplicate of
+    section A's last UT, but flat `Recording.Points` has only one
+    entry at that UT (the original sample, written when section A
+    was active and now carrying section A's RELATIVE coordinates).
+    Assert:
+    - Section B is promoted; section A is left RELATIVE.
+    - The flat-list entry at the shared boundary UT is **NOT
+      overwritten** by section B's promotion (section A still owns
+      it because it remains RELATIVE and that flat entry must keep
+      section A's coordinates).
+    - `claimsStartUT == false` for section B; reported
+      `pointsRewritten == frames.Count - 1`.
+    - All other section B frames map cleanly to flat-list entries
+      by UT; no rollback.
 
-13. **Two consecutive promoted sections share the boundary frame.**
-    Same recording with two adjacent RELATIVE sections both anchored
-    to the active target. Assert: both sections promoted, the shared
-    boundary frame's flat-list entry is overwritten exactly once
-    (either section can claim it; pick the second so the first
-    section's frames don't write over the second section's start
-    point — see splice-algorithm step 2 in the plan body).
+13. **Two consecutive promoted sections — boundary owned by the
+    PREVIOUS section.** Same recording but BOTH sections anchored
+    to the active Re-Fly target (both promote). Assert:
+    - Both sections promoted to ABSOLUTE.
+    - The shared boundary UT's flat-list entry is overwritten
+      **exactly once, by section A** (the previous section, ending
+      at that UT — `claimsStartUT == true` for section A because it
+      has no previous neighbor; `claimsStartUT == false` for section
+      B because section A precedes it and shares the boundary).
+    - Section A's reported `pointsRewritten == A.frames.Count`;
+      section B's reported `pointsRewritten == B.frames.Count - 1`;
+      together they cover the union of UT ranges with no double-
+      count.
+    - The flat-list entry at the boundary UT after promotion
+      matches section A's last absolute-shadow value (which by
+      `SeedBoundaryPoint` construction equals section B's
+      `frames[0]` value — pinning the test to the previous-section
+      owner is both semantically correct and matches the
+      "previous-owns-the-boundary" rule documented in the splice
+      algorithm).
 
 ### `EffectiveStateTests` additions
 
