@@ -576,6 +576,125 @@ namespace Parsek.Tests
                 && l.Contains("skipped 3 stand-in"));
         }
 
+        // ============================================================
+        // #625 — Step 2 displaced-unused branch must retain stand-ins
+        // currently seated on a live vessel, even when no committed
+        // recording references them yet (the recording about to start
+        // is what would reference them).
+        // ============================================================
+
+        /// <summary>
+        /// Build a module + slot in the "displaced + unused" shape: the
+        /// slot owner is NOT in any committed recording (so reservations
+        /// for the owner are empty after PostWalk), but the chain has a
+        /// stand-in entry. With <see cref="KerbalsModule.GetActiveChainIndex"/>
+        /// returning <see cref="KerbalsModule.ActiveOwnerIndex"/> for an
+        /// unreserved owner, every chain entry is displaced — the same
+        /// state the FLIGHT-scene OnLoad sweep observed in the bug
+        /// (KSP.log:12493 stand-ins deleted before recording started).
+        /// </summary>
+        private KerbalsModule BuildModuleWithDisplacedStandIn(
+            string ownerName, string trait, string standInName)
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            AppendSlot(slotsNode, ownerName, trait, standInName);
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            // No recording uses the owner OR the stand-in → the next walk
+            // produces empty reservations and the chain entry is displaced.
+            module.Reset();
+            module.PrePass(new List<GameAction>());
+            module.PostWalk();
+            return module;
+        }
+
+        /// <summary>
+        /// #625 — the bug. Stand-in is displaced and unused (no committed
+        /// recording yet — the new launch's recording starts a frame after
+        /// this sweep). Without the fix, ApplyToRoster Step 2 deletes the
+        /// stand-in from the roster, KSP's ProtoVessel.Load orphans the
+        /// crew names, and the recording captures 0 crew. With the fix,
+        /// <see cref="KerbalsModule.IKerbalRosterFacade.IsKerbalOnLiveVessel"/>
+        /// catches the stand-in and the retain-live branch fires.
+        /// </summary>
+        [Fact]
+        public void ApplyToRoster_StandInOnLiveVessel_RetainedNotDeleted()
+        {
+            var module = BuildModuleWithDisplacedStandIn(
+                "Bob Kerman", "Scientist", "Sara Kerman");
+
+            var roster = new GuardFakeRoster();
+            roster.Add("Sara Kerman", ProtoCrewMember.RosterStatus.Available);
+            // The stand-in IS on a live vessel (the freshly-loaded launch
+            // vessel that hasn't started recording yet). Call BOTH
+            // MarkOnLiveVessel (legacy name-only signal feeding the production
+            // IsKerbalOnLiveVessel) and MarkOnVessel(name, pid) (pid-scoped
+            // signal) so the test stays correct if the retain branch is later
+            // tightened to use IsKerbalOnVesselWithPid.
+            roster.MarkOnLiveVessel("Sara Kerman");
+            roster.MarkOnVessel("Sara Kerman", RescuedVesselPid);
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // Sara must survive the sweep — the live vessel still references her.
+            Assert.True(roster.Contains("Sara Kerman"),
+                "Sara should be retained because she is on a live vessel");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in 'Sara Kerman' displaced -> retained (on live vessel)"));
+
+            // Summary line includes the new bucket.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("ApplyToRoster complete")
+                && l.Contains("0 deleted")
+                && l.Contains("1 retained-live"));
+
+            // The legacy "deleted" log must NOT fire for Sara.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Sara Kerman")
+                && l.Contains("displaced -> deleted"));
+        }
+
+        /// <summary>
+        /// Regression guard: when the stand-in is NOT on any live vessel
+        /// (the original case the deletion path was written for — garbage
+        /// stand-ins from prior aborted launches), the existing delete
+        /// behavior must still fire.
+        /// </summary>
+        [Fact]
+        public void ApplyToRoster_StandInNotOnLiveVessel_DeletedAsBefore()
+        {
+            var module = BuildModuleWithDisplacedStandIn(
+                "Bob Kerman", "Scientist", "Sara Kerman");
+
+            var roster = new GuardFakeRoster();
+            roster.Add("Sara Kerman", ProtoCrewMember.RosterStatus.Available);
+            // No MarkOnLiveVessel call — Sara is genuinely orphaned.
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            Assert.False(roster.Contains("Sara Kerman"),
+                "Sara should be deleted (displaced, unused, not on any vessel)");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in 'Sara Kerman' displaced -> deleted (unused)"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("ApplyToRoster complete")
+                && l.Contains("1 deleted")
+                && l.Contains("0 retained-live"));
+        }
+
         /// <summary>
         /// Pending generation (slot.Chain[i] == null) AND the rescue path
         /// successfully placed the original. The guard must skip the

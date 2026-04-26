@@ -1087,6 +1087,8 @@ namespace Parsek
             public int VesselsKept;
             public int VesselsRemoved;
             public int SelectedActiveIndex;
+            public int SidecarEpochsRefreshed;
+            public int SidecarEpochRefreshSkipped;
         }
 
         /// <summary>
@@ -1167,6 +1169,10 @@ namespace Parsek
             result.VesselsRemoved = remove.Count;
             SetOrAddValue(flightState, "activeVessel",
                 Math.Max(0, result.SelectedActiveIndex).ToString(CultureInfo.InvariantCulture));
+            int sidecarSkipped;
+            result.SidecarEpochsRefreshed =
+                RefreshRecordingSidecarEpochsForTempSave(root, sfsPath, out sidecarSkipped);
+            result.SidecarEpochRefreshSkipped = sidecarSkipped;
             root.Save(sfsPath);
             result.Applied = true;
 
@@ -1174,8 +1180,97 @@ namespace Parsek
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
+                $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
+                $"sidecarEpochRefreshSkipped={result.SidecarEpochRefreshSkipped} " +
                 $"path='{sfsPath}'");
             return result;
+        }
+
+        internal static int RefreshRecordingSidecarEpochsForTempSave(
+            ConfigNode root, string sfsPath, out int skipped)
+        {
+            skipped = 0;
+            if (root == null || string.IsNullOrEmpty(sfsPath))
+                return 0;
+
+            string saveRoot = Path.GetDirectoryName(sfsPath);
+            if (string.IsNullOrEmpty(saveRoot))
+                return 0;
+
+            int refreshed = 0;
+            RefreshRecordingSidecarEpochsInNode(root, saveRoot, ref refreshed, ref skipped);
+            return refreshed;
+        }
+
+        private static void RefreshRecordingSidecarEpochsInNode(
+            ConfigNode node, string saveRoot, ref int refreshed, ref int skipped)
+        {
+            if (node == null) return;
+
+            if (string.Equals(node.name, "RECORDING", StringComparison.Ordinal))
+            {
+                RefreshSingleRecordingSidecarEpoch(node, saveRoot, ref refreshed, ref skipped);
+            }
+
+            foreach (ConfigNode child in node.GetNodes())
+            {
+                RefreshRecordingSidecarEpochsInNode(child, saveRoot, ref refreshed, ref skipped);
+            }
+        }
+
+        private static void RefreshSingleRecordingSidecarEpoch(
+            ConfigNode recordingNode, string saveRoot, ref int refreshed, ref int skipped)
+        {
+            string recordingId = recordingNode.GetValue("recordingId");
+            if (!RecordingPaths.ValidateRecordingId(recordingId))
+            {
+                skipped++;
+                return;
+            }
+
+            string precPath = Path.Combine(saveRoot, RecordingPaths.BuildTrajectoryRelativePath(recordingId));
+            TrajectorySidecarProbe probe;
+            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
+            {
+                skipped++;
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(probe.RecordingId)
+                && !string.Equals(probe.RecordingId, recordingId, StringComparison.Ordinal))
+            {
+                skipped++;
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly sidecar epoch refresh skipped: recording id mismatch node={recordingId} " +
+                    $"sidecar={probe.RecordingId} path='{precPath}'");
+                return;
+            }
+
+            string oldValue = recordingNode.GetValue("sidecarEpoch");
+            int currentEpoch;
+            bool hasCurrentEpoch = int.TryParse(oldValue, NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out currentEpoch);
+            if (hasCurrentEpoch && probe.SidecarEpoch < currentEpoch)
+            {
+                skipped++;
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly sidecar epoch refresh skipped: sidecar older than temp save " +
+                    $"rec={recordingId} sfs={currentEpoch} sidecar={probe.SidecarEpoch} path='{precPath}'");
+                return;
+            }
+
+            int targetEpoch = hasCurrentEpoch
+                ? Math.Max(currentEpoch, probe.SidecarEpoch)
+                : probe.SidecarEpoch;
+            string newValue = targetEpoch.ToString(CultureInfo.InvariantCulture);
+            if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
+            {
+                SetOrAddValue(recordingNode, "sidecarEpoch", newValue);
+                refreshed++;
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly sidecar epoch refreshed: rec={recordingId} old={oldValue ?? "<missing>"} " +
+                    $"new={newValue} path='{precPath}'");
+            }
         }
 
         private static HashSet<uint> BuildSelectedSlotPidSet(

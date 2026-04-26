@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
+
+Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
+
+`RecordingTree.DetermineTerminalState(int, Vessel)` overrode KSP's `SUB_ORBITAL`
+to `Orbiting` whenever `vessel.orbit.eccentricity < 1` and `PeR > Radius`. For
+atmospheric bodies (Kerbin: atmosphereDepth=70km), an orbit with Pe at 36km
+altitude passed the check and finalized as `Orbiting`, even though it would
+deorbit within a few orbits via drag. Observed in
+`logs/2026-04-26_2247_investigate-finalizer-crew-unfinished/`: SMA=669km,
+ecc=0.0967, PeR=636642 (Pe altitude 36642 m, well inside 70km atmosphere).
+
+Fix: extracted pure `IsBoundOrbitAboveAtmosphere(eccentricity, periapsisRadius,
+bodyRadius, bodyHasAtmosphere, atmosphereDepth)` helper and made the override
+require `PeR > Radius + atmosphereDepth` for atmospheric bodies; atmosphereless
+bodies (Mun, Minmus, etc.) keep the existing `PeR > Radius` semantics. Added
+explicit null guard for `vessel.orbit.referenceBody` and updated the Info log
+line to include `atmoTop` and `bodyHasAtmosphere`.
+
+## 625. Recording captured zero crew because stand-ins were just deleted from roster
+
+Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
+
+User re-launched a vessel whose original crew (Jeb/Bill/Bob) was still aboard a
+prior orbiting mission. `CrewAutoAssignPatch` correctly swapped the editor
+manifest to stand-ins (Urgan/Verdorf/Sara). On FLIGHT scene OnLoad,
+`KerbalsModule.ApplyToRoster`'s "Step 2" displaced-unused branch checked only
+`IsKerbalInAnyRecording` — which consults committed recordings, not the live
+vessel about to start recording — so it deleted the three stand-ins from the
+roster. KSP then loaded the saved ProtoVessel, which referenced now-missing
+crew names; the seats came up empty. The recording started ~1 second later
+with `0 start crew trait(s)`. Crew reappeared in-flight via a later
+`SwapReservedCrewInFlight`, but the recording's start/end-crew was permanently
+empty.
+
+Fix: in `KerbalsModule.ApplyToRoster` Step 2, before the `Available + TryRemove`
+delete branch, additionally call `roster.IsKerbalOnLiveVessel(standIn)` and
+keep the stand-in if it is currently seated on a known vessel. New
+`retainedLive` counter included in the `ApplyToRoster complete:` summary so
+the new behavior is observable.
+
 ## Observability Audit - 2026-04-26
 
 Full report: `docs/dev/observability-audit-2026-04-26.md`.
@@ -3879,6 +3920,8 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 (structured log assertion)).
 
 **Follow-up (2026-04-26, `logs/2026-04-26_1923_refly-upper-stage-still-broken`):** the rewind quicksave `parsek_rw_63bd3f.sfs` contained two full `VESSEL` blocks named `Kerbal X`: an old orbiting upper-stage vessel (`persistentId=3130558916`, `lastUT=264.30`) and the launch/start vessel (`persistentId=2708531065`). The post-load supplement killed three matching `Kerbal X Debris` vessels, then explicitly warned `Strip left vessels=1 ... [Kerbal X]`, which matches the user's clickable-parts copy. Technical conclusion: a Re-Fly invocation must load a slot-local save view where the selected slot is the only real KSP vessel. Fixed by scrubbing the root-level temp SFS copy before `GamePersistence.LoadGame`, keyed by the selected slot's vessel/root-part ids and leaving the original RP save plus `persistent.sfs` untouched. The strict `PostLoadStripper` path and active-parent-chain kill-eligible name expansion remain defense-in-depth after load. Regression coverage: `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_RemovesEveryNonSelectedVessel`, `PostLoadStripperTests.StrictStrip_StripsUnmatchedVessels`, and `Bug587StripPreExistingDebrisTests.ResolveDebris_InPlaceMarker_KillsNameMatchingParentChainRec`.
+
+**Follow-up (2026-04-26, `logs/2026-04-26_2258_refly-upper-stage-instability`):** the slot-scrubbed temp save still carried old `sidecarEpoch` metadata from the Rewind Point quicksave while the committed `.prec` sidecars had newer epochs from post-RP optimizer/merge writes. On FLIGHT load, `RecordingStore` therefore skipped the active upper-stage/root sidecars as epoch mismatches, forcing bad state-vector fallbacks (`stateVecAlt=0`) and making the upper-stage orbit/trajectory unstable. The same package showed the replacement upper-stage tip had no explicit start/end metadata after optimizer split/trim, and the old probe-booster row was correctly superseded in ERS but still visible through raw-index consumers. The final-state complaint was not optimizer damage: the upper-stage exo half had a sub-surface periapsis, so it was a ballistic arc even though KSP reported `ORBITING` at scene exit. Fixed by refreshing recording `sidecarEpoch` values in the temp save from current sidecars before `GamePersistence.LoadGame` without downgrading when the temp save already has a newer epoch, stamping exact explicit bounds after optimizer split/trim, classifying live `ORBITING` vessels with sub-surface periapsis or unbound eccentricity as `SubOrbital`, and applying explicit supersede-relation suppression in the raw-index Recordings table, KSC playback, and Tracking Station map-ghost surfaces. The raw-index Recordings table now reuses one frame-local supersede relation list through group/block/row rendering instead of re-reading it per row. Regression coverage: `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_RefreshesRecordingSidecarEpochsFromCurrentSidecar`, `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_DoesNotDowngradeNewerSfsSidecarEpoch`, `RecordingOptimizerTests.SplitAtSection_BothHalvesHaveValidUTRanges`, `RecordingOptimizerTests.TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds`, `TreeCommitTests.DetermineTerminalStateFromOrbitEvidence_OrbitingSubSurfacePeriapsis_ReturnsSubOrbital`, `TreeCommitTests.DetermineTerminalStateFromOrbitEvidence_OrbitingUnbound_ReturnsSubOrbital`, `GhostMapPresenceTests.ChainAware_SupersedeRelationSuppressesOldRecording`, `KscGhostPlaybackTests.ShouldShowInKSC_SupersededRelation_ReturnsFalse`, `RecordingsTableUITests.BuildGroupTreeData_SupersededRelation_HidesOldRecording`, and `EffectiveStateTests.IsSupersededByRelation_NotCommittedSuperseded_True`. Separate follow-ups remain for non-scrub Rewind Point quicksave loads, short warp-window state-vector/orbit-segment source flicker, and Tracking Station `relative-anchor-unresolved` handling when the absolute-shadow fallback is available but not wired into that path.
 
 **Status:** CLOSED 2026-04-27.
 

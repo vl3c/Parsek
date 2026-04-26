@@ -211,10 +211,11 @@ namespace Parsek
             // the index<->ghost correspondence.
             // TODO(phase 6+): migrate ParsekKSC to EffectiveRecordingId-keyed ghost dicts.
             var committed = RecordingStore.CommittedRecordings;
+            var supersedes = CurrentRecordingSupersedes();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (ShouldShowInKSC(rec))
+                if (ShouldShowInKSC(rec, supersedes))
                 {
                     ghostCount++;
                     ParsekLog.Verbose("KSCGhost",
@@ -277,6 +278,7 @@ namespace Parsek
             // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
+            var supersedes = CurrentRecordingSupersedes();
 
             double currentUT = Planetarium.GetUniversalTime();
 
@@ -291,6 +293,20 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+
+                if (EffectiveState.IsSupersededByRelation(rec, supersedes))
+                {
+                    if (kscGhosts.ContainsKey(i))
+                    {
+                        ParsekLog.Verbose("KSCGhost",
+                            $"Ghost #{i} \"{rec.VesselName}\" superseded by relation - destroying");
+                        DestroyKscGhost(kscGhosts[i], i);
+                        kscGhosts.Remove(i);
+                        loggedGhostSpawn.Remove(i);
+                    }
+                    DestroyAllKscOverlapGhosts(i);
+                    continue;
+                }
 
                 // Structural reject (non-Kerbin, too-short trajectory): no KSC render path
                 // and no KSC spawn path. Clean up any leftover ghosts and skip silently.
@@ -981,6 +997,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsKscStructurallyEligible(Recording rec)
         {
+            if (rec == null) return false;
             if (rec.Points == null || rec.Points.Count < 2) return false;
             // Only Kerbin recordings (KSC is on Kerbin)
             if (rec.Points[0].bodyName != "Kerbin") return false;
@@ -993,7 +1010,23 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldShowInKSC(Recording rec)
         {
-            return IsKscStructurallyEligible(rec) && rec.PlaybackEnabled;
+            return ShouldShowInKSC(rec, CurrentRecordingSupersedes());
+        }
+
+        internal static bool ShouldShowInKSC(
+            Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return !EffectiveState.IsSupersededByRelation(rec, supersedes)
+                && IsKscStructurallyEligible(rec)
+                && rec.PlaybackEnabled;
+        }
+
+        private static IReadOnlyList<RecordingSupersedeRelation> CurrentRecordingSupersedes()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingSupersedes;
         }
 
         /// <summary>

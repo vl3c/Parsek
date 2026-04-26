@@ -502,6 +502,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowInKSC_SupersededRelation_ReturnsFalse()
+        {
+            var rec = MakeKerbinRecording();
+            rec.RecordingId = "old-probe-booster";
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    OldRecordingId = "old-probe-booster",
+                    NewRecordingId = "replacement-upper-stage"
+                }
+            };
+
+            Assert.False(ParsekKSC.ShouldShowInKSC(rec, supersedes));
+        }
+
+        [Fact]
         public void ShouldShowInKSC_DisabledRecording_ReturnsFalse()
         {
             var rec = MakeKerbinRecording(playbackEnabled: false);
