@@ -4055,20 +4055,36 @@ namespace Parsek
                 "would produce an 'Unknown' 0s row with no playback value";
         }
 
-        internal const double ControlledChildLiveSeedDriftToleranceMeters = 250.0;
+        internal const double ControlledChildLiveSeedResidualToleranceMeters = 250.0;
 
         internal static bool ShouldPreferLiveBreakupChildSeed(
             bool childHasController,
             bool liveVesselAvailable,
             bool capturedSeedAvailable,
-            double seedLiveRootDistanceMeters,
-            double toleranceMeters = ControlledChildLiveSeedDriftToleranceMeters)
+            double propagatedSeedLiveRootResidualMeters,
+            double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
         {
             return childHasController
                 && liveVesselAvailable
                 && capturedSeedAvailable
-                && IsFinite(seedLiveRootDistanceMeters)
-                && seedLiveRootDistanceMeters > toleranceMeters;
+                && IsFinite(propagatedSeedLiveRootResidualMeters)
+                && propagatedSeedLiveRootResidualMeters > toleranceMeters;
+        }
+
+        internal static double ComputeBreakupSeedPropagatedResidualMeters(
+            Vector3d seedWorld,
+            Vector3 seedVelocity,
+            double seedUT,
+            Vector3d liveRootWorld,
+            double liveUT)
+        {
+            double dt = liveUT - seedUT;
+            if (!IsFinite(dt) || dt < 0)
+                return double.NaN;
+
+            Vector3d velocity = new Vector3d(seedVelocity.x, seedVelocity.y, seedVelocity.z);
+            Vector3d propagatedSeedWorld = seedWorld + velocity * dt;
+            return (propagatedSeedWorld - liveRootWorld).magnitude;
         }
 
         /// <summary>
@@ -4275,15 +4291,18 @@ namespace Parsek
             }
 
             double seedLiveRootDistance;
+            double propagatedSeedResidual;
             bool hasDistance = TryComputeBreakupSeedLiveRootDistance(
                 capturedPoint.Value,
                 liveVessel,
-                out seedLiveRootDistance);
+                liveUT,
+                out seedLiveRootDistance,
+                out propagatedSeedResidual);
             bool preferLive = ShouldPreferLiveBreakupChildSeed(
                 childHasController: true,
                 liveVesselAvailable: true,
                 capturedSeedAvailable: true,
-                seedLiveRootDistanceMeters: hasDistance ? seedLiveRootDistance : double.NaN);
+                propagatedSeedLiveRootResidualMeters: hasDistance ? propagatedSeedResidual : double.NaN);
 
             if (!preferLive)
             {
@@ -4292,7 +4311,8 @@ namespace Parsek
                     $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"seedLiveRootDist={(hasDistance ? seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
-                    $"threshold={ControlledChildLiveSeedDriftToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m");
+                    $"propagatedResidual={(hasDistance ? propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m");
                 return capturedPoint;
             }
 
@@ -4301,17 +4321,21 @@ namespace Parsek
                 $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"seedLiveRootDist={seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture)}m " +
-                $"threshold={ControlledChildLiveSeedDriftToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
-                "source=decouple-callback reason=drifted-from-live-root");
+                $"propagatedResidual={propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                "source=decouple-callback reason=propagated-seed-misses-live-root");
             return livePoint;
         }
 
         private static bool TryComputeBreakupSeedLiveRootDistance(
             TrajectoryPoint seedPoint,
             Vessel liveVessel,
-            out double distanceMeters)
+            double liveUT,
+            out double distanceMeters,
+            out double propagatedResidualMeters)
         {
             distanceMeters = double.NaN;
+            propagatedResidualMeters = double.NaN;
 
             Part rootPart = liveVessel?.rootPart;
             CelestialBody body = liveVessel?.mainBody;
@@ -4334,7 +4358,13 @@ namespace Parsek
                 seedPoint.altitude);
             Vector3d rootWorld = rootPart.transform.position;
             distanceMeters = (seedWorld - rootWorld).magnitude;
-            return IsFinite(distanceMeters);
+            propagatedResidualMeters = ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld,
+                seedPoint.velocity,
+                seedPoint.ut,
+                rootWorld,
+                liveUT);
+            return IsFinite(distanceMeters) && IsFinite(propagatedResidualMeters);
         }
 
         private static bool IsFinite(double value)

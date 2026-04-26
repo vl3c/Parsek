@@ -60,7 +60,7 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly parent-chain absolute-shadow playback now forward-bridges under-sampled initial RELATIVE sections from the adjacent section's shadow frames, so the first post-separation ghost pose interpolates instead of freezing at the stale boundary point.
 
-- Controlled split-child recordings now replace a stale decouple-callback seed with a live root-part sample when the child is still loaded and has drifted far from the seed during the coalescer window, keeping Re-Fly upper-stage/booster playback aligned at the split.
+- Controlled split-child recordings now replace a stale decouple-callback seed with a live root-part sample only when the seed's velocity-propagated pose misses the loaded child root by more than 250 m, keeping Re-Fly upper-stage/booster playback aligned without treating normal high-speed travel during the coalescer window as drift.
 
 - Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
 
