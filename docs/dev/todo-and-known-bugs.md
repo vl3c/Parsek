@@ -756,7 +756,7 @@ state's `cameraPivot`.
 
 ---
 
-## 616. Re-Fly load creates a clickable GhostMap ProtoVessel for the upper-stage ghost before the relative section begins
+## ~~616. Re-Fly load creates a clickable GhostMap ProtoVessel for the upper-stage ghost before the relative section begins~~
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
 This is the user's "real/clickable upper-stage duplicate" report after
@@ -821,11 +821,13 @@ on later relative section; create suppressed when already in the bad relative
 section; unrelated/docking relative anchors remain allowed; pending-tree search
 continues to work for in-place Re-Fly load windows.
 
-**Status:** Open.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. `GhostMapPresence` now runs an active-Re-Fly relative-section lookahead at state-vector ProtoVessel create time, so a recording created during its absolute/no-section prefix is still deferred if a later relative section would anchor to the active Re-Fly target through the parent-chain predicate. The per-frame state-vector update path now returns an update-time suppression decision when an already-created map ghost transitions into that unsafe relative branch; Flight Map View removes and re-defers the entry, while Tracking Station queues the removal until after its dictionary enumeration. Regression coverage lives in `Bug616GhostMapReFlyLookaheadTests` plus the existing GhostMap ancestor/third-facet suites.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
-## 617. Re-Fly upper-stage live playback still intermittently takes the relative-anchor retire path despite recorded fallback succeeding nearby
+## ~~617. Re-Fly upper-stage live playback still intermittently takes the relative-anchor retire path despite recorded fallback succeeding nearby~~
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
 This is the relative-anchor lock / pop-out observed for the post-178s
@@ -894,11 +896,13 @@ and live playback. Regression coverage should pin both possible shapes:
 multiple caller surfaces through the same positioner, and recorded-anchor
 coverage gaps for the active Re-Fly target's pre-merge trajectory.
 
-**Status:** Open.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. The retire WARN was traced to partial recorded-anchor coverage in the live relative interpolation path, not to a separate third hardcoded callsite. `TryResolveRelativeAnchorPose` now explicitly selects the anchor frame source: unrelated recordings keep the fast live-anchor path, while active in-place Re-Fly parent-chain victims bypass the live active vessel, use exact recorded anchor coverage when available, and fall back to the nearest recorded absolute anchor pose before retiring. The selector is wired into the production resolver and covered by `RelativeAnchorResolutionTests`.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
-## 618. Re-Fly merge cleanup only covers the active probe chain; optimizer-created upper-stage chain tips survive the merge
+## ~~618. Re-Fly merge cleanup only covers the active probe chain; optimizer-created upper-stage chain tips survive the merge~~
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This is the
 "old booster recordings are not cleared correctly after merge" report and is
@@ -939,7 +943,7 @@ dialog and supersede code also mix topology leaf-ness with chain-terminal
 semantics: `BuildDefaultVesselDecisions` can log `854fdf...` as a leaf even
 though the effective terminal chain tip is `e77d90...`.
 
-**Open product/semantics question:** the upper-stage chain was created during
+**Product/semantics note:** the upper-stage chain was created during
 the original flight before any Re-Fly. There are two plausible intents:
 
 - Treat the Re-Fly merge as replacing the whole stale future of this branch,
@@ -949,11 +953,11 @@ the original flight before any Re-Fly. There are two plausible intents:
   preserving parent/ancestor flight history unless the user explicitly chooses
   otherwise.
 
-Do not implement destructive ancestor cleanup until the desired behavior is
-confirmed. It is possible that fixing items 616 and 617 removes the visible
-duplicate symptoms while leaving the upper-stage history intact, making this
-entry a lower-priority merge-dialog/defaults question rather than required
-cleanup.
+The implemented fix takes the conservative interpretation: it does not add
+unconditional destructive ancestor supersede relations. Instead, it changes the
+merge dialog defaults so directly connected single-parent parent-chain terminal
+tips that represent stale old-future materialization default to ghost-only while
+the active in-place Re-Fly chain remains spawnable.
 
 **Relevant code:** `MergeDialog.TryCommitReFlySupersede` builds the full-chain
 skip set from the provisional's own `TreeId + ChainId + ChainBranch`, then
@@ -984,11 +988,13 @@ Regression coverage should model the exact tree: root upper-stage head
 flight; stale upper-stage parent-chain tips do not stay as visible/spawnable
 recordings after the merge.
 
-**Status:** Open.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. `EffectiveState.ResolveChainTerminalRecording` now accepts pending-tree context, and `MergeDialog.BuildDefaultVesselDecisions` applies an active-Re-Fly parent-chain pass that resolves optimizer-created chain tips such as `854fdf... -> e77d90...` before deciding spawnability. The pass only affects directly connected single-parent ancestor-chain terminal tips and leaves multi-parent/destructive cleanup semantics alone. Regression coverage: `Bug618ReFlyMergeParentChainTipTests`.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
-## 619. Postmerge Re-Fly log follow-ups: pre-pose ReentryFx, unresolved-distance formatting, and delayed phantom cleanup
+## ~~619. Postmerge Re-Fly log follow-ups: pre-pose ReentryFx, unresolved-distance formatting, and delayed phantom cleanup~~
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. These are
 secondary findings from the same investigation; they are not the main Bug A/B/C
@@ -1020,11 +1026,13 @@ to remove the artifact. This is likely downstream of item 618's stale
 upper-stage chain-tip survival. If item 618 is deferred, keep this as a
 defense-in-depth cleanup gap.
 
-**Status:** Open.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. The actionable log follow-ups are covered by the same post-merge Re-Fly pass: lazy reentry FX pending builds now wait until the fresh recording-start-snapshot ghost has completed its first playback sync instead of building from the hidden prime pose, and `RenderingZoneManager` formats unresolved/invalid distances as `unresolved`. The late phantom orbiting cleanup symptom is addressed by item 618's parent-chain terminal-tip ghost-only default, which prevents the stale optimizer-created upper-stage tip from remaining a spawnable merge default.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
-## 620. Landed probe terminal spawn can produce a NaN orbit and enter a spawn-death retry loop
+## ~~620. Landed probe terminal spawn can produce a NaN orbit and enter a spawn-death retry loop~~
 
 **Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This was first
 noticed during the same postmerge Re-Fly investigation, but it is a separate
@@ -1062,7 +1070,9 @@ spawn. The spawn-death retry loop should also cap or permanently abandon
 snapshots that KSP removes for NaN orbit immediately after load, so one corrupt
 terminal cannot churn indefinitely.
 
-**Status:** Open.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. Terminal materialization now validates snapshots before loading them into KSP. Snapshots with no `PART` subnodes, non-finite surface/orbit metadata, invalid body references, or unrecoverable body/orbit provenance are rejected with a clear materialization reason and marked `SpawnAbandoned`/ghost-only instead of being retried until KSP removes them for NaN orbit. The guard covers the main flight respawn path, `SpawnAtPosition`, KSC fallback spawning, and chain-tip fallback spawning. Regression coverage lives in `SpawnSafetyNetTests`, `SpawnAuditFollowupTests`, `VesselGhosterTests`, and spawn collision wiring tests.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
