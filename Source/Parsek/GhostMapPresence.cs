@@ -5424,7 +5424,7 @@ namespace Parsek
                     out bool carriedAcrossGap))
             {
                 ParsekLog.VerboseOnChange(Tag,
-                    string.Format(ic, "visible-window|{0}", vesselPid),
+                    string.Format(ic, "visible-window-segment|{0}", vesselPid),
                     string.Format(ic,
                         "segment|rec={0}|segment={1:F3}-{2:F3}|gap={3}",
                         recordingIndex,
@@ -5470,7 +5470,7 @@ namespace Parsek
                 && committed[recordingIndex].HasOrbitSegments)
             {
                 ParsekLog.VerboseOnChange(Tag,
-                    string.Format(ic, "visible-window|{0}", vesselPid),
+                    string.Format(ic, "visible-window-none|{0}", vesselPid),
                     string.Format(ic, "none|rec={0}", recordingIndex),
                     string.Format(ic,
                         "Map-visible orbit window unavailable source=none reason=no-active-equivalent-segment " +
@@ -5484,7 +5484,7 @@ namespace Parsek
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
                 ParsekLog.VerboseOnChange(Tag,
-                    string.Format(ic, "visible-window|{0}", vesselPid),
+                    string.Format(ic, "visible-window-stored-bounds|{0}", vesselPid),
                     string.Format(ic, "stored-bounds|{0:F3}-{1:F3}", startUT, endUT),
                     string.Format(ic,
                         "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",

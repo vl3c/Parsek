@@ -1583,7 +1583,16 @@ namespace Parsek
             // synthesize ghost ScienceEarning actions for the stale subjects.
             RebuildCommittedScienceFromWalk();
 
-            ParsekLog.Info(Tag,
+            string completeStateKey = string.Format(
+                CultureInfo.InvariantCulture,
+                "actions={0}|cutoff={1}|deferred={2}|repeatable={3}",
+                actions.Count,
+                utCutoff.HasValue ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture) : "null",
+                string.IsNullOrEmpty(patchDeferralReason) ? "none" : patchDeferralReason,
+                authoritativeRepeatableRecordState ? "authoritative" : "preserve-live");
+            ParsekLog.VerboseOnChange(Tag,
+                "recalculate-and-patch-complete",
+                completeStateKey,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
@@ -1629,9 +1638,26 @@ namespace Parsek
             string cutoffLabel = utCutoff.HasValue
                 ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
                 : "null";
-            ParsekLog.Info(Tag,
+            string stateKey = string.Format(
+                CultureInfo.InvariantCulture,
+                "total={0}|after={1}|cutoff={2}",
+                actions.Count,
+                actionsAfterCutoff,
+                cutoffLabel);
+            string message =
                 $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
-                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}";
+            if (utCutoff.HasValue)
+            {
+                ParsekLog.Verbose(Tag, message);
+            }
+            else
+            {
+                ParsekLog.VerboseOnChange(Tag,
+                    "recalculate-and-patch-input",
+                    stateKey,
+                    message);
+            }
         }
 
         private static void ApplyRecalculatedStateToKsp(

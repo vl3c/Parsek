@@ -600,6 +600,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recalculate_RepeatedNoopSummary_LogsOnceUntilStateChanges()
+        {
+            var actions = new List<GameAction>();
+
+            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[RecalcEngine]") &&
+                l.Contains("Recalculate complete") &&
+                l.Contains("actionsTotal=0")));
+
+            actions.Add(new GameAction { UT = 10.0, Type = GameActionType.ScienceEarning });
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[RecalcEngine]") &&
+                l.Contains("Recalculate complete") &&
+                l.Contains("actionsTotal=1")));
+        }
+
+        [Fact]
         public void RegisterModule_LogsRegistration()
         {
             var module = new TestModule();

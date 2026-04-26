@@ -53,9 +53,9 @@ All notable changes to Parsek are documented here.
 
 - `#605` Map-view `HasOrbitData(IPlaybackTrajectory)` no longer floods `KSP.log` with ~1678 identical `body=… sma=… result=True` lines per session. The diagnostic now emits once per state change keyed on `(recording, body, sma)` and surfaces a `| suppressed=N` counter on the next flip.
 
-- `#606` `FinalizerCache refresh summary` periodic passes now carry recording/pid/status/terminal/decline/segment context and are keyed by owner plus recording state. Stable no-delta refreshes emit through 30-second Verbose rate limits, repeated `newlyClassified=1` summaries keep only the first unique classification at Info, and the old every-64th no-delta Info backstop was removed so current finalization logs no longer dominate the retained playtest packages.
+- `#606` Finalizer cache diagnostics now keep classification context while collapsing stable no-op refreshes.
 
-- Phase 1 observability spam hygiene now collapses the current retained-log repeaters around trajectory finalization and map signal: patched-conic snapshot start/truncation/captured lines and extrapolator orbital-frame seeding emit only on state changes, empty GhostMap cleanup and map-visible orbit-window diagnostics are gated, diagnostics missing-sidecar warnings are rate-limited, and KSC auto-loop queue / playback-disabled past-end spawn attempts no longer repeat every update.
+- Phase 1 observability spam hygiene now keeps finalization, map, diagnostics, KSC playback, ledger, and sandbox patch logs useful without repeating stable no-op decisions.
 
 - `#607` Re-Fly post-strip `Strip left N pre-existing vessel(s)` WARN now reports `vessels=N collidingNames=M` separately and re-surveys at warn time scoped to the (pid, name) pairs the stripper actually left alone, with belt-and-suspenders exclusion of the actively re-flown vessel, freshly stripped pids, and any GhostMap ProtoVessel — so the WARN can no longer be tripped by the active vessel, a ghost, or a same-name vessel from a parallel flight, and the structured payload now carries `leftAlonePidsAlive=N excludedSelected=N excludedStripped=N excludedGhostMap=N`.
 

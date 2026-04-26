@@ -21,7 +21,8 @@ from `KSP.log` without reintroducing per-frame spam. The audit prioritizes:
 
 - P1 current spam hygiene: finalizer-cache summaries, patched-snapshot /
   extrapolator repeats, current map/proto-vessel/tracking-station repeaters,
-  diagnostics sidecar warnings, and KSC playback spam fixes.
+  diagnostics sidecar warnings, ledger no-op summaries, sandbox patch skips,
+  and KSC playback spam fixes.
 - P2 flight ghost skip reasons, playback frame skip summaries, rewind
   `CanInvoke` reason logging, sidecar/path severity and context, duplicate
   `OnLoad` timing cleanup, post-switch auto-record no-trigger summaries,
@@ -38,9 +39,10 @@ the finalization/map signal called out in
 stable no-delta and repeated classification summaries, collapses the
 patched-snapshot missing-body / captured and extrapolator seeded-OFR repeaters
 with `VerboseOnChange`, rate-limits empty GhostMap cleanup, gates map-visible
-window diagnostics on source/window changes, and adds focused log assertions.
-The broader observability audit remains open for later missing-decision logs and
-save/load context work.
+window diagnostics on source/window changes, and folds the Task 1.5 ledger /
+sandbox-patcher repeaters into state-change gated summaries. Focused xUnit log
+assertions pin each gate. The broader observability audit remains open for later
+missing-decision logs and save/load context work.
 
 ---
 
@@ -2856,8 +2858,10 @@ branch keys finalizer summaries by owner/recording/terminal state, removes the
 no-delta Info backstop, keeps only the first unique classification at Info,
 gates patched-snapshot and OFR-seeding details with `VerboseOnChange`, and
 rate-limits empty GhostMap cleanup plus diagnostics missing-sidecar warnings.
-Focused xUnit log assertions pin each gate. Remaining broader audit work stays
-tracked by the Observability Audit section above.
+The follow-up also gates repeated all-zero ledger summaries and sandbox/no-target
+KSP patch skips with `VerboseOnChange`. Focused xUnit log assertions pin each
+gate. Remaining broader audit work stays tracked by the Observability Audit
+section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
