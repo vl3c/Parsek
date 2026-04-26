@@ -449,6 +449,82 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
+## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
+after the load-window pending-tree fix shipped, the user re-flew the booster
+again and a `Ghost: Kerbal X` ProtoVessel was still created — this time for
+the **root** recording (`c9df8d86b79b4f6b91c049696b5cc8e2`), an ancestor two
+hops up the parent chain from the active Re-Fly target
+(`89eff8431cb843b783e5dbe693ed30f2`). The direct parent
+(`1d6d2116543245249c9ca7f26dd361f7`) was correctly suppressed at log line
+~14640 (`reason=refly-relative-anchor=active relationship=parent`). The root
+got `reason=not-suppressed-not-parent-of-refly-target` at log line ~14211
+and the bogus state-vector ghost was created at log line ~14212 with
+`sma=2 ecc=1.000000`.
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:976-1093`):** the BFS walk in
+`IsRecordingInParentChainOfActiveReFly` only followed
+`Recording.ParentBranchPointId` links. The user's tree topology was:
+`c9df8d86 (root, ChainIndex=0)` -> [optimizer split] ->
+`1d6d2116 (mid, ChainIndex=1)` -> [Breakup BP `f1c7b08f`] ->
+`89eff8431 (leaf)`. The root -> mid edge is an **optimizer chain split**
+(`RecordingStore.RunOptimizationSplitPass` at `RecordingStore.cs:2016-2049`):
+the second half (`mid`) shares the root's `ChainId` + monotonically
+incremented `ChainIndex`, but does NOT receive a `ParentBranchPointId`.
+The comment at `RecordingStore.cs:2041-2046` is explicit: *"The chain
+linkage (shared ChainId) connects it to subsequent segments. Code that
+walks from a BranchPoint to the chain tip must follow ChainId, not just
+ChildRecordingIds."* The reverse walk (used here) had the same bug — it
+must follow `ChainId` predecessors, not just `ParentBranchPointId`.
+
+The structured `walkTrace` in the failed log line confirms the BFS
+terminated at mid: `walkTrace=(exhausted-without-victim
+activeId=89eff843 treeId=50e9197d victim=c9df8d86 visitedBPs=1
+parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
+parents=[1d6d2116])`. One BP visited, one parent recording reached
+(mid), then exhausted — never traversed the chain link from mid to root.
+
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #---):** the BFS now
+walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
+`ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
+reaches, including the active recording itself (so a mid-chain active
+seeds the chain-predecessor leg too). New helper
+`GhostMapPresence.TryFindChainPredecessor(tree, rec)` encapsulates the
+chain-predecessor lookup: returns null for standalone recordings,
+`ChainIndex == 0`, and missing predecessors; scoped per-tree and
+per-`ChainBranch` so legacy / future cross-tree clones cannot leak.
+
+The `walkTrace` gains a `chainHops` counter that increments on every
+chain-predecessor enqueue (active-seed + every fan-out hop) plus a
+`chainHopsViaAncestors` counter for the fan-out subset. A future
+regression of the same shape will surface as `chainHops=0` on a
+topology that should have chain links — visible in `KSP.log` without
+re-reading source. The previous trace string `active-has-no-parent-bp`
+was renamed to `active-has-no-parent` because the bail condition is
+now "neither BP-parent nor chain-predecessor", not BP-only.
+
+**Tests:** 14 new cases in `Bug614GhostMapAncestorChainTests` covering
+the user's exact 3-recording chain shape (`SuppressesRoot_…`,
+`SuppressesMid_…`), sibling-branch negatives
+(`DoesNotSuppressSibling_…`, `DoesNotSuppressUnrelatedTreeRecording`),
+multi-hop chain depth (`SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments`),
+mid-chain active recording (`SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent`),
+true-root bail behaviour, chain cycles
+(`HandlesChainCycleGracefully_VisitedSetCapsTheWalk`), the
+`TryFindChainPredecessor` helper edge cases (standalone recording,
+`ChainIndex == 0`, `ChainBranch` scoping, missing predecessor), and the
+`chainHops=` walkTrace counter contract on both success and failure
+paths. The end-to-end production-gate test
+`EndToEnd_SuppressesRoot_ProductionGate_UserShape` drives
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
+exact production tree shape and asserts both the suppress decision and
+the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
+
+**Status:** Open until merged.
+
+---
+
 ## ~~573. Real vessel copy of the upper stage materializes alongside the ghost during Re-Fly~~
 
 **Source:** in-game observation by user during the
