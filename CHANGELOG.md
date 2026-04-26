@@ -58,11 +58,17 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly parent-chain relative sections now seed and bridge the v7 absolute-shadow trajectory at the RELATIVE boundary, preventing upper-stage ghosts from clamping forward to the first later shadow sample and appearing behind or far off the booster immediately after Fly.
 
+- Re-Fly parent-chain absolute-shadow playback now forward-bridges under-sampled initial RELATIVE sections from the adjacent section's shadow frames, so the first post-separation ghost pose interpolates instead of freezing at the stale boundary point.
+
+- Controlled split-child recordings now replace a stale decouple-callback seed with a live root-part sample when the child is still loaded and has drifted far from the seed during the coalescer window, keeping Re-Fly upper-stage/booster playback aligned at the split.
+
 - Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
 
 - Re-Fly temp-save scrub failures now abort before `GamePersistence.LoadGame` instead of loading an unscrubbed quicksave, and the post-load strict-strip safety net now logs one compact summary for unmatched vessels instead of one WARN per vessel.
 
 - Re-Fly in-place supersede now repairs a non-split target's missing terminal state from its captured scene-exit situation before writing supersede rows, covering the size=1 chain case where there is no optimizer-created tip to resolve.
+
+- Re-Fly in-place supersede now falls back to contiguous optimizer split bounds when quickload/merge restore loses transient session tags, so stale destroyed tails are superseded by the new Re-Fly chain tip and the session marker clears instead of leaving broken mission rows.
 
 - Re-Fly parent-chain suppression now reuses the composed committed-plus-pending tree search view across stable frames, avoiding per-frame list allocations in visual ghost playback and GhostMap state-vector updates while still invalidating when the committed tree list mutates.
 
@@ -73,6 +79,8 @@ All notable changes to Parsek are documented here.
 - Breakup coalescing now drops dead-on-arrival controlled children whenever their live vessel is already gone, even if a pre-captured snapshot exists, preventing single-point `Unknown` 0s rows from being committed after Re-Fly merge.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
+
+- Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands, preventing the camera from staying attached to a completed segment after playback.
 
 - `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the guard skips the stand-in recreate only when the kerbal is currently on the SAME vessel where the rescue placed them (pid-scoped marker), so fresh reservations on the active player vessel still get their swap stand-in even if the kerbal happened to be rescued onto a different vessel earlier in the same session.
 

@@ -128,6 +128,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_ControlledLiveChildBeyondTolerance_ReturnsTrue()
+        {
+            bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 865.88,
+                toleranceMeters: 250.0);
+
+            Assert.True(preferLive);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_WithinTolerance_KeepsCapturedSeed()
+        {
+            bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 42.0,
+                toleranceMeters: 250.0);
+
+            Assert.False(preferLive);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_DebrisOrMissingLiveVessel_KeepsCapturedSeed()
+        {
+            Assert.False(ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: false,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 865.88,
+                toleranceMeters: 250.0));
+
+            Assert.False(ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: false,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 865.88,
+                toleranceMeters: 250.0));
+        }
+
+        [Fact]
         public void PrepareRecorderStartCollections_NullCaches_CreateFreshCachesAndRequestSubscription()
         {
             List<int> created = null;

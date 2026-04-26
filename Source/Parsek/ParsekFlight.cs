@@ -4055,6 +4055,22 @@ namespace Parsek
                 "would produce an 'Unknown' 0s row with no playback value";
         }
 
+        internal const double ControlledChildLiveSeedDriftToleranceMeters = 250.0;
+
+        internal static bool ShouldPreferLiveBreakupChildSeed(
+            bool childHasController,
+            bool liveVesselAvailable,
+            bool capturedSeedAvailable,
+            double seedLiveRootDistanceMeters,
+            double toleranceMeters = ControlledChildLiveSeedDriftToleranceMeters)
+        {
+            return childHasController
+                && liveVesselAvailable
+                && capturedSeedAvailable
+                && IsFinite(seedLiveRootDistanceMeters)
+                && seedLiveRootDistanceMeters > toleranceMeters;
+        }
+
         /// <summary>
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
@@ -4235,6 +4251,97 @@ namespace Parsek
                 $"seedLiveRootDist={seedRootDelta.magnitude.ToString("F2", ic)}m";
         }
 
+        private static TrajectoryPoint? ResolveControlledChildInitialTrajectoryPoint(
+            uint pid,
+            TrajectoryPoint? capturedPoint,
+            Vessel liveVessel,
+            double liveUT)
+        {
+            if (liveVessel == null)
+                return capturedPoint;
+
+            TrajectoryPoint livePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                liveVessel,
+                liveUT,
+                preferRootPartSurfacePose: true);
+
+            if (!capturedPoint.HasValue)
+            {
+                ParsekLog.Info("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=live-current " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    "reason=no-captured-seed");
+                return livePoint;
+            }
+
+            double seedLiveRootDistance;
+            bool hasDistance = TryComputeBreakupSeedLiveRootDistance(
+                capturedPoint.Value,
+                liveVessel,
+                out seedLiveRootDistance);
+            bool preferLive = ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: hasDistance ? seedLiveRootDistance : double.NaN);
+
+            if (!preferLive)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                    $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"seedLiveRootDist={(hasDistance ? seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"threshold={ControlledChildLiveSeedDriftToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m");
+                return capturedPoint;
+            }
+
+            ParsekLog.Info("Coalescer",
+                $"Controlled child initial seed replaced with live sample: pid={pid} " +
+                $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"seedLiveRootDist={seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"threshold={ControlledChildLiveSeedDriftToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                "source=decouple-callback reason=drifted-from-live-root");
+            return livePoint;
+        }
+
+        private static bool TryComputeBreakupSeedLiveRootDistance(
+            TrajectoryPoint seedPoint,
+            Vessel liveVessel,
+            out double distanceMeters)
+        {
+            distanceMeters = double.NaN;
+
+            Part rootPart = liveVessel?.rootPart;
+            CelestialBody body = liveVessel?.mainBody;
+            if (rootPart == null || rootPart.transform == null || body == null)
+                return false;
+
+            if (!string.Equals(body.name, seedPoint.bodyName, StringComparison.Ordinal)
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, seedPoint.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null)
+                return false;
+
+            Vector3d seedWorld = body.GetWorldSurfacePosition(
+                seedPoint.latitude,
+                seedPoint.longitude,
+                seedPoint.altitude);
+            Vector3d rootWorld = rootPart.transform.position;
+            distanceMeters = (seedWorld - rootWorld).magnitude;
+            return IsFinite(distanceMeters);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
         private static string FormatVector3(Vector3 value)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -4365,15 +4472,13 @@ namespace Parsek
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
+                    TrajectoryPoint? initialPoint = ResolveControlledChildInitialTrajectoryPoint(
+                        pid,
+                        breakupChildPoint,
+                        childVessel,
+                        Planetarium.GetUniversalTime());
                     if (childVessel != null && backgroundRecorder != null)
                     {
-                        TrajectoryPoint? initialPoint = breakupChildPoint;
-                        if (!initialPoint.HasValue)
-                        {
-                            double sampleUT = Planetarium.GetUniversalTime();
-                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, sampleUT, preferRootPartSurfacePose: true);
-                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
@@ -4388,7 +4493,7 @@ namespace Parsek
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null} " +
-                        $"{DescribeBreakupChildSeedPose(breakupChildPoint, childVessel, Planetarium.GetUniversalTime())}");
+                        $"{DescribeBreakupChildSeedPose(initialPoint, childVessel, Planetarium.GetUniversalTime())}");
                 }
             }
 
@@ -12508,7 +12613,7 @@ namespace Parsek
             watchMode.FindNextWatchTarget(currentIndex, currentRec);
 
         /// <summary>Called by policy to transfer watch to the next chain segment.</summary>
-        internal void TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
+        internal bool TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
             watchMode.TransferWatchToNextSegment(nextIndex);
 
         /// <summary>Called by policy to exit watch mode.</summary>
@@ -15628,7 +15733,7 @@ namespace Parsek
             return true;
         }
 
-        private List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+        internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
             IPlaybackTrajectory trajectory,
             TrackSection section,
             double targetUT)
@@ -15639,7 +15744,41 @@ namespace Parsek
             if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
                 return absoluteFrames;
             if (targetUT >= absoluteFrames[0].ut)
-                return absoluteFrames;
+            {
+                TrajectoryPoint forwardBridge;
+                if (!TryFindAbsoluteShadowForwardBridgeFrame(
+                        trajectory, section, targetUT, out forwardBridge))
+                {
+                    return absoluteFrames;
+                }
+
+                TrajectoryPoint last = absoluteFrames[absoluteFrames.Count - 1];
+                if (forwardBridge.ut <= last.ut + 0.0001)
+                    return absoluteFrames;
+
+                var forwardBridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+                forwardBridged.AddRange(absoluteFrames);
+                forwardBridged.Add(forwardBridge);
+                ParsekLog.WarnRateLimited(
+                    "Playback",
+                    string.Concat(
+                        "absolute-shadow-forward-bridge|",
+                        trajectory?.RecordingId ?? "(none)",
+                        "|",
+                        section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "RELATIVE absolute shadow forward bridge inserted: recording={0} targetUT={1:F2} " +
+                        "lastShadowUT={2:F2} bridgeUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                        ShortRecordingId(trajectory?.RecordingId),
+                        targetUT,
+                        last.ut,
+                        forwardBridge.ut,
+                        section.startUT,
+                        section.endUT),
+                    30.0);
+                return forwardBridged;
+            }
 
             TrajectoryPoint bridge;
             if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
@@ -15669,6 +15808,64 @@ namespace Parsek
                     section.endUT),
                 30.0);
             return bridged;
+        }
+
+        internal static bool TryFindAbsoluteShadowForwardBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            if (relativeSection.referenceFrame != ReferenceFrame.Relative
+                || relativeSection.absoluteFrames == null
+                || relativeSection.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            double lastShadowUT =
+                relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
+            double adjacentStartLimit = relativeSection.endUT + 0.5;
+            bool found = false;
+            double bestUT = double.PositiveInfinity;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    if (section.referenceFrame != ReferenceFrame.Relative
+                        || section.absoluteFrames == null
+                        || section.absoluteFrames.Count == 0)
+                    {
+                        continue;
+                    }
+                    if (section.anchorVesselId != relativeSection.anchorVesselId)
+                        continue;
+                    if (section.startUT > adjacentStartLimit)
+                        continue;
+                    if (section.endUT < relativeSection.endUT - 0.0001)
+                        continue;
+
+                    for (int j = 0; j < section.absoluteFrames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.absoluteFrames[j];
+                        if (candidate.ut <= lastShadowUT + 0.0001)
+                            continue;
+                        if (candidate.ut <= targetUT + 0.0001)
+                            continue;
+                        if (candidate.ut >= bestUT)
+                            continue;
+
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
         }
 
         internal static bool TryFindAbsoluteShadowBridgeFrame(

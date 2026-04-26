@@ -9,6 +9,7 @@ namespace Parsek
     public static class MergeDialog
     {
         private const string MergeLockId = "ParsekMergeDialog";
+        private const double InPlaceChainContinuityToleranceSeconds = 0.05;
 
         internal enum ReFlyMergeCommitResult
         {
@@ -441,13 +442,33 @@ namespace Parsek
                     // behaviour for un-split in-place merges.
                     if (scenario.RecordingSupersedes == null)
                         scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+                    List<Recording> contiguousInPlaceChain =
+                        ResolveContiguousInPlaceChainMembers(provisional);
+                    Recording contiguousTip = contiguousInPlaceChain.Count > 0
+                        ? contiguousInPlaceChain[contiguousInPlaceChain.Count - 1]
+                        : provisional;
                     Recording supersedeTargetRec =
                         EffectiveState.ResolveChainTerminalRecording(provisional);
                     Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
                         provisional, marker.SessionId);
-                    if (sessionOwnedTip != null)
+                    bool sessionOwnedResolved = IsDifferentRecording(
+                        sessionOwnedTip, provisional);
+                    if (sessionOwnedResolved)
                     {
                         supersedeTargetRec = sessionOwnedTip;
+                    }
+                    else if (IsDifferentRecording(contiguousTip, provisional))
+                    {
+                        supersedeTargetRec = contiguousTip;
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolved " +
+                            $"chain tip from contiguous split bounds: head={provisional.RecordingId} " +
+                            $"-> tip={contiguousTip.RecordingId} " +
+                            $"chainId={contiguousTip.ChainId ?? "<none>"} " +
+                            $"chainIndex={contiguousTip.ChainIndex} " +
+                            $"members=[{FormatRecordingIds(contiguousInPlaceChain)}] " +
+                            $"tolerance={InPlaceChainContinuityToleranceSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                            "(session metadata missing or only present on the head)");
                     }
                     supersedeTargetRec = EnsureInPlaceSupersedeTargetHasTerminalState(
                         supersedeTargetRec, marker.SessionId);
@@ -482,14 +503,24 @@ namespace Parsek
                     // original optimizer tails from the pre-Re-Fly flight can
                     // share that identity and still need supersede rows to the
                     // new chain tip. The in-place origin is tagged at
-                    // AtomicMarkerWrite; optimizer-created split children copy
-                    // CreatingSessionId, so session id is the ownership marker.
+                    // AtomicMarkerWrite; optimizer-created split children normally
+                    // copy CreatingSessionId. Quickload/restore can lose those
+                    // transient tags before merge finalization, so also protect
+                    // the contiguous post-optimizer chain discovered from UT
+                    // bounds. Older stale tails with the same chain identity are
+                    // non-contiguous and still receive supersede rows.
                     var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
                     chainSkipSet.Add(provisional.RecordingId);
                     if (supersedeTargetRec != null
                         && !string.IsNullOrEmpty(supersedeTargetRec.RecordingId))
                     {
                         chainSkipSet.Add(supersedeTargetRec.RecordingId);
+                    }
+                    for (int i = 0; i < contiguousInPlaceChain.Count; i++)
+                    {
+                        var member = contiguousInPlaceChain[i];
+                        if (member != null && !string.IsNullOrEmpty(member.RecordingId))
+                            chainSkipSet.Add(member.RecordingId);
                     }
                     if (!string.IsNullOrEmpty(provisional.ChainId)
                         && !string.IsNullOrEmpty(provisional.TreeId))
@@ -557,8 +588,8 @@ namespace Parsek
                     // That covers all the in-memory scenario mutations that a
                     // normal RunMerge does around AppendRelations + tombstones.
                     // Also clear CreatingSessionId / ProvisionalForRpId on every
-                    // session-owned continuation segment so split children no
-                    // longer look like session-scoped zombies to load-time sweep.
+                    // protected continuation segment so split children no longer
+                    // look like session-scoped zombies to load-time sweep.
                     var committedForTransientClear = RecordingStore.CommittedRecordings;
                     if (committedForTransientClear != null)
                     {
@@ -926,6 +957,160 @@ namespace Parsek
             }
 
             return best ?? provisional;
+        }
+
+        internal static List<Recording> ResolveContiguousInPlaceChainMembers(
+            Recording provisional)
+        {
+            var members = new List<Recording>();
+            if (provisional == null)
+                return members;
+
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                members.Add(provisional);
+
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return members;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                return members;
+
+            var visited = new HashSet<string>(System.StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                visited.Add(provisional.RecordingId);
+
+            Recording current = provisional;
+            while (current != null)
+            {
+                Recording next = FindNextContiguousInPlaceChainMember(
+                    provisional, current, committed, visited);
+                if (next == null)
+                    break;
+
+                members.Add(next);
+                visited.Add(next.RecordingId);
+                current = next;
+            }
+
+            return members;
+        }
+
+        private static Recording FindNextContiguousInPlaceChainMember(
+            Recording head,
+            Recording current,
+            IReadOnlyList<Recording> committed,
+            HashSet<string> visited)
+        {
+            if (head == null || current == null || committed == null)
+                return null;
+            if (!TryGetRecordingBounds(current, out _, out double currentEndUT))
+                return null;
+
+            Recording best = null;
+            double bestDelta = double.MaxValue;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (visited != null && visited.Contains(candidate.RecordingId))
+                    continue;
+                if (!MatchesInPlaceChain(head, candidate))
+                    continue;
+                if (candidate.ChainIndex <= current.ChainIndex)
+                    continue;
+                if (!TryGetRecordingBounds(candidate, out double candidateStartUT, out _))
+                    continue;
+
+                double delta = System.Math.Abs(candidateStartUT - currentEndUT);
+                if (delta > InPlaceChainContinuityToleranceSeconds)
+                    continue;
+
+                if (best == null
+                    || delta < bestDelta
+                    || (System.Math.Abs(delta - bestDelta) <= 1e-9
+                        && candidate.ChainIndex < best.ChainIndex))
+                {
+                    best = candidate;
+                    bestDelta = delta;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool MatchesInPlaceChain(Recording head, Recording candidate)
+        {
+            if (head == null || candidate == null)
+                return false;
+            if (string.IsNullOrEmpty(head.TreeId) || string.IsNullOrEmpty(head.ChainId))
+                return false;
+            if (!string.Equals(candidate.TreeId, head.TreeId, System.StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(candidate.ChainId, head.ChainId, System.StringComparison.Ordinal))
+                return false;
+            return candidate.ChainBranch == head.ChainBranch;
+        }
+
+        private static bool TryGetRecordingBounds(
+            Recording recording,
+            out double startUT,
+            out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            if (recording == null)
+                return false;
+
+            bool hasPayload =
+                (recording.Points != null && recording.Points.Count > 0)
+                || (recording.TrackSections != null && recording.TrackSections.Count > 0)
+                || (recording.OrbitSegments != null && recording.OrbitSegments.Count > 0)
+                || (!double.IsNaN(recording.ExplicitStartUT)
+                    && !double.IsNaN(recording.ExplicitEndUT));
+            if (!hasPayload)
+                return false;
+
+            startUT = recording.StartUT;
+            endUT = recording.EndUT;
+            return IsFinite(startUT) && IsFinite(endUT);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool IsDifferentRecording(Recording candidate, Recording head)
+        {
+            if (candidate == null || head == null)
+                return false;
+            if (object.ReferenceEquals(candidate, head))
+                return false;
+            return !string.Equals(
+                candidate.RecordingId, head.RecordingId,
+                System.StringComparison.Ordinal);
+        }
+
+        private static string FormatRecordingIds(List<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return string.Empty;
+
+            var ids = new List<string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                ids.Add(rec.RecordingId);
+            }
+
+            return string.Join(",", ids);
         }
 
         internal static Recording EnsureInPlaceSupersedeTargetHasTerminalState(

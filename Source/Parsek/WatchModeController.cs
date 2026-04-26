@@ -2293,10 +2293,10 @@ namespace Parsek
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
         /// </summary>
-        internal void TransferWatchToNextSegment(int nextIndex)
+        internal bool TransferWatchToNextSegment(int nextIndex)
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (nextIndex < 0 || nextIndex >= committed.Count) return;
+            if (nextIndex < 0 || nextIndex >= committed.Count) return false;
 
             string oldName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
                 ? committed[watchedRecordingIndex].VesselName : "?";
@@ -2311,8 +2311,8 @@ namespace Parsek
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
                 ParsekLog.Warn("CameraFollow",
-                    $"Auto-follow target #{nextIndex} has no active ghost — staying on current");
-                return;
+                    $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+                return false;
             }
 
             // Preserve original camera state across the transition
@@ -2387,6 +2387,7 @@ namespace Parsek
                 $" camDist={FlightCamera.fetch.Distance:F1}" +
                 $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
             LogWatchFocusStateChanged(gs, force: true, context: "transfer");
+            return true;
         }
 
         /// <summary>
@@ -2769,17 +2770,26 @@ namespace Parsek
                 int nextTarget = FindNextWatchTarget(idx, committed[idx]);
                 if (nextTarget >= 0)
                 {
-                    ParsekLog.Info("CameraFollow",
-                        $"Watch hold auto-follow: #{idx} \u2192 #{nextTarget} (during hold period)");
-                    watchEndHoldUntilRealTime = -1;
-                    GhostPlaybackState held;
-                    if (ghostStates.TryGetValue(idx, out held) && held != null)
+                    if (TransferWatchToNextSegment(nextTarget))
                     {
-                        var traj = committed[idx] as IPlaybackTrajectory;
-                        host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
-                            reason: "auto-followed during hold");
+                        ParsekLog.Info("CameraFollow",
+                            $"Watch hold auto-follow: #{idx} \u2192 #{nextTarget} (during hold period)");
+                        watchEndHoldUntilRealTime = -1;
+                        GhostPlaybackState held;
+                        if (ghostStates.TryGetValue(idx, out held) && held != null)
+                        {
+                            var traj = committed[idx] as IPlaybackTrajectory;
+                            host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
+                                reason: "auto-followed during hold");
+                        }
                     }
-                    TransferWatchToNextSegment(nextTarget);
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited("CameraFollow",
+                            $"watch-hold-transfer-deferred-{idx}-{nextTarget}",
+                            $"Watch hold transfer deferred: #{idx} \u2192 #{nextTarget} " +
+                            "target ghost not active yet");
+                    }
                     return true;
                 }
             }

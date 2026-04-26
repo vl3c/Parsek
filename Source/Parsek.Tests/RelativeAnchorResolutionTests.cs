@@ -349,6 +349,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveAbsoluteShadowPlaybackFrames_BridgesForwardFromAdjacentRelativeSection()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var adjacentRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.5,
+                endUT = 110.0,
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 103.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward",
+                TrackSections = new List<TrackSection> { firstRelative, adjacentRelative }
+            };
+
+            List<TrajectoryPoint> resolved =
+                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, firstRelative, 100.4);
+
+            Assert.NotSame(firstRelative.absoluteFrames, resolved);
+            Assert.Equal(2, resolved.Count);
+            Assert.Equal(100.0, resolved[0].ut);
+            Assert.Equal(103.0, resolved[1].ut);
+            Assert.Equal(3.0, resolved[1].latitude);
+        }
+
+        [Fact]
         public void ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap()
         {
             Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.0));

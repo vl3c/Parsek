@@ -325,9 +325,19 @@ namespace Parsek
                         int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
                         if (nextTarget >= 0)
                         {
-                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
-                            ParsekLog.Info("Policy",
-                                $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = 30f;
+                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain watch transfer deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
                         }
                         else
                         {
@@ -432,12 +442,22 @@ namespace Parsek
                         int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
                         if (nextTarget >= 0)
                         {
-                            ParsekLog.Info("Policy",
-                                $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
-                                $"(vessel={committed[nextTarget].VesselName})");
-                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
-                            engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
-                                reason: "auto-followed to next stage");
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
+                                    $"(vessel={committed[nextTarget].VesselName})");
+                                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
+                                    reason: "auto-followed to next stage");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = 30f;
+                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
                             return;
                         }
                     }
