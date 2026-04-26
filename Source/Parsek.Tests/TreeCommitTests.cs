@@ -1122,12 +1122,86 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.SubOrbital, resultVessel);
         }
 
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_SubOrbitalBoundAboveSurface_ReturnsOrbiting()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.SUB_ORBITAL,
+                eccentricity: 0.15,
+                periapsisRadius: 650000.0,
+                bodyRadius: 600000.0);
+
+            Assert.Equal(TerminalState.Orbiting, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingSubSurfacePeriapsis_ReturnsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 0.289,
+                periapsisRadius: 412757.0,
+                bodyRadius: 600000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingUnbound_ReturnsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 1.02,
+                periapsisRadius: 675000.0,
+                bodyRadius: 600000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingAboveSurface_RemainsOrbiting()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 0.05,
+                periapsisRadius: 675000.0,
+                bodyRadius: 600000.0);
+
+            Assert.Equal(TerminalState.Orbiting, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingInsideAtmosphere_ReturnsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 0.0967,
+                periapsisRadius: 636642.0,
+                bodyRadius: 600000.0,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_SubOrbitalInsideAtmosphere_RemainsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.SUB_ORBITAL,
+                eccentricity: 0.0967,
+                periapsisRadius: 636642.0,
+                bodyRadius: 600000.0,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
         // NOTE: The orbit-aware override path in DetermineTerminalState(int, Vessel)
-        // — where SUB_ORBITAL is corrected to Orbiting when vessel.orbit shows a
-        // bound orbit above the surface — requires a real KSP Vessel object with
-        // populated orbit data. The decision predicate is extracted as
-        // IsBoundOrbitAboveAtmosphere so the bound-orbit / atmosphere logic can be
-        // tested without Unity. The dispatch site is exercised via in-game testing.
+        // requires a real KSP Vessel object with populated orbit data. The pure
+        // orbit-evidence helpers above pin the classification logic; the dispatch
+        // site is exercised via in-game testing.
 
         // ============================================================
         // IsBoundOrbitAboveAtmosphere — pure decision tests

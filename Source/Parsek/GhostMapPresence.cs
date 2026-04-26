@@ -5702,6 +5702,17 @@ namespace Parsek
         internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
             IReadOnlyList<Recording> recordings, double currentUT)
         {
+            var scenario = ParsekScenario.Instance;
+            var supersedes = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingSupersedes;
+            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes);
+        }
+
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
             var suppressed = new HashSet<string>();
             if (recordings == null)
                 return suppressed;
@@ -5717,7 +5728,25 @@ namespace Parsek
                     suppressed.Add(parentId);
             }
 
+            AddSupersedeRelationSuppressedRecordingIds(suppressed, recordings, supersedes);
             return suppressed;
+        }
+
+        private static void AddSupersedeRelationSuppressedRecordingIds(
+            HashSet<string> suppressed,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (suppressed == null || recordings == null || supersedes == null || supersedes.Count == 0)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!EffectiveState.IsSupersededByRelation(rec, supersedes))
+                    continue;
+                suppressed.Add(rec.RecordingId);
+            }
         }
 
         private static void AddActiveSessionSuppressedRecordingIds(

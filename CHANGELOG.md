@@ -71,6 +71,8 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
 
+- Re-Fly temp-save scrub now refreshes each recording's `.sfs` `sidecarEpoch` from the current `.prec` sidecar before load, so post-merge recording-tree mutations are not rejected as stale when an older Rewind Point quicksave is used. If the temp save already carries a newer epoch than the sidecar, the scrub keeps the newer `.sfs` value and reports the sidecar as skipped instead of downgrading.
+
 - Re-Fly temp-save scrub failures now abort before `GamePersistence.LoadGame` instead of loading an unscrubbed quicksave, and the post-load strict-strip safety net now logs one compact summary for unmatched vessels instead of one WARN per vessel.
 
 - Re-Fly in-place supersede now repairs a non-split target's missing terminal state from its captured scene-exit situation before writing supersede rows, covering the size=1 chain case where there is no optimizer-created tip to resolve.
@@ -99,9 +101,15 @@ All notable changes to Parsek are documented here.
 
 - `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances, angular fields (LAN, argument of periapsis, inclination) use a shortest-angle delta so a tail that crosses the 0/360 boundary still matches, and each `TrimBoringTail` skip reports which guard rejected.
 
+- Optimizer splits and boring-tail trims now stamp exact explicit start/end UT bounds after mutating the payload, preserving a stable `.sfs` timing fallback if sidecar hydration is unavailable.
+
+- Terminal-state classification now downgrades KSP `ORBITING` vessels whose captured periapsis is below the body surface or whose eccentricity is unbound to `SubOrbital`, so ballistic upper-stage arcs are no longer presented as stable orbiting final states.
+
 - Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
 
 - Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge — including when the new flight crossed an atmo-exo boundary and the optimizer split it into chained segments.
+
+- Raw-indexed Recordings table, KSC playback, and Tracking Station map-ghost surfaces now also honor explicit supersede relations, so retained old rows such as a probe-booster recording stay hidden outside ERS as well.
 
 - Re-Fly in-place continuation merge now distinguishes new session-owned optimizer split segments from stale same-chain segments left by the original flight, so old booster exo tails are superseded by the new chain tip instead of being skipped as self-links.
 

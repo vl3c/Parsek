@@ -165,6 +165,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True iff <paramref name="rec"/> is replaced by an explicit supersede
+        /// relation. Unlike <see cref="IsVisible"/>, this does not filter
+        /// NotCommitted rows; raw-indexed UI and ghost systems use it to hide
+        /// old committed timeline entries without changing their index space.
+        /// </summary>
+        public static bool IsSupersededByRelation(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null) return false;
+            if (string.IsNullOrEmpty(rec.RecordingId)) return false;
+            if (supersedes == null || supersedes.Count == 0) return false;
+
+            string effective = EffectiveRecordingId(rec.RecordingId, supersedes);
+            return !string.Equals(effective, rec.RecordingId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// True iff <paramref name="rec"/> is an Unfinished Flight per design §3.1.
         /// Current formulation: the recording is committed-visible
         /// (<c>Immutable</c> legacy/original child or <c>CommittedProvisional</c>
