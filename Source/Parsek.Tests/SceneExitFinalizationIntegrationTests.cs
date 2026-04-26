@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Xunit;
 
@@ -1649,6 +1650,52 @@ namespace Parsek.Tests
 
             AssertQuaternionEquivalent(frozenWorldRotation, startWorldRotation);
             AssertQuaternionEquivalent(firstBoundaryWorldRotation, secondStartWorldRotation);
+        }
+
+        [Fact]
+        public void SeedPredictedSegmentOrbitalFrameRotations_StableRepeatsLogOnce()
+        {
+            var frozenWorldRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0
+                }
+            };
+
+            Func<List<OrbitSegment>> makeSegments = () => new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    bodyName = "Kerbin",
+                    startUT = 100.0,
+                    endUT = 200.0,
+                    semiMajorAxis = 700000.0,
+                    eccentricity = 0.01,
+                    inclination = 0.0,
+                    longitudeOfAscendingNode = 0.0,
+                    argumentOfPeriapsis = 0.0,
+                    meanAnomalyAtEpoch = 0.0,
+                    epoch = 100.0
+                }
+            };
+
+            for (int i = 0; i < 5; i++)
+            {
+                IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations(
+                    "scene-exit-stable-ofr",
+                    makeSegments(),
+                    frozenWorldRotation,
+                    bodies);
+            }
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
+                && l.Contains("seeded orbital-frame rotation on 1/1 predicted segments")
+                && l.Contains("scene-exit-stable-ofr")));
         }
 
         [Fact]
