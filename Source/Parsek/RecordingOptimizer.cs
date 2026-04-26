@@ -1259,36 +1259,46 @@ namespace Parsek
                 return false;
             }
 
-            double incDelta = System.Math.Abs(seg.inclination - rec.TerminalOrbitInclination);
+            // Inclination, LAN, and argP are all angular values that can wrap across
+            // the 0/360 boundary (LAN/argP routinely; inclination stays in [0,180]
+            // and never hits the wrap branch but uses the same helper for symmetry).
+            // Raw Math.Abs(a - b) on a stable orbit at LAN ~= 360 vs ~= 0 produces a
+            // false ~360 deg mismatch, which masked the trim again. TrajectoryMath's
+            // existing AngularDeltaDegrees returns the shortest signed-magnitude
+            // distance and is the centralized math for all angle deltas.
+            double incDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.inclination, rec.TerminalOrbitInclination);
             if (incDelta > TailOrbitAngleEpsilonDegrees)
             {
                 ParsekLog.Verbose("Optimizer",
                     $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
-                    $"inc delta {incDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"inc wrapped delta {incDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"(seg.inc={seg.inclination.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"terminal.inc={rec.TerminalOrbitInclination.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
             }
 
-            double lanDelta = System.Math.Abs(seg.longitudeOfAscendingNode - rec.TerminalOrbitLAN);
+            double lanDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.longitudeOfAscendingNode, rec.TerminalOrbitLAN);
             if (lanDelta > TailOrbitAngleEpsilonDegrees)
             {
                 ParsekLog.Verbose("Optimizer",
                     $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
-                    $"LAN delta {lanDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"LAN wrapped delta {lanDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"(seg.LAN={seg.longitudeOfAscendingNode.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"terminal.LAN={rec.TerminalOrbitLAN.ToString("R", CultureInfo.InvariantCulture)})");
                 return false;
             }
 
-            double argpDelta = System.Math.Abs(seg.argumentOfPeriapsis - rec.TerminalOrbitArgumentOfPeriapsis);
+            double argpDelta = TrajectoryMath.AngularDeltaDegrees(
+                seg.argumentOfPeriapsis, rec.TerminalOrbitArgumentOfPeriapsis);
             if (argpDelta > TailOrbitAngleEpsilonDegrees)
             {
                 ParsekLog.Verbose("Optimizer",
                     $"OrbitShapeMatchesTerminal: rec '{rec?.RecordingId ?? "(null)"}' " +
-                    $"argP delta {argpDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
+                    $"argP wrapped delta {argpDelta.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"> eps {TailOrbitAngleEpsilonDegrees.ToString("R", CultureInfo.InvariantCulture)}deg " +
                     $"(seg.argP={seg.argumentOfPeriapsis.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"terminal.argP={rec.TerminalOrbitArgumentOfPeriapsis.ToString("R", CultureInfo.InvariantCulture)})");

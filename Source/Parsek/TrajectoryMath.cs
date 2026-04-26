@@ -151,7 +151,19 @@ namespace Parsek
                 && AngularDeltaDegrees(a.argumentOfPeriapsis, b.argumentOfPeriapsis) <= AngleToleranceDeg;
         }
 
-        private static double AngularDeltaDegrees(double a, double b)
+        /// <summary>
+        /// Shortest angular distance in degrees between two angles, accounting for
+        /// the 0/360 wraparound. Inputs may be in any range (degrees); the result
+        /// is always in [0, 180]. Use this instead of raw <c>Math.Abs(a - b)</c>
+        /// for orbital LAN / argument-of-periapsis / true-anomaly comparisons,
+        /// since stable orbits routinely cross the 0/360 boundary and a literal
+        /// difference produces a false ~360 deg mismatch.
+        /// Example: <c>AngularDeltaDegrees(359.997, 0.002) == 0.005</c>.
+        /// Inclination (range [0, 180]) is also safe — within that range the
+        /// wrap-correction branch is never taken, but the helper keeps math
+        /// centralized for all angle deltas.
+        /// </summary>
+        internal static double AngularDeltaDegrees(double a, double b)
         {
             double delta = System.Math.Abs(a - b) % 360.0;
             return delta > 180.0 ? 360.0 - delta : delta;

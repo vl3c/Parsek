@@ -517,6 +517,44 @@ below the new tolerances; they were updated to use deltas above the
 epsilons (`eccentricity = 0.05`, `semiMajorAxis = 1300000.0`) so they
 continue to pin the guard-rejects-real-changes contract.
 
+**Wraparound follow-up (P2 review on PR #589):** the first-pass angle
+checks used raw `Math.Abs(seg.angle - rec.terminal.angle)` for
+inclination, LAN, and argument of periapsis. LAN and argP routinely cross
+the 0/360 boundary on a stable orbit; e.g. `terminal LAN = 359.997` vs
+`segment LAN = 0.002` is a real wrapped delta of `0.005 deg` (within
+epsilon), but raw `Abs(a - b) = 359.995` would have triggered a false
+mismatch and the trim would have stayed broken even after the epsilon
+fix. Inclination stays in `[0, 180]` and never hits the wrap branch, but
+uses the same helper for symmetry / centralized math.
+
+The fix reuses `TrajectoryMath.AngularDeltaDegrees(a, b)` (the existing
+`Math.Abs(a - b) % 360, > 180 ? 360 - delta : delta` helper used by
+`TrajectoryMath.OrbitsAreEquivalent`); promoted from `private` to
+`internal static` so `RecordingOptimizer` can call it. The helper's
+contract is now documented (inputs in any range; result in `[0, 180]`)
+and pinned by `TrajectoryMathTests.cs` covering simple deltas, zero
+delta, the wraparound short-path case, the half-turn boundary,
+inclination-range inputs, out-of-range inputs (small negatives,
+`> 360`), and the always-non-negative result invariant.
+
+The LAN / argP / inc divergence log lines now report
+`<field> wrapped delta <value>deg` so the log no longer lies about what
+the comparison saw (a tail at LAN = 0.002 vs terminal LAN = 359.997 logs
+a wrapped delta of `0.005`, not `359.995`).
+
+Wraparound regressions in `RecordingOptimizerTests.cs`:
+
+- `TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims` (terminal
+  `LAN = 359.997` vs segment `LAN = 0.002`, wrapped delta `0.005`) — trim
+  succeeds.
+- `TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims` (terminal
+  `argP = 0.001` vs segment `argP = 359.998`, wrapped delta `0.003`) —
+  trim succeeds.
+- `TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim` (terminal
+  `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
+  rejected, AND the divergence log line carries `LAN wrapped delta` (so
+  the wrap fix is observable from `KSP.log` alone).
+
 **Status:** Open until merged.
 
 ---

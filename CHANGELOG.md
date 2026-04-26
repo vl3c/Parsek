@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances and each `TrimBoringTail` skip reports which guard rejected.
+- `#612` Boring-tail trim now actually fires for stable on-rails orbits. The orbital-shape match used exact float equality so rails/pack-unpack jitter blocked every real recording; the comparison now uses tolerances, angular fields (LAN, argument of periapsis, inclination) use a shortest-angle delta so a tail that crosses the 0/360 boundary still matches, and each `TrimBoringTail` skip reports which guard rejected.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 
