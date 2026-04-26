@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
+
+Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
+
+`RecordingTree.DetermineTerminalState(int, Vessel)` overrode KSP's `SUB_ORBITAL`
+to `Orbiting` whenever `vessel.orbit.eccentricity < 1` and `PeR > Radius`. For
+atmospheric bodies (Kerbin: atmosphereDepth=70km), an orbit with Pe at 36km
+altitude passed the check and finalized as `Orbiting`, even though it would
+deorbit within a few orbits via drag. Observed in
+`logs/2026-04-26_2247_investigate-finalizer-crew-unfinished/`: SMA=669km,
+ecc=0.0967, PeR=636642 (Pe altitude 36642 m, well inside 70km atmosphere).
+
+Fix: extracted pure `IsBoundOrbitAboveAtmosphere(eccentricity, periapsisRadius,
+bodyRadius, bodyHasAtmosphere, atmosphereDepth)` helper and made the override
+require `PeR > Radius + atmosphereDepth` for atmospheric bodies; atmosphereless
+bodies (Mun, Minmus, etc.) keep the existing `PeR > Radius` semantics. Added
+explicit null guard for `vessel.orbit.referenceBody` and updated the Info log
+line to include `atmoTop` and `bodyHasAtmosphere`.
+
+## 625. Recording captured zero crew because stand-ins were just deleted from roster
+
+Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
+
+User re-launched a vessel whose original crew (Jeb/Bill/Bob) was still aboard a
+prior orbiting mission. `CrewAutoAssignPatch` correctly swapped the editor
+manifest to stand-ins (Urgan/Verdorf/Sara). On FLIGHT scene OnLoad,
+`KerbalsModule.ApplyToRoster`'s "Step 2" displaced-unused branch checked only
+`IsKerbalInAnyRecording` — which consults committed recordings, not the live
+vessel about to start recording — so it deleted the three stand-ins from the
+roster. KSP then loaded the saved ProtoVessel, which referenced now-missing
+crew names; the seats came up empty. The recording started ~1 second later
+with `0 start crew trait(s)`. Crew reappeared in-flight via a later
+`SwapReservedCrewInFlight`, but the recording's start/end-crew was permanently
+empty.
+
+Fix: in `KerbalsModule.ApplyToRoster` Step 2, before the `Available + TryRemove`
+delete branch, additionally call `roster.IsKerbalOnLiveVessel(standIn)` and
+keep the stand-in if it is currently seated on a known vessel. New
+`retainedLive` counter included in the `ApplyToRoster complete:` summary so
+the new behavior is observable.
+
 ## Observability Audit - 2026-04-26
 
 Full report: `docs/dev/observability-audit-2026-04-26.md`.

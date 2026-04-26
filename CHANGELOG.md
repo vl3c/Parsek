@@ -50,6 +50,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording finalizer no longer classifies an orbit as `Orbiting` when its periapsis is inside the body's atmosphere. A grazing low-Kerbin orbit (Pe ≈ 36 km) used to be locked in as a stable orbit at scene exit even though the trajectory will deorbit within a couple of orbits via drag; the recording now finalizes as `SubOrbital` so the ballistic-tail extrapolator can carry it to the actual destruction point.
+
 - KSC ghost playback now honors v6 RELATIVE track sections, keeping rendezvous/docking ghosts attached to their anchor instead of drawing them underground.
 
 - `#613` Re-Fly relative ghosts now reconstruct unsafe or unavailable anchors from the recorded ground-frame anchor trajectory before retiring. This keeps other vessels' paths ground-relative instead of locking to the live Re-Fly target.
