@@ -22,17 +22,20 @@ namespace Parsek
         internal static IReadOnlyDictionary<string, string> CrewReplacements => crewReplacements;
 
         // ── #615 rescue-completion marker (P1 review follow-up) ────────────
-        // Set of kerbal names that the Parsek spawn pipeline's
-        // RescueReservedMissingCrewInSnapshot flipped from Reserved+Missing to
-        // Available immediately before ProtoVessel.Load placed them onto a
-        // Parsek-spawned vessel. This is the rescue-specific signal the
-        // ApplyToRoster guard reads — it does NOT fire for kerbals who happen
-        // to be on the active player vessel without ever passing through the
-        // rescue path.
+        // Map kerbal name -> persistent id of the vessel onto which the
+        // Parsek spawn pipeline's RescueReservedMissingCrewInSnapshot path
+        // flipped them from Reserved+Missing to Available immediately before
+        // ProtoVessel.Load placed them onto a Parsek-spawned vessel. This is
+        // the rescue-specific signal the ApplyToRoster guard reads — it does
+        // NOT fire for kerbals who happen to be on the active player vessel
+        // without ever passing through the rescue path.
         //
-        // Lifecycle (P1 review, third pass):
-        //   - Set by VesselSpawner.RescueReservedMissingCrewInSnapshot for
-        //     each kerbal flipped to Available.
+        // Lifecycle (P1 review, fourth pass — pid-scoped marker):
+        //   - Set by VesselSpawner (RespawnVessel / SpawnAtPosition) AFTER
+        //     ProtoVessel.Load assigns a runtime persistentId. The rescue
+        //     pre-load helper RescueReservedMissingCrewInSnapshot collects the
+        //     names it flipped; the caller then calls MarkRescuePlaced(name,
+        //     vesselPid) per name once the new vessel's pid is known.
         //   - The spawn path immediately calls UnreserveCrewInSnapshot on the
         //     same snapshot, which used to clear the marker through
         //     CleanUpReplacement. The marker MUST survive that step so the
@@ -50,18 +53,28 @@ namespace Parsek
         //     guard to the legitimate-recreate path.
         //   - Bulk-cleared by LoadCrewReplacements / RestoreReplacements /
         //     ClearReplacements / ResetReplacementsForTesting on session /
-        //     rewind / wipe-all boundaries. Within a session the marker
-        //     accumulates harmlessly: the ApplyToRoster guard predicate also
-        //     requires isOnLiveVessel, so a stale marker for a kerbal who
-        //     is no longer on a vessel falls through to the legitimate
-        //     recreate path.
-        private static readonly HashSet<string> rescuePlacedKerbals
-            = new HashSet<string>(System.StringComparer.Ordinal);
+        //     rewind / wipe-all boundaries.
+        //   - Pid-scoped (P1 review fourth pass): the previous design keyed
+        //     the marker by name only and combined it with a generic
+        //     IsKerbalOnLiveVessel check. That regressed when a stale marker
+        //     from a long-past rescue suppressed a later UNRELATED fresh
+        //     reservation for the same kerbal who happened to be on the
+        //     active player vessel — the guard fired on the unrelated
+        //     reservation and SwapReservedCrewInFlight had no stand-in to
+        //     swap. Pid scoping makes the guard fire only when the kerbal is
+        //     currently on the SAME vessel where the rescue placed them; if
+        //     they have moved (player switched, fresh reservation, different
+        //     rescue), the predicate is false and the legitimate-recreate
+        //     path runs. Stale entries with a now-invalid pid never match a
+        //     live vessel, so no per-vessel-destruction invalidation is
+        //     needed.
+        private static readonly Dictionary<string, ulong> rescuePlacedKerbals
+            = new Dictionary<string, ulong>(System.StringComparer.Ordinal);
 
         /// <summary>
-        /// Read-only access to the rescue-placed kerbal set.
+        /// Read-only access to the rescue-placed kerbal map (name -> pid).
         /// </summary>
-        internal static IReadOnlyCollection<string> RescuePlacedKerbals => rescuePlacedKerbals;
+        internal static IReadOnlyDictionary<string, ulong> RescuePlacedKerbals => rescuePlacedKerbals;
 
         /// <summary>
         /// True if <paramref name="kerbalName"/> was placed onto a
@@ -72,26 +85,68 @@ namespace Parsek
         /// kerbals who are on the active player vessel without ever having
         /// passed through the rescue path — those are legitimate reservations
         /// awaiting their stand-in.
+        ///
+        /// <para>
+        /// P1 review (fourth pass): the marker is pid-scoped under the hood;
+        /// this overload returns true when ANY pid is associated with the
+        /// name. Most call sites should use
+        /// <see cref="TryGetRescuePlacedVessel"/> instead so the guard can
+        /// check that the kerbal is currently on the SAME vessel where the
+        /// rescue placed them.
+        /// </para>
         /// </summary>
         internal static bool IsRescuePlaced(string kerbalName)
         {
-            return !string.IsNullOrEmpty(kerbalName) && rescuePlacedKerbals.Contains(kerbalName);
+            return !string.IsNullOrEmpty(kerbalName) && rescuePlacedKerbals.ContainsKey(kerbalName);
         }
 
         /// <summary>
-        /// Mark <paramref name="kerbalName"/> as placed onto a Parsek-spawned
-        /// vessel by the rescue path. Called from
-        /// <see cref="VesselSpawner.RescueReservedMissingCrewInSnapshot"/>
-        /// for every kerbal it actually flipped to <c>Available</c>.
-        /// Idempotent.
+        /// Pid-scoped accessor for the rescue-placed marker. Returns true and
+        /// the pid of the rescue vessel when <paramref name="kerbalName"/>
+        /// was rescue-placed in this session. The
+        /// <see cref="KerbalsModule.ApplyToRoster"/> guard combines this with
+        /// <see cref="KerbalsModule.IKerbalRosterFacade.IsKerbalOnVesselWithPid"/>
+        /// so the guard fires only when the kerbal is currently on the same
+        /// vessel where the rescue placed them.
         /// </summary>
-        internal static void MarkRescuePlaced(string kerbalName)
+        internal static bool TryGetRescuePlacedVessel(string kerbalName, out ulong vesselPersistentId)
+        {
+            if (string.IsNullOrEmpty(kerbalName))
+            {
+                vesselPersistentId = 0UL;
+                return false;
+            }
+            return rescuePlacedKerbals.TryGetValue(kerbalName, out vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Mark <paramref name="kerbalName"/> as placed onto the Parsek-spawned
+        /// vessel identified by <paramref name="vesselPersistentId"/>.
+        /// Called from the <see cref="VesselSpawner"/> rescue path AFTER
+        /// <c>ProtoVessel.Load</c> has assigned the new vessel its runtime
+        /// persistentId, so the marker can be scoped to the actual vessel
+        /// the kerbal was placed onto. Idempotent for the same pid; an
+        /// existing marker is overwritten when re-marked with a different
+        /// pid (a later rescue for the same kerbal supersedes the earlier
+        /// one).
+        /// </summary>
+        internal static void MarkRescuePlaced(string kerbalName, ulong vesselPersistentId)
         {
             if (string.IsNullOrEmpty(kerbalName)) return;
-            if (rescuePlacedKerbals.Add(kerbalName))
+            ulong existing;
+            bool hadPrior = rescuePlacedKerbals.TryGetValue(kerbalName, out existing);
+            rescuePlacedKerbals[kerbalName] = vesselPersistentId;
+            if (!hadPrior)
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Marked rescue-placed: '{kerbalName}' (#608/#609 rescue path; #615 guard signal)");
+                    $"Marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} " +
+                    "(#608/#609 rescue path; #615 guard signal — pid-scoped)");
+            }
+            else if (existing != vesselPersistentId)
+            {
+                ParsekLog.Verbose("CrewReservation",
+                    $"Re-marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} " +
+                    $"(superseding prior pid={existing}; #615 pid-scoped marker)");
             }
         }
 
@@ -139,10 +194,12 @@ namespace Parsek
         internal static void ClearRescuePlaced(string kerbalName)
         {
             if (string.IsNullOrEmpty(kerbalName)) return;
-            if (rescuePlacedKerbals.Remove(kerbalName))
+            ulong removedPid;
+            if (rescuePlacedKerbals.TryGetValue(kerbalName, out removedPid)
+                && rescuePlacedKerbals.Remove(kerbalName))
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Cleared rescue-placed marker: '{kerbalName}' (bulk lifecycle)");
+                    $"Cleared rescue-placed marker: '{kerbalName}' vesselPid={removedPid} (bulk lifecycle)");
             }
         }
 

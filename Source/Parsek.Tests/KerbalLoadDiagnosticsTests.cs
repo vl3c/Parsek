@@ -768,6 +768,16 @@ namespace Parsek.Tests
             {
                 return !string.IsNullOrEmpty(kerbalName) && liveVesselCrew.Contains(kerbalName);
             }
+
+            // #615 P1 review (fourth pass): pid-scoped predicate. The
+            // diagnostics fixture does not exercise the rescue-completion
+            // guard path so a no-match implementation suffices; the
+            // dedicated RescueCompletionGuardTests.GuardFakeRoster carries
+            // the pid-scoped fixture used by the guard regressions.
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)
+            {
+                return false;
+            }
         }
     }
 }

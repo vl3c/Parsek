@@ -4835,7 +4835,14 @@ namespace Parsek.InGameTests
             foreach (var kvp in CrewReservationManager.CrewReplacements)
                 savedReplacements[kvp.Key] = kvp.Value;
             var savedVictimStatus = victim.rosterStatus;
-            bool victimWasRescuePlaced = CrewReservationManager.IsRescuePlaced(victim.name);
+            ulong savedVictimMarkerPid;
+            bool victimWasRescuePlaced = CrewReservationManager.TryGetRescuePlacedVessel(
+                victim.name, out savedVictimMarkerPid);
+
+            // P1 review (fourth pass): the marker is pid-scoped. Use a
+            // synthetic pid for this in-game test because we are exercising
+            // the marker contract independent of an actual ProtoVessel.Load.
+            const ulong syntheticTestPid = 0x615F4U; // distinctive marker
 
             try
             {
@@ -4854,12 +4861,29 @@ namespace Parsek.InGameTests
                 partNode.AddValue("name", "mk1pod.v2");
                 partNode.AddValue("crew", victim.name);
 
-                // Step 1: rescue path — sets the marker and flips Missing->Available.
-                VesselSpawner.RescueReservedMissingCrewInSnapshot(snapshot);
-                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
-                    $"After Rescue: marker for '{victim.name}' must be set");
+                // Step 1: rescue path — flips Missing->Available and
+                // collects the rescued name. P1 review (fourth pass): the
+                // helper no longer marks; the caller pid-scopes the marker
+                // after the live spawn assigns a vesselPid.
+                var rescuedNames = new List<string>();
+                VesselSpawner.RescueReservedMissingCrewInSnapshot(snapshot, rescuedNames);
+                InGameAssert.IsTrue(rescuedNames.Contains(victim.name),
+                    $"RescueReservedMissingCrewInSnapshot must collect '{victim.name}' " +
+                    "as a rescued name (#615 P1 fourth pass — caller marks with pid)");
                 InGameAssert.AreEqual(ProtoCrewMember.RosterStatus.Available, victim.rosterStatus,
                     $"After Rescue: '{victim.name}' must be Available");
+
+                // Caller wires the pid (in production this happens after
+                // ProtoVessel.Load; here we use a synthetic pid).
+                CrewReservationManager.MarkRescuePlaced(victim.name, syntheticTestPid);
+                InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
+                    $"After MarkRescuePlaced(pid): marker for '{victim.name}' must be set");
+                ulong pidObserved;
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"TryGetRescuePlacedVessel must surface the pid for '{victim.name}'");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    $"Marker pid for '{victim.name}' must equal the synthetic pid passed in");
 
                 // Step 2: unreserve path — removes the replacement from the
                 // dict via CleanUpReplacement. P1 review (second pass): this
@@ -4872,6 +4896,13 @@ namespace Parsek.InGameTests
                     "this is the P1 review second-pass invariant. Pre-fix the marker " +
                     "was cleared here and the next ApplyToRoster walk regenerated the " +
                     "stand-in PR #595 was meant to suppress.");
+                // Pid still set to the synthetic value (not overwritten by
+                // unreserve).
+                InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                        victim.name, out pidObserved),
+                    $"After Unreserve: TryGetRescuePlacedVessel still surfaces the pid");
+                InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                    "Pid-scoped marker survives Unreserve unchanged");
                 InGameAssert.IsFalse(
                     CrewReservationManager.CrewReplacements.ContainsKey(victim.name),
                     $"After Unreserve: replacement dict entry for '{victim.name}' must be cleared");
@@ -4896,11 +4927,17 @@ namespace Parsek.InGameTests
                     InGameAssert.IsTrue(CrewReservationManager.IsRescuePlaced(victim.name),
                         $"Walk {walk}: marker for '{victim.name}' must persist " +
                         "(P1 review third pass — guard does not consume on fire)");
+                    InGameAssert.IsTrue(CrewReservationManager.TryGetRescuePlacedVessel(
+                            victim.name, out pidObserved),
+                        $"Walk {walk}: TryGetRescuePlacedVessel still surfaces the pid");
+                    InGameAssert.AreEqual(syntheticTestPid, pidObserved,
+                        $"Walk {walk}: pid-scoped marker pid must match the rescue's pid");
                 }
 
                 ParsekLog.Info("TestRunner",
-                    $"#615 P1 review third pass: '{victim.name}' marker survived " +
-                    "Rescue + Unreserve and persists across multiple walks (not consumed)");
+                    $"#615 P1 review fourth pass: '{victim.name}' pid-scoped marker " +
+                    $"(pid={syntheticTestPid}) survived Rescue + Unreserve and persists " +
+                    "across multiple walks (not consumed)");
             }
             finally
             {
@@ -4909,7 +4946,7 @@ namespace Parsek.InGameTests
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
                 victim.rosterStatus = savedVictimStatus;
                 if (victimWasRescuePlaced)
-                    CrewReservationManager.MarkRescuePlaced(victim.name);
+                    CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
                 else
                     CrewReservationManager.ClearRescuePlaced(victim.name);
             }

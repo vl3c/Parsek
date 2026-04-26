@@ -43,6 +43,14 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RescueCompletionGuardTests : IDisposable
     {
+        // #615 P1 review (fourth pass): conventional simulated vessel pids
+        // for the rescue-marker pid-scoping tests. Using distinct ulong
+        // values keeps "the vessel where the rescue placed the kerbal" and
+        // "some other live vessel" obviously different in test fixtures and
+        // log assertions.
+        private const ulong RescuedVesselPid = 100UL;
+        private const ulong UnrelatedVesselPid = 200UL;
+
         private readonly List<string> logLines = new List<string>();
         private readonly bool priorParsekLogSuppress;
         private readonly bool priorStoreSuppress;
@@ -190,15 +198,15 @@ namespace Parsek.Tests
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            // Rescue path ran for all three: marker set + on a live vessel,
-            // historical stand-ins NOT in the roster.
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+            // Rescue path ran for all three: pid-scoped markers set + on the
+            // SAME rescued vessel, historical stand-ins NOT in the roster.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -211,8 +219,8 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard")
                 && l.Contains("Jebediah Kerman")
-                && l.Contains("rescuePlaced=true")
-                && l.Contains("onLiveVessel=true")
+                && l.Contains("rescuePlacedPid=" + RescuedVesselPid)
+                && l.Contains("onRescuedVessel=true")
                 && l.Contains("Erilan Kerman"));
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -233,11 +241,14 @@ namespace Parsek.Tests
             // P1 review (third pass): the per-walk summary line surfaces
             // fired vs declined counts and pins the persistent-marker
             // contract in the log payload itself.
+            // P1 review (fourth pass): the summary now includes the
+            // pid-scoped declinedMarkerStalePid bucket.
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard summary")
                 && l.Contains("fired=3")
-                && l.Contains("marker persistent"));
+                && l.Contains("marker persistent")
+                && l.Contains("pid-scoped"));
 
             // P1 review (third pass): markers are PERSISTENT across walks.
             // The guard fires every recalc walk for the lifetime of the
@@ -253,10 +264,13 @@ namespace Parsek.Tests
 
             // The Verbose per-skip log surfaces the persistent-marker
             // contract so KSP.log makes the design choice auditable.
+            // P1 review (fourth pass): the verbose payload now also includes
+            // "pid-scoped" to surface the pid-keyed marker design.
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard")
-                && l.Contains("marker persistent — not consumed on fire"));
+                && l.Contains("marker persistent — not consumed on fire")
+                && l.Contains("pid-scoped"));
 
             // The per-slot recreated/created counters must report zero.
             Assert.Contains(logLines, l =>
@@ -325,11 +339,12 @@ namespace Parsek.Tests
             Assert.Single(module.Slots["Jebediah Kerman"].Chain);
             Assert.Null(module.Slots["Jebediah Kerman"].Chain[0]);
 
-            // Active player vessel: Jeb is seated. NO rescue marker — this is
-            // a fresh reservation, the kerbal happens to be on the player's
-            // own ship and rescue path never ran for him.
+            // Active player vessel: Jeb is seated on UnrelatedVesselPid. NO
+            // rescue marker — this is a fresh reservation, the kerbal happens
+            // to be on the player's own ship and rescue path never ran for
+            // him.
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", UnrelatedVesselPid);
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             logLines.Clear();
@@ -388,9 +403,9 @@ namespace Parsek.Tests
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
             // Bill and Bob were not rescued and not on a live vessel.
 
             logLines.Clear();
@@ -490,8 +505,9 @@ namespace Parsek.Tests
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            // No MarkOnLiveVessel call — the rescued vessel was destroyed.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            // No MarkOnVessel / MarkOnLiveVessel call — the rescued vessel
+            // was destroyed.
 
             var roster = new GuardFakeRoster();
 
@@ -536,12 +552,12 @@ namespace Parsek.Tests
             roster.Add("Debgas Kerman", ProtoCrewMember.RosterStatus.Available);
             roster.Add("Rodbro Kerman", ProtoCrewMember.RosterStatus.Available);
 
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -614,9 +630,9 @@ namespace Parsek.Tests
             Assert.Single(module.Slots["Jebediah Kerman"].Chain);
             Assert.Null(module.Slots["Jebediah Kerman"].Chain[0]);
 
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -629,8 +645,8 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard:")
                 && l.Contains("Jebediah Kerman")
-                && l.Contains("rescuePlaced=true")
-                && l.Contains("onLiveVessel=true")
+                && l.Contains("rescuePlacedPid=" + RescuedVesselPid)
+                && l.Contains("onRescuedVessel=true")
                 && l.Contains("<pending>"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KerbalsModule]")
@@ -697,9 +713,9 @@ namespace Parsek.Tests
             CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bill Kerman", "Debgas Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bob Kerman", "Rodbro Kerman");
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
 
             // Step 2: simulate the spawn pipeline's UnreserveCrewInSnapshot
             // — runs CleanUpReplacement for each reserved kerbal in the
@@ -721,13 +737,15 @@ namespace Parsek.Tests
             Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Bob Kerman"));
 
             // Step 3: the next ApplyToRoster walk runs. Originals are still
-            // on the (rescued) live vessel; both signals fire; the guard
+            // on the (rescued) live vessel pid; both signals fire; the guard
             // skips the historical stand-ins. P1 review (third pass): the
             // marker is PERSISTENT — the guard does not consume it on fire.
+            // P1 review (fourth pass): the rescue marker is pid-scoped and
+            // the kerbals are placed on the SAME pid in the fixture.
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             logLines.Clear();
             module.ApplyToRoster(roster);
@@ -749,11 +767,13 @@ namespace Parsek.Tests
                 && l.Contains("skipped 3 stand-in"));
             // P1 review (third pass): the summary line surfaces the
             // persistent-marker contract.
+            // P1 review (fourth pass): the summary now includes pid-scoped.
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard summary")
                 && l.Contains("fired=3")
-                && l.Contains("marker persistent"));
+                && l.Contains("marker persistent")
+                && l.Contains("pid-scoped"));
 
             // P1 review (third pass): the marker MUST still be set after the
             // guard fired. The slot is rebuilt on every recalc walk while
@@ -782,13 +802,20 @@ namespace Parsek.Tests
         public void CleanUpReplacement_DoesNotClearRescuePlacedMarker()
         {
             CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
 
             CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
 
             Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
                 "Per-name CleanUpReplacement must NOT clear the rescue-placed marker");
+            // Pid-scoping (P1 review fourth pass): the marker still
+            // associates the kerbal with the rescued vessel pid.
+            ulong markedPid;
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel(
+                    "Jebediah Kerman", out markedPid),
+                "TryGetRescuePlacedVessel must surface the pid the rescue used");
+            Assert.Equal(RescuedVesselPid, markedPid);
         }
 
         /// <summary>
@@ -803,7 +830,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClearRescuePlaced_BulkLifecycleSemantics()
         {
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             logLines.Clear();
@@ -814,10 +841,14 @@ namespace Parsek.Tests
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
+            // P1 review (fourth pass): the bulk-clear log surfaces the pid
+            // that was rescued so KSP.log records which vessel the marker
+            // pointed at.
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservation]")
                 && l.Contains("Cleared rescue-placed marker")
                 && l.Contains("Jebediah Kerman")
+                && l.Contains("vesselPid=" + RescuedVesselPid)
                 && l.Contains("bulk lifecycle"));
         }
 
@@ -832,7 +863,7 @@ namespace Parsek.Tests
         [Fact]
         public void MarkRescuePlaced_AfterBulkClear_IdempotentRemark()
         {
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             // Bulk lifecycle path wipes the marker (mirrors ClearReplacements
@@ -842,16 +873,71 @@ namespace Parsek.Tests
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             // Second rescue cycle: re-mark must work.
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
-            // Idempotent: marking an already-marked kerbal is a no-op.
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            // Idempotent: marking an already-marked kerbal with the SAME pid
+            // is a no-op for the marker state.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            ulong currentPid;
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Jebediah Kerman", out currentPid));
+            Assert.Equal(RescuedVesselPid, currentPid);
 
             // Bulk clear cleans up.
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+        }
+
+        /// <summary>
+        /// **P1 review (fourth pass) lifecycle pin** — re-marking the same
+        /// kerbal with a DIFFERENT vessel pid OVERWRITES the prior pid. A
+        /// later rescue supersedes the earlier one in the same session — the
+        /// map's value tracks "the most recent rescue vessel" rather than
+        /// accumulating stale pids.
+        /// </summary>
+        [Fact]
+        public void MarkRescuePlaced_RemarkDifferentPidOverwrites()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            ulong firstPid;
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Jebediah Kerman", out firstPid));
+            Assert.Equal(RescuedVesselPid, firstPid);
+
+            // Second rescue lands the kerbal on a different vessel.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", UnrelatedVesselPid);
+            ulong secondPid;
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Jebediah Kerman", out secondPid));
+            Assert.Equal(UnrelatedVesselPid, secondPid);
+            Assert.NotEqual(firstPid, secondPid);
+        }
+
+        /// <summary>
+        /// **P1 review (fourth pass) lifecycle pin** —
+        /// <see cref="CrewReservationManager.ClearRescuePlaced"/> wipes ALL
+        /// pid entries for the named kerbal. Bulk-clear is the only
+        /// in-process clear path (per the third-pass contract); this test
+        /// pins that the per-name pid entry actually clears so a
+        /// subsequent <see cref="CrewReservationManager.TryGetRescuePlacedVessel"/>
+        /// returns false.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_BulkClearWipesPidEntries()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", UnrelatedVesselPid);
+
+            CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.ClearRescuePlaced("Bill Kerman");
+
+            ulong stalePid;
+            Assert.False(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Jebediah Kerman", out stalePid));
+            Assert.False(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Bill Kerman", out stalePid));
         }
 
         /// <summary>
@@ -862,8 +948,8 @@ namespace Parsek.Tests
         [Fact]
         public void RescuePlacedMarker_ClearedByReset()
         {
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", UnrelatedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
             Assert.True(CrewReservationManager.IsRescuePlaced("Bill Kerman"));
 
@@ -882,8 +968,8 @@ namespace Parsek.Tests
         [Fact]
         public void RescuePlacedMarker_ClearedByRestoreReplacements()
         {
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", UnrelatedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             var captured = new Dictionary<string, string>
@@ -906,7 +992,7 @@ namespace Parsek.Tests
         [Fact]
         public void RescuePlacedMarker_ClearedByLoadCrewReplacements()
         {
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             // Empty save load: no CREW_REPLACEMENTS node.
@@ -963,17 +1049,17 @@ namespace Parsek.Tests
             CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bill Kerman", "Debgas Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bob Kerman", "Rodbro Kerman");
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
             CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
             CrewReservationManager.CleanUpReplacementForTesting("Bill Kerman");
             CrewReservationManager.CleanUpReplacementForTesting("Bob Kerman");
 
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             // Walk 1: typical merge-tail recalc. Guard fires.
             logLines.Clear();
@@ -1012,11 +1098,13 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard fired")
                 && l.Contains("skipped 3 stand-in"));
+            // P1 review (fourth pass): summary now includes pid-scoped.
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Rescue-completion guard summary")
                 && l.Contains("fired=3")
-                && l.Contains("marker persistent"));
+                && l.Contains("marker persistent")
+                && l.Contains("pid-scoped"));
 
             // Markers persisted across the walk.
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
@@ -1054,17 +1142,17 @@ namespace Parsek.Tests
             CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bill Kerman", "Debgas Kerman");
             CrewReservationManager.SeedReplacementForTesting("Bob Kerman", "Rodbro Kerman");
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
             CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
             CrewReservationManager.CleanUpReplacementForTesting("Bill Kerman");
             CrewReservationManager.CleanUpReplacementForTesting("Bob Kerman");
 
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             // Walks 1 and 2 — guard fires both times, markers persist.
             logLines.Clear();
@@ -1130,14 +1218,14 @@ namespace Parsek.Tests
             var module = BuildModuleWithChainedReservations(
                 "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
 
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bill Kerman");
-            CrewReservationManager.MarkRescuePlaced("Bob Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bill Kerman", RescuedVesselPid);
+            CrewReservationManager.MarkRescuePlaced("Bob Kerman", RescuedVesselPid);
 
             var roster = new GuardFakeRoster();
-            roster.MarkOnLiveVessel("Jebediah Kerman");
-            roster.MarkOnLiveVessel("Bill Kerman");
-            roster.MarkOnLiveVessel("Bob Kerman");
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bill Kerman", RescuedVesselPid);
+            roster.MarkOnVessel("Bob Kerman", RescuedVesselPid);
 
             // Walk 1: guard fires for all three.
             logLines.Clear();
@@ -1150,26 +1238,219 @@ namespace Parsek.Tests
             // attempt to invalidate it on per-vessel destruction (would
             // need a destruction-event hook; not implemented).
             roster = new GuardFakeRoster();
-            // No MarkOnLiveVessel calls — kerbals are gone.
+            // No MarkOnVessel / MarkOnLiveVessel calls — kerbals are gone.
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
                 "Sanity: marker is intentionally still set (bulk-only clear strategy)");
 
-            // Walk 2: predicate is (rescuePlaced=true, onLiveVessel=false).
-            // The combined-predicate guard takes the "marker without live
-            // vessel" branch (declined), and the legitimate-recreate path
-            // mints the stand-in.
+            // Walk 2: predicate is (rescuePlaced=true, onRescuedVessel=false,
+            // onLiveVessel=false). The pid-scoped guard takes the "marker
+            // without live vessel" branch (declined), and the
+            // legitimate-recreate path mints the stand-in.
             logLines.Clear();
             module.ApplyToRoster(roster);
 
             Assert.True(roster.Contains("Erilan Kerman"),
-                "After vessel destroyed: stand-in must recreate (the live-vessel " +
-                "second clause makes a stale marker harmless — legitimate-recreate path fires)");
+                "After vessel destroyed: stand-in must recreate (the pid-scoped " +
+                "predicate makes a stale marker harmless — legitimate-recreate path fires)");
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]")
                 && l.Contains("Stand-in recreate:")
                 && l.Contains("Erilan Kerman")
                 && l.Contains("rescuePlaced=True")
-                && l.Contains("onLiveVessel=False"));
+                && l.Contains("onLiveVessel=False")
+                && l.Contains("onRescuedVessel=False"));
+        }
+
+        // ---------- P1 review (fourth pass) — pid-scoping regressions -----
+
+        /// <summary>
+        /// **P1 review (fourth pass) — the new P1 regression.**
+        ///
+        /// <para>
+        /// A name-only rescue marker survives across many recalc walks
+        /// (third-pass design). If the kerbal is later involved in an
+        /// UNRELATED fresh reservation while seated on the active player
+        /// vessel, the previous "marker plus IsKerbalOnLiveVessel" predicate
+        /// would suppress stand-in generation again — recreating the
+        /// original P1 failure mode (live-but-no-rescue treated as rescue,
+        /// SwapReservedCrewInFlight has no stand-in to swap, fresh
+        /// reservation breaks).
+        /// </para>
+        ///
+        /// <para>
+        /// The pid-scoped marker fixes this: the marker carries the rescued
+        /// vessel pid (here <c>RescuedVesselPid</c>), but Jeb is on
+        /// <c>UnrelatedVesselPid</c>. <c>IsKerbalOnVesselWithPid</c> returns
+        /// false; the guard declines; the legitimate-recreate path runs;
+        /// the new "rescue marker stale" log fires; the stand-in is
+        /// generated for SwapReservedCrewInFlight to consume.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void StaleNameMarker_KerbalOnUnrelatedActiveVessel_GuardDeclines_StandInGenerated()
+        {
+            // Pre-loaded slot for Jeb with NO chain entry (fresh reservation
+            // where the slot is being filled for the first time).
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var jebSlot = slotsNode.AddNode("SLOT");
+            jebSlot.AddValue("owner", "Jebediah Kerman");
+            jebSlot.AddValue("trait", "Pilot");
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-fresh-2",
+                VesselName = "Kerbal Y",
+                MergeState = MergeState.Immutable,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 100,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Aboard },
+                },
+            };
+            var snap = new ConfigNode("VESSEL");
+            snap.AddNode("PART").AddValue("crew", "Jebediah Kerman");
+            rec.GhostVisualSnapshot = snap;
+            rec.VesselSnapshot = snap;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            module.Reset();
+            module.PrePass(new List<GameAction>());
+            module.ProcessAction(MakeAssignmentAction("Jebediah Kerman", "Pilot",
+                recordingId: "rec-fresh-2"));
+            module.PostWalk();
+
+            // Stage the failure mode the previous predicate produced:
+            //   - Stale rescue marker from a long-past rescue (vessel pid 100).
+            //   - Jeb is currently on an UNRELATED active player vessel (pid 200).
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+
+            var roster = new GuardFakeRoster();
+            roster.MarkOnVessel("Jebediah Kerman", UnrelatedVesselPid);
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // The stand-in MUST be generated — the rescue marker is stale
+            // for this reservation; the kerbal is on a DIFFERENT vessel.
+            Assert.NotNull(module.Slots["Jebediah Kerman"].Chain[0]);
+            string standInName = module.Slots["Jebediah Kerman"].Chain[0];
+            Assert.True(roster.Contains(standInName),
+                "Stand-in must be generated for the fresh unrelated reservation " +
+                "even though a stale name marker exists — pid scoping makes the " +
+                "guard decline.");
+
+            // SetReplacement populated the mapping.
+            Assert.True(CrewReservationManager.CrewReplacements
+                .ContainsKey("Jebediah Kerman"),
+                "CrewReservationManager mapping must exist for SwapReservedCrewInFlight " +
+                "even with a stale rescue marker for the same kerbal.");
+
+            // The new "rescue marker stale" Info log fires.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in recreate: rescue marker stale")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("rescued vessel pid=" + RescuedVesselPid));
+
+            // The "guard fired" line must NOT appear (no skip).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard fired"));
+
+            // Summary surfaces the pid-scoped declined bucket.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard summary")
+                && l.Contains("declinedMarkerStalePid=1"));
+
+            // Marker remains set (persistent — bulk-only clear).
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
+                "Marker must persist (bulk-only clear policy)");
+            ulong currentPid;
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel(
+                "Jebediah Kerman", out currentPid));
+            Assert.Equal(RescuedVesselPid, currentPid);
+        }
+
+        /// <summary>
+        /// **P1 review (fourth pass) lifecycle pin — pid-scoped guard
+        /// declines when the kerbal is on a different vessel pid.**
+        ///
+        /// <para>
+        /// Distinct from the "stale name marker on active player vessel"
+        /// case above in that the predicate is exercised directly — verify
+        /// the guard declines whenever the kerbal's currently-observed pid
+        /// does not match the marker's pid, even if neither vessel is the
+        /// active player vessel.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void MarkerScopedByPid_KerbalOnDifferentVessel_GuardDeclines()
+        {
+            var module = BuildModuleWithChainedReservations(
+                "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
+
+            // Marker placed Jeb on RescuedVesselPid; Jeb is currently
+            // observed on UnrelatedVesselPid.
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            var roster = new GuardFakeRoster();
+            roster.MarkOnVessel("Jebediah Kerman", UnrelatedVesselPid);
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // Stand-in for Jeb must recreate (legitimate-recreate path
+            // because the pid-scoped guard declined).
+            Assert.True(roster.Contains("Erilan Kerman"),
+                "Stand-in 'Erilan Kerman' must regenerate when the kerbal is on " +
+                "a different vessel from the rescue marker pid");
+            // The new stale-marker log fires.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Stand-in recreate: rescue marker stale")
+                && l.Contains("Jebediah Kerman"));
+        }
+
+        /// <summary>
+        /// **P1 review (fourth pass) lifecycle pin — happy path with
+        /// pid-scoped guard.**
+        ///
+        /// <para>
+        /// Kerbal is on the SAME pid as the rescue marker; the guard fires
+        /// (no recreate). This is the equivalent of
+        /// <see cref="ApplyToRoster_RescuePlacedAndOnLiveVessel_GuardSkipsRecreate"/>
+        /// but pinned via <see cref="GuardFakeRoster.MarkOnVessel"/>
+        /// directly so the pid-scoping contract is asserted on its own.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void MarkerScopedByPid_KerbalOnRescuedVessel_GuardFires()
+        {
+            var module = BuildModuleWithChainedReservations(
+                "Erilan Kerman", "Debgas Kerman", "Rodbro Kerman");
+
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            var roster = new GuardFakeRoster();
+            roster.MarkOnVessel("Jebediah Kerman", RescuedVesselPid);
+
+            logLines.Clear();
+            module.ApplyToRoster(roster);
+
+            // Erilan is the historical stand-in for Jeb — must NOT recreate.
+            Assert.False(roster.Contains("Erilan Kerman"),
+                "Stand-in 'Erilan Kerman' must NOT regenerate when the kerbal is " +
+                "on the SAME vessel pid as the rescue marker");
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Rescue-completion guard:")
+                && l.Contains("Jebediah Kerman")
+                && l.Contains("rescuePlacedPid=" + RescuedVesselPid)
+                && l.Contains("onRescuedVessel=true"));
         }
 
         // ---------- Test-only roster facade --------------------------------
@@ -1181,11 +1462,18 @@ namespace Parsek.Tests
         /// nested FakeRoster so this test class can exercise the rescue
         /// guard surface without coupling to the diagnostics fixture.
         /// </summary>
-        private sealed class GuardFakeRoster : KerbalsModule.IKerbalRosterFacade
+        internal sealed class GuardFakeRoster : KerbalsModule.IKerbalRosterFacade
         {
             private readonly Dictionary<string, ProtoCrewMember.RosterStatus> members
                 = new Dictionary<string, ProtoCrewMember.RosterStatus>(System.StringComparer.Ordinal);
-            private readonly HashSet<string> liveVesselCrew
+            // P1 review (fourth pass): pid-scoped live-vessel state. Tests can
+            // place a kerbal on a specific vessel pid via MarkOnVessel(name, pid),
+            // or use MarkOnLiveVessel(name) for the legacy "live somewhere"
+            // signal that does not pin a pid (used by the diagnostic
+            // declined-branch logs only).
+            private readonly Dictionary<string, ulong> liveVesselByName
+                = new Dictionary<string, ulong>(System.StringComparer.Ordinal);
+            private readonly HashSet<string> liveSomewhere
                 = new HashSet<string>(System.StringComparer.Ordinal);
             private int generatedCounter;
 
@@ -1199,9 +1487,30 @@ namespace Parsek.Tests
                 return members.ContainsKey(name);
             }
 
+            /// <summary>
+            /// Mark <paramref name="name"/> as currently seated on the vessel
+            /// with persistent id <paramref name="vesselPid"/>. Sets both the
+            /// pid-scoped state (used by the new
+            /// <see cref="IsKerbalOnVesselWithPid"/> guard predicate) and the
+            /// legacy "live somewhere" state (used by the diagnostic declined
+            /// log branches).
+            /// </summary>
+            public void MarkOnVessel(string name, ulong vesselPid)
+            {
+                if (string.IsNullOrEmpty(name)) return;
+                liveVesselByName[name] = vesselPid;
+                liveSomewhere.Add(name);
+            }
+
+            /// <summary>
+            /// Legacy helper: mark the kerbal as live "somewhere" without
+            /// pinning a pid. Used by tests that exercise the
+            /// declined-branch diagnostics or the "marker but moved off" path
+            /// where the pid-specific check should fail.
+            /// </summary>
             public void MarkOnLiveVessel(string name)
             {
-                if (!string.IsNullOrEmpty(name)) liveVesselCrew.Add(name);
+                if (!string.IsNullOrEmpty(name)) liveSomewhere.Add(name);
             }
 
             public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
@@ -1230,7 +1539,15 @@ namespace Parsek.Tests
 
             public bool IsKerbalOnLiveVessel(string kerbalName)
             {
-                return !string.IsNullOrEmpty(kerbalName) && liveVesselCrew.Contains(kerbalName);
+                return !string.IsNullOrEmpty(kerbalName) && liveSomewhere.Contains(kerbalName);
+            }
+
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)
+            {
+                if (string.IsNullOrEmpty(kerbalName)) return false;
+                ulong pid;
+                return liveVesselByName.TryGetValue(kerbalName, out pid)
+                    && pid == vesselPersistentId;
             }
         }
     }
