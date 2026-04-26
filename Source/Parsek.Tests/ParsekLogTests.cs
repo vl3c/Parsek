@@ -280,5 +280,28 @@ namespace Parsek.Tests
             Assert.Equal("[Parsek][VERBOSE][UnitTest] always", lines[0]);
             Assert.Equal("[Parsek][VERBOSE][UnitTest] always", lines[1]);
         }
+
+        [Fact]
+        public void ClearVerboseOnChangeIdentitiesWithPrefix_RemovesOnlyMatchingScope()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 first");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-2|0", "blocked", "rp2 first");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 suppressed");
+
+            Assert.Equal(1, ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix("UnitTest", "slot|rp-1|"));
+
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-1|0", "blocked", "rp1 after clear");
+            ParsekLog.VerboseOnChange("UnitTest", "slot|rp-2|0", "blocked", "rp2 still suppressed");
+
+            Assert.Equal(3, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp1 first", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp2 first", lines[1]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] rp1 after clear", lines[2]);
+        }
     }
 }

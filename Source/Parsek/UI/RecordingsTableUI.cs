@@ -367,6 +367,7 @@ namespace Parsek
             if (!showRecordingsWindow)
             {
                 ReleaseInputLock();
+                ClearAllRewindSlotCanInvokeLogState();
                 return;
             }
 
@@ -2824,11 +2825,13 @@ namespace Parsek
             if (rp == null)
             {
                 reason = "rewind point is null";
+                LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke: false, reason: reason, slot: null);
                 return false;
             }
             if (rp.ChildSlots == null || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
             {
                 reason = "rewind slot missing";
+                LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke: false, reason: reason, slot: null);
                 return false;
             }
 
@@ -2836,6 +2839,7 @@ namespace Parsek
             if (slot == null)
             {
                 reason = "rewind slot missing";
+                LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke: false, reason: reason, slot: null);
                 return false;
             }
             if (slot.Disabled)
@@ -2843,10 +2847,60 @@ namespace Parsek
                 reason = !string.IsNullOrEmpty(slot.DisabledReason)
                     ? "rewind slot disabled: " + slot.DisabledReason
                     : "rewind slot disabled";
+                LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke: false, reason: reason, slot: slot);
                 return false;
             }
 
-            return RewindInvoker.CanInvoke(rp, out reason);
+            bool canInvoke = RewindInvoker.CanInvoke(rp, out reason);
+            LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke, reason, slot);
+            return canInvoke;
+        }
+
+        private static void LogRewindSlotCanInvokeDecision(
+            RewindPoint rp,
+            int slotListIndex,
+            bool canInvoke,
+            string reason,
+            ChildSlot slot)
+        {
+            string rpId = rp == null || string.IsNullOrEmpty(rp.RewindPointId)
+                ? "<null>"
+                : rp.RewindPointId;
+            string normalizedReason = string.IsNullOrEmpty(reason) ? "<none>" : reason;
+            string identity = $"CanInvokeSlot|{rpId}|{slotListIndex}";
+            bool slotDisabled = slot != null && slot.Disabled;
+            string blockedKind = slotDisabled ? "slot-disabled" : "global-blocked";
+            string stateKey = canInvoke ? "slot-ok" : blockedKind + "|" + normalizedReason;
+            string slotOrigin = slot == null || string.IsNullOrEmpty(slot.OriginChildRecordingId)
+                ? "<none>"
+                : slot.OriginChildRecordingId;
+            int slotId = slot != null ? slot.SlotIndex : -1;
+
+            ParsekLog.VerboseOnChange(
+                "RewindUI",
+                identity,
+                stateKey,
+                canInvoke
+                    ? $"CanInvokeSlot: slot-ok rp={rpId} slot={slotId} listIndex={slotListIndex} origin={slotOrigin}"
+                    : $"CanInvokeSlot: {blockedKind} rp={rpId} slot={slotId} listIndex={slotListIndex} " +
+                      $"origin={slotOrigin} reason='{normalizedReason}'");
+        }
+
+        internal static int ClearRewindSlotCanInvokeLogState(string rewindPointId)
+        {
+            if (string.IsNullOrEmpty(rewindPointId))
+                return 0;
+
+            return ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix(
+                "RewindUI",
+                $"CanInvokeSlot|{rewindPointId}|");
+        }
+
+        internal static int ClearAllRewindSlotCanInvokeLogState()
+        {
+            return ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix(
+                "RewindUI",
+                "CanInvokeSlot|");
         }
 
         /// <summary>

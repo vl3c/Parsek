@@ -59,6 +59,25 @@ identity with the watched recording/pid/reason in the state key, avoiding
 per-recording cache growth while preserving reason-change visibility.
 Remaining observability audit items stay open.
 
+Phase 3 persistence/rewind observability is closed on
+`observability/persistence-rewind` (2026-04-26): `OnSave` / `OnLoad` now carry
+top-level exception context and single phase/status timing; recording sidecar,
+snapshot-probe, path-resolution, and transient cleanup failures now surface
+Warn/Error context with recording id, save folder, epoch, ghost snapshot mode,
+file kind, paths, staged-file count, and exception details; Rewind/Re-Fly
+`CanInvoke` plus disabled slot decisions now log only on reason changes. This
+closes the audit follow-up for duplicate/miscounted `OnLoad` timing, sidecar/path
+failure severity/context, and rewind precondition reason visibility. Remaining
+observability-audit work stays in the non-persistence phases: KSC/playback spam
+hygiene, ghost skip summaries, recorder/auto-record decision logs, game-action
+aggregation, and map/UI/test-runner visibility.
+
+Review follow-up: legacy text snapshot parse exceptions again flow to the
+outer `exception:<Type>` sidecar failure path; resolve-only path lookups now log
+missing save context at Verbose while directory-creation entry points keep Warn;
+and Rewind/Re-Fly slot `VerboseOnChange` identities are cleared when RP state is
+loaded, closed, reaped, discarded, or rolled back.
+
 Runtime-gaps branch progress (2026-04-26): Phase 4/5 recorder and
 game-visible runtime decisions are now covered for the high-priority gaps:
 background recorder attach/clear and drift warnings, active-to-background

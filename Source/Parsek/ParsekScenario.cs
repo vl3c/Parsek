@@ -437,9 +437,11 @@ namespace Parsek
             var sw = Stopwatch.StartNew();
             int recordingCount = 0;
             int dirtyCount = 0;
+            string savePhase = "entry";
             try
             {
                 ParsekLog.RecState("OnSave:pre", CaptureScenarioRecorderState());
+                savePhase = "safety-net";
                 SafetyNetAutoCommitPending();
 
                 // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
@@ -455,6 +457,7 @@ namespace Parsek
                 }
 
                 // Clear any existing recording nodes
+                savePhase = "clear-nodes";
                 node.RemoveNodes("RECORDING");
 
                 var recordings = RecordingStore.CommittedRecordings;
@@ -477,13 +480,17 @@ namespace Parsek
                     }
                 }
 
+                savePhase = "recordings";
                 SaveTreeRecordings(node);
+                savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
                 // only in Phase 1; no behavior wired to these collections yet.
+                savePhase = "rewind-staging";
                 SaveRewindStagingState(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
+                savePhase = "ghost-map-strip";
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
                 {
                     var flightState = HighLogic.CurrentGame?.flightState;
@@ -493,6 +500,11 @@ namespace Parsek
 
                 lastOnSaveScene = HighLogic.LoadedScene;
                 ParsekLog.RecState("OnSave:post", CaptureScenarioRecorderState());
+            }
+            catch (Exception ex)
+            {
+                LogScenarioLifecycleException("OnSave", savePhase, ex);
+                throw;
             }
             finally
             {
@@ -879,6 +891,7 @@ namespace Parsek
                 for (int i = 0; i < entries.Length; i++)
                     RewindPoints.Add(RewindPoint.LoadFrom(entries[i]));
             }
+            RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
 
             ConfigNode sParent = node.GetNode("RECORDING_SUPERSEDES");
             if (sParent != null)
@@ -993,10 +1006,13 @@ namespace Parsek
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();
             int loadedRecordingCount = 0;
+            string loadPhase = "entry";
+            string loadStatus = "running";
             try
             {
                 // Reset deferred dialog flag and clear input lock (dialog may have been
                 // destroyed by scene change without the user clicking a button)
+                loadPhase = "reset-dialog";
                 mergeDialogPending = false;
                 InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
@@ -1006,23 +1022,28 @@ namespace Parsek
                 // GameParameters restored from the save. Runs before anything reads
                 // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
                 // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
+                loadPhase = "settings";
                 ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current);
                 ParsekLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 var recordings = RecordingStore.CommittedRecordings;
                 loadedRecordingCount = recordings.Count;
 
+                loadPhase = "hooks";
                 RegisterMainMenuHook();
                 DetectSaveFolderChange();
                 if (!RewindContext.IsRewinding)
                     KerbalLoadRepairDiagnostics.Begin();
+                loadPhase = "crew-groups";
                 LoadCrewAndGroupState(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
                 // on every OnLoad so a revert or scene change rebuilds the lists
                 // from .sfs rather than reusing stale in-memory state.
+                loadPhase = "rewind-staging";
                 LoadRewindStagingState(node);
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
+                loadPhase = "game-state-recorder";
                 stateRecorder?.Unsubscribe();
                 if (!initialLoadDone)
                     LoadExternalFiles();
@@ -1030,6 +1051,7 @@ namespace Parsek
                 stateRecorder.SeedFacilityCacheFromCurrentState();
                 stateRecorder.Subscribe();
 
+                loadPhase = "initial-baseline";
                 SubscribeVesselLifecycleEvents();
                 CaptureInitialBaseline();
 
@@ -1039,10 +1061,12 @@ namespace Parsek
                     // .sfs data loading. In-memory state is the source of truth.
                     if (RewindContext.IsRewinding)
                     {
+                        loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
                         ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-                        WriteLoadTiming(sw, recordings.Count);
                         DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+                        loadedRecordingCount = recordings.Count;
+                        loadStatus = "returned";
                         return;
                     }
 
@@ -1053,9 +1077,11 @@ namespace Parsek
                     // Runs AFTER ParsekSettingsPersistence.ApplyTo so restored settings
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
+                    loadPhase = "active-tree-restore";
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
+                    loadPhase = "revert-classification";
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
                     if (savedRecNodes.Length > 0)
                         ParsekLog.Warn("Scenario",
@@ -1210,6 +1236,7 @@ namespace Parsek
                     // the rewind data with null.)
                     if (isRevert)
                     {
+                        loadPhase = "revert-cleanup";
                         bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
                                                       || RecordingStore.PendingCleanupNames != null;
                         if (alreadyHasCleanupData)
@@ -1282,6 +1309,7 @@ namespace Parsek
                     // ensuring VesselSpawned/SpawnedPid/etc. don't carry over from the
                     // committed flight (whose vessels were undone by the revert).
                     // On scene change, the reset is overwritten by the saved values below.
+                    loadPhase = "tree-mutable-state";
                     for (int i = 0; i < recordings.Count; i++)
                     {
                         if (!recordings[i].IsTreeRecording) continue;
@@ -1318,6 +1346,7 @@ namespace Parsek
                             HighLogic.CurrentGame.flightState.protoVessels);
 
                     // Then restore from saved tree nodes (present on scene change, absent on revert)
+                    loadPhase = "tree-state-restore";
                     ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                     if (savedTreeNodes.Length > 0)
                     {
@@ -1375,6 +1404,7 @@ namespace Parsek
 
                     if (isRevert)
                     {
+                        loadPhase = "revert-milestones";
                         // Restore milestone mutable state from .sfs.
                         // resetUnmatched: true — milestones created after the launch quicksave
                         // (not in the saved state) must be reset to unreplayed (-1). Hidden
@@ -1421,6 +1451,7 @@ namespace Parsek
                     }
                     else
                     {
+                        loadPhase = "scene-milestones";
                         // Scene change — restore milestone state without resetting unmatched.
                         MilestoneStore.RestoreMutableState(node);
                         ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
@@ -1432,6 +1463,7 @@ namespace Parsek
                     // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
                     // #434: on revert the block above already discarded the pending tree, so
                     // HasPendingTree will be false here and the dispatch is skipped entirely.
+                    loadPhase = "limbo-dispatch";
                     ClearPendingQuickloadResumeContext();
                     if (RecordingStore.HasPendingTree
                         && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
@@ -1486,6 +1518,7 @@ namespace Parsek
 
                     // Handle pending recordings on non-revert scene exits to non-flight scenes.
                     // Always auto-commit on main menu (game is being unloaded, dialog would be meaningless).
+                    loadPhase = "pending-outside-flight";
                     bool forceAutoMerge = HighLogic.LoadedScene == GameScenes.MAINMENU;
                     if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                     {
@@ -1559,6 +1592,7 @@ namespace Parsek
                     bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
                     bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
                     bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
+                    loadPhase = "ledger-recalculate";
                     bool useCurrentUtCutoffForPostRewindFlightLoad =
                         ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
                             isRevert,
@@ -1591,8 +1625,8 @@ namespace Parsek
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
+                    loadPhase = "sidecar-reconcile";
                     ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-                    WriteLoadTiming(sw, recordings.Count);
                     DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
 
                     // Phase 6 of Rewind-to-Staging: re-fly invocation drains
@@ -1600,6 +1634,7 @@ namespace Parsek
                     // FLIGHT→FLIGHT branch because the RP quicksave always
                     // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
                     // from FLIGHT/SPACECENTER/TRACKSTATION.
+                    loadPhase = "rewind-post-load";
                     DispatchRewindPostLoadIfPending();
 
                     // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
@@ -1608,6 +1643,7 @@ namespace Parsek
                     // preservation, etc.).
                     if (ActiveMergeJournal != null)
                     {
+                        loadPhase = "merge-journal";
                         MergeJournalOrchestrator.RunFinisher();
                     }
 
@@ -1619,25 +1655,35 @@ namespace Parsek
                     // and the Phase 10 finisher (which may have cleared it),
                     // and BEFORE the Phase 11 reaper (whose input is the
                     // sweep's post-zombie-removal state).
+                    loadPhase = "load-time-sweep";
                     LoadTimeSweep.Run();
 
                     // Phase 11 housekeeping pass — same rationale as the
                     // cold-start branch below; runs after the finisher so
                     // live-session RPs stay put.
+                    loadPhase = "rewind-point-reap";
                     RewindPointReaper.ReapOrphanedRPs();
+                    loadedRecordingCount = recordings.Count;
+                    loadStatus = isRevert ? "returned-revert" : "returned-scene-change";
                     return;
                 }
 
+                loadPhase = "cold-start";
                 initialLoadDone = true;
 
+                loadPhase = "stale-pending-discard";
                 DiscardStalePendingState();
 
+                loadPhase = "clear-committed";
                 RecordingStore.ClearCommittedInternal();
 
                 // Validate chain integrity before any playback
+                loadPhase = "chain-validation";
                 RecordingStore.ValidateChains();
 
+                loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
+                loadedRecordingCount = recordings.Count;
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved
@@ -1648,6 +1694,7 @@ namespace Parsek
                 // quickload. Without this, cold-start resume silently drops the active
                 // tree and the player's in-progress mission fragments just like the
                 // original Bug C scenario.
+                loadPhase = "cold-active-tree-restore";
                 ClearPendingQuickloadResumeContext();
                 if (TryRestoreActiveTreeNode(node))
                 {
@@ -1674,12 +1721,15 @@ namespace Parsek
                 }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
+                loadPhase = "orphan-sidecar-cleanup";
                 RecordingStore.CleanOrphanFiles();
 
                 // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
+                loadPhase = "milestones";
                 MilestoneStore.RestoreMutableState(node);
 
                 // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
+                loadPhase = "ledger-load";
                 var validIds = new System.Collections.Generic.HashSet<string>();
                 for (int v = 0; v < recordings.Count; v++)
                 {
@@ -1693,9 +1743,11 @@ namespace Parsek
                 // may exist but have not loaded their save data yet (KSP loads scenarios in
                 // parallel). The deferred coroutine waits for singletons to be ready, then
                 // seeds initial balances and recalculates so the ledger has correct values.
+                loadPhase = "deferred-seed";
                 StartCoroutine(DeferredSeedAndRecalculate());
 
                 // Diagnostic summary of loaded recordings with UT context
+                loadPhase = "load-summary";
                 double loadUT = Planetarium.GetUniversalTime();
                 ParsekLog.Info("Scenario", $"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
                 for (int i = 0; i < recordings.Count; i++)
@@ -1722,12 +1774,14 @@ namespace Parsek
                 }
 
                 // Run recording optimization pass (merge redundant segments, split monolithic ones)
+                loadPhase = "optimization";
                 RecordingStore.RunOptimizationPass();
 
                 // Auto-unreserve crew for recordings whose EndUT has already passed
                 // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
                 // handles spawning there (bug #99), so nulling the snapshot here would
                 // pre-empt the KSC spawn.
+                loadPhase = "crew-auto-unreserve";
                 double currentUT = Planetarium.GetUniversalTime();
                 if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
                 {
@@ -1748,6 +1802,7 @@ namespace Parsek
 
                 // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
                 // Always auto-commit on main menu (game is being unloaded).
+                loadPhase = "pending-outside-flight";
                 if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
                     RecordingStore.HasPendingTree)
                 {
@@ -1818,8 +1873,8 @@ namespace Parsek
                     }
                 }
 
+                loadPhase = "sidecar-reconcile";
                 ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-                WriteLoadTiming(sw, recordings.Count);
 
                 // Scene load memory snapshot (once per load, after all recordings are loaded)
                 DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
@@ -1831,6 +1886,7 @@ namespace Parsek
                 // AtomicMarkerWrite — in the new scenario, synchronously, NO
                 // coroutine (the old scenario's coroutine was torn down with
                 // the scene).
+                loadPhase = "rewind-post-load";
                 DispatchRewindPostLoadIfPending();
 
                 // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
@@ -1843,6 +1899,7 @@ namespace Parsek
                 // what to do with the session marker.
                 if (ActiveMergeJournal != null)
                 {
+                    loadPhase = "merge-journal";
                     MergeJournalOrchestrator.RunFinisher();
                 }
 
@@ -1852,6 +1909,7 @@ namespace Parsek
                 // Must run after the finisher (which may have cleared the
                 // marker) and before the Phase 11 reaper (whose input is the
                 // sweep's zombie-removed state).
+                loadPhase = "load-time-sweep";
                 LoadTimeSweep.Run();
 
                 // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
@@ -1860,13 +1918,23 @@ namespace Parsek
                 // Immutable later via a non-rewind code path. Runs after the
                 // finisher so we never try to reap an RP whose session is
                 // still live.
+                loadPhase = "rewind-point-reap";
                 RewindPointReaper.ReapOrphanedRPs();
+                loadedRecordingCount = recordings.Count;
+                loadStatus = "completed";
+            }
+            catch (Exception ex)
+            {
+                loadStatus = "exception";
+                LogScenarioLifecycleException("OnLoad", loadPhase, ex);
+                throw;
             }
             finally
             {
                 KerbalLoadRepairDiagnostics.Reset();
-                // Always capture timing, even on exception (matches OnSave pattern)
-                WriteLoadTiming(sw, loadedRecordingCount);
+                // Always capture timing exactly once, even on exception.
+                loadedRecordingCount = SafeCommittedRecordingCount();
+                WriteLoadTiming(sw, loadedRecordingCount, loadPhase, loadStatus);
             }
         }
 
@@ -2031,14 +2099,196 @@ namespace Parsek
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
         }
 
+        internal string BuildScenarioLifecycleExceptionMessageForTesting(
+            string lifecycle, string phase, Exception ex)
+        {
+            return BuildScenarioLifecycleExceptionMessage(lifecycle, phase, ex);
+        }
+
+        internal void ExecuteScenarioLifecyclePhaseForTesting(
+            string lifecycle, string phase, Action body)
+        {
+            try
+            {
+                body();
+            }
+            catch (Exception ex)
+            {
+                LogScenarioLifecycleException(lifecycle, phase, ex);
+                throw;
+            }
+        }
+
+        private void LogScenarioLifecycleException(string lifecycle, string phase, Exception ex)
+        {
+            try
+            {
+                ParsekLog.Error("Scenario",
+                    BuildScenarioLifecycleExceptionMessage(lifecycle, phase, ex));
+            }
+            catch (Exception logEx)
+            {
+                ParsekLog.Error("Scenario",
+                    $"{(string.IsNullOrEmpty(lifecycle) ? "Scenario" : lifecycle)}: exception logging failed " +
+                    $"phase={phase ?? "<none>"} original={FormatExceptionForLog(ex)} " +
+                    $"logEx={FormatExceptionForLog(logEx)}");
+            }
+
+            try
+            {
+                ParsekLog.RecState(
+                    $"{(string.IsNullOrEmpty(lifecycle) ? "Scenario" : lifecycle)}:exception",
+                    CaptureScenarioRecorderState());
+            }
+            catch (Exception recStateEx)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"{(string.IsNullOrEmpty(lifecycle) ? "Scenario" : lifecycle)}: exception RecState capture failed " +
+                    $"phase={phase ?? "<none>"} ex={FormatExceptionForLog(recStateEx)}");
+            }
+        }
+
+        private string BuildScenarioLifecycleExceptionMessage(
+            string lifecycle, string phase, Exception ex)
+        {
+            RecorderStateSnapshot snap = SafeCaptureScenarioRecorderState();
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: exception phase={1} scene={2} saveFolder={3} scenarioSaveFolder={4} " +
+                "committedRecordings={5} committedTrees={6} pendingTree={7} " +
+                "activeMode={8} activeTree={9} activeRec={10} marker={11} journal={12} ex={13}",
+                string.IsNullOrEmpty(lifecycle) ? "Scenario" : lifecycle,
+                string.IsNullOrEmpty(phase) ? "<none>" : phase,
+                SafeLoadedScene(),
+                SafeSaveFolder(),
+                string.IsNullOrEmpty(scenarioSaveFolder) ? "<null>" : scenarioSaveFolder,
+                SafeCommittedRecordingCount(),
+                SafeCommittedTreeCount(),
+                DescribePendingTreeForLog(),
+                snap.mode,
+                string.IsNullOrEmpty(snap.treeId) ? "<none>" : snap.treeId,
+                string.IsNullOrEmpty(snap.activeRecId) ? "<none>" : snap.activeRecId,
+                DescribeMarkerForLog(ActiveReFlySessionMarker),
+                DescribeJournalForLog(ActiveMergeJournal),
+                FormatExceptionForLog(ex));
+        }
+
+        private static RecorderStateSnapshot SafeCaptureScenarioRecorderState()
+        {
+            try
+            {
+                return CaptureScenarioRecorderState();
+            }
+            catch
+            {
+                return default(RecorderStateSnapshot);
+            }
+        }
+
+        private static string DescribePendingTreeForLog()
+        {
+            RecordingTree tree = RecordingStore.PendingTree;
+            if (tree == null)
+                return "none";
+
+            int count = tree.Recordings != null ? tree.Recordings.Count : 0;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "id={0},state={1},recordings={2}",
+                string.IsNullOrEmpty(tree.Id) ? "<no-id>" : tree.Id,
+                RecordingStore.PendingTreeStateValue,
+                count);
+        }
+
+        private static string DescribeMarkerForLog(ReFlySessionMarker marker)
+        {
+            if (marker == null)
+                return "none";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "sess={0},tree={1},active={2},origin={3},rp={4}",
+                string.IsNullOrEmpty(marker.SessionId) ? "<no-session>" : marker.SessionId,
+                string.IsNullOrEmpty(marker.TreeId) ? "<no-tree>" : marker.TreeId,
+                string.IsNullOrEmpty(marker.ActiveReFlyRecordingId) ? "<no-active>" : marker.ActiveReFlyRecordingId,
+                string.IsNullOrEmpty(marker.OriginChildRecordingId) ? "<no-origin>" : marker.OriginChildRecordingId,
+                string.IsNullOrEmpty(marker.RewindPointId) ? "<no-rp>" : marker.RewindPointId);
+        }
+
+        private static string DescribeJournalForLog(MergeJournal journal)
+        {
+            if (journal == null)
+                return "none";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "journal={0},sess={1},tree={2},phase={3}",
+                string.IsNullOrEmpty(journal.JournalId) ? "<no-journal>" : journal.JournalId,
+                string.IsNullOrEmpty(journal.SessionId) ? "<no-session>" : journal.SessionId,
+                string.IsNullOrEmpty(journal.TreeId) ? "<no-tree>" : journal.TreeId,
+                string.IsNullOrEmpty(journal.Phase) ? "<no-phase>" : journal.Phase);
+        }
+
+        private static string FormatExceptionForLog(Exception ex)
+        {
+            if (ex == null)
+                return "<none>";
+
+            return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
+        }
+
+        private static int SafeCommittedRecordingCount()
+        {
+            try { return RecordingStore.CommittedRecordings?.Count ?? 0; }
+            catch { return -1; }
+        }
+
+        private static int SafeCommittedTreeCount()
+        {
+            try { return RecordingStore.CommittedTrees?.Count ?? 0; }
+            catch { return -1; }
+        }
+
+        private static string SafeLoadedScene()
+        {
+            try { return HighLogic.LoadedScene.ToString(); }
+            catch (Exception ex) { return "<scene-error:" + ex.GetType().Name + ">"; }
+        }
+
+        private static string SafeSaveFolder()
+        {
+            try { return string.IsNullOrEmpty(HighLogic.SaveFolder) ? "<null>" : HighLogic.SaveFolder; }
+            catch (Exception ex) { return "<save-error:" + ex.GetType().Name + ">"; }
+        }
+
+        internal static string FormatLoadTimingMessageForTesting(
+            long elapsedMilliseconds, int recordingCount, string phase, string status)
+        {
+            return FormatLoadTimingMessage(elapsedMilliseconds, recordingCount, phase, status);
+        }
+
+        private static string FormatLoadTimingMessage(
+            long elapsedMilliseconds, int recordingCount, string phase, string status)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "OnLoad: {0}ms ({1} recordings) phase={2} status={3}",
+                elapsedMilliseconds,
+                recordingCount,
+                string.IsNullOrEmpty(phase) ? "<none>" : phase,
+                string.IsNullOrEmpty(status) ? "<none>" : status);
+        }
+
         /// <summary>
         /// Writes OnLoad timing to DiagnosticsState and logs a summary.
-        /// Called at every exit point of OnLoad to ensure timing is captured
-        /// regardless of which code path (rewind, revert, scene change, initial load).
+        /// Called exactly once from OnLoad's finally block so branch-specific
+        /// returns cannot double-count or miss timing.
         /// </summary>
-        private static void WriteLoadTiming(Stopwatch sw, int recordingCount)
+        private static void WriteLoadTiming(
+            Stopwatch sw, int recordingCount, string phase, string status)
         {
-            sw.Stop();
+            if (sw.IsRunning)
+                sw.Stop();
             DiagnosticsState.lastLoadTiming = new SaveLoadTiming
             {
                 totalMilliseconds = sw.ElapsedMilliseconds,
@@ -2046,9 +2296,7 @@ namespace Parsek
                 dirtyRecordingsWritten = 0
             };
             ParsekLog.Verbose("Diagnostics",
-                string.Format(CultureInfo.InvariantCulture,
-                    "OnLoad: {0}ms ({1} recordings)",
-                    sw.ElapsedMilliseconds, recordingCount));
+                FormatLoadTimingMessage(sw.ElapsedMilliseconds, recordingCount, phase, status));
         }
 
         /// <summary>
