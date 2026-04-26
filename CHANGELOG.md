@@ -54,6 +54,18 @@ All notable changes to Parsek are documented here.
 
 - `#613` Re-Fly relative ghosts now reconstruct unsafe or unavailable anchors from the recorded ground-frame anchor trajectory before retiring. This keeps other vessels' paths ground-relative instead of locking to the live Re-Fly target.
 
+- Re-Fly in-place continuations now freeze the active recording's pre-Re-Fly trajectory at invoke time and use that frozen copy for parent-chain relative-anchor playback, so upper-stage ghosts no longer replay at a constant offset from the newly flown booster/probe path.
+
+- Re-Fly parent-chain relative sections now seed and bridge the v7 absolute-shadow trajectory at the RELATIVE boundary, preventing upper-stage ghosts from clamping forward to the first later shadow sample and appearing behind or far off the booster immediately after Fly.
+
+- Re-Fly invocation now loads a slot-scrubbed temp copy of the RP save: before KSP parses the quicksave, every real vessel except the selected Re-Fly vessel is removed and the temp save's active vessel index is repointed to that slot. The original RP save and `persistent.sfs` stay untouched, and post-load strict stripping remains as a safety net.
+
+- Re-Fly temp-save scrub failures now abort before `GamePersistence.LoadGame` instead of loading an unscrubbed quicksave, and the post-load strict-strip safety net now logs one compact summary for unmatched vessels instead of one WARN per vessel.
+
+- Re-Fly in-place supersede now repairs a non-split target's missing terminal state from its captured scene-exit situation before writing supersede rows, covering the size=1 chain case where there is no optimizer-created tip to resolve.
+
+- Re-Fly parent-chain suppression now reuses the composed committed-plus-pending tree search view across stable frames, avoiding per-frame list allocations in visual ghost playback and GhostMap state-vector updates while still invalidating when the committed tree list mutates.
+
 - Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.
 
 - Re-Fly ghost reentry FX no longer activates during hidden spawn priming at the stale KSC-surface pose; first-frame visual FX are suppressed until after the playback transform and ghost activation order are synchronized.
@@ -71,6 +83,10 @@ All notable changes to Parsek are documented here.
 - Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
 
 - Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge — including when the new flight crossed an atmo-exo boundary and the optimizer split it into chained segments.
+
+- Re-Fly in-place continuation merge now distinguishes new session-owned optimizer split segments from stale same-chain segments left by the original flight, so old booster exo tails are superseded by the new chain tip instead of being skipped as self-links.
+
+- Optimizer atmo/exo splits now keep branch-point parent links on the half whose UT range actually owns the branch point, preventing a staging branch at UT 116 from being repointed to a later upper-stage segment that starts around UT 170.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 
@@ -309,6 +325,10 @@ All notable changes to Parsek are documented here.
 
 - Flight playback, watch handoff, and ghost map visibility diagnostics now explain skipped or blocked playback decisions without adding per-frame spam.
 - Re-Fly relative-frame playback now falls back to the recorded anchor trajectory when a live anchor is unsafe or unavailable, including the case where another ghost's anchor pid resolves to the active Re-Fly target. This keeps other vessels' trajectories ground-relative during Re-Fly, prevents stale-transform watch cutoffs after rewind, suppresses hidden-prime reentry FX bursts, and drops dead-on-arrival controlled children that would otherwise commit `Unknown` 0s rows.
+- `#616/#617/#619` Post-merge Re-Fly now suppresses GhostMap state-vector ProtoVessels that would later enter a relative section anchored to the active Re-Fly target, removes/re-defers any already-created map ghost when an update transitions into that unsafe relative-anchor relationship, preserves the live-anchor fast path for unrelated relative playback, delays lazy reentry FX until the ghost has had a real playback sync, warns when a recorded-anchor fallback must use a far-away absolute pose, and logs unresolved relative distances as `unresolved` instead of formatting `double.MaxValue` as metres.
+- `#623` Relative track sections now record both anchor-local frames and planet-relative absolute shadow frames in v7 sidecars. During active in-place Re-Fly, parent-chain upper-stage ghosts use the absolute shadow path instead of reconstructing through the re-flown booster/probe, keeping their observed trajectory fixed to the planet rather than at a constant booster-relative offset.
+- `#618` Re-Fly merge defaults now resolve optimizer-created parent-chain terminal tips with pending-tree context and mark directly connected stale parent-chain tips ghost-only in the merge decisions, preserving the active in-place Re-Fly chain while preventing the old upper-stage chain tip from remaining spawnable by default.
+- `#620` Terminal materialization now rejects corrupt vessel snapshots before `ProtoVessel.Load` when they have no `PART` nodes, non-finite surface/orbit metadata, or unrecoverable body/orbit provenance. Flight, KSC, and chain-tip fallback paths now mark those recordings abandoned/ghost-only instead of repeatedly retrying KSP loads that can die with NaN orbits.
 - `#588` Flight Map View now allows `OrbitalCheckpoint` state-vector map ghosts only for explicit orbit-segment gap recovery after an SOI/body transition: a current segment still wins when available, the fallback body must match the post-gap body, and the UT must stay inside the playback window. Accepted recoveries log `source=StateVectorSoiGap` / `reason=soi-gap-state-vector-fallback`; rejected checkpoint candidates now say whether a safer segment existed, the source was not an SOI-gap recovery, the body mismatched, or the UT was outside the valid window.
 - `#586` Ghost map vessel `Set As Target` now sticks instead of being silently dropped by stock KSP. Failed targeting attempts now log a warning with diagnostic state instead of a false success.
 
@@ -336,6 +356,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - Added focused coverage for the new playback visibility diagnostics.
+- Added post-merge Re-Fly regressions for GhostMap create-time lookahead/update-time suppression, relative-anchor source selection and recorded fallback, v7 relative absolute-shadow sidecar round-trips, optimizer trimming of relative shadow frames, unresolved zone-distance formatting, hidden-prime lazy reentry suppression, parent-chain terminal tip merge defaults, and corrupt terminal spawn snapshot quarantine.
 - `#586` Added log-capture regressions and a live KSP runtime canary for verified ghost-map targeting.
 - Added focused regressions proving hidden old-branch events stay out of milestones, timeline legacy rows, reward write-back, and ledger recovery for recording-visibility reasons rather than `CurrentEpoch` checks, and updated the remaining fixtures that previously mutated `MilestoneStore.CurrentEpoch`.
 - `#552` Added recovery-pairing regressions for callback-before-funds-event ordering, the no-paired-event deferral path, vessel-name-preferred pairing over nearest-UT, ambiguous-tie warning, lifecycle-boundary staleness eviction, and queue-overflow threshold warning.

@@ -833,6 +833,8 @@ namespace Parsek
                             section.frames = section.frames.GetRange(firstKeep, section.frames.Count - firstKeep);
                     }
 
+                    TrimRelativeAbsoluteShadowForLeadingOverlap(ref section, previousEndUT);
+
                     if (section.frames.Count > 0)
                     {
                         section.startUT = section.frames[0].ut;
@@ -1755,11 +1757,57 @@ namespace Parsek
                             break;
                     }
 
+                    TrimRelativeAbsoluteShadowAfterUT(ref sec, trimUT);
+
                     if (sec.frames.Count == 0)
                         return false;
 
                     sec.endUT = sec.frames[sec.frames.Count - 1].ut;
                     return true;
+            }
+        }
+
+        private static void TrimRelativeAbsoluteShadowForLeadingOverlap(
+            ref TrackSection section,
+            double? previousEndUT)
+        {
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.absoluteFrames == null
+                || section.absoluteFrames.Count == 0)
+            {
+                return;
+            }
+
+            section.absoluteFrames = FlightRecorder.StableSortByUT(section.absoluteFrames, p => p.ut);
+
+            if (!previousEndUT.HasValue)
+                return;
+
+            for (int i = section.absoluteFrames.Count - 1; i >= 0; i--)
+            {
+                if (section.absoluteFrames[i].ut <= previousEndUT.Value)
+                    section.absoluteFrames.RemoveAt(i);
+            }
+        }
+
+        private static void TrimRelativeAbsoluteShadowAfterUT(
+            ref TrackSection section,
+            double trimUT)
+        {
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.absoluteFrames == null
+                || section.absoluteFrames.Count == 0)
+            {
+                return;
+            }
+
+            section.absoluteFrames = FlightRecorder.StableSortByUT(section.absoluteFrames, p => p.ut);
+            for (int i = section.absoluteFrames.Count - 1; i >= 0; i--)
+            {
+                if (section.absoluteFrames[i].ut > trimUT)
+                    section.absoluteFrames.RemoveAt(i);
+                else
+                    break;
             }
         }
 

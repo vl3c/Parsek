@@ -176,6 +176,64 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region SelectAnchorFrameSource
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassUsesRecordedEvenWhenLiveAnchorExists()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: true,
+                recordedFallbackAvailable: false);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Recorded, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassUsesRecordedFallbackForPartialCoverage()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.RecordedFallback, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_ActiveReFlyBypassRetiresWhenNoRecordedPoseExists()
+        {
+            var source = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: true,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: false);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Retired, source);
+        }
+
+        [Fact]
+        public void SelectAnchorFrameSource_UnrelatedAnchorKeepsLiveAndDoesNotUseFallbackOnly()
+        {
+            var live = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: true,
+                bypassLiveAnchorForActiveReFly: false,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+            var missingLive = RelativeAnchorResolution.SelectAnchorFrameSource(
+                liveAnchorAvailable: false,
+                bypassLiveAnchorForActiveReFly: false,
+                recordedAnchorAvailable: false,
+                recordedFallbackAvailable: true);
+
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Live, live);
+            Assert.Equal(RelativeAnchorResolution.AnchorFrameSource.Retired, missingLive);
+        }
+
+        #endregion
+
         #region RecordedAnchorPointListCoversUT
 
         [Fact]
@@ -232,6 +290,181 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(null, 100.0));
             Assert.False(ParsekFlight.RecordedAnchorPointListCoversUT(
                 new List<TrajectoryPoint>(), 100.0));
+        }
+
+        [Fact]
+        public void DistanceOutsideRecordedAnchorCoverage_ReportsEndpointFallbackGap()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }
+            };
+
+            Assert.Equal(0.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 105.0));
+            Assert.Equal(2.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 98.0));
+            Assert.Equal(3.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 113.0));
+        }
+
+        [Fact]
+        public void TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary()
+        {
+            var absoluteSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 90.0,
+                endUT = 100.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 95.0, latitude = 1.0 },
+                    new TrajectoryPoint { ut = 99.5, latitude = 2.0 },
+                }
+            };
+            var relativeSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0 },
+                    new TrajectoryPoint { ut = 105.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0, latitude = 3.0 },
+                    new TrajectoryPoint { ut = 105.0, latitude = 4.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                TrackSections = new List<TrackSection> { absoluteSection, relativeSection }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.True(ParsekFlight.TryFindAbsoluteShadowBridgeFrame(
+                rec, relativeSection, 100.2, out bridge));
+            Assert.Equal(99.5, bridge.ut);
+            Assert.Equal(2.0, bridge.latitude);
+        }
+
+        [Fact]
+        public void ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap()
+        {
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.0));
+            Assert.True(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.01));
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(double.NaN));
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void BuildRecordedAnchorFallbackGapLog_IncludesGapAndRecordingContext()
+        {
+            string line = ParsekFlight.BuildRecordedAnchorFallbackGapLog(
+                anchorRecordingId: "854fdf77",
+                victimRecordingId: "e77d90b6",
+                anchorVesselId: 3314061462u,
+                targetUT: 178.0,
+                fallbackGapSeconds: 12.345);
+
+            Assert.Contains("recorded-anchor-fallback-gap", line);
+            Assert.Contains("anchorRec=854fdf77", line);
+            Assert.Contains("victimRec=e77d90b6", line);
+            Assert.Contains("anchorPid=3314061462", line);
+            Assert.Contains("targetUT=178.00", line);
+            Assert.Contains("gap=12.35s", line);
+        }
+
+        [Fact]
+        public void PreReFlyAnchorTrajectory_CaptureCopiesMutableTrajectoryLists()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "booster",
+                VesselPersistentId = 2820240741u,
+                VesselName = "Kerbal X Probe",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0 },
+                        },
+                    },
+                },
+            };
+
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+            rec.Points.Clear();
+            rec.TrackSections[0].frames.Clear();
+
+            var frozen = rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1");
+
+            Assert.NotNull(frozen);
+            Assert.Equal("booster", frozen.RecordingId);
+            Assert.Equal(2820240741u, frozen.VesselPersistentId);
+            Assert.Equal(2, frozen.Points.Count);
+            Assert.Single(frozen.TrackSections);
+            Assert.Single(frozen.TrackSections[0].frames);
+        }
+
+        [Fact]
+        public void ShouldUsePreReFlyAnchorTrajectory_RequiresActiveInPlaceRecording()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                ActiveReFlyRecordingId = "booster",
+                OriginChildRecordingId = "booster",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "booster",
+                VesselPersistentId = 2820240741u,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                },
+            };
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+
+            Assert.True(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "upper-stage", marker));
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "booster", marker));
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 999u, "upper-stage", marker));
+
+            marker.ActiveReFlyRecordingId = "replacement";
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "upper-stage", marker));
+        }
+
+        [Fact]
+        public void ShouldSkipMutableActiveReFlyAnchorCandidate_OnlyDuringBypass()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "booster",
+            };
+            var active = new Recording { RecordingId = "booster" };
+            var unrelated = new Recording { RecordingId = "upper-stage" };
+
+            Assert.True(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                active, marker, bypassLiveAnchorForActiveReFly: true));
+            Assert.False(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                active, marker, bypassLiveAnchorForActiveReFly: false));
+            Assert.False(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                unrelated, marker, bypassLiveAnchorForActiveReFly: true));
         }
 
         #endregion

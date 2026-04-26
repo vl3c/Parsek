@@ -393,7 +393,7 @@ namespace Parsek.Tests
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -569,6 +569,8 @@ namespace Parsek.Tests
             Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
             // Origin's TreeId is reused on the marker.
             Assert.Equal("tree_origin", marker.TreeId);
+            Assert.Equal("sess_inplace", origin.CreatingSessionId);
+            Assert.Equal(rp.RewindPointId, origin.ProvisionalForRpId);
 
             // INFO log advertises the in-place continuation diagnosis so a
             // future regression that loses the detection is diagnosable.
@@ -614,6 +616,11 @@ namespace Parsek.Tests
                 VesselPersistentId = kOriginPid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            origin.PreReFlyAnchorSessionId = "prior_session";
+            origin.PreReFlyAnchorPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 12.0 },
+            };
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
@@ -681,14 +688,21 @@ namespace Parsek.Tests
                 TreeId = "tree_origin",
                 MergeState = MergeState.Immutable,
                 VesselPersistentId = kOriginPid,
+                CreatingSessionId = "prior_session",
+                ProvisionalForRpId = "prior_rp",
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            origin.PreReFlyAnchorSessionId = "prior_session";
+            origin.PreReFlyAnchorPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 12.0 },
+            };
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -703,6 +717,73 @@ namespace Parsek.Tests
             Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
             // Marker is cleared (rollback).
             Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+            Recording storedOrigin = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null && candidate.RecordingId == slot.OriginChildRecordingId)
+                {
+                    storedOrigin = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(storedOrigin);
+            Assert.Equal("prior_session", storedOrigin.PreReFlyAnchorSessionId);
+            Assert.Single(storedOrigin.PreReFlyAnchorPoints);
+            Assert.Equal(12.0, storedOrigin.PreReFlyAnchorPoints[0].ut);
+            Assert.Equal("prior_session", storedOrigin.CreatingSessionId);
+            Assert.Equal("prior_rp", storedOrigin.ProvisionalForRpId);
+        }
+
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_CheckpointBBeforeMarker_RollsBackOriginTagging()
+        {
+            const uint kOriginPid = 8888u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+                CreatingSessionId = "prior_session",
+                ProvisionalForRpId = "prior_rp",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            origin.PreReFlyAnchorSessionId = "prior_anchor_session";
+            origin.PreReFlyAnchorPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 12.0 },
+            };
+
+            RewindInvoker.CheckpointHookForTesting = tag =>
+            {
+                if (tag == "CheckpointB:BeforeMarker")
+                    throw new InvalidOperationException("simulated marker write failure");
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                RewindInvoker.AtomicMarkerWrite(
+                    rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_marker_fail");
+            });
+
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Same(origin, RecordingStore.CommittedRecordings[0]);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("prior_anchor_session", origin.PreReFlyAnchorSessionId);
+            Assert.Single(origin.PreReFlyAnchorPoints);
+            Assert.Equal(12.0, origin.PreReFlyAnchorPoints[0].ut);
+            Assert.Equal("prior_session", origin.CreatingSessionId);
+            Assert.Equal("prior_rp", origin.ProvisionalForRpId);
         }
     }
 }

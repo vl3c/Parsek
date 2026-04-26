@@ -803,6 +803,19 @@ namespace Parsek.Tests
                 l.Contains("Lander"));
         }
 
+        [Fact]
+        public void LogZoneTransition_UnresolvedDistance_EmitsUnresolvedInsteadOfMaxValue()
+        {
+            RenderingZoneManager.LogZoneTransition(
+                "#1 \"Relative\"", RenderingZone.Physics, RenderingZone.Beyond, double.MaxValue);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Zone]") &&
+                l.Contains("Physics->Beyond") &&
+                l.Contains("dist=unresolved") &&
+                !l.Contains("179769313486232"));
+        }
+
         #endregion
 
         #region Looped Ghost Spawn Decision Logging

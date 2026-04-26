@@ -938,7 +938,7 @@ namespace Parsek
             {
                 ghostActive = HandleHiddenGhostVisualState(
                     i, traj, state, ctx.currentUT, ctx.warpRate, renderDistance, overlapGhost: false,
-                    hiddenReason: $"hidden by distance LOD at {renderDistance:F0}m");
+                    hiddenReason: $"hidden by distance LOD at {FormatPlaybackDistanceForLog(renderDistance)}");
                 return true;
             }
 
@@ -1448,7 +1448,7 @@ namespace Parsek
             {
                 ghostActive = HandleHiddenGhostVisualState(
                     index, traj, state, loopUT, ctx.warpRate, loopZoneDistance, overlapGhost: false,
-                    hiddenReason: $"loop hidden by distance LOD at {loopZoneDistance:F0}m");
+                    hiddenReason: $"loop hidden by distance LOD at {FormatPlaybackDistanceForLog(loopZoneDistance)}");
                 return;
             }
 
@@ -1655,7 +1655,7 @@ namespace Parsek
                     {
                         HandleHiddenGhostVisualState(
                             index, traj, primaryState, primaryLoopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
-                            hiddenReason: $"overlap primary hidden by distance LOD at {primaryDistance:F0}m");
+                            hiddenReason: $"overlap primary hidden by distance LOD at {FormatPlaybackDistanceForLog(primaryDistance)}");
                     }
                 }
                 else
@@ -1837,7 +1837,7 @@ namespace Parsek
                 {
                     HandleHiddenGhostVisualState(
                         index, traj, ovState, loopUT, ctx.warpRate, overlapDistance, overlapGhost: true,
-                        hiddenReason: $"overlap hidden by distance LOD at {overlapDistance:F0}m");
+                        hiddenReason: $"overlap hidden by distance LOD at {FormatPlaybackDistanceForLog(overlapDistance)}");
                     continue;
                 }
 
@@ -2353,6 +2353,11 @@ namespace Parsek
             state.lastRenderDistance = renderDistance;
         }
 
+        internal static string FormatPlaybackDistanceForLog(double distanceMeters)
+        {
+            return RenderingZoneManager.FormatDistanceForLog(distanceMeters);
+        }
+
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
         internal static bool IsAnyWarpActiveFromGlobals()
         {
@@ -2380,6 +2385,12 @@ namespace Parsek
         {
             if (state == null || state.ghost == null) return;
             if (state.reentryFxInfo == null && !state.reentryFxPendingBuild) return;
+            if (ShouldSuppressLazyReentryUntilPlaybackSync(state))
+            {
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-wait-sync-{recIdx}",
+                    $"Lazy reentry build deferred for ghost #{recIdx} \"{vesselName}\" until first playback sync", 5.0);
+                return;
+            }
 
             var info = state.reentryFxInfo;
             if (info != null && GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
@@ -2495,6 +2506,15 @@ namespace Parsek
 
             DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
             info.lastIntensity = smoothedIntensity;
+        }
+
+        internal static bool ShouldSuppressLazyReentryUntilPlaybackSync(GhostPlaybackState state)
+        {
+            return state != null
+                && state.reentryFxPendingBuild
+                && state.reentryFxInfo == null
+                && state.deferVisibilityUntilPlaybackSync
+                && state.appearanceCount == 0;
         }
 
         /// <summary>
@@ -3762,11 +3782,20 @@ namespace Parsek
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             // Hidden priming is allowed to apply persistent part state, but it
             // must not emit transient FX before the playback transform is visible.
+            var visualPolicy = HiddenPrimeVisualPolicy();
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
-                skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);
+                visualPolicy.skipPartEvents,
+                visualPolicy.suppressVisualFx,
+                visualPolicy.allowTransientEffects);
             if (state.ghost.activeSelf)
                 state.ghost.SetActive(false);
             ResetGhostAppearanceTracking(state);
+        }
+
+        internal static (bool skipPartEvents, bool suppressVisualFx, bool allowTransientEffects)
+            HiddenPrimeVisualPolicy()
+        {
+            return (false, true, false);
         }
 
         private void SynchronizeLoadedGhostForWatch(
@@ -4195,7 +4224,7 @@ namespace Parsek
                 $"firstFrameClamped={(firstFrameClamped ? "T" : "F")} " +
                 $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"zone={state.currentZone} dist={state.lastDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"zone={state.currentZone} dist={FormatPlaybackDistanceForLog(state.lastDistance)} " +
                 $"{activeSectionSummary} " +
                 $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +
                 $"boundsCenter={FormatVector3d(boundsCenter)} bounds-root={FormatVector3d(boundsRootDelta)} " +

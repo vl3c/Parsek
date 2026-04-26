@@ -443,6 +443,14 @@ namespace Parsek
                         scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
                     Recording supersedeTargetRec =
                         EffectiveState.ResolveChainTerminalRecording(provisional);
+                    Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
+                        provisional, marker.SessionId);
+                    if (sessionOwnedTip != null)
+                    {
+                        supersedeTargetRec = sessionOwnedTip;
+                    }
+                    supersedeTargetRec = EnsureInPlaceSupersedeTargetHasTerminalState(
+                        supersedeTargetRec, marker.SessionId);
                     bool resolvedToDifferentTip = supersedeTargetRec != null
                         && !object.ReferenceEquals(supersedeTargetRec, provisional)
                         && !string.Equals(supersedeTargetRec.RecordingId,
@@ -468,36 +476,14 @@ namespace Parsek
                             $"or head already carries terminal)");
                     }
 
-                    // Chain-skip set (review follow-up #2): the closure-walk
-                    // helper EnqueueChainSiblings (EffectiveState.cs:704) pulls
-                    // EVERY recording sharing TreeId+ChainId+ChainBranch with
-                    // any closure member into the suppressed subtree. For a
-                    // 3+-segment in-place chain (HEAD -> MIDDLE -> TIP, or
-                    // any chain that expands to >=3 members via the optimizer
-                    // cascade), my prior fix only added HEAD to the
-                    // extraSelfSkipRecordingIds set: AppendRelations would
-                    // then write a row old=MIDDLE new=TIP and silently
-                    // collapse MIDDLE in ERS via EffectiveRecordingId
-                    // redirect, even though MIDDLE is part of the SAME new
-                    // in-place flight. None of HEAD/MIDDLE/TIP should be
-                    // superseded by another member of the same chain.
-                    //
-                    // Build the skip set from the full chain membership using
-                    // the same TreeId+ChainId+ChainBranch predicate
-                    // EnqueueChainSiblings uses (line 722-724), reading from
-                    // RecordingStore.CommittedRecordings — the SAME source
-                    // ComputeSessionSuppressedSubtreeInternal iterates at
-                    // EffectiveState.cs:550-557 to populate `recById`. Same
-                    // scope means the skip set covers exactly the closure
-                    // entries that came from chain expansion. (RecordingStore
-                    // raw read here is covered by MergeDialog.cs's existing
-                    // Phase-8 ERS-exempt allowlist entry.) Fall back to a
-                    // single-element set when the provisional has no
-                    // ChainId (lone-origin in-place case) — the only id is
-                    // the provisional's own RecordingId, which equals the
-                    // resolved tip and is already filtered by the trivial
-                    // old==new self-link guard inside AppendRelations, so
-                    // nothing changes for that case.
+                    // Chain-skip set: protect only the in-place continuation
+                    // segments created by this Re-Fly session. A same
+                    // TreeId+ChainId+ChainBranch match alone is too broad:
+                    // original optimizer tails from the pre-Re-Fly flight can
+                    // share that identity and still need supersede rows to the
+                    // new chain tip. The in-place origin is tagged at
+                    // AtomicMarkerWrite; optimizer-created split children copy
+                    // CreatingSessionId, so session id is the ownership marker.
                     var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
                     chainSkipSet.Add(provisional.RecordingId);
                     if (supersedeTargetRec != null
@@ -516,8 +502,16 @@ namespace Parsek
                                 var cand = committedSource[i];
                                 if (cand == null) continue;
                                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
-                                // Match EnqueueChainSiblings' exact predicate:
-                                // same TreeId + ChainId + ChainBranch.
+                                if (!string.Equals(
+                                        cand.CreatingSessionId,
+                                        marker.SessionId,
+                                        System.StringComparison.Ordinal))
+                                {
+                                    continue;
+                                }
+                                // Match EnqueueChainSiblings' chain predicate
+                                // after proving this candidate belongs to the
+                                // current Re-Fly session.
                                 if (!string.Equals(cand.TreeId,
                                     provisional.TreeId, System.StringComparison.Ordinal))
                                     continue;
@@ -562,11 +556,23 @@ namespace Parsek
                     // (and bumps again), and logs the End reason=merged line.
                     // That covers all the in-memory scenario mutations that a
                     // normal RunMerge does around AppendRelations + tombstones.
-                    // Also clear CreatingSessionId / ProvisionalForRpId on the
-                    // continuation recording so it no longer looks like a
-                    // session-scoped zombie to the load-time sweep.
-                    provisional.CreatingSessionId = null;
-                    provisional.ProvisionalForRpId = null;
+                    // Also clear CreatingSessionId / ProvisionalForRpId on every
+                    // session-owned continuation segment so split children no
+                    // longer look like session-scoped zombies to load-time sweep.
+                    var committedForTransientClear = RecordingStore.CommittedRecordings;
+                    if (committedForTransientClear != null)
+                    {
+                        for (int i = 0; i < committedForTransientClear.Count; i++)
+                        {
+                            var cand = committedForTransientClear[i];
+                            if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                                continue;
+                            if (!chainSkipSet.Contains(cand.RecordingId))
+                                continue;
+                            cand.CreatingSessionId = null;
+                            cand.ProvisionalForRpId = null;
+                        }
+                    }
                     SupersedeCommit.FlipMergeStateAndClearTransient(
                         marker, provisional, scenario, preserveMarker: false);
 
@@ -880,7 +886,287 @@ namespace Parsek
                     $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
+            ApplyActiveReFlyParentChainDefaults(tree, decisions, activeReFlyTargetId);
+
             return decisions;
+        }
+
+        internal static Recording ResolveSessionOwnedChainTerminalRecording(
+            Recording provisional,
+            string sessionId)
+        {
+            if (provisional == null || string.IsNullOrEmpty(sessionId))
+                return provisional;
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return provisional;
+            }
+
+            Recording best = null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var cand = committed[i];
+                    if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                        continue;
+                    if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
+                        continue;
+                    if (cand.ChainBranch != provisional.ChainBranch)
+                        continue;
+                    if (best == null || cand.ChainIndex > best.ChainIndex)
+                        best = cand;
+                }
+            }
+
+            return best ?? provisional;
+        }
+
+        internal static Recording EnsureInPlaceSupersedeTargetHasTerminalState(
+            Recording supersedeTarget,
+            string sessionId)
+        {
+            if (supersedeTarget == null || supersedeTarget.TerminalStateValue.HasValue)
+                return supersedeTarget;
+
+            if (supersedeTarget.SceneExitSituation >= 0)
+            {
+                supersedeTarget.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState(supersedeTarget.SceneExitSituation);
+                RecordingEndpointResolver.RefreshEndpointDecision(
+                    supersedeTarget,
+                    "MergeDialog.InPlaceSupersedeTargetSceneExitRepair");
+                ParsekLog.Warn("MergeDialog",
+                    $"TryCommitReFlySupersede: repaired null terminal on in-place supersede target " +
+                    $"id={supersedeTarget.RecordingId} from SceneExitSituation={supersedeTarget.SceneExitSituation} " +
+                    $"terminal={supersedeTarget.TerminalStateValue} sess={sessionId ?? "<none>"}");
+                return supersedeTarget;
+            }
+
+            ParsekLog.Warn("MergeDialog",
+                $"TryCommitReFlySupersede: in-place supersede target " +
+                $"id={supersedeTarget.RecordingId ?? "<null>"} still has null terminal and no " +
+                $"SceneExitSituation repair source (sess={sessionId ?? "<none>"})");
+            return supersedeTarget;
+        }
+
+        private static void ApplyActiveReFlyParentChainDefaults(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            // This runs only while BuildDefaultVesselDecisions is constructing
+            // the dialog's initial defaults. It is allowed to flip a freshly
+            // inferred spawnable parent-chain tip to ghost-only; there is no
+            // user-edited decision state yet.
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return;
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return;
+
+            int forced = 0;
+            int alreadyGhostOnly = 0;
+            int missing = 0;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId)) continue;
+
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                {
+                    missing++;
+                    continue;
+                }
+
+                bool priorDecision;
+                bool hadPriorDecision = decisions.TryGetValue(tipId, out priorDecision);
+                if (hadPriorDecision && !priorDecision)
+                {
+                    alreadyGhostOnly++;
+                    continue;
+                }
+
+                decisions[tipId] = false;
+                forced++;
+                ParsekLog.Info("MergeDialog",
+                    $"BuildDefaultVesselDecisions: defaulting active Re-Fly parent-chain " +
+                    $"terminal tip to ghost-only id='{tipId}' vessel='{rec.VesselName}' " +
+                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                    $"hasSnapshot={rec.VesselSnapshot != null} " +
+                    $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                    $"activeTarget='{activeReFlyTargetId}'");
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
+                $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
+                $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
+                $"activeTarget='{activeReFlyTargetId}'");
+        }
+
+        internal static HashSet<string> CollectActiveReFlyParentChainTerminalTipIds(
+            RecordingTree tree,
+            string activeReFlyTargetId)
+        {
+            var result = new HashSet<string>(System.StringComparer.Ordinal);
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return result;
+
+            Recording activeRec;
+            if (!tree.Recordings.TryGetValue(activeReFlyTargetId, out activeRec) || activeRec == null)
+                return result;
+
+            HashSet<string> activeChainIds = CollectSameChainRecordingIds(tree, activeRec);
+            var parentBranchPointIds = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (string activeChainId in activeChainIds)
+            {
+                Recording chainMember;
+                if (string.IsNullOrEmpty(activeChainId)
+                    || !tree.Recordings.TryGetValue(activeChainId, out chainMember)
+                    || chainMember == null)
+                    continue;
+                if (!string.IsNullOrEmpty(chainMember.ParentBranchPointId))
+                    parentBranchPointIds.Add(chainMember.ParentBranchPointId);
+            }
+
+            foreach (string parentBpId in parentBranchPointIds)
+            {
+                BranchPoint bp = FindBranchPoint(tree, parentBpId);
+                if (bp == null)
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: parent bp '{parentBpId}' missing " +
+                        $"for activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
+                if (bp.ParentRecordingIds == null || bp.ParentRecordingIds.Count != 1)
+                {
+                    int parentCount = bp.ParentRecordingIds != null ? bp.ParentRecordingIds.Count : 0;
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip bp={bp.Id} " +
+                        $"parentCount={parentCount} activeTarget='{activeReFlyTargetId}' " +
+                        "(not a single-parent old-future branch)");
+                    continue;
+                }
+
+                string parentId = bp.ParentRecordingIds[0];
+                if (string.IsNullOrEmpty(parentId) || activeChainIds.Contains(parentId))
+                    continue;
+
+                Recording parentRec;
+                if (!tree.Recordings.TryGetValue(parentId, out parentRec) || parentRec == null)
+                    continue;
+
+                Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(parentRec, tree);
+                if (terminalRec == null || string.IsNullOrEmpty(terminalRec.RecordingId))
+                    continue;
+
+                if (activeChainIds.Contains(terminalRec.RecordingId)
+                    || string.Equals(terminalRec.RecordingId, activeReFlyTargetId,
+                        System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (terminalRec.VesselPersistentId != 0u
+                    && activeRec.VesselPersistentId != 0u
+                    && terminalRec.VesselPersistentId == activeRec.VesselPersistentId)
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip parent terminal " +
+                        $"id='{terminalRec.RecordingId}' because it shares vessel pid " +
+                        $"{terminalRec.VesselPersistentId} with activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
+                if (!IsTerminalLinkedToParentBranch(bp, parentRec, terminalRec))
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"CollectActiveReFlyParentChainTerminalTipIds: skip parent terminal " +
+                        $"id='{terminalRec.RecordingId}' for bp={bp.Id}; terminal is not linked " +
+                        "to the active target's parent branch");
+                    continue;
+                }
+
+                result.Add(terminalRec.RecordingId);
+            }
+
+            return result;
+        }
+
+        private static HashSet<string> CollectSameChainRecordingIds(
+            RecordingTree tree,
+            Recording rec)
+        {
+            var result = new HashSet<string>(System.StringComparer.Ordinal);
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return result;
+
+            result.Add(rec.RecordingId);
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(rec.ChainId))
+                return result;
+
+            foreach (var cand in tree.Recordings.Values)
+            {
+                if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.ChainId, rec.ChainId, System.StringComparison.Ordinal)) continue;
+                if (cand.ChainBranch != rec.ChainBranch) continue;
+                if (!string.IsNullOrEmpty(rec.TreeId)
+                    && !string.Equals(cand.TreeId, rec.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                result.Add(cand.RecordingId);
+            }
+
+            return result;
+        }
+
+        private static bool IsTerminalLinkedToParentBranch(
+            BranchPoint bp,
+            Recording parentRec,
+            Recording terminalRec)
+        {
+            if (bp == null || parentRec == null || terminalRec == null)
+                return false;
+            if (object.ReferenceEquals(parentRec, terminalRec))
+                return true;
+            if (string.Equals(parentRec.ChildBranchPointId, bp.Id, System.StringComparison.Ordinal))
+                return true;
+            if (string.Equals(terminalRec.ChildBranchPointId, bp.Id, System.StringComparison.Ordinal))
+                return true;
+            if (bp.ParentRecordingIds != null)
+            {
+                for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                {
+                    if (string.Equals(bp.ParentRecordingIds[i], terminalRec.RecordingId,
+                        System.StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static BranchPoint FindBranchPoint(RecordingTree tree, string branchPointId)
+        {
+            if (tree == null || tree.BranchPoints == null || string.IsNullOrEmpty(branchPointId))
+                return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, branchPointId, System.StringComparison.Ordinal))
+                    return bp;
+            }
+            return null;
         }
 
         /// <summary>

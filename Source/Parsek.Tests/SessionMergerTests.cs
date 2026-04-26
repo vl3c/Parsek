@@ -287,6 +287,41 @@ namespace Parsek.Tests
             Assert.Equal(TrackSectionSource.Background, result[2].source);
         }
 
+        [Fact]
+        public void ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames()
+        {
+            TrackSection background = MakeSection(
+                0, 200, TrackSectionSource.Background,
+                referenceFrame: ReferenceFrame.Relative);
+            background.anchorVesselId = 1234u;
+            background.frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 50, latitude = 1, longitude = 0, altitude = 0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 150, latitude = 2, longitude = 0, altitude = 0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 200, latitude = 3, longitude = 0, altitude = 0, bodyName = "Kerbin" }
+            };
+            background.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0, latitude = -0.1, longitude = -74.6, altitude = 70000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 50, latitude = -0.2, longitude = -74.5, altitude = 71000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 150, latitude = -0.3, longitude = -74.4, altitude = 72000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 200, latitude = -0.4, longitude = -74.3, altitude = 73000, bodyName = "Kerbin" }
+            };
+
+            var sections = new List<TrackSection>
+            {
+                background,
+                MakeSection(50, 150, TrackSectionSource.Active)
+            };
+
+            var result = SessionMerger.ResolveOverlaps(sections);
+
+            Assert.Equal(3, result.Count);
+            Assert.Equal(new[] { 0.0, 50.0 }, result[0].absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 150.0, 200.0 }, result[2].absoluteFrames.Select(p => p.ut).ToArray());
+        }
+
         #endregion
 
         #region ResolveOverlaps — gap between sections

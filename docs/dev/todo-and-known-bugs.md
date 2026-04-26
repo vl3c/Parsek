@@ -169,6 +169,8 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 31. **Re-Fly in-place continuation merge skipped supersede rows for sibling/parent recordings; a destroyed-final-state sibling like "Kerbal X Probe" stayed visible after merge.** ~~done~~ — Reproduced from `logs/2026-04-26_1025_3bugs-refly/KSP.log` (`SessionSuppressedSubtree: 3 recording(s) closed from origin=89eff843...`, then `TryCommitReFlySupersede: in-place continuation detected (provisional == origin == 89eff843...); skipping supersede merge (no self-supersede row)`). `MergeDialog.TryCommitReFlySupersede`'s in-place continuation branch (provisional `RecordingId == origin id`) called `SupersedeCommit.FlipMergeStateAndClearTransient` but completely skipped `SupersedeCommit.AppendRelations`, so the 3-recording closure (origin + 2 chain siblings, including the destroyed Kerbal X Probe segment) wrote zero supersede rows. With no supersede rows, `EffectiveState.IsVisible` returned true for the destroyed sibling and it stayed in the recordings list. First-cut fix in `MergeDialog.cs` called `SupersedeCommit.AppendRelations` on the in-place path before `FlipMergeStateAndClearTransient`, and re-introduced the `old==new` self-link guard inside `SupersedeCommit.AppendRelations` so the trivial origin-self entry is filtered without producing a 1-node `EffectiveRecordingId` cycle. The journaled merge (`MergeJournalOrchestrator.RunMerge`) is still skipped; only `AppendRelations` runs to write rows for sibling/parent ids in the closure. The existing `RelationExists` duplicate guard makes the call resume-safe. **Review follow-up (optimizer-split chain-tip resolve):** `MergeDialog.MergeCommit` runs `RecordingStore.RunOptimizationPass()` BEFORE `TryCommitReFlySupersede`. When the in-place continuation crossed an environment boundary (atmo↔exo), `RecordingOptimizer.SplitAtSection` (`Source/Parsek/RecordingOptimizer.cs:513-514` and `:536-537`) MOVES `VesselSnapshot` and `TerminalStateValue` from the original head to a freshly-allocated chain TIP, leaving the head with `TerminalStateValue == null`. The first-cut fix passed the head straight to `AppendRelations`, which then failed `ValidateSupersedeTarget`'s `null TerminalState` clause — throw in DEBUG, silent empty subtree in RELEASE — and the sibling supersede rows the in-place fix needs were never written. Resolved in the in-place branch of `TryCommitReFlySupersede` by walking `EffectiveState.ResolveChainTerminalRecording(provisional)` to find the chain tip (same helper `EffectiveState.IsUnfinishedFlight` already uses for post-split terminal lookup) and passing the resolved tip to `AppendRelations` as the validated supersede target; a new optional `extraSelfSkipRecordingIds` parameter on a 4-arg `SupersedeCommit.AppendRelations` overload carries the **full chain membership of the in-place continuation** so no chain segment of the new flight ends up with a row pointing at another member (every member is part of the new flight; superseding any of them would collapse ERS via `EffectiveRecordingId` redirect). The skip set is built by enumerating `RecordingStore.CommittedRecordings` (the same source the closure walk reads at `EffectiveState.cs:550`) and matching `TreeId + ChainId + ChainBranch` against the provisional — the exact predicate `EnqueueChainSiblings` uses at `EffectiveState.cs:722-724` — so the skip set's scope is coherent with the closure walk. Lone-origin in-place merges (no `ChainId` set) degenerate to a single-element skip set with the provisional's own id, which is already filtered by the trivial `old==new` self-link guard inside `AppendRelations`. Same-`ChainId`-but-different-`ChainBranch` siblings (e.g. legacy / clone / import shapes) are correctly excluded from the skip set and still get supersede rows when they enter the closure via the BP walk. **Review follow-up #2 (full-chain skip set):** the first cut of this fix added only the head's id to the skip set, which left a 3+-segment in-place chain (HEAD -> MIDDLE -> TIP) writing a row `old=MIDDLE new=TIP` and silently collapsing MIDDLE in ERS — replaced with the full-chain enumeration described above. The legacy 3-arg `AppendRelations` overload (used by `SupersedeCommit.CommitSupersede` and `MergeJournalOrchestrator.RunMerge`) is unchanged. Tests `TryCommitReFlySupersede_InPlaceContinuation_AppendsSupersedeRowsForSiblings` (rewritten so the head has no terminal post-split and the tip carries the terminal payload, mirroring the post-`RunOptimizationPass` reality), `TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly`, `AppendRelations_SelfLinkSkipped_OtherSubtreeIdsStillWriteRows`, `TryCommitReFlySupersede_InPlaceContinuation_OptimizerSplit_ResolvesChainTipAndWritesSiblingRows` (full dialog path with the optimizer-split topology and a prior-attempt sibling whose row IS the one we care about), `AppendRelations_ExtraSelfSkip_FiltersHeadWhileTipIsTheTarget` (direct `AppendRelations` API test independent of dialog wiring), `AppendRelations_LegacyThreeArgOverload_NoExtraSkip_BehavesAsBefore` (regression-pin so the journaled merge path is not silently affected), `TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember` (HEAD -> MIDDLE -> TIP regression-pin for review follow-up #2), `TryCommitReFlySupersede_InPlaceContinuation_SameChainIdDifferentBranch_StillSuperseded` (same-`ChainId`/different-`ChainBranch` sibling stays supersedable), and `TryCommitReFlySupersede_InPlaceContinuation_NoChain_ChainSkipSetLogsSizeOne` (lone-origin pin) in `SupersedeCommitTests.cs`. New `[Supersede]` `AppendRelations: skip self-link` and `AppendRelations: skip extra-self-link` Verbose lines plus `skippedSelfLink=N skippedExtraSelfLink=N` aggregate, and `[MergeDialog]` `in-place continuation supersede append wrote N relation(s)`, `resolved chain tip for supersede target: head=... -> tip=...`, and `chain-skip-set: chainId=... chainBranch=... treeId=... members=[...] head=... tip=... size=N` make the new path auditable from `KSP.log`. The same optimizer-split-vs-validation interaction theoretically affects the journaled merge path (`MergeJournalOrchestrator.RunMerge` also calls `AppendRelations` post-`RunOptimizationPass`); not yet observed in playtests because the journaled provisional rarely crosses an env boundary in the brief re-fly window before merge — flagged in this entry for future hardening if it ever bites. Items 30 + 31 reproduced from the same `logs/2026-04-26_1025_3bugs-refly` playtest.
 
+**Review follow-up #3 (non-split null terminal):** the optimizer-tip resolve above only helps chains with a HEAD -> TIP split. The `logs/2026-04-26_1923_refly-upper-stage-still-broken` shape also showed a size=1 chain-skip-set where `provisional == head == tip`; if that recording's `TerminalStateValue` is null, `AppendRelations` still fails the same `null TerminalState` invariant and there is no split tip to rescue it. Fixed by repairing an in-place supersede target with missing terminal state from its captured `SceneExitSituation` before calling `AppendRelations` (for the user log shape, `SPLASHED` maps back to `TerminalState.Splashed`). Regression coverage: `TryCommitReFlySupersede_InPlaceContinuation_NoSplitNullTerminal_RepairsFromSceneExitSituation`.
+
 32. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
 
 33. **Re-Fly relative-anchor/watch/reentry cascade from `logs/2026-04-26_1332_refly-bugs`.** ~~done~~ — The log showed the upper-stage recording entering a RELATIVE section anchored to the booster pid during the original flight. On booster Re-Fly, that pid resolved to the live player-controlled Re-Fly target, so the upper-stage ghost inherited the booster's current frame instead of replaying ground-relative recorded motion. After merge + rewind, the retired-anchor path hid the ghost but left stale position data that could trip the 300 km watch cutoff; the same Re-Fly load also activated reentry FX before the first playback transform, producing a one-frame particle burst at the hidden KSC-surface prime pose. Fixed by bypassing live anchors whose pid is the active Re-Fly target and reconstructing from the recorded anchor trajectory, treating unresolved relative sections as unresolved for distance math instead of falling back to stale ghost transforms, rejecting invalid watched-ghost distances for the full-fidelity override, suppressing hidden-prime visual FX until after activation/position synchronization, and broadening item 20's dead-on-arrival controlled-child skip. Targeted regression coverage: `RelativeAnchorResolutionTests`, `ZoneRenderingTests`, and `CrashCoalescerTests`.
@@ -753,6 +755,396 @@ while resolved anchors still emit exactly one retarget with the spawned
 state's `cameraPivot`.
 
 **Status:** Open until merged.
+
+---
+
+## ~~616. Re-Fly load creates a clickable GhostMap ProtoVessel for the upper-stage ghost before the relative section begins~~
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
+This is the user's "real/clickable upper-stage duplicate" report after
+choosing Fly for the booster Re-Fly, but the duplicate is not a terminal
+spawned vessel. It is the lightweight GhostMap / ProtoVessel presence used
+for map targeting and marker interaction.
+
+**Evidence:** recording `#0` / `854fdf7703a3416d8750da7bba9a26af`
+created a `Ghost: Kerbal X` ProtoVessel at `15:12:55.943`:
+
+- `KSP.log:14873`:
+  `create-state-vector-not-suppressed-during-refly ... branch=no-section ...
+  reason=not-suppressed-not-relative-frame`
+- `KSP.log:14874`:
+  `Created ghost vessel 'Ghost: Kerbal X' ghostPid=3652013656 ...`
+- `KSP.log:15103`, `15116`, `15129`, `15150`, `15263`, `15746`,
+  `15905`, `15929`, `15944`, and `15961` then update the same
+  `ghostPid=3652013656` through `update-state-vector ... branch=Relative
+  ... anchorPid=3314061462`, with `localOffset` growing from roughly
+  `13.2m` to `52.7m`.
+
+That is the visible/clickable duplicate tracking the live booster/probe at a
+recorded relative offset. `KSP.log:14879` shows the native orbit icon hidden
+for GhostOrbitLine's `terminal-below-atmosphere` reason (`drawIcons=NONE
+iconSuppressed=True`); that is not the Re-Fly suppression gate. The important
+point is that the ProtoVessel itself remains registered and therefore can
+still participate in click / targeting / marker behavior even when the native
+icon is hidden.
+
+**Cause:** PR #601's active-Re-Fly relative-anchor suppression is only checked
+when `GhostMapPresence.CreateGhostVesselFromStateVectors` creates a new
+ProtoVessel. In this repro, the create attempt for `#0` runs at UT `126.6`,
+before the state-vector resolver has entered a relative section, so
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` rejects suppression with
+`not-suppressed-not-relative-frame`. A few seconds later the already-created
+ProtoVessel transitions into a relative section anchored to the active Re-Fly
+target; `GhostMapPresence.UpdateGhostOrbitFromStateVectors` updates its orbit
+without re-running the active-Re-Fly suppression gate.
+
+**Relevant code:** `Source/Parsek/GhostMapPresence.cs`:
+`CreateGhostVesselFromStateVectors` runs
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` before loading the
+ProtoVessel, but `UpdateGhostOrbitFromStateVectors` resolves the same
+state-vector branch and immediately calls `orbit.UpdateFromStateVectors`
+without the matching gate.
+
+**Fix direction:** add a defense on both surfaces:
+
+- Preferred create-time guard: if an active in-place Re-Fly marker is live,
+  the victim recording is in the active target's parent/ancestor chain, and
+  any upcoming relative section in the recording would use the active target
+  as the anchor, defer or suppress GhostMap creation before the bad section is
+  reached.
+- Required update-time guard: before `UpdateGhostOrbitFromStateVectors` applies
+  a `branch=Relative` update, run the same parent-chain + active-anchor
+  predicate and remove/defer the existing GhostMap vessel when it flips true.
+  This is the safety net for already-created ProtoVessels and for any future
+  create-time lookahead miss.
+
+Tests should cover: create allowed in an absolute prefix but update suppressed
+on later relative section; create suppressed when already in the bad relative
+section; unrelated/docking relative anchors remain allowed; pending-tree search
+continues to work for in-place Re-Fly load windows.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. `GhostMapPresence` now runs an active-Re-Fly relative-section lookahead at state-vector ProtoVessel create time, so a recording created during its absolute/no-section prefix is still deferred if a later relative section would anchor to the active Re-Fly target through the parent-chain predicate. The per-frame state-vector update path now returns an update-time suppression decision when an already-created map ghost transitions into that unsafe relative branch; Flight Map View removes and re-defers the entry, while Tracking Station queues the removal until after its dictionary enumeration. Regression coverage lives in `Bug616GhostMapReFlyLookaheadTests` plus the existing GhostMap ancestor/third-facet suites.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~617. Re-Fly upper-stage live playback still intermittently takes the relative-anchor retire path despite recorded fallback succeeding nearby~~
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`.
+This is the relative-anchor lock / pop-out observed for the post-178s
+upper-stage tail recording `e77d90b616b94fe58d4c9f68f6448d35`.
+
+**Evidence:** at `KSP.log:16055-16069`, recording `#1` / `e77d90...`
+starts a relative playback section anchored to the active booster/probe:
+
+- `KSP.log:16055`: `RELATIVE playback started ... anchorPid=3314061462`
+- `KSP.log:16056`: relative offset `|offset|=55.77m ... source=recorded`
+- `KSP.log:16058`: `Ghost #1 "Kerbal X" spawned`
+- `KSP.log:16060`: `[Anchor] relative-anchor-retired:
+  callsite=InterpolateAndPositionRelative ... anchorPid=3314061462`
+- `KSP.log:16068`: the GhostMap create path for the same recording is
+  correctly suppressed with
+  `reason=refly-relative-anchor=active relationship=parent`
+- `KSP.log:16069`: a `GhostAppearance` still records the playback ghost in
+  `activeFrame=Relative` with `anchorPid=3314061462`
+
+This proves the parent-chain / active-anchor predicate is sound: GhostMap sees
+the bad relationship and suppresses it. The live playback path still reaches
+the retire/hide branch in at least one invocation. The precise mechanics need
+one more trace pass before implementation: `KSP.log:16056` logs
+`source=recorded` for the same recording and millisecond as the
+`relative-anchor-retired` WARN, and `KSP.log:16070` logs `source=recorded`
+again two seconds later.
+
+**Cause candidates:** PR #601 clearly did not make all live relative playback
+surfaces consistent, but the "missed callsite" is not proven yet. Two shapes
+fit the log:
+
+- Two distinct playback invocations reach the same
+  `InterpolateAndPositionRelative` retire branch on the same frame. One path
+  uses the recorded fallback successfully, while a loop / overlap / watch-sync
+  or other sibling surface still retires the ghost. The hardcoded
+  `callsite=InterpolateAndPositionRelative` string would make both surfaces
+  look identical in `KSP.log`.
+- A single resolver path succeeds on most frames but fails for a narrow
+  coverage gap. For example, the active Re-Fly target's pre-merge / mutating
+  anchor trajectory may not provide recorded anchor coverage for the requested
+  UT, so `TryResolveRelativeAnchorPose` falls through to the retire branch on
+  that frame.
+
+Either way, for the in-place Re-Fly case the anchor pid is not an unrelated
+missing vessel: it is the active Re-Fly target, and the victim recording is an
+upper-stage parent-chain recording. The same relationship should not lock the
+ghost to the live booster/probe or produce a stale retired-frame appearance.
+
+**Relevant code:** `Source/Parsek/ParsekFlight.cs`:
+`IGhostPositioner.InterpolateAndPositionRelative` delegates into
+`InterpolateAndPositionRelative`, whose unresolved-anchor branch emits the
+`RelativeAnchorResolution.FormatRetiredMessage(... "InterpolateAndPositionRelative")`
+warning. `GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly`
+already has the active-marker, pending-tree search, and parent-chain predicate
+needed to classify this as the bad Re-Fly relationship.
+
+**Fix direction:** first trace which surface emits the WARN and whether
+`TryResolveRelativeAnchorPose` has partial-coverage failures for active Re-Fly
+anchor recordings. Then share the PR #601 active-Re-Fly parent-chain decision
+with every live relative positioner surface. For this specific in-place Re-Fly
+relationship, do not lock the visual ghost to the live booster/probe and do
+not produce a stale appearance from the retired branch. Either reconstruct
+from the recorded anchor pose when available or suppress the visual/marker for
+the session, but the behavior must be consistent across GhostMap create/update
+and live playback. Regression coverage should pin both possible shapes:
+multiple caller surfaces through the same positioner, and recorded-anchor
+coverage gaps for the active Re-Fly target's pre-merge trajectory.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. The retire WARN was traced to partial recorded-anchor coverage in the live relative interpolation path, not to a separate third hardcoded callsite. `TryResolveRelativeAnchorPose` now explicitly selects the anchor frame source: unrelated recordings keep the fast live-anchor path, while active in-place Re-Fly parent-chain victims bypass the live active vessel, use exact recorded anchor coverage when available, and fall back to the nearest recorded absolute anchor pose before retiring. Large nearest-pose fallback gaps now emit a rate-limited `recorded-anchor-fallback-gap` WARN so visually suspicious snaps are visible in `KSP.log`. The selector is wired into the production resolver and covered by `RelativeAnchorResolutionTests`.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~618. Re-Fly merge cleanup only covers the active probe chain; optimizer-created upper-stage chain tips survive the merge~~
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This is the
+"old booster recordings are not cleared correctly after merge" report and is
+independent of the PR #601 relative-anchor wiring bugs.
+
+**Evidence:** the original post-merge optimizer split the root upper-stage
+recording:
+
+- `KSP.log:13526`: `SplitAtSection: split
+  854fdf7703a3416d8750da7bba9a26af at UT=178.0`
+- `KSP.log:13527`: branch point parent updated from `854fdf...` to
+  `e77d90b616b94fe58d4c9f68f6448d35`
+- `KSP.log:13529`: split recorded as `'atmo' [8..178] + 'exo' [178..16743]`
+
+During the later in-place Re-Fly merge, supersede/cleanup only considered the
+probe chain:
+
+- `KSP.log:18876`: in-place continuation branch starts for
+  `b5c29201864344b7af4db82f6cc1897d`
+- `KSP.log:18877`: target resolves from probe-chain head `b5c292...` to tip
+  `7e0f795600c34137a763017caefd3da4`
+- `KSP.log:18878`: `chain-skip-set` contains only
+  `[b5c292...,7e0f795...,672978...,934879...]`
+- `KSP.log:18881`: `Added 0 supersede relations for subtree rooted at
+  b5c292...`
+
+The upper-stage chain `c36da010...` (`854fdf...` + `e77d90...`) is never named
+in the merge supersede set. After merge, `KSP.log:21382` and `21392` still
+resolve the root and the `e77d90...` tip as not-crashed/orbiting, and the
+timeline includes `Spawn #10 'Kerbal X'` from `e77d90...` at `KSP.log:21405`.
+
+**Cause:** the in-place merge/supersede flow starts from the active Re-Fly
+origin (`b5c292...`) and expands that recording's chain siblings. That is
+correct for cleaning the prior probe attempt, but it does not also cover the
+parent upper-stage chain that was split by the optimizer and remains attached
+to the branch point as the ancestor of the active Re-Fly target. The merge
+dialog and supersede code also mix topology leaf-ness with chain-terminal
+semantics: `BuildDefaultVesselDecisions` can log `854fdf...` as a leaf even
+though the effective terminal chain tip is `e77d90...`.
+
+**Product/semantics note:** the upper-stage chain was created during
+the original flight before any Re-Fly. There are two plausible intents:
+
+- Treat the Re-Fly merge as replacing the whole stale future of this branch,
+  so ancestor chains that were never separately confirmed should default to
+  ghost-only or superseded cleanup.
+- Treat the Re-Fly as an in-place continuation of one specific probe recording,
+  preserving parent/ancestor flight history unless the user explicitly chooses
+  otherwise.
+
+The implemented fix takes the conservative interpretation: it does not add
+unconditional destructive ancestor supersede relations. Instead, it changes the
+merge dialog defaults so directly connected single-parent parent-chain terminal
+tips that represent stale old-future materialization default to ghost-only while
+the active in-place Re-Fly chain remains spawnable.
+
+**Relevant code:** `MergeDialog.TryCommitReFlySupersede` builds the full-chain
+skip set from the provisional's own `TreeId + ChainId + ChainBranch`, then
+passes that target to `SupersedeCommit.AppendRelations`. That deliberately
+avoids collapsing members of the same in-place flight, but it does not add the
+ancestor/parent upper-stage chain as a cleanup candidate. `RecordingStore.RunOptimizationPass`
+can create new chain tips before `TryCommitReFlySupersede` runs, so merge
+decisions made before or without chain-tip awareness leave those new tips
+visible/spawnable.
+
+**Possible fix direction, if ancestor cleanup is confirmed:** teach the
+re-fly merge cleanup to include ancestor chains that are logically superseded
+by the in-place Re-Fly, not just the active target's own chain. The expansion
+should walk from the active origin through the parent branch-point topology and
+chain-predecessor/tip links, then apply the right action per relationship:
+keep the active in-place chain visible as the new flight, but default stale
+parent-chain terminal tips that represent the old future to ghost-only in the
+dialog, with a user override before any history is discarded. Avoid
+unconditional supersede of ancestor chains until the UX contract is clear.
+`BuildDefaultVesselDecisions` should use effective chain terminal records when
+deciding spawnability, so an optimizer-created tip like `e77d90...` cannot
+evade the ghost-only decision through a head/tip mismatch.
+
+Regression coverage should model the exact tree: root upper-stage head
+`854fdf...`, optimizer tip `e77d90...`, branch point to active probe
+`b5c292...`, and probe chain tips `672978...` / `7e0f795...` /
+`934879...`. Expected outcome: the active probe chain remains the new in-place
+flight; stale upper-stage parent-chain tips do not stay as visible/spawnable
+recordings after the merge.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. `EffectiveState.ResolveChainTerminalRecording` now accepts pending-tree context, and `MergeDialog.BuildDefaultVesselDecisions` applies an active-Re-Fly parent-chain pass that resolves optimizer-created chain tips such as `854fdf... -> e77d90...` before deciding spawnability. The pass only affects directly connected single-parent ancestor-chain terminal tips and leaves multi-parent/destructive cleanup semantics alone. Regression coverage: `Bug618ReFlyMergeParentChainTipTests`.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~619. Postmerge Re-Fly log follow-ups: pre-pose ReentryFx, unresolved-distance formatting, and delayed phantom cleanup~~
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. These are
+secondary findings from the same investigation; they are not the main Bug A/B/C
+root causes but should be tracked so they are not mistaken for fixed behavior.
+
+**Aero / Reentry FX pre-pose:** `KSP.log:14573` shows the initial
+`recording-start-snapshot` build path, and `KSP.log:14862` activates reentry
+FX for ghost `#0 "Kerbal X"` at `alt=0m` before the playback pose has settled.
+The existing `suppressVisualFx` fixes cover priming/reposition paths such as
+`PrimeLoadedGhostForPlaybackUT`, but this snapshot-spawn path still lets
+`UpdateReentryFx` lazily build and activate FX at the hidden surface prime
+pose. Fix direction: carry the same hidden-prime / not-yet-positioned visual-FX
+suppression into the recording-start-snapshot spawn path.
+
+**Unresolved relative distance log:** `KSP.log:16071` logs a zone transition
+with `dist=179769313486232...m`, which is `double.MaxValue` formatted as a
+literal distance. `ParsekFlight.ResolveUnresolvedRelativeSectionDistanceFallback`
+intentionally returns `double.MaxValue` for unresolved relative sections, but
+the zone-transition log should render that state as `unresolved` rather than a
+physically meaningful distance. This is downstream of item 617's retire path;
+fixing 617 should make it rarer, but the formatter should still be defensive.
+
+**Phantom orbiting cleanup is late:** after the re-fly merge, a phantom
+orbiting `Kerbal X` survived into the next rewind staging save. `KSP.log:19138`
+strips one `Kerbal X` by name, and `KSP.log:19217` strips an orphaned orbiting
+`Kerbal X` from `flightState`. That cleanup path works as a later quickload /
+rewind defense, but merge-time cleanup should not rely on a subsequent rewind
+to remove the artifact. This is likely downstream of item 618's stale
+upper-stage chain-tip survival. If item 618 is deferred, keep this as a
+defense-in-depth cleanup gap.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. The actionable log follow-ups are covered by the same post-merge Re-Fly pass: lazy reentry FX pending builds now wait until the fresh recording-start-snapshot ghost has completed its first playback sync instead of building from the hidden prime pose, and `RenderingZoneManager` formats unresolved/invalid distances as `unresolved`. The late phantom orbiting cleanup symptom is addressed by item 618's parent-chain terminal-tip ghost-only default, which prevents the stale optimizer-created upper-stage tip from remaining a spawnable merge default.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~620. Landed probe terminal spawn can produce a NaN orbit and enter a spawn-death retry loop~~
+
+**Source:** `logs/2026-04-26_1522_refly-1332-postmerge/KSP.log`. This was first
+noticed during the same postmerge Re-Fly investigation, but it is a separate
+snapshot / spawn-integrity bug rather than a relative-anchor issue.
+
+**Evidence:** later playback of `#9 "Kerbal X Probe"` reaches its landed
+terminal materialization and immediately dies:
+
+- `KSP.log:21340-21345`: playback completes, watch exits, and Parsek queues a
+  warp-deferred spawn for `#9 "Kerbal X Probe"`.
+- `KSP.log:21349`: collision bounds falls back because the spawn snapshot has
+  `no PART subnodes`.
+- `KSP.log:21354-21360`: Parsek respawns the vessel as `LANDED`.
+- `KSP.log:21365-21374`: KSP reports `M : Infinity`, `Radius: NaN`,
+  `vel: [NaN, NaN, NaN]`, then `[OrbitDriver Warning!]: Kerbal X Probe had a
+  NaN Orbit and was removed.`
+- `KSP.log:21375-21378`: Parsek detects the spawn death and resets the policy
+  for another deferred spawn.
+
+**Cause hypothesis:** the terminal landed snapshot is structurally incomplete
+or corrupted for KSP load purposes. The missing `PART` subnodes already prove
+the snapshot is not a normal loadable vessel tree, and KSP's NaN orbit removal
+suggests the landed/orbit metadata written into the ProtoVessel is invalid or
+not sufficiently normalized for a landed terminal spawn. The retry policy then
+treats the immediate removal as a spawn-death retryable failure, which can
+produce repeated respawn attempts instead of quarantining the bad snapshot.
+
+**Fix direction:** investigate the snapshot source for recording
+`7e0f795600c34137a763017caefd3da4` / `#9` and the landed spawn path in
+`VesselSpawner`. Add a validation gate before terminal materialization:
+snapshots with no `PART` subnodes or non-finite orbit/surface metadata should
+not be loaded into KSP as real vessels. They should either remain ghost-only
+with a clear WARN or be repaired from a valid terminal/live snapshot before
+spawn. The spawn-death retry loop should also cap or permanently abandon
+snapshots that KSP removes for NaN orbit immediately after load, so one corrupt
+terminal cannot churn indefinitely.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. Terminal materialization now validates snapshots before loading them into KSP. Snapshots with no `PART` subnodes, non-finite surface/orbit metadata, invalid body references, or unrecoverable body/orbit provenance are rejected with a clear materialization reason and marked `SpawnAbandoned`/ghost-only instead of being retried until KSP removes them for NaN orbit. The guard covers the main flight respawn path, `SpawnAtPosition`, KSC fallback spawning, and chain-tip fallback spawning. Regression coverage lives in `SpawnSafetyNetTests`, `SpawnAuditFollowupTests`, `VesselGhosterTests`, and spawn collision wiring tests.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~621. Re-Fly parent-chain relative ghosts can use the mutated active recording as their "recorded" anchor~~
+
+**Source:** `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log`.
+
+**Evidence:** the booster/probe snapshots do not contain upper-stage parts, so
+the observed upper-stage double is not snapshot contamination. The upper stage
+recording is a separate `Kerbal X` parent-chain recording whose relative
+sections anchor to the booster/probe PID. During in-place Re-Fly, the recorded
+anchor resolver could select the active Re-Fly recording after it had been
+mutated by the new flight, so `source=recorded` still meant "the new booster
+trajectory" rather than "the pre-Re-Fly booster trajectory." That made the
+upper-stage ghost replay as a constant recorded offset from the live/new
+booster path, producing the inaccurate trajectory the playtest reported.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. In-place Re-Fly invocation now
+freezes the active recording's pre-Re-Fly trajectory payload. Parent-chain
+relative-anchor playback prefers that frozen copy whenever it bypasses the live
+active Re-Fly vessel, and never treats the live-mutating active recording itself
+as the recorded anchor source for another recording.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~622. Re-Fly merge skips stale original booster exo tails as if they were new in-place chain members~~
+
+**Source:** `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log`.
+
+**Evidence:** after booster Re-Fly, stale original exo segment
+`a676f02df8fb4ad8b098e6a9c00ea37e` remained in the committed tree with no
+supersede relation. The merge resolved the new in-place chain tip correctly
+(`b2fd292a... -> 1e0e0eae...`) but built `chain-skip-set` from every recording
+with the same `TreeId + ChainId + ChainBranch`, which included stale
+`a676...` alongside new Re-Fly split segments `f594...` and `1e0...`.
+`AppendRelations` therefore skipped the exact required relation
+`old=a676... new=1e0...` as an extra self-link and wrote zero supersedes.
+
+**Additional topology issue:** the original optimizer split also rewrote the
+upper-stage branch point at UT `116.711` to parent recording `44b89...`, whose
+recording starts at UT `170.561`. That stale parent pointer can distort
+parent-chain walks after atmo/exo splitting.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. In-place Re-Fly origins are
+tagged with the active session id, optimizer split children inherit that tag,
+and merge-time self-skip only protects session-owned same-chain members.
+Pre-existing same-chain optimizer tails are now superseded to the new chain tip.
+Optimizer branch-point reassignment now checks the branch point UT and only
+moves `ChildBranchPointId` / `ParentRecordingIds` to the second half when the
+branch belongs to that half's time range.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
+## ~~623. Parent-chain upper-stage ghosts use booster-relative playback during booster Re-Fly instead of planet-relative playback~~
+
+**Source:** follow-up analysis from `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log` and user clarification on 2026-04-26: ghost playback of the upper stage during booster Re-Fly should use the absolute trajectory relative to the planet, not a relative trajectory to the booster.
+
+**Evidence:** relative mode is entered at recording time by proximity, not by Re-Fly playback intent. `FlightRecorder.UpdateAnchorDetection` selects the nearest valid loaded in-flight vessel and enters `ReferenceFrame.Relative` when it is inside the 2300m physics-bubble entry threshold, staying relative until 2500m. After staging, the upper stage and booster/probe were close, loaded, and in flight, so the upper-stage recording legitimately entered a relative section anchored to the booster/probe PID. `FlightRecorder.ApplyRelativeOffset` then overwrote the section's ordinary `TrajectoryPoint` lat/lon/alt fields with anchor-local offsets, leaving no independent planet-relative samples in the relative section payload. Later Re-Fly playback could only reconstruct through an anchor trajectory, which made the upper stage appear at a constant or inaccurate offset from the re-flown booster/probe.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. Recording format v7 adds `TrackSection.absoluteFrames`: relative sections continue storing anchor-local frames for docking/rendezvous playback, but also persist a planet-relative absolute shadow frame for each relative sample. The text and binary sidecar codecs round-trip the shadow payload, deep-copy and merge/optimizer trim paths preserve it, and active in-place Re-Fly parent-chain playback now prefers the absolute shadow path when the relative anchor is the active Re-Fly target. Old v6 relative recordings without shadow frames still fall back to the existing recorded-anchor reconstruction rather than being made unplayable.
+
+**Follow-up (2026-04-26, `logs/2026-04-26_1923_refly-upper-stage-still-broken`):** the v7 path was active (`RELATIVE absolute shadow playback`), but the first absolute-shadow frame in the relative section was later than the section start. The visual ghost therefore clamped to the first later shadow point at the moment the Re-Fly loaded, producing the user's "initially behind the booster / inaccurate" path. Fixed by seeding a relative-section boundary frame with both the anchor-local payload and the planet-relative shadow at RELATIVE entry, plus a playback bridge that uses the previous absolute section's last point for already-recorded v7 sections whose shadow starts late.
+
+**Tests:** `TrajectorySidecarBinaryTests.WriteRead_RelativeSection_PreservesAbsoluteShadowFrames`, `TrajectorySidecarBinaryTests.TryProbe_MapsVersionToEncodingAndSupport` v7 coverage, `TrajectorySidecarProbeVersionContractTests.Probe_V6SidecarV7Recording_RejectedAsStale`, `SessionMergerTests.ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames`, `RecordingOptimizerTests` coverage for boring-tail and overlapping-section shadow-frame trims, and `RelativeAnchorResolutionTests.TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary`.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
 ---
 
@@ -3325,6 +3717,8 @@ compat), `SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching`
 (union), `SuppressedSubtreeKill_RespectsProtectedPids` (`#573`
 contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 (structured log assertion)).
+
+**Follow-up (2026-04-26, `logs/2026-04-26_1923_refly-upper-stage-still-broken`):** the rewind quicksave `parsek_rw_63bd3f.sfs` contained two full `VESSEL` blocks named `Kerbal X`: an old orbiting upper-stage vessel (`persistentId=3130558916`, `lastUT=264.30`) and the launch/start vessel (`persistentId=2708531065`). The post-load supplement killed three matching `Kerbal X Debris` vessels, then explicitly warned `Strip left vessels=1 ... [Kerbal X]`, which matches the user's clickable-parts copy. Technical conclusion: a Re-Fly invocation must load a slot-local save view where the selected slot is the only real KSP vessel. Fixed by scrubbing the root-level temp SFS copy before `GamePersistence.LoadGame`, keyed by the selected slot's vessel/root-part ids and leaving the original RP save plus `persistent.sfs` untouched. The strict `PostLoadStripper` path and active-parent-chain kill-eligible name expansion remain defense-in-depth after load. Regression coverage: `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_RemovesEveryNonSelectedVessel`, `PostLoadStripperTests.StrictStrip_StripsUnmatchedVessels`, and `Bug587StripPreExistingDebrisTests.ResolveDebris_InPlaceMarker_KillsNameMatchingParentChainRec`.
 
 **Status:** CLOSED 2026-04-27.
 

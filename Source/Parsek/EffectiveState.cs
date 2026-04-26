@@ -301,28 +301,52 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal static Recording ResolveChainTerminalRecording(Recording rec)
+            => ResolveChainTerminalRecording(rec, null);
+
+        /// <summary>
+        /// Resolves the chain terminal using an optional tree context. Merge
+        /// dialogs run before the pending tree is committed, so callers there
+        /// must not depend on <see cref="RecordingStore.CommittedTrees"/>.
+        /// </summary>
+        internal static Recording ResolveChainTerminalRecording(
+            Recording rec,
+            RecordingTree treeContext)
         {
             if (rec == null) return null;
             if (string.IsNullOrEmpty(rec.ChainId)) return rec;
 
-            var trees = RecordingStore.CommittedTrees;
-            if (trees == null) return rec;
-
             RecordingTree owningTree = null;
-            for (int i = 0; i < trees.Count; i++)
+            if (treeContext != null && treeContext.Recordings != null)
             {
-                var tree = trees[i];
-                if (tree == null) continue;
-                if (!string.IsNullOrEmpty(rec.TreeId) && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
-                    continue;
-                if (tree.Recordings != null
-                    && !string.IsNullOrEmpty(rec.RecordingId)
-                    && tree.Recordings.ContainsKey(rec.RecordingId))
+                bool sameTreeId = !string.IsNullOrEmpty(rec.TreeId)
+                    && string.Equals(treeContext.Id, rec.TreeId, StringComparison.Ordinal);
+                bool containsRecording = !string.IsNullOrEmpty(rec.RecordingId)
+                    && treeContext.Recordings.ContainsKey(rec.RecordingId);
+                if (sameTreeId || containsRecording)
+                    owningTree = treeContext;
+            }
+
+            if (owningTree == null)
+            {
+                var trees = RecordingStore.CommittedTrees;
+                if (trees == null) return rec;
+
+                for (int i = 0; i < trees.Count; i++)
                 {
-                    owningTree = tree;
-                    break;
+                    var tree = trees[i];
+                    if (tree == null) continue;
+                    if (!string.IsNullOrEmpty(rec.TreeId) && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
+                        continue;
+                    if (tree.Recordings != null
+                        && !string.IsNullOrEmpty(rec.RecordingId)
+                        && tree.Recordings.ContainsKey(rec.RecordingId))
+                    {
+                        owningTree = tree;
+                        break;
+                    }
                 }
             }
+
             if (owningTree?.Recordings == null) return rec;
 
             Recording tip = rec;
