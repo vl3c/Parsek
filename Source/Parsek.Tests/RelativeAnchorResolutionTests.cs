@@ -333,6 +333,98 @@ namespace Parsek.Tests
             Assert.Contains("gap=12.35s", line);
         }
 
+        [Fact]
+        public void PreReFlyAnchorTrajectory_CaptureCopiesMutableTrajectoryLists()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "booster",
+                VesselPersistentId = 2820240741u,
+                VesselName = "Kerbal X Probe",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0 },
+                        },
+                    },
+                },
+            };
+
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+            rec.Points.Clear();
+            rec.TrackSections[0].frames.Clear();
+
+            var frozen = rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1");
+
+            Assert.NotNull(frozen);
+            Assert.Equal("booster", frozen.RecordingId);
+            Assert.Equal(2820240741u, frozen.VesselPersistentId);
+            Assert.Equal(2, frozen.Points.Count);
+            Assert.Single(frozen.TrackSections);
+            Assert.Single(frozen.TrackSections[0].frames);
+        }
+
+        [Fact]
+        public void ShouldUsePreReFlyAnchorTrajectory_RequiresActiveInPlaceRecording()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                ActiveReFlyRecordingId = "booster",
+                OriginChildRecordingId = "booster",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "booster",
+                VesselPersistentId = 2820240741u,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                },
+            };
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+
+            Assert.True(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "upper-stage", marker));
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "booster", marker));
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 999u, "upper-stage", marker));
+
+            marker.ActiveReFlyRecordingId = "replacement";
+            Assert.False(ParsekFlight.ShouldUsePreReFlyAnchorTrajectory(
+                rec, 2820240741u, "upper-stage", marker));
+        }
+
+        [Fact]
+        public void ShouldSkipMutableActiveReFlyAnchorCandidate_OnlyDuringBypass()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "booster",
+            };
+            var active = new Recording { RecordingId = "booster" };
+            var unrelated = new Recording { RecordingId = "upper-stage" };
+
+            Assert.True(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                active, marker, bypassLiveAnchorForActiveReFly: true));
+            Assert.False(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                active, marker, bypassLiveAnchorForActiveReFly: false));
+            Assert.False(ParsekFlight.ShouldSkipMutableActiveReFlyAnchorCandidate(
+                unrelated, marker, bypassLiveAnchorForActiveReFly: true));
+        }
+
         #endregion
 
         #region ReFly Log Builders

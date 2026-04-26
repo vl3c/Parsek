@@ -393,7 +393,7 @@ namespace Parsek.Tests
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -614,6 +614,11 @@ namespace Parsek.Tests
                 VesselPersistentId = kOriginPid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            origin.PreReFlyAnchorSessionId = "prior_session";
+            origin.PreReFlyAnchorPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 12.0 },
+            };
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
@@ -683,12 +688,17 @@ namespace Parsek.Tests
                 VesselPersistentId = kOriginPid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            origin.PreReFlyAnchorSessionId = "prior_session";
+            origin.PreReFlyAnchorPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 12.0 },
+            };
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -703,6 +713,20 @@ namespace Parsek.Tests
             Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
             // Marker is cleared (rollback).
             Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+            Recording storedOrigin = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null && candidate.RecordingId == slot.OriginChildRecordingId)
+                {
+                    storedOrigin = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(storedOrigin);
+            Assert.Equal("prior_session", storedOrigin.PreReFlyAnchorSessionId);
+            Assert.Single(storedOrigin.PreReFlyAnchorPoints);
+            Assert.Equal(12.0, storedOrigin.PreReFlyAnchorPoints[0].ut);
         }
     }
 }

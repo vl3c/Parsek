@@ -1076,6 +1076,30 @@ terminal cannot churn indefinitely.
 
 ---
 
+## ~~621. Re-Fly parent-chain relative ghosts can use the mutated active recording as their "recorded" anchor~~
+
+**Source:** `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log`.
+
+**Evidence:** the booster/probe snapshots do not contain upper-stage parts, so
+the observed upper-stage double is not snapshot contamination. The upper stage
+recording is a separate `Kerbal X` parent-chain recording whose relative
+sections anchor to the booster/probe PID. During in-place Re-Fly, the recorded
+anchor resolver could select the active Re-Fly recording after it had been
+mutated by the new flight, so `source=recorded` still meant "the new booster
+trajectory" rather than "the pre-Re-Fly booster trajectory." That made the
+upper-stage ghost replay as a constant recorded offset from the live/new
+booster path, producing the inaccurate trajectory the playtest reported.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. In-place Re-Fly invocation now
+freezes the active recording's pre-Re-Fly trajectory payload. Parent-chain
+relative-anchor playback prefers that frozen copy whenever it bypasses the live
+active Re-Fly vessel, and never treats the live-mutating active recording itself
+as the recorded anchor source for another recording.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
 ## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:

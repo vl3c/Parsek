@@ -15450,6 +15450,8 @@ namespace Parsek
                 victimRecordingId,
                 targetUT,
                 searchTrees,
+                marker,
+                bypassLiveAnchor,
                 requireCoverage: true,
                 out RelativeAnchorPose recordedPose);
 
@@ -15462,6 +15464,8 @@ namespace Parsek
                     victimRecordingId,
                     targetUT,
                     searchTrees,
+                    marker,
+                    bypassLiveAnchor,
                     requireCoverage: false,
                     out recordedFallbackPose);
             }
@@ -15583,6 +15587,8 @@ namespace Parsek
             string victimRecordingId,
             double targetUT,
             IReadOnlyList<RecordingTree> searchTrees,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly,
             bool requireCoverage,
             out RelativeAnchorPose pose)
         {
@@ -15592,6 +15598,21 @@ namespace Parsek
 
             HashSet<string> seenRecordingIds = recordedAnchorSeenRecordingIds;
             seenRecordingIds.Clear();
+            if (TryResolvePreReFlyFrozenAnchorPose(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    searchTrees,
+                    marker,
+                    bypassLiveAnchorForActiveReFly,
+                    seenRecordingIds,
+                    requireCoverage,
+                    out pose))
+            {
+                seenRecordingIds.Clear();
+                return true;
+            }
+
             if (searchTrees != null)
             {
                 for (int t = 0; t < searchTrees.Count; t++)
@@ -15601,6 +15622,11 @@ namespace Parsek
                         continue;
                     foreach (Recording rec in tree.Recordings.Values)
                     {
+                        if (ShouldSkipMutableActiveReFlyAnchorCandidate(
+                                rec, marker, bypassLiveAnchorForActiveReFly))
+                        {
+                            continue;
+                        }
                         if (TryResolveRecordedAnchorPoseFromCandidate(
                                 rec, anchorVesselId, victimRecordingId,
                                 targetUT, seenRecordingIds, requireCoverage, out pose))
@@ -15617,6 +15643,11 @@ namespace Parsek
             {
                 for (int i = 0; i < committed.Count; i++)
                 {
+                    if (ShouldSkipMutableActiveReFlyAnchorCandidate(
+                            committed[i], marker, bypassLiveAnchorForActiveReFly))
+                    {
+                        continue;
+                    }
                     if (TryResolveRecordedAnchorPoseFromCandidate(
                             committed[i], anchorVesselId, victimRecordingId,
                             targetUT, seenRecordingIds, requireCoverage, out pose))
@@ -15629,6 +15660,133 @@ namespace Parsek
 
             seenRecordingIds.Clear();
             return false;
+        }
+
+        internal static bool ShouldSkipMutableActiveReFlyAnchorCandidate(
+            Recording candidate,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly)
+        {
+            if (!bypassLiveAnchorForActiveReFly)
+                return false;
+            if (candidate == null || marker == null)
+                return false;
+            if (string.IsNullOrEmpty(candidate.RecordingId)
+                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            return string.Equals(
+                candidate.RecordingId,
+                marker.ActiveReFlyRecordingId,
+                StringComparison.Ordinal);
+        }
+
+        bool TryResolvePreReFlyFrozenAnchorPose(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            IReadOnlyList<RecordingTree> searchTrees,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly,
+            HashSet<string> seenRecordingIds,
+            bool requireCoverage,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (!bypassLiveAnchorForActiveReFly)
+                return false;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+
+            Recording liveActive = FindActiveReFlyRecording(marker, searchTrees);
+            if (!ShouldUsePreReFlyAnchorTrajectory(
+                    liveActive,
+                    anchorVesselId,
+                    victimRecordingId,
+                    marker))
+            {
+                return false;
+            }
+
+            Recording frozen = liveActive.BuildPreReFlyAnchorTrajectoryRecording(marker.SessionId);
+            if (frozen == null)
+                return false;
+
+            return TryResolveRecordedAnchorPoseFromCandidate(
+                frozen,
+                anchorVesselId,
+                victimRecordingId,
+                targetUT,
+                seenRecordingIds,
+                requireCoverage,
+                out pose);
+        }
+
+        Recording FindActiveReFlyRecording(
+            ReFlySessionMarker marker,
+            IReadOnlyList<RecordingTree> searchTrees)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return null;
+
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null)
+                        continue;
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
+                        && rec != null)
+                    {
+                        return rec;
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec != null
+                        && string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        return rec;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        internal static bool ShouldUsePreReFlyAnchorTrajectory(
+            Recording candidate,
+            uint anchorVesselId,
+            string victimRecordingId,
+            ReFlySessionMarker marker)
+        {
+            if (candidate == null || marker == null)
+                return false;
+            if (anchorVesselId == 0u || candidate.VesselPersistentId != anchorVesselId)
+                return false;
+            if (string.IsNullOrEmpty(candidate.RecordingId)
+                || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                return false;
+            if (!string.IsNullOrEmpty(victimRecordingId)
+                && string.Equals(victimRecordingId, candidate.RecordingId, StringComparison.Ordinal))
+                return false;
+            return true;
         }
 
         bool TryResolveRecordedAnchorPoseFromCandidate(
