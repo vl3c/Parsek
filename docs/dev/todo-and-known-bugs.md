@@ -3032,6 +3032,158 @@ flipped to assert Verbose for `alreadyClassified=1, newlyClassified=0`.
 
 ---
 
+## ~~624. Log spam: ChainWalker emits ~30 verbose lines per frame from `ParsekTrackingStation.RefreshGhostActionCache` while a ghost is selected~~
+
+**Source:** `logs/2026-04-26_2301_tracking-station-ui-and-esc-menu/KSP.log`.
+KSP.log was 26 MB / 160,108 lines, of which 134,509 (84%) were
+`[ChainWalker]` verbose lines. Steady-state shape, repeated every
+Update tick over ~3 minutes:
+
+```
+[Parsek][VERBOSE][ChainWalker] HasGhostingTriggerEvents: rec=… found=True (scanned 8 part events, 0 segment events)
+[Parsek][VERBOSE][ChainWalker] Vessel PID=… claimed by tree=… via BACKGROUND_EVENT at UT=21.8
+[Parsek][VERBOSE][ChainWalker] WalkToLeaf: reached leaf=… after 0 steps from start=…
+[Parsek][VERBOSE][ChainWalker] ResolveTermination: vessel=… tip=… terminalState=Destroyed — marked terminated
+[Parsek][VERBOSE][ChainWalker] Chain built: vessel=… links=1 tip=… spawnUT=… terminated=True
+[Parsek][VERBOSE][ChainWalker] Found claims for 6 vessel(s) across 1 committed trees
+```
+
+Counts (single playtest):
+
+```bash
+grep -c "\[ChainWalker\]" KSP.log                 # 134509
+grep -c "WalkToLeaf: reached leaf="  KSP.log      # 26034 (×6 vessels)
+grep -c "Found claims for"           KSP.log      # 4339 (calls/sec ≈ 22 = per-frame)
+```
+
+**Cause:** `ParsekTrackingStation.Update` calls
+`RefreshGhostActionCache()` every frame while a ghost is selected
+(`ParsekTrackingStation.cs:259`). The cache itself is `Time.frameCount`
+gated to one rebuild per frame, but the rebuild dispatches to
+`GhostChainWalker.ComputeAllGhostChains`, which used raw
+`ParsekLog.Verbose` for six per-vessel/per-recording diagnostic lines
+(`HasGhostingTriggerEvents` in `GhostingTriggerClassifier.cs:175`,
+`Vessel PID claimed` × 2 in `GhostChainWalker.cs:256`/`:317`,
+`WalkToLeaf reached leaf` at `:620`, `ResolveTermination` at `:660`,
+`Chain built` at `:111`, plus the `Found claims` summary at `:78`).
+With ~6 vessels in claims, a single per-frame call fanned out to ~30
+verbose lines, dominating every tracking-station session that had a
+selected ghost.
+
+**Resolution (2026-04-26):** Routed every diagnostic in the chain-walk
+hot path through `ParsekLog.VerboseOnChange` with state keys that
+capture the decision tuple — including the no-claim and skipped-tree
+summaries that fire once per call regardless of whether any claims
+were found:
+
+- `HasGhostingTriggerEvents` — identity `trigger|<recId>`,
+  state `(found, partCount, segCount)`.
+- `Vessel PID claimed via {Dock|Board|Undock|EVA|JointBreak}` —
+  identity `claim|<pid>|<treeId>|<bp.Id>`, state `(interactionType, bp.UT)`.
+  The bp.Id is in the identity (not the state key) so multiple claims
+  for the same `(pid, treeId)` pair don't share a single VerboseOnChange
+  slot and ping-pong their differing state keys on every frame.
+- `Vessel PID claimed via BACKGROUND_EVENT` — identity
+  `claim-bg|<pid>|<treeId>|<rec.RecordingId>`, state `rec.StartUT`.
+  Same disambiguation reason — multiple background recordings of the
+  same `(pid, treeId)` would otherwise oscillate.
+- `WalkToLeaf: step N: rec=… → child=…` — identity `walk-step|<startId>|<step>`,
+  state `(currentId, childId, bpId)`. Per-step diagnostic gets one
+  identity slot per step so a stable multi-step walk emits each step
+  exactly once, then stays silent.
+- `WalkToLeaf reached leaf` — identity `walk|<startId>`,
+  state `(leafId, steps)`.
+- `ResolveTermination marked terminated` — identity `terminate|<pid>`,
+  state `(tipId, terminalState)`.
+- `Chain built` — identity `chain|<pid>`,
+  state `(links, tip, spawnUT, terminated)`.
+- `Cross-tree link: vessel=… → merged with chain for vessel=…` —
+  identity `cross-tree-link|<originPid>|<tipVesselPid>`,
+  state `chain.TipRecordingId`.
+- `MergeCrossTreeLinks: absorbed N chain(s)` — identity
+  `cross-tree-merge-summary`, state `N`.
+- Mutually-exclusive summary lines (`No committed trees`,
+  `No claims found in N committed trees`,
+  `Found claims for N vessel(s) across N committed trees`) all share
+  identity `claims-summary` with state-key prefixes `no-trees` /
+  `no-claims|<N>` / `found|<Nvessels>|<Ntrees>` so flipping between
+  the variants is a real state change but stable repeats inside a
+  variant coalesce.
+- `Skipped N fully-terminated tree(s)` — identity `skipped-terminated`,
+  state `N`.
+- `Skipped N claim(s) from session-suppressed recording(s)` — identity
+  `skipped-session-suppressed`, state `N`.
+
+Stable per-frame rebuilds (the dominant case in the tracking station,
+including the no-claim case for sandbox saves) now emit each diagnostic
+exactly once and surface `| suppressed=N` on the next genuine state
+flip.
+
+Cold paths (`Warn` for missing parents, `Verbose` for null-tree /
+unfound-child fallbacks) remain raw `Verbose` since they are decision
+flips rather than per-frame stable repeats. Regression coverage:
+
+- `GhostChainWalkerTests.RepeatedCalls_StableInput_DoNotRespamDiagnostics`
+  — multi-step chain (R1 → R1-mid → R1-leaf) so `WalkToLeaf: step …`
+  is exercised; counts every flavor of ChainWalker line and asserts 0
+  new lines after warm-up.
+- `GhostChainWalkerTests.RepeatedCalls_NoClaims_DoNotRespamSummary` —
+  covers the per-frame no-claim path that a fresh sandbox with a
+  selected ghost would hit, plus the empty-trees variant.
+- `GhostChainWalkerTests.RepeatedCalls_MultipleClaimsSamePidSameTree_DoNotRespam`
+  — two Dock BPs claiming the same PID in the same tree; pins the
+  identity-disambiguation against the bp.Id-in-identity choice.
+- `GhostChainWalkerTests.RepeatedCalls_CrossTreeLinkedChain_DoNotRespamMergeLines`
+  — two trees both claim PID 100 (the `CrossTree_TwoLinks_ChainsExtend`
+  shape); pins the cross-tree merge path against per-frame re-emission
+  of the merge line and the absorbed-N summary.
+- `ChainSaveLoadTests.DeterministicReDerivation_StableInput_ReturnsIdenticalChains`
+  — flipped from log-count assertion to chain-result equivalence so
+  the determinism guarantee survives the coalescing change.
+
+**Status:** CLOSED 2026-04-26.
+
+---
+
+## ~~625. Log spam: `Blocked GoOffRails for ghost vessel` Harmony prefix fires ~117 Hz per ghost ProtoVessel in physics range~~
+
+**Source:** `logs/2026-04-26_2357_newest/KSP.log`. 2,941 lines for a
+single ghost PID `940887686` over 25 seconds (23:51:57-23:52:22), at
+~117 Hz (FixedUpdate × 2.3). Shape:
+
+```
+[Parsek][VERBOSE][GhostMap] Blocked GoOffRails for ghost vessel 'Ghost: Kerbal X' pid=940887686
+```
+
+Per-second distribution: `109, 118, 116, 118, 118, 117, 117, 115, …`
+
+**Cause:** `GhostVesselLoadPatch.Prefix` (Harmony prefix on
+`Vessel.GoOffRails`) returns `false` to keep ghost ProtoVessels on
+rails. KSP retries the off-rails transition every FixedUpdate while
+the ghost is inside physics range, so the prefix fires per physics
+tick and emits a raw `ParsekLog.Verbose` every time. With one ghost
+in range it floods at FixedUpdate × 2.3.
+
+**Resolution (2026-04-27):** Extracted the log into
+`GhostVesselLoadPatch.LogBlockedOffRails(uint pid, string vesselName)`
+and routed it through `ParsekLog.VerboseOnChange` with identity
+`block-offrails|<pid>` and stateKey `<vesselName>`. Each ghost gets its
+own VerboseOnChange slot, so two distinct ghosts each emit on first
+block while per-PID repeats coalesce silently. The next genuine state
+flip (a vessel rename, vanishingly rare for ghosts) surfaces
+`| suppressed=N`.
+
+Regression coverage:
+- `GhostVesselLoadPatchTests.LogBlockedOffRails_RepeatedCallsSamePid_EmitOnceForStableName`
+  — 100 repeat calls after first block emit zero new lines.
+- `GhostVesselLoadPatchTests.LogBlockedOffRails_DistinctPids_EachEmitsOnceAndStaysSilent`
+  — two PIDs each emit on first block, then 50 alternating calls
+  (which would ping-pong a shared identity slot) emit zero new lines.
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
 ## ~~607. Misleading `Strip left N pre-existing vessel(s)` WARN reports stale, deduped count after post-supplement kill~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906-12907`:
