@@ -59,7 +59,7 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass1-Deferred; patch-order/reflection/UI mutation split deferred |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass1-Deferred; math/iteration-order split deferred |
 | `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass1-Deferred; optimizer identity/order split deferred |
-| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass1-Deferred; resource/state codec split deferred |
+| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass2-Proposed; record-only codec proposal created, branch point serialization deferred |
 | `Source/Parsek/TrajectoryTextSidecarCodec.cs` | 1,563 | Pass2-Done; text trajectory ConfigNode codec extracted behind `RecordingStore` wrappers |
 | `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass1-Deferred; KSC/flight playback sharing deferred |
 
@@ -165,7 +165,7 @@ clearly separated by file.
 | `GameActions/KspStatePatcher.cs` | 1,759 | Deferred; state-family patcher proposal needed |
 | `BallisticExtrapolator.cs` | 1,639 | Deferred; math/order sensitive |
 | `RecordingOptimizer.cs` | 1,621 | Deferred; optimizer identity/order sensitive |
-| `RecordingTree.cs` | 1,615 | Deferred; serialization codec proposal needed |
+| `RecordingTree.cs` | 1,615 | Proposed; record-only codec proposal created, branch point serialization deferred |
 | `ParsekKSC.cs` | 1,520 | Deferred; KSC/flight playback owner proposal needed |
 | `CrewReservationManager.cs` | 1,447 | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal |
 | `EngineFxBuilder.cs` | 1,367 | Deferred; visual/FX builder work grouped with visual runtime validation |
