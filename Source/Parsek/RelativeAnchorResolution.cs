@@ -6,13 +6,12 @@ namespace Parsek
     /// <summary>
     /// Decision helpers for resolving the anchor vessel referenced by a
     /// <see cref="ReferenceFrame.Relative"/> track section during ghost
-    /// playback. When the anchor is unresolvable in the current scene -- the
-    /// most common cause is a Re-Fly rewind that erased the originally
-    /// recorded anchor vessel -- the ghost must be retired (hidden) for the
-    /// duration of the relative section rather than left frozen at its last
-    /// world position. A freshly spawned ghost has no "last position", so
-    /// freezing produced the symptom in bug B (Apr 2026): root=(0,0,0) with a
-    /// huge reported distance.
+    /// playback. When the live anchor is not a safe frame source -- either it
+    /// is gone, or it is the vessel currently being Re-Flown -- playback should
+    /// use the recorded anchor trajectory as the ground-frame source. Only if
+    /// that recorded pose is unavailable should the ghost be retired (hidden)
+    /// for the duration of the relative section rather than left frozen at its
+    /// last world position.
     ///
     /// <para>
     /// Pure static; the resolver delegate is injectable so xUnit tests can
@@ -47,6 +46,35 @@ namespace Parsek
             if (anchorPid == 0u) return Outcome.Retired;
             if (resolver == null) return Outcome.Retired;
             return resolver(anchorPid) ? Outcome.Resolved : Outcome.Retired;
+        }
+
+        /// <summary>
+        /// Returns true when a relative section's live anchor pid is the active
+        /// Re-Fly target and therefore must not drive another recording's ghost.
+        /// Those ghosts should be reconstructed from the recorded anchor
+        /// trajectory so their path remains ground-relative instead of becoming
+        /// locked to the player's current Re-Fly vessel.
+        /// </summary>
+        internal static bool ShouldBypassLiveAnchorForActiveReFly(
+            uint anchorPid,
+            uint activeReFlyPid,
+            string victimRecordingId,
+            string activeReFlyRecordingId,
+            bool victimIsParentOfActiveReFly)
+        {
+            if (anchorPid == 0u || activeReFlyPid == 0u)
+                return false;
+            if (anchorPid != activeReFlyPid)
+                return false;
+            if (string.IsNullOrEmpty(victimRecordingId)
+                || string.IsNullOrEmpty(activeReFlyRecordingId))
+                return false;
+            if (!victimIsParentOfActiveReFly)
+                return false;
+            return !string.Equals(
+                victimRecordingId,
+                activeReFlyRecordingId,
+                StringComparison.Ordinal);
         }
 
         /// <summary>

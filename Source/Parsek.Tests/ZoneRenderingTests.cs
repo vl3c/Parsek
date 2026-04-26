@@ -190,6 +190,38 @@ namespace Parsek.Tests
                 isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(-1.0)]
+        public void ShouldForceWatchedFullFidelity_InvalidDistance_ReturnsFalse(
+            double ghostDistanceMeters)
+        {
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true,
+                ghostDistanceMeters: ghostDistanceMeters,
+                cutoffKm: 300));
+        }
+
+        [Fact]
+        public void ResolveUnresolvedRelativeSectionDistanceFallback_RelativeSection_ReturnsMaxValue()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorVesselId = 698412738u
+            });
+
+            double? distance = ParsekFlight.ResolveUnresolvedRelativeSectionDistanceFallback(
+                rec,
+                playbackUT: 150.0);
+
+            Assert.Equal(double.MaxValue, distance.Value);
+        }
+
         [Fact]
         public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
