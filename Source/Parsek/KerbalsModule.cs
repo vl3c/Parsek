@@ -1035,7 +1035,7 @@ namespace Parsek
                         if (!ShouldEnsureChainEntryInRoster(slot, i))
                             continue;
 
-                        // Rescue-completion guard (#612): the post-spawn rescue
+                        // Rescue-completion guard (#615): the post-spawn rescue
                         // path (#608/#609) restores the reserved+Missing original
                         // kerbal to Available and lets the snapshot place them
                         // back into the spawned vessel. The recording still

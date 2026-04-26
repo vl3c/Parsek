@@ -2343,7 +2343,7 @@ which still describes the orphan-placement-deferred preamble.
 
 ---
 
-## ~~612. Re-Fly post-spawn churns crew stand-ins after rescue restored the originals — `Recreated stand-in` re-fires per recalc walk and the next ghost spawn's `Crew dedup` WARN catches the doubled-original~~
+## ~~615. Re-Fly post-spawn churns crew stand-ins after rescue restored the originals — `Recreated stand-in` re-fires per recalc walk and the next ghost spawn's `Crew dedup` WARN catches the doubled-original~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. The same Jeb / Bill / Bob slot churns through generate -> rescue+remove -> recreate -> rescue+remove on every ghost spawn after the in-place Re-Fly:
 

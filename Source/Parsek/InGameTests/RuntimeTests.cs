@@ -4684,7 +4684,7 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// #612 rescue-completion guard: the production
+        /// #615 rescue-completion guard: the production
         /// <c>KerbalsModule.IKerbalRosterFacade.IsKerbalOnLiveVessel</c>
         /// implementation walks <see cref="FlightGlobals.Vessels"/> and the
         /// xUnit harness can not init that statically (the type initializer
@@ -4697,7 +4697,7 @@ namespace Parsek.InGameTests
         /// regression.
         /// </summary>
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
-            Description = "#612 IsKerbalOnLiveVessel reports live FlightGlobals crew correctly")]
+            Description = "#615 IsKerbalOnLiveVessel reports live FlightGlobals crew correctly")]
         public void IsKerbalOnLiveVessel_LiveFlightGlobalsWalk()
         {
             var active = FlightGlobals.ActiveVessel;

@@ -48,7 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#612` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the next recalculation walk skips the stand-in recreate when the original is already on a live vessel.
+- `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the next recalculation walk skips the stand-in recreate when the original is already on a live vessel.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 

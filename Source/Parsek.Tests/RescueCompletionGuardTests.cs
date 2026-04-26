@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// #612 — rescue-completion guard at <see cref="KerbalsModule.ApplyToRoster"/>
+    /// #615 — rescue-completion guard at <see cref="KerbalsModule.ApplyToRoster"/>
     /// step 1.
     ///
     /// <para>
