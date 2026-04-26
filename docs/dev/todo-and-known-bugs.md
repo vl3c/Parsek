@@ -317,18 +317,45 @@ line fires whenever a Re-Fly session is active but the predicate
 declined to suppress — making future "predicate didn't fire" diagnoses
 readable from `KSP.log` alone, no source-reading required.
 
-**Tests:** 7 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
+**P1 review follow-up:** the initial fix added the pending tree to the
+parent-chain BFS but the predicate has TWO gates against the load
+window — a separate active-recording PID lookup at the top of
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` was still
+walking only the flat `RecordingStore.CommittedRecordings` list. At
+load time `RemoveCommittedTreeById` has emptied that list for this
+tree, so the gate bailed with `not-suppressed-active-rec-pid-unknown`
+BEFORE the new BFS pending-tree path could run, and the doubled
+ProtoVessel still got created. The PID lookup now walks the same
+composed search trees first (resolving the active recording's
+`VesselPersistentId` directly from the tree's `Recordings` map) and
+falls back to the flat list only if the trees can't yield a non-zero
+PID. The success reason now carries `activePidSource=search-tree:<id>`
+or `activePidSource=committed-recordings-flat-list` so the load-window
+vs steady-state distinction is auditable; the rejection reason carries
+`searchTrees=<n> committedRecordings=<n> activeRecId=<id>` so a future
+"predicate didn't fire" diagnosis can see exactly which lookup source
+came up empty.
+
+**Tests:** 9 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
 `ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs`,
 `ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly`,
 `ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending`,
 `ComposeSearchTreesForReFlySuppression_PendingSameIdAsCommitted_KeepsPendingDropsCommitted`,
-`IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList`
-(reproduces the production shape — `committedTrees=[]` + active-in-pending
-→ predicate now fires), `IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape`,
-`IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape`. The
-existing `Suppresses_…_VictimIsParent` and the docking-target
-no-suppress test were updated to use `Assert.StartsWith` instead of
-`Assert.Equal` since `suppressReason` now carries the appended walkTrace.
+`IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList`,
+`IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape`,
+`IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape`,
+`Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree`
+(P1 follow-up: reproduces the exact production load-window shape —
+empty `committedRecordings` plus the active recording in the composed
+search trees, with `VesselPersistentId` set on the tree's recording —
+and asserts the success reason carries `activePidSource=search-tree:`),
+and `NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts`
+(asserts the new rejection reason format). The existing
+`NotSuppressed_WhenCommittedListIsNull` test was updated to reflect
+the unified bail behavior; the existing `Suppresses_…_VictimIsParent`
+and docking-target no-suppress tests use `Assert.StartsWith` since
+`suppressReason` now carries the appended `activePidSource` and
+`walkTrace` strings.
 
 **Status:** Open until merged.
 

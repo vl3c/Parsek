@@ -517,8 +517,9 @@ namespace Parsek.Tests
         public void NotSuppressed_WhenActiveReFlyRecordingMissingFromCommittedList()
         {
             // Defensive: a stale marker whose active recording id is not in
-            // the committed list cannot be safely matched — bail out with a
-            // distinct reason rather than silently turning into a tautology.
+            // the committed list (NOR in any pending tree, after #609 P1)
+            // cannot be safely matched — bail out with a distinct reason
+            // rather than silently turning into a tautology.
             var marker = InPlaceMarker("rec-missing-from-store");
             var committed = CommittedWith(
                 ("rec-capsule", "Kerbal X", 2708531065u));
@@ -534,7 +535,8 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Equal("not-suppressed-active-rec-pid-unknown", reason);
+            Assert.StartsWith("not-suppressed-active-rec-pid-unknown", reason);
+            Assert.Contains("activeRecId=rec-missing-from-store", reason);
         }
 
         [Fact]
@@ -561,12 +563,18 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Equal("not-suppressed-active-rec-pid-unknown", reason);
+            Assert.StartsWith("not-suppressed-active-rec-pid-unknown", reason);
         }
 
         [Fact]
-        public void NotSuppressed_WhenCommittedListIsNull()
+        public void NotSuppressed_WhenCommittedListIsNull_AndTreeRecsHaveNoPid()
         {
+            // #609 P1 follow-up: the predicate tolerates a null
+            // `committedRecordings` and falls back to the search-tree walk.
+            // When the search trees also can't yield a non-zero PID for the
+            // active recording, the gate bails with the unified
+            // `not-suppressed-active-rec-pid-unknown` reason carrying the
+            // search-tree count and committed-recordings count.
             var marker = InPlaceMarker("rec-booster");
             var trees = TreesWithDecouple(
                 parentId: "rec-capsule",
@@ -582,7 +590,9 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Equal("not-suppressed-no-committed-recordings", reason);
+            Assert.StartsWith("not-suppressed-active-rec-pid-unknown", reason);
+            Assert.Contains("searchTrees=1", reason);
+            Assert.Contains("committedRecordings=0", reason);
         }
 
         [Fact]
@@ -869,6 +879,122 @@ namespace Parsek.Tests
 
             Assert.Single(result);
             Assert.Same(pending, result[0]);
+        }
+
+        [Fact]
+        public void Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree()
+        {
+            // #609 P1 review follow-up: the user-visible bug is the
+            // doubled ProtoVessel, and the predicate's first PID-resolution
+            // lookup walked only `RecordingStore.CommittedRecordings`. At
+            // Re-Fly load time `TryRestoreActiveTreeNode` calls
+            // `RemoveCommittedTreeById`, which empties this tree's recordings
+            // out of `CommittedRecordings` before stashing the loaded tree
+            // as `PendingTree`. The PID lookup therefore returned 0 and
+            // the gate bailed with `not-suppressed-active-rec-pid-unknown`
+            // BEFORE the new pending-tree topology walk could run.
+            //
+            // This regression pins the exact production load-window shape:
+            // committedRecordings = [] (empty) AND the active recording lives
+            // in the composed search trees with VesselPersistentId set
+            // (representing the pending tree's recordings). The predicate
+            // must now resolve the active PID from the search trees and
+            // proceed to suppress.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+
+            // committedRecordings is empty (RemoveCommittedTreeById has run).
+            var emptyCommitted = new List<Recording>();
+
+            // Build the tree shape that the splice has just stashed as
+            // PendingTree: parent (capsule) ChildBranchPointId -> BP, active
+            // (booster) ParentBranchPointId -> same BP. Set the active rec's
+            // VesselPersistentId so the PID-via-tree lookup succeeds.
+            var pendingTree = new RecordingTree { Id = TreeId };
+            pendingTree.Recordings["rec-capsule"] = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = TreeId,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065u,
+                ChildBranchPointId = ParentBpId,
+            };
+            pendingTree.Recordings["rec-booster"] = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = TreeId,
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = boosterPid,
+                ParentBranchPointId = ParentBpId,
+            };
+            pendingTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = ParentBpId,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-capsule" },
+                ChildRecordingIds = new List<string> { "rec-booster" },
+            });
+
+            // Production composes committed ++ pending; here committed is
+            // empty so the search list is just [pendingTree].
+            var search = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committedTrees: new List<RecordingTree>(),
+                pendingTree: pendingTree);
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: emptyCommitted,
+                committedTrees: search,
+                out string reason);
+
+            Assert.True(suppressed);
+            // Success reason now exposes where the active PID came from
+            // so the load-window vs steady-state distinction is auditable.
+            Assert.Contains("activePidSource=search-tree:" + TreeId, reason);
+            Assert.Contains("relationship=parent", reason);
+            Assert.Contains("found-victim-in-parent-chain", reason);
+        }
+
+        [Fact]
+        public void NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts()
+        {
+            // Belt-and-suspenders: when both lookup sources fail to resolve
+            // the active recording's PID, the rejection reason must carry
+            // the search-tree count + committed-recordings count + active
+            // recording id so a playtest log reader can immediately diagnose
+            // "ah, neither pending nor committed had it" instead of having
+            // to re-read the source.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+
+            // Active rec id ("rec-booster") doesn't appear anywhere.
+            var emptyCommitted = new List<Recording>();
+            var unrelatedTree = new RecordingTree { Id = "tree-unrelated" };
+            unrelatedTree.Recordings["rec-other"] = new Recording
+            {
+                RecordingId = "rec-other",
+                TreeId = "tree-unrelated",
+                VesselPersistentId = 12345u,
+            };
+            var search = new List<RecordingTree> { unrelatedTree };
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: emptyCommitted,
+                committedTrees: search,
+                out string reason);
+
+            Assert.False(suppressed);
+            Assert.StartsWith("not-suppressed-active-rec-pid-unknown", reason);
+            Assert.Contains("searchTrees=1", reason);
+            Assert.Contains("committedRecordings=0", reason);
+            Assert.Contains("activeRecId=rec-booster", reason);
         }
 
         [Fact]

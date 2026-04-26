@@ -633,11 +633,23 @@ namespace Parsek
         /// mapped. Suppression is rejected with
         /// <c>not-suppressed-not-parent-of-refly-target</c> when the victim is
         /// not in the active Re-Fly recording's parent chain.</param>
-        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>.
-        /// Tests pass a list directly; production passes the live property.</param>
-        /// <param name="committedTrees">Snapshot of <see cref="RecordingStore.CommittedTrees"/>
-        /// for BranchPoint topology lookup. Tests pass a list directly;
-        /// production passes the live property.</param>
+        /// <param name="committedRecordings">Snapshot of <see cref="RecordingStore.CommittedRecordings"/>
+        /// (the flat committed list). Used as a secondary lookup source for
+        /// the active Re-Fly recording's PID. At Re-Fly load time the active
+        /// recording's tree has been moved into <c>PendingTree</c> so its
+        /// recordings are NOT in this list (#609 P1 follow-up); the primary
+        /// lookup now walks <paramref name="committedTrees"/>, which production
+        /// composes from CommittedTrees ++ PendingTree via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>. Tests pass a
+        /// list directly; production passes the live property.</param>
+        /// <param name="committedTrees">Trees searched for both BranchPoint
+        /// topology lookup AND the active Re-Fly recording's PID. Production
+        /// composes <see cref="RecordingStore.CommittedTrees"/> ++
+        /// <see cref="RecordingStore.PendingTree"/> via
+        /// <see cref="ComposeSearchTreesForReFlySuppression"/>; tests pass a
+        /// list directly. Despite the legacy parameter name, this list MUST
+        /// include the pending tree for the load-window predicate to fire
+        /// (#609 P1 follow-up).</param>
         /// <param name="suppressReason">On true, a structured human-readable
         /// reason for the log line including the relationship scope. On false,
         /// set to "not-suppressed-..." describing which gate clause rejected
@@ -695,27 +707,54 @@ namespace Parsek
                 return false;
             }
 
-            if (committedRecordings == null)
-            {
-                suppressReason = "not-suppressed-no-committed-recordings";
-                return false;
-            }
-
+            // #609 P1 follow-up: the PID lookup MUST search the composed trees
+            // (committed ++ pending) and not just the flat CommittedRecordings
+            // list. At Re-Fly load time TryRestoreActiveTreeNode has just
+            // detached this tree from CommittedTrees (and therefore from
+            // CommittedRecordings) and re-stashed it as PendingTree, so the
+            // flat list lookup that ran first would silently bail with
+            // not-suppressed-active-rec-pid-unknown -- before the new
+            // pending-tree topology walk got a chance to run -- and the
+            // doubled ProtoVessel still got created.
             uint activeReFlyPid = 0u;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            string activePidSource = "<not-found>";
+            if (committedTrees != null)
             {
-                Recording rec = committedRecordings[i];
-                if (rec == null) continue;
-                if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
-                        StringComparison.Ordinal))
-                    continue;
-                activeReFlyPid = rec.VesselPersistentId;
-                break;
+                for (int t = 0; t < committedTrees.Count && activeReFlyPid == 0u; t++)
+                {
+                    RecordingTree tree = committedTrees[t];
+                    if (tree == null || tree.Recordings == null) continue;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        activePidSource = "search-tree:" + (tree.Id ?? "<no-id>");
+                    }
+                }
+            }
+            if (activeReFlyPid == 0u && committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording rec = committedRecordings[i];
+                    if (rec == null) continue;
+                    if (!string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                            StringComparison.Ordinal))
+                        continue;
+                    activeReFlyPid = rec.VesselPersistentId;
+                    activePidSource = "committed-recordings-flat-list";
+                    break;
+                }
             }
 
             if (activeReFlyPid == 0u)
             {
-                suppressReason = "not-suppressed-active-rec-pid-unknown";
+                int treeCount = committedTrees != null ? committedTrees.Count : 0;
+                int recCount = committedRecordings != null ? committedRecordings.Count : 0;
+                suppressReason = "not-suppressed-active-rec-pid-unknown searchTrees="
+                    + treeCount + " committedRecordings=" + recCount
+                    + " activeRecId=" + (marker.ActiveReFlyRecordingId ?? "<null>");
                 return false;
             }
 
@@ -768,8 +807,11 @@ namespace Parsek
             // create-state-vector-suppressed log line can show the chain
             // that was matched. Helps reviewers / playtest log scrapers
             // confirm the gate fired for the right relationship.
-            suppressReason = "refly-relative-anchor=active relationship=parent walkTrace=("
-                + walkTrace + ")";
+            // #609 P1 follow-up: also include where the active PID was
+            // resolved (which tree, or the flat fallback list) so the
+            // load-window vs steady-state distinction is auditable.
+            suppressReason = "refly-relative-anchor=active relationship=parent activePidSource="
+                + activePidSource + " walkTrace=(" + walkTrace + ")";
             return true;
         }
 
