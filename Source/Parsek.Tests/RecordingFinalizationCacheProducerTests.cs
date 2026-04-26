@@ -225,6 +225,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LogRefreshSummary_CrossRecordingIdentitiesDoNotShareRateLimitWindow()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+            const uint sharedVesselPid = 111u;
+            // Intentional: VerboseOnChange identity is keyed by recordingId, not vessel pid.
+            var first = new Recording
+            {
+                RecordingId = "rec-refresh-a",
+                VesselPersistentId = sharedVesselPid
+            };
+            var second = new Recording
+            {
+                RecordingId = "rec-refresh-b",
+                VesselPersistentId = sharedVesselPid
+            };
+
+            LogStableRefresh(first);
+            LogStableRefresh(second);
+
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "rec=rec-refresh-a"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "rec=rec-refresh-b"));
+
+            LogStableRefresh(first);
+            LogStableRefresh(second);
+
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "rec=rec-refresh-a"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "FinalizerCache refresh summary",
+                "rec=rec-refresh-b"));
+
+            clockSeconds += 31.0;
+            LogStableRefresh(first);
+            LogStableRefresh(second);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
+                && l.Contains("FinalizerCache refresh summary")
+                && l.Contains("rec=rec-refresh-a")
+                && l.Contains("suppressed=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
+                && l.Contains("FinalizerCache refresh summary")
+                && l.Contains("rec=rec-refresh-b")
+                && l.Contains("suppressed=1"));
+        }
+
+        [Fact]
         public void LogRefreshSummary_RepeatedClassification_InfoOnceThenVerboseRateLimited()
         {
             double clockSeconds = 0.0;
@@ -793,6 +851,21 @@ namespace Parsek.Tests
             Assert.Equal(250.0, cache.TerminalUT);
             Assert.True(cache.LastWasInAtmosphere);
             Assert.Equal("Kerbin", cache.TerminalBodyName);
+        }
+
+        private static void LogStableRefresh(Recording recording)
+        {
+            RecordingFinalizationCacheProducer.LogRefreshSummary(
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                recordingsExamined: 1,
+                alreadyClassified: 0,
+                newlyClassified: 0,
+                recordingId: recording.RecordingId,
+                vesselPid: recording.VesselPersistentId,
+                status: FinalizationCacheStatus.Fresh,
+                terminalState: TerminalState.Orbiting,
+                predictedSegmentCount: 1);
         }
 
         private int CountLogLines(params string[] requiredFragments)
