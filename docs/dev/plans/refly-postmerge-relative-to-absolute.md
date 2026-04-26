@@ -126,17 +126,23 @@ on that recording, **promote ONLY when all of the following hold:**
   (a station, a base, a docked partner that isn't the re-flown
   vessel). Even if the recording is in the parent-chain ancestry, that
   section's anchor relationship is unaffected by the merge.
-- A RELATIVE section on a recording that is itself the looped section
-  for the recording's `LoopAnchorVesselId`, even if pid matches —
-  edge-case sanity check, because looped sections by design depend on
-  the live anchor pose and we don't want to silently break a loop.
-  (In practice the parent-chain ancestry contains the supersedeable
-  ancestor recordings, not the active Re-Fly continuation itself, so
-  this check is defense-in-depth.)
 - Any RELATIVE section in a recording NOT in the parent-chain
   ancestry.
 - Any RELATIVE section in a v6 recording (or v7 recording with
   partial-shadow coverage) — no shadow data to promote against.
+
+**Same-PID loop sections ARE promoted.** A parent-chain recording
+whose `LoopAnchorVesselId` matches the active Re-Fly target's pid AND
+whose looped section is anchored to that same pid is in scope. The
+loop's "ghost adapts to current anchor pose" semantics depended on
+the booster's *original* trajectory; post-merge that pid points to
+the re-flown vessel's NEW trajectory, so the live-pose anchor is
+already broken regardless. Promoting to ABSOLUTE makes the loop
+replay against the recorded planet-relative trajectory — which is
+self-consistent and what the user observed when the recording was
+made. This is the same logic as the rest of the parent-chain
+promotion; the loop case is not a special exemption. Pinned by
+test 11.
 
 This makes the promotion a strictly narrower transformation than
 "convert all RELATIVE to ABSOLUTE." A single recording can come out of
@@ -153,23 +159,34 @@ that mix.
 
 ```csharp
 internal static int RunReFlyParentChainAbsolutePromotionPass(
+    RecordingTree tree,
     List<Recording> recordings,
     string activeReFlyTargetRecordingId,
     uint activeReFlyTargetVesselPid)
 ```
 
+`tree` is required: the parent-chain ancestry walk relies on
+`tree.BranchPoints` to enforce the single-parent predicate and on
+`tree.Recordings` to collect same-chain members. Passing it explicitly
+keeps the pass off `RecordingStore.CommittedTrees` and makes it
+testable with synthetic trees in unit tests. Callers look up the tree
+once via `RecordingStore.FindCommittedTreeById(targetTreeId)` and pass
+it in; the pass returns 0 with a `Warn` if `tree` is null or doesn't
+contain `activeReFlyTargetRecordingId`.
+
 The pass returns the number of recordings it promoted (for logging) and:
 
 1. Resolves the parent-chain ancestry from `activeReFlyTargetRecordingId`
    using the same predicate as
-   `MergeDialog.CollectActiveReFlyParentChainTerminalTipIds`
-   (`docs/dev/plans/refly-postmerge-relative-to-absolute.md:1`-style walk:
-   collect chain-mates of the active target via `ChainId`, then walk
+   `MergeDialog.CollectActiveReFlyParentChainTerminalTipIds` (collect
+   chain-mates of the active target via `ChainId`, then walk
    `ParentBranchPointId` to single-parent ancestor branch points, then
    resolve each parent's chain terminal). The function lives in
    `MergeDialog.cs` today; we extract a pure helper into
    `EffectiveState.cs` (so optimizer code can call it without taking a
-   `MergeDialog` dependency) and call from both sites.
+   `MergeDialog` dependency) and call from both sites. The new helper
+   takes `(RecordingTree tree, string activeId)` — same as the existing
+   tip collector — so it stays tree-explicit too.
 
 2. For each parent-chain recording, walks its `TrackSections`. For every
    section where `referenceFrame == ReferenceFrame.Relative` AND
@@ -197,14 +214,48 @@ The pass returns the number of recordings it promoted (for logging) and:
    (project CLAUDE.md flags this explicitly) will misread metre-offsets as
    degrees + altitude. The pass therefore:
 
-   - For every section it promoted, finds the corresponding UT range in
-     `Recording.Points` (binary search by `ut`) and overwrites those entries
-     with the absolute-shadow values (which were captured from the original
-     `BuildTrajectoryPoint` call before `ApplyRelativeOffset` mutated the
-     copy).
-   - Asserts that the index ranges align (matching counts, monotonic UTs,
-     no gaps). On mismatch, rolls back the section flip for that section
-     and emits a `Warn` line — partial state is not allowed to ship.
+   - **Match by UT, not by count.** `FlightRecorder.SeedBoundaryPoint`
+     intentionally seeds the previous section's last frame into a
+     newly-opened section's `frames` list WITHOUT also re-adding the
+     point to flat `Recording.Points` (the comment in
+     `CommitRecordedPoint` calls this out: "the point is already there
+     from SamplePosition"). A valid promoted section will therefore
+     have one more `frames[]` entry than there are unique flat
+     `Points` entries inside its UT range, because the boundary frame
+     duplicates the previous section's tail point. A naive
+     count-equals check would roll back every promotion.
+   - **Splice algorithm.** For each promoted section:
+     1. Binary-search `Recording.Points` for entries with
+        `point.ut >= section.startUT && point.ut <= section.endUT`.
+     2. For each section frame, find the matching flat-list entry by
+        `ut` (within `1e-6` tolerance for floating-point noise — UTs
+        are written from the same source so equality should be exact,
+        but allow tolerance defensively). The boundary frame at
+        `section.startUT` may map to the last point of the *previous*
+        section in the flat list — that's expected; either skip it
+        (the previous section's flat entry already carries the
+        previous section's reference-frame coordinates, which is
+        correct for that section, not this one — promoting it would
+        corrupt the previous section's data) or, if the previous
+        section is also being promoted, both are absolute-shadow
+        values and writing either is fine. The simpler rule: skip
+        the boundary frame's flat-list overwrite when the previous
+        section is NOT being promoted in this pass.
+     3. For the rest of the section's frames (non-boundary), overwrite
+        the matching flat-list entry's `latitude/longitude/altitude/`
+        `rotation` fields with the absolute-shadow values.
+   - **Validation invariants.** Before any rewrite lands:
+     - Every non-boundary section frame must find a matching
+       flat-list entry within tolerance.
+     - Every flat-list entry inside `(section.startUT, section.endUT]`
+       (excluding the section's start boundary) must have a matching
+       section frame.
+     - UTs in the flat list within the section's range must be
+       monotonic with no duplicates other than the boundary case.
+   - **On validation failure.** Roll back the section flip for that
+     section, emit a `Warn` with rec id, section index, expected vs
+     observed counts, and the first mismatching UT. Partial state is
+     not allowed to ship.
 
 4. Calls `recording.MarkFilesDirty()` so the sidecar gets rewritten with
    the new shape.
@@ -218,36 +269,91 @@ The pass returns the number of recordings it promoted (for logging) and:
 
 `MergeDialog.MergeCommit` (`Source/Parsek/MergeDialog.cs:238`) currently
 calls `RecordingStore.RunOptimizationPass()` at line 254, then
-`TryCommitReFlySupersede()` at line 265. Two questions to settle:
+`TryCommitReFlySupersede()` at line 265. Critically, `TryCommitReFlySupersede`
+has TWO completion paths and a naive single-call-site wiring would only
+catch one of them:
 
-- **Where in the journal to run the new pass?** The exploration suggested
-  post-`RpReap` so a half-completed merge rollback can never observe the
-  promoted-but-not-committed state. That is the right call. The new pass
-  runs as a **new step in `MergeJournalOrchestrator`** after `RpReap`
-  (`Source/Parsek/MergeJournalOrchestrator.cs:235`), as part of the same
-  durable save that normally writes the post-merge `persistent.sfs`.
-  Crash recovery: if we crash after the promotion runs but before the
-  durable save lands, the in-memory state has the promoted sections but
-  the on-disk `.prec` files still have the pre-promotion shape; on next
-  load we redrive `OnLoad` → re-populate `RecordingStore` from sidecars →
-  the in-memory state matches the on-disk state again. The promotion is
-  idempotent (running it twice on an already-promoted section is a no-op
-  because the relative section is gone), so re-running it in the journal
-  finisher's redrive path is safe.
+1. **Placeholder path.** Non-in-place Re-Fly: a fresh provisional
+   recording is built and `MergeJournalOrchestrator.RunMergeJournal`
+   drives the supersede / tombstone / finalize / RpReap phases.
+2. **In-place continuation path.** [MergeDialog.cs:393-660](../Source/Parsek/MergeDialog.cs)
+   detects in-place continuation, runs its own
+   `SupersedeCommit.AppendRelations` + `FlipMergeStateAndClearTransient`
+   + RP reap + `persistent.sfs` durable save sequence, and returns
+   `Completed` WITHOUT calling `RunMergeJournal`. The in-place branch
+   logs `in-place continuation persisted via persistent.sfs` /
+   `in-place continuation skipped durable save`.
 
-- **Does this need a new `MergeJournal.Phases` enum value?** Yes — add
-  `RelativePromotion` between `RpReap` and the implicit final cleared
-  state. `RunFinisher` learns to redrive from `RelativePromotion` (re-run
-  the pass — idempotent — then clear). Alternative: fold it into
-  `RpReap`'s body and don't journal it as a separate phase. We pick the
-  explicit phase because (a) journal phases are cheap, (b) it makes the
-  redrive contract obvious from the orchestrator code, (c) it gives us a
-  log-grep landmark for the operation.
+The parent-chain promotion needs to run on BOTH paths — in fact the
+in-place path is the *primary* target case (the upper-stage relative
+data goes stale precisely because the in-place continuation extends
+the booster's recording). A pass wired only into the orchestrator
+would do nothing for the very scenario this plan exists to fix.
 
-The optimizer pass is invoked from the new orchestrator step rather than
-from `RecordingStore.RunOptimizationPass` because it's Re-Fly-specific
-state (active target id + pid) and shouldn't run on plain merges or
-periodic optimizer ticks.
+#### Shared promotion step
+
+Extract the call as an internal static helper:
+
+```csharp
+internal static int SupersedeCommit.PromoteParentChainRelativeToAbsolute(
+    ReFlySessionMarker marker,
+    Recording activeReFlyTarget,
+    RecordingTree tree)
+```
+
+The helper:
+1. Looks up `tree` from `RecordingStore.FindCommittedTreeById(marker.TreeId)`
+   if the caller passes null (defensive).
+2. Calls `RecordingOptimizer.RunReFlyParentChainAbsolutePromotionPass(
+   tree, RecordingStore.CommittedRecordings, marker.ActiveReFlyRecordingId,
+   activeReFlyTarget.VesselPersistentId)`.
+3. Logs a structured `Info` line whether or not anything was promoted
+   ("nothing to promote" is a useful audit landmark — surfaces "we
+   checked").
+4. Returns the count for the caller's summary log.
+
+#### Call sites
+
+- **In-place continuation path.** `TryCommitReFlySupersede` invokes
+  the helper after `FlipMergeStateAndClearTransient` returns and
+  BEFORE the `persistent.sfs` durable save block at
+  `MergeDialog.cs:643`. That ordering means the durable save in the
+  same try-catch persists the promoted sections in one atomic step.
+  If the durable save throws, the same catch path that already exists
+  ("in-place continuation finalization threw …") logs the failure;
+  the in-memory promotion remains, but the on-disk sidecars still
+  carry the pre-promotion shape. On next load, `OnLoad` repopulates
+  the in-memory state from sidecars and the promotion is naturally
+  re-run on the next merge action — the promotion is idempotent so
+  this is safe. (If the user never triggers another merge, the
+  recording stays in its pre-promotion shape forever, which is
+  identical to the current world. No regression.)
+
+- **Placeholder path via the orchestrator.** Add a new
+  `MergeJournal.Phases.RelativePromotion` between `RpReap` and the
+  implicit final cleared state. `RunMergeJournal` invokes the helper
+  after `RpReap` advances. `RunFinisher` learns to redrive from
+  `RelativePromotion` (re-run the helper — idempotent — then clear).
+  Alternative: fold it into `RpReap`'s body without a new phase. We
+  pick the explicit phase because (a) journal phases are cheap,
+  (b) the redrive contract is obvious from the orchestrator code,
+  (c) it gives us a log-grep landmark consistent with the in-place
+  branch.
+
+#### Why not unify the two paths instead?
+
+In-place vs placeholder is a deliberate architectural choice
+documented at `MergeDialog.cs:417-441` — the in-place branch
+intentionally bypasses the orchestrator because it has different
+finalization needs (no provisional add/remove, transient origin
+metadata, single durable save). Routing in-place through the
+orchestrator would be a much larger refactor and out of scope for
+this plan. The shared-helper approach is the minimal correct change.
+
+The optimizer pass is invoked via the helper rather than from
+`RecordingStore.RunOptimizationPass` because it's Re-Fly-specific
+state (active target id + pid + tree) and shouldn't run on plain
+merges or periodic optimizer ticks.
 
 ### Helper extraction
 
@@ -354,6 +460,33 @@ data transformation).
     Re-Fly target's pid is different. Assert the section stays
     RELATIVE and the loop continues to point at the station anchor.
 
+11. **Same-PID loop section IS promoted.** Parent-chain recording
+    with `LoopAnchorVesselId == activeReFlyTargetPid` AND looped
+    RELATIVE section anchored to the same pid. Assert the section is
+    promoted to ABSOLUTE, `anchorVesselId == 0`, the loop now uses
+    the absolute frames (per the rule documented in the scope
+    section). This pins the policy decision and prevents a future
+    refactor from silently skipping same-pid loops.
+
+12. **Boundary-seeded section frame does not trigger rollback.**
+    Synthesize a parent-chain recording where the promoted RELATIVE
+    section starts with a boundary-seeded frame (frame[0] duplicates
+    the previous section's last UT, but the flat `Recording.Points`
+    list has only one entry at that UT). Assert: section is
+    promoted, the boundary frame's flat-list overwrite is skipped
+    (because the previous section is NOT being promoted), all other
+    section frames map cleanly to flat-list entries by UT, no
+    rollback. Asserts on log line: `pointsRewritten = frames.Count - 1`
+    when the boundary case applies.
+
+13. **Two consecutive promoted sections share the boundary frame.**
+    Same recording with two adjacent RELATIVE sections both anchored
+    to the active target. Assert: both sections promoted, the shared
+    boundary frame's flat-list entry is overwritten exactly once
+    (either section can claim it; pick the second so the first
+    section's frames don't write over the second section's start
+    point — see splice-algorithm step 2 in the plan body).
+
 ### `EffectiveStateTests` additions
 
 1. **`CollectActiveReFlyParentChainRecordingIds` returns all chain
@@ -369,9 +502,10 @@ data transformation).
 
 ### `MergeJournalOrchestratorTests` additions
 
-1. **`RelativePromotion` phase is reached after `RpReap`.** In-place
-   continuation merge with parent-chain recordings to promote. Assert
-   journal advances through `RelativePromotion` and clears.
+1. **`RelativePromotion` phase is reached after `RpReap` (placeholder
+   path).** Placeholder Re-Fly merge (NOT in-place) with parent-chain
+   recordings to promote. Assert journal advances through
+   `RelativePromotion` and clears.
 
 2. **Redrive from `RelativePromotion` re-runs the pass and is
    idempotent.** Inject a crash hook before the phase clears; reload;
@@ -382,6 +516,40 @@ data transformation).
 3. **Crash before `RelativePromotion` does NOT promote.** Inject hook at
    `RpReap` clear; assert the parent-chain recordings are still
    RELATIVE on disk, and reload's redrive completes the promotion.
+
+### `MergeDialogTests` / in-place branch wiring
+
+These pin the P1 review fix — the in-place branch must call the
+shared promotion helper.
+
+1. **In-place continuation merge promotes parent-chain sections.**
+   Set up an in-place continuation merge with a parent-chain recording
+   carrying RELATIVE sections anchored to the active target's pid.
+   Run `TryCommitReFlySupersede` end-to-end (in-place branch). Assert
+   the parent-chain recording's RELATIVE sections are now ABSOLUTE,
+   `MarkFilesDirty` was called, and the structured INFO log line
+   `[Supersede] in-place parent-chain absolute promotion: …` appears.
+
+2. **In-place continuation merge with no parent-chain logs "nothing
+   to promote".** In-place merge whose tree has no parent chain (the
+   active target has no parent branch points). Assert the helper is
+   still invoked and logs `nothing to promote` — this is the audit
+   landmark that proves the wiring fired.
+
+3. **Placeholder path also promotes via the orchestrator.** Same
+   topology but non-in-place; assert the orchestrator's
+   `RelativePromotion` phase fired and the same end state was
+   reached. Together with #1 this pins "both paths run the pass."
+
+4. **In-place finalization throws after promotion.** Inject a hook
+   that throws inside the `persistent.sfs` durable save block. Assert
+   the in-memory promotion is still applied (the in-memory state
+   matches the user's expectations), the catch block logs the
+   failure, and the on-disk sidecars retain their pre-promotion shape
+   (the recording's `MarkFilesDirty` flag is still set so the next
+   successful save will rewrite them). This pins the documented
+   behavior: a failed durable save doesn't corrupt anything; it just
+   defers the on-disk rewrite.
 
 ### `SessionMergerTests` / `RecordingOptimizerTests` regression
 
@@ -402,17 +570,15 @@ passing. No changes expected.
   when an anchor vessel has been superseded, which only happens in
   Re-Fly merges.
 
-- **Looped sections in general.** Looped segments are intentionally
-  preserved by the scope filter (see scope item 2 — "looped section
-  anchored to non-Re-Fly vessel" stays RELATIVE). The narrow case
-  where a parent-chain recording's looped section happens to anchor
-  to the active Re-Fly target's pid is the only situation where a
-  loop's anchor frame would change post-pass; that case is covered
-  by the same alignment as the rest of the promotion (the live
-  anchor pose is dead anyway because the booster's recording is
-  superseded). Practically this case is unlikely — looped logistics
-  routes loop on stations/bases, not on a soon-to-be-re-flown
-  ascent stage — but the scope item-2 test pins it explicitly.
+- **Looped sections anchored to non-Re-Fly vessels.** Logistics
+  routes that loop on a station or base — the typical
+  `LoopAnchorVesselId == station_pid` case — stay RELATIVE because
+  their `anchorVesselId` doesn't match the active Re-Fly target's
+  pid. The scope filter handles this naturally; test 10 pins it.
+  The same-pid loop case (a parent-chain recording that loops on the
+  re-flown vessel's pid) IS promoted — see the scope filter's
+  "Same-PID loop sections ARE promoted" note and test 11 for the
+  rationale and pinning.
 
 - **Docking and rendezvous sections.** RELATIVE sections anchored to
   station/base/partner-vessel pids stay RELATIVE under the scope
