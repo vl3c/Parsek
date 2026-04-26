@@ -39,6 +39,7 @@ echo Engine:  dotnet build
 echo.
 
 copy /Y "%~dp0AGENTS.md" "%~dp0..\AGENTS.md" >nul
+copy /Y "%~dp0.claude\CLAUDE.md" "%~dp0..\.claude\CLAUDE.md" >nul
 
 :: Build the mod project directly.
 :: This avoids a flaky solution-level parallel restore/build path on the local .NET SDK

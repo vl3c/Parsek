@@ -37,7 +37,7 @@ Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DL
 
 ## Utility Scripts
 
-- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically, syncs this canonical `AGENTS.md` to the parent workspace, and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
+- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically, syncs this canonical `AGENTS.md` and `.claude/CLAUDE.md` to the parent workspace, and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
 - `python scripts/collect-logs.py [label] [--save NAME] [--skip-validation] [--skip-recordings] [--ksp-dir PATH]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`; runs log validation unless explicitly skipped.
 - `pwsh -File scripts/inject-recordings.ps1 [--clean-start] [--save-name NAME] [--target-save FILE] [--build] [--run-diagnostics-tests]` - injects synthetic test recordings into a chosen KSP save, optionally rebuilding first and/or running the diagnostics/observability test slice before injection.
 - `python scripts/release.py` - builds Release, runs the full headless test suite, and packages `Parsek-v{version}.zip` with the `GameData/Parsek/` release layout.
