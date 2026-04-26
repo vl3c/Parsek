@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Xunit;
 
@@ -150,6 +151,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnSaveScenarioLifecycleExceptionLog_IncludesTopLevelContextAndRecState()
+        {
+            string previousSaveFolder = HighLogic.SaveFolder;
+            try
+            {
+                HighLogic.SaveFolder = "observability_save";
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = "rec_committed",
+                    VesselName = "Committed Vessel"
+                });
+
+                var pendingTree = new RecordingTree
+                {
+                    Id = "tree_save_pending",
+                    TreeName = "Save Pending"
+                };
+                pendingTree.Recordings["rec_save_pending"] = new Recording
+                {
+                    RecordingId = "rec_save_pending",
+                    VesselName = "Pending Save Vessel"
+                };
+                RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+                var scenario = new ParsekScenario();
+                SetPrivateField(scenario, "scenarioSaveFolder", "observability_save");
+
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    scenario.ExecuteOnSaveLifecyclePhaseForTesting(
+                        "recordings",
+                        () => throw new InvalidOperationException("save boom")));
+
+                Assert.Equal("save boom", ex.Message);
+                string errorLine = logLines.FirstOrDefault(line =>
+                    line.Contains("[ERROR][Scenario]") &&
+                    line.Contains("OnSave: exception"));
+                Assert.NotNull(errorLine);
+                Assert.Contains("phase=recordings", errorLine);
+                Assert.Contains("saveFolder=<null>", errorLine);
+                Assert.Contains("scenarioSaveFolder=observability_save", errorLine);
+                Assert.Contains("committedRecordings=1", errorLine);
+                Assert.Contains("committedTrees=0", errorLine);
+                Assert.Contains("pendingTree=id=tree_save_pending,state=Limbo,recordings=1", errorLine);
+                Assert.Contains("ex=InvalidOperationException:save boom", errorLine);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[INFO][RecState]") &&
+                    line.Contains("[OnSave:exception]"));
+            }
+            finally
+            {
+                HighLogic.SaveFolder = previousSaveFolder;
+            }
+        }
+
+        [Fact]
         public void SnapshotSidecarInvalidLog_IncludesRecordingPathEpochAndProbeContext()
         {
             string vesselPath = Path.Combine(tempDir, "rec_sidecar_vessel.craft");
@@ -174,6 +230,38 @@ namespace Parsek.Tests
                 line.Contains("fileKind=vessel") &&
                 line.Contains(vesselPath) &&
                 line.Contains("failure='binary header truncated'"));
+        }
+
+        [Fact]
+        public void SnapshotSidecarUnsupportedLog_IncludesProbeVersionContext()
+        {
+            string vesselPath = Path.Combine(tempDir, "rec_sidecar_unsupported_vessel.craft");
+            int unsupportedVersion = SnapshotSidecarCodec.CurrentVersion + 1;
+            WriteSnapshotSidecarHeader(vesselPath, unsupportedVersion, codec: 1);
+            var rec = new Recording
+            {
+                RecordingId = "rec_sidecar_unsupported",
+                SidecarEpoch = 8,
+                GhostSnapshotMode = GhostSnapshotMode.Separate
+            };
+
+            RecordingStore.SnapshotSidecarLoadSummary summary =
+                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+
+            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
+            Assert.Equal("snapshot-vessel-unsupported", summary.FailureReason);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][RecordingStore]") &&
+                line.Contains("unsupported vessel snapshot sidecar") &&
+                line.Contains("id=rec_sidecar_unsupported") &&
+                line.Contains("epoch=8") &&
+                line.Contains("ghostSnapshotMode=Separate") &&
+                line.Contains("fileKind=vessel") &&
+                line.Contains(vesselPath) &&
+                line.Contains("supported=False") &&
+                line.Contains("encoding=UnknownBinary") &&
+                line.Contains("version=" + unsupportedVersion) &&
+                line.Contains("failure='unsupported snapshot sidecar version " + unsupportedVersion + " codec 1'"));
         }
 
         [Fact]
@@ -460,6 +548,29 @@ namespace Parsek.Tests
 
             throw new InvalidOperationException(
                 "Could not locate repo root from " + AppContext.BaseDirectory);
+        }
+
+        private static void WriteSnapshotSidecarHeader(string path, int version, byte codec)
+        {
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PRKS"));
+                writer.Write(version);
+                writer.Write(codec);
+                writer.Write(0);
+                writer.Write(0);
+                writer.Write(0u);
+            }
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
         }
     }
 }

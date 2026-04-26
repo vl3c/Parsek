@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -125,6 +127,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePlaybackFlags_LogsGhostSkipReasonAndSuppressesStableRepeats()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var noData = new Recording
+                {
+                    RecordingId = "rec-flags",
+                    VesselName = "Flagged Vessel",
+                    PlaybackEnabled = true
+                };
+                var committed = new List<Recording> { noData };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.Single(flags);
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.NoRenderableData, flags[0].skipReason);
+                Assert.Equal(1, logLines.Count(line =>
+                    line.Contains("[Parsek][VERBOSE][Flight]")
+                    && line.Contains("Ghost playback skip state")
+                    && line.Contains("id=rec-flags")
+                    && line.Contains("reason=no-renderable-data")));
+
+                flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.Equal(GhostPlaybackSkipReason.NoRenderableData, flags[0].skipReason);
+                Assert.Equal(1, logLines.Count(line =>
+                    line.Contains("Ghost playback skip state")
+                    && line.Contains("id=rec-flags")));
+
+                var playbackDisabled = MakeRecording(
+                    "rec-flags",
+                    "Flagged Vessel",
+                    playbackEnabled: false);
+                committed[0] = playbackDisabled;
+
+                flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.PlaybackDisabled, flags[0].skipReason);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[Parsek][VERBOSE][Flight]")
+                    && line.Contains("Ghost playback skip state")
+                    && line.Contains("id=rec-flags")
+                    && line.Contains("reason=playback-disabled")
+                    && line.Contains("suppressed=1"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void FrameSummary_IncludesAggregateSkipCounters()
         {
             var counters = new GhostPlaybackFrameCounters
@@ -233,6 +291,37 @@ namespace Parsek.Tests
             Assert.False(decision.warn);
             Assert.False(decision.recordingExists);
             Assert.Equal("stale-recording-id", decision.reason);
+        }
+
+        private static ParsekFlight CreateFlightHostForPlaybackFlagTests()
+        {
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            SetPrivateField(host, "chainManager", new ChainSegmentManager());
+            SetPrivateField(host, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
+            return host;
+        }
+
+        private static TrajectoryPlaybackFlags[] ComputePlaybackFlagsForTesting(
+            ParsekFlight host,
+            IReadOnlyList<Recording> committed,
+            double currentUT)
+        {
+            MethodInfo method = typeof(ParsekFlight).GetMethod(
+                "ComputePlaybackFlags",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return (TrajectoryPlaybackFlags[])method.Invoke(
+                host,
+                new object[] { committed, currentUT });
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
         }
     }
 }

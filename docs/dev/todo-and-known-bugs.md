@@ -97,6 +97,11 @@ save/load exception context, sidecar/path severity expansion, rewind
 `CanInvoke` reason-change logging, playback-engine frame skip counters, and
 Phase 6 retained in-game log-package validation still need separate passes.
 
+Review follow-up coverage (2026-04-26): closed the deferred log-assertion gaps
+for finalizer refresh identity isolation, Diagnostics missing-sidecar path
+warning scopes, `ComputePlaybackFlags` ghost-skip emit/suppress behavior,
+`OnSave` exception context/RecState, and unsupported snapshot probe logging.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
