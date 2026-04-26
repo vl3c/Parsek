@@ -701,15 +701,24 @@ namespace Parsek.Tests
 
         // The runtime `old==new` self-skip defense in
         // `SupersedeCommit.AppendRelations` was removed when the placeholder-
-        // and-redirect cascade was retired (item 11). The new design makes
-        // self-supersede impossible at the source: `RewindInvoker.AtomicMarkerWrite`
-        // detects in-place continuation up front and points the marker at the
-        // origin id directly without creating a placeholder; the
-        // `MergeDialog.TryCommitReFlySupersede` in-place-continuation guard
-        // (asserted in `TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes`
-        // above) is the sole path for that case. The matching invariant on
-        // the AtomicMarkerWrite side is asserted in
-        // `AtomicMarkerWriteTests.AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder`.
+        // and-redirect cascade was retired (item 11), but PR #590 re-introduced
+        // it to support the in-place-continuation `AppendRelations` call path:
+        // when `marker.OriginChildRecordingId == provisional.RecordingId`, the
+        // session-suppressed-subtree closure includes the origin itself, and a
+        // row where `old == new` would form a 1-node `EffectiveRecordingId`
+        // cycle. The 4-arg overload added an `extraSelfSkipRecordingIds`
+        // parameter for the optimizer-split case where the in-place provisional
+        // has been split into chain HEAD + TIP (and the three-segment variant
+        // where HEAD/MIDDLE/TIP are all part of the new flight): the caller
+        // passes the TIP as `provisional` so `ValidateSupersedeTarget` sees a
+        // non-null terminal payload, and names the other chain members in
+        // `extraSelfSkipRecordingIds` so none of them ends up with a row
+        // pointing at another member. The runtime self-skip guard is exercised
+        // by `TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly`;
+        // the extra-self-skip set is exercised by
+        // `TryCommitReFlySupersede_InPlaceContinuation_OptimizerSplit_ResolvesChainTipAndWritesSiblingRows`
+        // and
+        // `TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember`.
 
         // ---------- Supersede-target invariant (item 10) -------------------
 
