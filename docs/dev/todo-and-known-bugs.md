@@ -1076,6 +1076,36 @@ terminal cannot churn indefinitely.
 
 ---
 
+## ~~622. Re-Fly merge skips stale original booster exo tails as if they were new in-place chain members~~
+
+**Source:** `logs/2026-04-26_1657_refly-postmerge-followup/KSP.log`.
+
+**Evidence:** after booster Re-Fly, stale original exo segment
+`a676f02df8fb4ad8b098e6a9c00ea37e` remained in the committed tree with no
+supersede relation. The merge resolved the new in-place chain tip correctly
+(`b2fd292a... -> 1e0e0eae...`) but built `chain-skip-set` from every recording
+with the same `TreeId + ChainId + ChainBranch`, which included stale
+`a676...` alongside new Re-Fly split segments `f594...` and `1e0...`.
+`AppendRelations` therefore skipped the exact required relation
+`old=a676... new=1e0...` as an extra self-link and wrote zero supersedes.
+
+**Additional topology issue:** the original optimizer split also rewrote the
+upper-stage branch point at UT `116.711` to parent recording `44b89...`, whose
+recording starts at UT `170.561`. That stale parent pointer can distort
+parent-chain walks after atmo/exo splitting.
+
+**Resolution (2026-04-26):** CLOSED for v0.8.3. In-place Re-Fly origins are
+tagged with the active session id, optimizer split children inherit that tag,
+and merge-time self-skip only protects session-owned same-chain members.
+Pre-existing same-chain optimizer tails are now superseded to the new chain tip.
+Optimizer branch-point reassignment now checks the branch point UT and only
+moves `ChildBranchPointId` / `ParentRecordingIds` to the second half when the
+branch belongs to that half's time range.
+
+**Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
+
+---
+
 ## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:

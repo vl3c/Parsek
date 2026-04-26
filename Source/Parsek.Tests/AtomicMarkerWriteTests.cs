@@ -393,7 +393,7 @@ namespace Parsek.Tests
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -569,6 +569,8 @@ namespace Parsek.Tests
             Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
             // Origin's TreeId is reused on the marker.
             Assert.Equal("tree_origin", marker.TreeId);
+            Assert.Equal("sess_inplace", origin.CreatingSessionId);
+            Assert.Equal(rp.RewindPointId, origin.ProvisionalForRpId);
 
             // INFO log advertises the in-place continuation diagnosis so a
             // future regression that loses the detection is diagnosable.
@@ -681,6 +683,8 @@ namespace Parsek.Tests
                 TreeId = "tree_origin",
                 MergeState = MergeState.Immutable,
                 VesselPersistentId = kOriginPid,
+                CreatingSessionId = "prior_session",
+                ProvisionalForRpId = "prior_rp",
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
 
@@ -688,7 +692,7 @@ namespace Parsek.Tests
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointB:BeforeMarker")
+                if (tag == "CheckpointA:AfterProvisional")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -703,6 +707,8 @@ namespace Parsek.Tests
             Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
             // Marker is cleared (rollback).
             Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+            Assert.Equal("prior_session", origin.CreatingSessionId);
+            Assert.Equal("prior_rp", origin.ProvisionalForRpId);
         }
     }
 }

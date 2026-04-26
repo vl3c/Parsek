@@ -817,34 +817,42 @@ namespace Parsek
                 && originChild.VesselPersistentId == stripResult.SelectedPid;
 
             Recording provisional = null;
-            string activeReFlyRecordingId;
-            string treeIdForMarker;
-
-            if (inPlaceContinuation)
-            {
-                activeReFlyRecordingId = originChild.RecordingId;
-                treeIdForMarker = originChild.TreeId;
-                ParsekLog.Info(InvokeTag,
-                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
-                    $"{originChild.RecordingId} (no placeholder created)");
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
-            else
-            {
-                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
-                activeReFlyRecordingId = provisional.RecordingId;
-                treeIdForMarker = provisional.TreeId;
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                RecordingStore.AddProvisional(provisional);
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
+            string activeReFlyRecordingId = null;
+            string treeIdForMarker = null;
+            string priorOriginCreatingSessionId = null;
+            string priorOriginProvisionalForRpId = null;
+            bool taggedOriginForInPlace = false;
 
             ReFlySessionMarker marker;
             try
             {
+                if (inPlaceContinuation)
+                {
+                    activeReFlyRecordingId = originChild.RecordingId;
+                    treeIdForMarker = originChild.TreeId;
+                    priorOriginCreatingSessionId = originChild.CreatingSessionId;
+                    priorOriginProvisionalForRpId = originChild.ProvisionalForRpId;
+                    originChild.CreatingSessionId = sessionId;
+                    originChild.ProvisionalForRpId = rp.RewindPointId;
+                    taggedOriginForInPlace = true;
+                    ParsekLog.Info(InvokeTag,
+                        $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata)");
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+                else
+                {
+                    provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    activeReFlyRecordingId = provisional.RecordingId;
+                    treeIdForMarker = provisional.TreeId;
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    RecordingStore.AddProvisional(provisional);
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
@@ -868,10 +876,16 @@ namespace Parsek
                 // section. Both clears are idempotent
                 // (RemoveCommittedInternal returns false if absent; marker
                 // clear is a null-assignment). In-place continuation paths
-                // did not add anything to the committed list, so there's
-                // nothing to roll back on the recording side.
+                // did not add a recording, but they did tag the existing
+                // origin with transient session metadata; restore those
+                // fields so the critical section stays all-or-nothing.
                 if (provisional != null)
                     RecordingStore.RemoveCommittedInternal(provisional);
+                if (taggedOriginForInPlace && originChild != null)
+                {
+                    originChild.CreatingSessionId = priorOriginCreatingSessionId;
+                    originChild.ProvisionalForRpId = priorOriginProvisionalForRpId;
+                }
                 try
                 {
                     if (ParsekScenario.Instance != null)
