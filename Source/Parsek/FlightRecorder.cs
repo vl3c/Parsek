@@ -5344,6 +5344,46 @@ namespace Parsek
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
+            // Frame-mismatch repair when stale-anchor validation downgraded a
+            // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
+            // Relative section's last frame, whose lat/lon/alt fields hold
+            // anchor-local Cartesian metres (NOT body-fixed surface coords).
+            // Seeding it into a freshly-opened ABSOLUTE section would write
+            // a meaningless metre-scale "lat/lon/alt" sample at the seam,
+            // re-introducing the corrupted-trajectory class this PR closes.
+            // The parallel v7 absolute shadow already carries the focused
+            // vessel's true body-fixed position at the same UT — swap
+            // boundaryPoint to that shadow value so the new ABSOLUTE
+            // section's first sample matches its declared contract. Legacy
+            // recordings without an absolute shadow (v5 and earlier
+            // RELATIVE) fall through with no boundary seed; the next normal
+            // sample seeds the ABSOLUTE section cleanly.
+            bool downgradedRelativeToAbsolute = resumeSection.HasValue
+                && resumeSection.Value.referenceFrame == ReferenceFrame.Relative
+                && resumeRef == ReferenceFrame.Absolute;
+            if (downgradedRelativeToAbsolute)
+            {
+                if (absoluteBoundaryPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: substituting absolute-shadow boundary point " +
+                        $"at ut={absoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"in place of relative-frame boundary point");
+                    boundaryPoint = absoluteBoundaryPoint;
+                }
+                else
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no absolute-shadow " +
+                        $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
+                    boundaryPoint = null;
+                }
+                // The new section is ABSOLUTE, so absoluteBoundaryPoint will
+                // be ignored by SeedBoundaryPoint anyway — clear it for
+                // clarity.
+                absoluteBoundaryPoint = null;
+            }
+
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
             if (resumeRef == ReferenceFrame.Relative)
@@ -6721,7 +6761,29 @@ namespace Parsek
         /// </summary>
         private static List<Vessel> TryGetFlightGlobalsVesselsForResumeValidation()
         {
+            if (resumeValidationVesselsOverrideForTesting != null)
+                return resumeValidationVesselsOverrideForTesting();
             return TryGetFlightGlobalsVessels();
+        }
+
+        // Test-only seam: lets xUnit drive the stale-anchor downgrade branch
+        // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
+        // production this stays null and the helper falls back to
+        // TryGetFlightGlobalsVessels(), which returns null in xUnit and so
+        // skips the safety check entirely. Returning a non-null (possibly
+        // empty) list from the override forces the validation path to run
+        // and treat the resume anchor as unloaded → downgrade to Absolute.
+        internal static System.Func<List<Vessel>> resumeValidationVesselsOverrideForTesting;
+
+        internal static void SetResumeValidationVesselsOverrideForTesting(
+            System.Func<List<Vessel>> @override)
+        {
+            resumeValidationVesselsOverrideForTesting = @override;
+        }
+
+        internal static void ResetResumeValidationVesselsOverrideForTesting()
+        {
+            resumeValidationVesselsOverrideForTesting = null;
         }
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)

@@ -780,7 +780,14 @@ namespace Parsek
         /// </summary>
         /// <param name="marker">Live re-fly marker, or null.</param>
         /// <param name="resolutionBranch">Branch label from
-        /// <see cref="StateVectorWorldFrame.Branch"/>: only "relative" suppresses.</param>
+        /// <see cref="StateVectorWorldFrame.Branch"/>: <c>"relative"</c> AND
+        /// <c>"absolute-shadow"</c> both suppress, because both describe a
+        /// RELATIVE track section (the latter is the v7 absolute-shadow
+        /// sibling of the same section, used when the live anchor is the
+        /// active Re-Fly target). Suppressing only <c>"relative"</c> would
+        /// leak a parent-chain v7 state-vector ghost into the scene during
+        /// active Re-Fly, contradicting the doubled-ProtoVessel guard
+        /// (PR #613 review P2).</param>
         /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
         /// <param name="victimRecordingId">RecordingId of the recording being
         /// mapped. Suppression is rejected with
@@ -848,7 +855,20 @@ namespace Parsek
                 return false;
             }
 
-            if (!string.Equals(resolutionBranch, "relative", StringComparison.Ordinal))
+            // Accept both "relative" and "absolute-shadow" — the latter is
+            // the v7 sibling of the same RELATIVE section, returned by
+            // ResolveStateVectorWorldPosition when the section's anchor PID
+            // matches the active Re-Fly target. The suppression decision
+            // depends on the section's underlying RELATIVE shape, not on
+            // which positioning source the resolver picked. Without this
+            // both-branches check the parent-chain doubled-ProtoVessel
+            // guard would silently break for v7 recordings and let a
+            // wrong-position ghost ProtoVessel into the scene during
+            // active Re-Fly (PR #613 review P2).
+            bool branchSuppresses =
+                string.Equals(resolutionBranch, "relative", StringComparison.Ordinal)
+                || string.Equals(resolutionBranch, "absolute-shadow", StringComparison.Ordinal);
+            if (!branchSuppresses)
             {
                 suppressReason = "not-suppressed-not-relative-frame";
                 return false;
