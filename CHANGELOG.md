@@ -50,7 +50,7 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly merge no longer leaves a clickable real upper stage alongside the playback ghost; non-leaf parent recordings inside the session-suppressed subtree now default to ghost-only in the merge dialog.
 
-- Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge.
+- Re-Fly in-place continuation merge now records supersede rows for sibling and parent recordings inside the closure, so a previously destroyed sibling like a Kerbal X Probe no longer lingers in the Recordings list after merge — including when the new flight crossed an atmo-exo boundary and the optimizer split it into chained segments.
 
 - Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 

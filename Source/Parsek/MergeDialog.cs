@@ -408,20 +408,78 @@ namespace Parsek
                     // every non-self entry in the closure gets a supersede
                     // row pointing at the in-place provisional. The
                     // newly-restored old==new self-skip inside
-                    // AppendRelations guards the trivial origin-self entry
-                    // (origin == provisional in this path), and the existing
-                    // RelationExists duplicate guard makes the call safe to
-                    // re-run on resume.
+                    // AppendRelations guards the trivial origin-self entry,
+                    // and the existing RelationExists duplicate guard makes
+                    // the call safe to re-run on resume.
+                    //
+                    // Optimizer-split chain-tip resolve (review follow-up):
+                    // MergeCommit ran RecordingStore.RunOptimizationPass()
+                    // BEFORE we get here. If the in-place continuation
+                    // crossed an environment boundary (atmo↔exo), the
+                    // optimizer split the head into HEAD + TIP, MOVING
+                    // VesselSnapshot + TerminalStateValue from HEAD to TIP
+                    // (RecordingOptimizer.SplitAtSection lines 513-514 and
+                    // 536-537). HEAD now has TerminalStateValue == null,
+                    // which fails ValidateSupersedeTarget's `null TerminalState`
+                    // clause inside AppendRelations: throws in DEBUG, returns
+                    // an empty subtree in RELEASE. Either way the sibling
+                    // supersede rows the in-place fix needs are NOT written.
+                    //
+                    // Resolve the chain tip via the existing helper used by
+                    // EffectiveState.IsUnfinishedFlight for the same reason
+                    // (it walks ChainId+ChainBranch+TreeId to the recording
+                    // with the largest ChainIndex). Pass the resolved tip to
+                    // AppendRelations: validation passes against the tip's
+                    // terminal state, the row's `new` side becomes the
+                    // tip's id, and the closure entries for HEAD and TIP
+                    // are both filtered by the `old==new`-aware
+                    // self-skip-by-id check below (we explicitly add HEAD
+                    // to the skip set so HEAD is not redirected to TIP via
+                    // ERS even if newRecordingId != HEAD.id). For
+                    // non-split chains ResolveChainTerminalRecording
+                    // returns the input unchanged, preserving the prior
+                    // behaviour for un-split in-place merges.
                     if (scenario.RecordingSupersedes == null)
                         scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+                    Recording supersedeTargetRec =
+                        EffectiveState.ResolveChainTerminalRecording(provisional);
+                    bool resolvedToDifferentTip = supersedeTargetRec != null
+                        && !object.ReferenceEquals(supersedeTargetRec, provisional)
+                        && !string.Equals(supersedeTargetRec.RecordingId,
+                            provisional.RecordingId, System.StringComparison.Ordinal);
+                    if (resolvedToDifferentTip)
+                    {
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolved " +
+                            $"chain tip for supersede target: head={provisional.RecordingId} " +
+                            $"-> tip={supersedeTargetRec.RecordingId} " +
+                            $"chainId={supersedeTargetRec.ChainId ?? "<none>"} " +
+                            $"chainIndex={supersedeTargetRec.ChainIndex} " +
+                            $"tipTerminal={supersedeTargetRec.TerminalStateValue?.ToString() ?? "null"} " +
+                            $"(post-RunOptimizationPass split moved terminal payload to tip; " +
+                            $"validating + row-targeting the tip so AppendRelations does not " +
+                            $"refuse the head's null-terminal invariant)");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation supersede target " +
+                            $"unchanged from head={provisional.RecordingId} (no chain split, " +
+                            $"or head already carries terminal)");
+                    }
                     int relationsBefore = scenario.RecordingSupersedes.Count;
-                    SupersedeCommit.AppendRelations(marker, provisional, scenario);
+                    SupersedeCommit.AppendRelations(
+                        marker, supersedeTargetRec, scenario,
+                        extraSelfSkipRecordingIds: resolvedToDifferentTip
+                            ? new[] { provisional.RecordingId }
+                            : null);
                     int relationsAfter = scenario.RecordingSupersedes.Count;
                     ParsekLog.Info("MergeDialog",
                         $"TryCommitReFlySupersede: in-place continuation supersede append " +
                         $"wrote {relationsAfter - relationsBefore} relation(s) " +
                         $"(before={relationsBefore} after={relationsAfter}; self-link skipped " +
-                        $"by AppendRelations old==new guard)");
+                        $"by AppendRelations old==new guard; head also skipped via extra-self-skip " +
+                        $"set when chain tip differed from head)");
 
                     // FlipMergeStateAndClearTransient with preserveMarker=false
                     // flips MergeState, clears SupersedeTargetId, bumps

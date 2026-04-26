@@ -107,6 +107,25 @@ namespace Parsek
         /// </summary>
         internal static IReadOnlyCollection<string> AppendRelations(
             ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario)
+            => AppendRelations(marker, provisional, scenario, extraSelfSkipRecordingIds: null);
+
+        /// <summary>
+        /// Optimizer-split-aware overload. <paramref name="extraSelfSkipRecordingIds"/>
+        /// names additional recording ids whose closure entry must be filtered
+        /// out as "self-links" — used by the in-place-continuation branch of
+        /// <see cref="MergeDialog.TryCommitReFlySupersede"/> when
+        /// <see cref="RecordingStore.RunOptimizationPass"/> has split the
+        /// in-place provisional into a chain HEAD + TIP. The caller passes the
+        /// HEAD id here while passing the TIP as the <paramref name="provisional"/>
+        /// parameter so <see cref="ValidateSupersedeTarget"/> sees the tip's
+        /// non-null terminal state, but neither the head nor the tip ends up
+        /// with a row pointing at the other. Both segments are part of the
+        /// same in-place flight; superseding either would collapse the chain
+        /// in ERS.
+        /// </summary>
+        internal static IReadOnlyCollection<string> AppendRelations(
+            ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario,
+            IReadOnlyCollection<string> extraSelfSkipRecordingIds)
         {
             // Use ReferenceEquals to skip Unity's Object == null override,
             // which would treat a destroyed ScenarioModule as null even when
@@ -134,6 +153,15 @@ namespace Parsek
             // 2026-04 (items 5, 568). Catch it at commit time so the next
             // variant fails loud instead of silently poisoning ERS with a
             // zero-trajectory replacement.
+            //
+            // Optimizer-split chain-tip note: when the in-place continuation
+            // path resolves the chain tip pre-call (see
+            // MergeDialog.TryCommitReFlySupersede's chain-tip-resolve block),
+            // the recording passed here is the TIP and validation against
+            // its terminal payload passes naturally. The HEAD's
+            // null-terminal post-split is filtered out via
+            // extraSelfSkipRecordingIds so it never reaches the row-write
+            // step.
             string invariantReason;
             if (!ValidateSupersedeTarget(provisional, out invariantReason))
             {
@@ -148,9 +176,21 @@ namespace Parsek
 #endif
             }
 
+            HashSet<string> extraSkip = null;
+            if (extraSelfSkipRecordingIds != null && extraSelfSkipRecordingIds.Count > 0)
+            {
+                extraSkip = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var id in extraSelfSkipRecordingIds)
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        extraSkip.Add(id);
+                }
+            }
+
             int added = 0;
             int skippedExisting = 0;
             int skippedSelfLink = 0;
+            int skippedExtraSelfLink = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
@@ -173,6 +213,22 @@ namespace Parsek
                         ParsekLog.Verbose(Tag,
                             $"AppendRelations: skip self-link old={oldId} new={newRecordingId} " +
                             $"(in-place continuation; origin == provisional)");
+                        continue;
+                    }
+                    // Optimizer-split chain-head guard: when the in-place
+                    // provisional was split into HEAD + TIP, the caller
+                    // passes the TIP as `provisional` so validation passes,
+                    // and adds the HEAD's id here. Filter the closure entry
+                    // for HEAD so HEAD does not end up with a row pointing
+                    // at TIP — both halves of the in-place chain are part
+                    // of the new flight; superseding either silently
+                    // collapses ERS via EffectiveRecordingId redirect.
+                    if (extraSkip != null && extraSkip.Contains(oldId))
+                    {
+                        skippedExtraSelfLink++;
+                        ParsekLog.Verbose(Tag,
+                            $"AppendRelations: skip extra-self-link old={oldId} new={newRecordingId} " +
+                            $"(in-place continuation chain-head; tip is the supersede target)");
                         continue;
                     }
                     if (RelationExists(scenario.RecordingSupersedes, oldId, newRecordingId))
@@ -200,7 +256,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
                 $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)} " +
-                $"skippedSelfLink={skippedSelfLink.ToString(ic)})");
+                $"skippedSelfLink={skippedSelfLink.ToString(ic)} " +
+                $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)})");
 
             return subtree ?? new List<string>();
         }
