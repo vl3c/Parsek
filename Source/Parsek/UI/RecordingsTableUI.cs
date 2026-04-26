@@ -1442,29 +1442,58 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
-            // Loop checkbox
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
-            if (loop != rec.LoopPlayback)
+            // Loop checkbox — suppressed when this row is being drawn inside the
+            // virtual Unfinished Flights group (unfinishedFlightRowDepth > 0).
+            // The group is a re-fly TODO list; surfacing a loop toggle there
+            // is misleading because the user's next action on these rows is
+            // Fly, not playback configuration. The same recording's row in
+            // its real (mission) group still exposes the toggle, so loop
+            // remains editable for unfinished-flight recordings — just not
+            // from inside the virtual group itself. We render an empty cell
+            // of the same column width to keep the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
             {
-                rec.LoopPlayback = loop;
-                ApplyAutoLoopRange(rec, loop);
-                if (!loop && loopPeriodFocusedRi == ri)
-                    loopPeriodFocusedRi = -1;
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
             }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (loop != rec.LoopPlayback)
+                {
+                    rec.LoopPlayback = loop;
+                    ApplyAutoLoopRange(rec, loop);
+                    if (!loop && loopPeriodFocusedRi == ri)
+                        loopPeriodFocusedRi = -1;
+                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                }
+            }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
 
             // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right treatment
             // applied to single-button body cells (DrawBodyCenteredButton).
-            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
-            GUILayout.Space(BodyCellButtonLeftInset);
-            DrawLoopPeriodCell(rec, ri);
-            GUILayout.EndHorizontal();
+            // Suppressed alongside the loop checkbox when this row is being
+            // drawn inside the virtual Unfinished Flights group: the period
+            // editor is editable for any recording with LoopPlayback=true,
+            // so leaving it active would re-open loop configuration on the
+            // re-fly TODO surface that the loop-checkbox hide was meant to
+            // remove. Render an empty cell of the same column width to keep
+            // the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+                GUILayout.Space(BodyCellButtonLeftInset);
+                DrawLoopPeriodCell(rec, ri);
+                GUILayout.EndHorizontal();
+            }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPeriod");
 
             // Watch button (flight only)
@@ -2416,26 +2445,18 @@ namespace Parsek
             // aligned.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Group));
 
-            // Loop aggregate (acts on member rows; members are real recordings
-            // so the per-row loop toggle remains valid).
-            int loopCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].LoopPlayback) loopCount++;
-            bool allLoop = memberCount > 0 && loopCount == memberCount;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool newLoop = GUILayout.Toggle(allLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (newLoop != allLoop)
-            {
-                foreach (int idx in descendants)
-                    committed[idx].LoopPlayback = newLoop;
-                ParsekLog.Info("UI",
-                    $"Virtual group '{groupName}' loop set to {newLoop} ({memberCount} recordings)");
-            }
+            // Loop aggregate placeholder — the virtual Unfinished Flights group
+            // hides its loop toggle (and the per-member rows hide theirs too,
+            // see DrawRecordingRow) because the group is a re-fly TODO list.
+            // Surfacing an aggregate "loop all" toggle here would write
+            // LoopPlayback back to every member, undoing the hide-from-the-
+            // TODO-surface intent. The per-recording loop state stays
+            // editable from the same recording's row in its real (mission)
+            // group. Render an empty cell to keep the column aligned.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
 
-            // Period placeholder.
+            // Period placeholder — paired with the suppressed loop aggregate
+            // above so the virtual group exposes no playback configuration.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
 
             // Watch placeholder (flight only) — Unfinished Flights row does
@@ -2556,16 +2577,17 @@ namespace Parsek
                 return false;
             }
 
-            // Always "Re-Fly" — the action is qualitatively different from
-            // the legacy R / FF buttons (rewind time and watch playback).
-            // Clicking this loads a Rewind Point quicksave, places the
-            // player in control of the destroyed sibling vessel, and
-            // starts a re-fly session (marker, supersede tracking, merge
-            // dialog later). Past-vs-future relative to current UT is
-            // irrelevant for the user-facing label: the action is "go to
-            // the breakup point and re-fly" in either direction. `now` is
-            // kept on the signature for future per-row state if needed.
-            const string kReFlyLabel = "Re-Fly";
+            // Always "Fly" — matches the Timeline-window separation-row label
+            // (DrawTimelineFlyButton) so the same action carries the same
+            // glyph in both surfaces. The action is qualitatively different
+            // from the legacy R / FF buttons (rewind time and watch
+            // playback): clicking this loads a Rewind Point quicksave,
+            // places the player in control of the destroyed sibling vessel,
+            // and starts a re-fly session (marker, supersede tracking,
+            // merge dialog later). Past-vs-future relative to current UT is
+            // irrelevant for the user-facing label. `now` is kept on the
+            // signature for future per-row state if needed.
+            const string kReFlyLabel = "Fly";
             _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
@@ -2627,7 +2649,7 @@ namespace Parsek
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Re-Fly", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent("Fly", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 
