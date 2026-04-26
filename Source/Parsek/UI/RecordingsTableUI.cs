@@ -2786,7 +2786,7 @@ namespace Parsek
 
             if (!EffectiveState.IsUnfinishedFlight(rec))
             {
-                reason = "no matching rewind point";
+                reason = "no matching rewind point or slot";
                 return false;
             }
 
@@ -2982,20 +2982,9 @@ namespace Parsek
         /// </summary>
         internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)
         {
-            if (rp == null || rp.ChildSlots == null || rec == null) return -1;
             var supersedes = ParsekScenario.Instance?.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
-            for (int i = 0; i < rp.ChildSlots.Count; i++)
-            {
-                var slot = rp.ChildSlots[i];
-                if (slot == null) continue;
-                string effective = slot.EffectiveRecordingId(supersedes);
-                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-            }
-            return -1;
+            return EffectiveState.ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
         }
 
         /// <summary>

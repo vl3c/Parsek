@@ -1601,9 +1601,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: is the orbit a stable bound orbit whose periapsis clears
+        /// the body's atmosphere (or surface, if the body has no atmosphere)?
+        /// Atmospheric grazers — orbits whose periapsis radius lies inside
+        /// <paramref name="atmosphereDepth"/> — are excluded because they decay
+        /// to destruction within a few orbits via drag. Strict inequality at the
+        /// atmosphere top mirrors KSP's drag boundary.
+        /// </summary>
+        internal static bool IsBoundOrbitAboveAtmosphere(
+            double eccentricity,
+            double periapsisRadius,
+            double bodyRadius,
+            bool bodyHasAtmosphere,
+            double atmosphereDepth)
+        {
+            if (!IsFinite(eccentricity)
+                || !IsFinite(periapsisRadius)
+                || !IsFinite(bodyRadius)
+                || bodyRadius <= 0.0)
+            {
+                return false;
+            }
+
+            if (eccentricity >= 1.0)
+                return false;
+
+            double effectiveAtmosphereDepth = bodyHasAtmosphere
+                && IsFinite(atmosphereDepth)
+                && atmosphereDepth > 0.0
+                    ? atmosphereDepth
+                    : 0.0;
+            double minSafePeR = bodyRadius + effectiveAtmosphereDepth;
+            return periapsisRadius > minSafePeR;
+        }
+
+        /// <summary>
         /// Assigns terminal state based on vessel situation, with orbit-aware override.
-        /// KSP can report SUB_ORBITAL for a vessel with a stable bound orbit, and
-        /// ORBITING for a ballistic coast whose periapsis is below the body surface.
+        /// KSP can report SUB_ORBITAL for a stable bound orbit, and ORBITING for
+        /// a ballistic coast whose periapsis is inside the surface or atmosphere.
         /// This overload checks the vessel's actual orbit to correct both cases.
         /// </summary>
         internal static TerminalState DetermineTerminalState(int situation, Vessel vessel)
@@ -1612,28 +1647,37 @@ namespace Parsek
             if (vessel?.orbit == null || vessel.orbit.referenceBody == null)
                 return baseState;
 
+            var body = vessel.orbit.referenceBody;
+            bool bodyHasAtmosphere = body.atmosphere;
+            double atmosphereDepth = bodyHasAtmosphere ? body.atmosphereDepth : 0.0;
             TerminalState resolved = DetermineTerminalStateFromOrbitEvidence(
                 situation,
                 vessel.orbit.eccentricity,
                 vessel.orbit.PeR,
-                vessel.orbit.referenceBody.Radius);
+                body.Radius,
+                bodyHasAtmosphere,
+                atmosphereDepth);
 
             if (baseState == TerminalState.SubOrbital && resolved == TerminalState.Orbiting)
             {
                 ParsekLog.Info("RecordingTree",
                     $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting - vessel has bound orbit " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
-                    $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
+                    $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
             else if (baseState == TerminalState.Orbiting && resolved == TerminalState.SubOrbital)
             {
                 string reason = vessel.orbit.eccentricity >= 1.0
                     ? "orbit evidence is unbound"
-                    : "periapsis is below surface";
+                    : vessel.orbit.PeR <= body.Radius
+                        ? "periapsis is below surface"
+                        : "periapsis is inside atmosphere";
                 ParsekLog.Info("RecordingTree",
                     $"DetermineTerminalState: overriding ORBITING to SubOrbital - {reason} " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
-                    $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
+                    $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
 
             return resolved;
@@ -1643,7 +1687,9 @@ namespace Parsek
             int situation,
             double eccentricity,
             double periapsisRadius,
-            double bodyRadius)
+            double bodyRadius,
+            bool bodyHasAtmosphere = false,
+            double atmosphereDepth = 0.0)
         {
             TerminalState baseState = DetermineTerminalState(situation);
             if (!IsFinite(eccentricity)
@@ -1656,15 +1702,24 @@ namespace Parsek
 
             if (baseState == TerminalState.SubOrbital
                 && situation == 16
-                && eccentricity < 1.0
-                && periapsisRadius > bodyRadius)
+                && IsBoundOrbitAboveAtmosphere(
+                    eccentricity,
+                    periapsisRadius,
+                    bodyRadius,
+                    bodyHasAtmosphere,
+                    atmosphereDepth))
             {
                 return TerminalState.Orbiting;
             }
 
             if (baseState == TerminalState.Orbiting
                 && situation == 32
-                && (eccentricity >= 1.0 || periapsisRadius <= bodyRadius))
+                && !IsBoundOrbitAboveAtmosphere(
+                    eccentricity,
+                    periapsisRadius,
+                    bodyRadius,
+                    bodyHasAtmosphere,
+                    atmosphereDepth))
             {
                 return TerminalState.SubOrbital;
             }

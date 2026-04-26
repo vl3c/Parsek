@@ -543,6 +543,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_DestroyedChildUnderRewindPointWithoutSlot_RemainsImmutable()
+        {
+            var tree = MakeTreeWithBranch("rewind_tree_missing_slot");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].VesselName = "Kerbal X Debris";
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Destroyed;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "unrelated_controlled_child"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable,
+                tree.Recordings["child2"].MergeState);
+            Assert.Contains(tree.Recordings["child2"],
+                RecordingStore.CommittedRecordings);
+        }
+
+        [Fact]
         public void CommitTree_NormalStagingRewindPointPromoted_AllImmutableSlotsCanReap()
         {
             var tree = MakeTreeWithBranch("clean_rewind_tree");
@@ -1140,10 +1170,139 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Orbiting, result);
         }
 
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_OrbitingInsideAtmosphere_ReturnsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.ORBITING,
+                eccentricity: 0.0967,
+                periapsisRadius: 636642.0,
+                bodyRadius: 600000.0,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalStateFromOrbitEvidence_SubOrbitalInsideAtmosphere_RemainsSubOrbital()
+        {
+            var result = RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                (int)Vessel.Situations.SUB_ORBITAL,
+                eccentricity: 0.0967,
+                periapsisRadius: 636642.0,
+                bodyRadius: 600000.0,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000.0);
+
+            Assert.Equal(TerminalState.SubOrbital, result);
+        }
+
         // NOTE: The orbit-aware override path in DetermineTerminalState(int, Vessel)
         // requires a real KSP Vessel object with populated orbit data. The pure
-        // orbit-evidence helper above pins the classification logic; verify the
-        // live vessel wiring via in-game testing.
+        // orbit-evidence helpers above pin the classification logic; the dispatch
+        // site is exercised via in-game testing.
+
+        // ============================================================
+        // IsBoundOrbitAboveAtmosphere — pure decision tests
+        // ============================================================
+        // Atmosphereless body: existing PeR > Radius behaviour is preserved.
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_NoAtmosphere_AcceptsAboveSurface()
+        {
+            // ecc=0.5, Pe=200,000+10 m (above bare-rock surface), atmosphere=false
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 0.5,
+                periapsisRadius: 200010,
+                bodyRadius: 200000,
+                bodyHasAtmosphere: false,
+                atmosphereDepth: 0);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_NoAtmosphere_RejectsBelowSurface()
+        {
+            // Pe inside the body
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 0.5,
+                periapsisRadius: 199000,
+                bodyRadius: 200000,
+                bodyHasAtmosphere: false,
+                atmosphereDepth: 0);
+            Assert.False(result);
+        }
+
+        // Atmosphere body (Kerbin-like): orbit must clear atmosphereDepth, not just radius.
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_Atmosphere_RejectsInsideAtmo()
+        {
+            // The user's bug scenario: SMA=669km, ecc=0.0967, PeR=636642
+            // → Pe alt = 36642 m, well inside Kerbin's 70km atmosphere.
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 0.0967,
+                periapsisRadius: 636642,
+                bodyRadius: 600000,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_Atmosphere_AcceptsAboveAtmo()
+        {
+            // Pe at 80 km altitude on Kerbin (above 70km atmosphere top)
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 0.05,
+                periapsisRadius: 680000,
+                bodyRadius: 600000,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_Atmosphere_AtAtmosphereTopExactly()
+        {
+            // Pe == atmosphereDepth → false (strict inequality; atmosphereDepth is the
+            // boundary at which drag goes to zero in KSP, so the orbit must be strictly
+            // above to be stable).
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 0.05,
+                periapsisRadius: 670000,
+                bodyRadius: 600000,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_Hyperbolic_AlwaysFalse()
+        {
+            // Hyperbolic / parabolic orbits are never bound regardless of Pe.
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 1.2,
+                periapsisRadius: 800000,
+                bodyRadius: 600000,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsBoundOrbitAboveAtmosphere_ParabolicEdge_RejectsAtEcc1()
+        {
+            // Ecc == 1 is the parabolic boundary — also unbound.
+            bool result = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                eccentricity: 1.0,
+                periapsisRadius: 800000,
+                bodyRadius: 600000,
+                bodyHasAtmosphere: true,
+                atmosphereDepth: 70000);
+            Assert.False(result);
+        }
 
         // ============================================================
         // vesselSwitchPending flag — integration test placeholder
