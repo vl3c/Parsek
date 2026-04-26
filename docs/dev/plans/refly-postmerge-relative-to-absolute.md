@@ -250,26 +250,49 @@ The pass returns the number of recordings it promoted (for logging) and:
      each shared boundary UT in the flat list is overwritten by
      exactly ONE section's promotion — the one ENDING at that UT
      — eliminating the double-write/double-count problem.
-   - **Splice algorithm.** For each promoted section, in increasing
-     `startUT` order across all promoted sections of the recording:
-     1. Compute `claimsStartUT`: true iff there is no previous
-        TrackSection in the recording, OR the previous section's
-        `endUT < section.startUT` (no shared boundary), OR the
-        previous section's `referenceFrame != Relative` (no
-        SeedBoundaryPoint contract). Otherwise false — the previous
-        section owns the shared boundary entry.
-     2. Build the rewrite range:
-        `flatRange = [claimsStartUT ? section.startUT : firstUTAfterStartUT,
-                      section.endUT]` (inclusive on both ends; left
-        end is the first UT strictly after `section.startUT` when
-        `claimsStartUT` is false — find via binary search).
-     3. Binary-search `Recording.Points` for entries with `ut` in
-        `flatRange`. For each matched flat entry, find the section
-        frame with the same `ut` (within `1e-6` tolerance) and
-        overwrite the flat entry's
+   - **Splice algorithm (two-pass to stage decisions before
+     mutation).** Compute all ownership decisions from the
+     PRE-promotion section metadata, then apply mutations.
+     Otherwise the first promoted section's flip changes its
+     `referenceFrame` to Absolute mid-pass and breaks the
+     "is the previous section RELATIVE?" check for the next
+     section's claim computation.
+
+     Pass 1 — plan: snapshot the pre-promotion `referenceFrame`
+     of every section in the recording into a local array. For
+     each section that meets all promotion guards, compute
+     `claimsStartUT` from the snapshot:
+     - true iff there is no previous TrackSection in the recording,
+       OR the previous section's `endUT < section.startUT` (no
+       shared boundary), OR the previous section's snapshotted
+       `referenceFrame != Relative` (no `SeedBoundaryPoint`
+       contract).
+     - false otherwise — the previous section owns the shared
+       boundary entry. (Importantly, "previous section is also
+       being promoted in this pass" still resolves to the
+       previous-owns rule because the shared boundary value is
+       the same in both sections' shadow payloads, and we want
+       a single owner for clean accounting.)
+     Build the per-section `flatRange` from the snapshot:
+     `flatRange = [claimsStartUT ? section.startUT : firstUTAfterStartUT,
+                   section.endUT]` (left endpoint resolved via
+     binary search on `Recording.Points` for the first UT strictly
+     after `section.startUT` when `claimsStartUT` is false).
+
+     Pass 2 — execute: for each promoted section, in increasing
+     `startUT` order:
+     1. Flip the section header in place
+        (`section.referenceFrame = Absolute`,
+         `section.frames = section.absoluteFrames`,
+         `section.absoluteFrames = null`,
+         `section.anchorVesselId = 0u`).
+     2. Binary-search `Recording.Points` for entries with `ut` in
+        the section's pre-computed `flatRange`. For each matched
+        flat entry, find the section frame with the same `ut`
+        (within `1e-6` tolerance) and overwrite the flat entry's
         `latitude/longitude/altitude/rotation/velocity` with the
-        section frame's absolute-shadow values (which are now in
-        `section.frames` after the in-place flip).
+        section frame's value (which is now the absolute-shadow
+        value after the header flip).
    - **Validation invariants.** Before any rewrite lands:
      - Every section frame at UT in `flatRange` must find a matching
        flat-list entry within tolerance.
@@ -412,17 +435,33 @@ The helper:
   onto disk in one atomic step. No new durable save is added; no
   extra I/O cost.
 
-  Also extend three things that come with a new phase:
+  Also extend four things that come with a new phase:
   1. `MergeJournal.Phases.RelativePromotion` — the persisted phase
      string in `MergeJournal.cs:62-73`, plus `IsPostDurablePhase`
      must include it (line 95-102).
   2. `MergeJournalOrchestrator.Phase.RelativePromotion` — the
      in-memory test-injection enum at `MergeJournalOrchestrator.cs:74`.
-  3. `MaybeInject(Phase.RelativePromotion)` immediately after the
-     helper returns in `RunMerge`. Tests use `FaultInjectionPoint
-     = Phase.RelativePromotion` (the live test seam at
-     `MergeJournalOrchestrator.cs:95`) to simulate a crash *inside*
-     the new step (vs. before / after).
+  3. **Explicit `RunMerge` advance.** After the existing RpReap
+     work block (line 235-241) and BEFORE the existing
+     `AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared)`
+     call (line 243), insert in `RunMerge`:
+     ```csharp
+     // NEW: invoke promotion helper while marker is still alive.
+     SupersedeCommit.PromoteParentChainRelativeToAbsolute(
+         scenario.ActiveReFlySessionMarker, provisional, treeForRunMerge);
+     AdvancePhase(scenario, MergeJournal.Phases.RelativePromotion);
+     MaybeInject(Phase.RelativePromotion);
+     ```
+     The advance is the load-bearing part — without it, the
+     persisted journal phase never transitions through
+     `RelativePromotion` in the no-crash path, and recovery from
+     a `RelativePromotion`-tagged journal would never happen.
+     `treeForRunMerge` is resolved at the top of `RunMerge` via
+     the inline `CommittedTrees` scan from `provisional.TreeId`
+     (see "Helper API" section).
+  4. Tests use `FaultInjectionPoint = Phase.RelativePromotion`
+     (the live test seam at `MergeJournalOrchestrator.cs:95`) to
+     simulate a crash *inside* the new step (vs. before / after).
 
   **Crash recovery.** A crash anywhere in the post-Durable1 /
   pre-Durable2 window means:
@@ -457,7 +496,9 @@ The helper:
   load-bearing work + advance the phase" structure already used by
   the RpReap branch.
 
-  Concretely the new finisher code:
+  Concretely the new finisher code (net472-compatible —
+  `Dictionary.GetValueOrDefault` does NOT exist on this target
+  framework, so use `TryGetValue`):
   ```csharp
   if (journal.Phase == MergeJournal.Phases.RpReap)
   {
@@ -466,13 +507,18 @@ The helper:
       if (marker != null)
       {
           RecordingTree tree = ResolveTreeById(journal.TreeId);
-          Recording activeTarget = tree?.Recordings != null
-              && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-              ? tree.Recordings.GetValueOrDefault(marker.ActiveReFlyRecordingId)
-              : null;
+          Recording activeTarget = null;
+          if (tree?.Recordings != null
+              && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+          {
+              tree.Recordings.TryGetValue(
+                  marker.ActiveReFlyRecordingId, out activeTarget);
+          }
           if (tree != null && activeTarget != null)
+          {
               SupersedeCommit.PromoteParentChainRelativeToAbsolute(
                   marker, activeTarget, tree);
+          }
       }
       AdvancePhase(scenario, MergeJournal.Phases.RelativePromotion);
 
@@ -668,9 +714,12 @@ data transformation).
 ### `EffectiveStateTests` additions
 
 1. **`CollectActiveReFlyParentChainRecordingIds` returns all chain
-   members.** Topology: parent chain head→middle→tip, child chain
-   head→tip (active target). Expected: all four parent chain members,
-   no child chain members.
+   members.** Topology: parent chain `parentHead → parentMiddle →
+   parentTip` (3 recordings on the parent chain), child chain
+   `childHead → childTip` with `childHead` being the active Re-Fly
+   target (2 recordings). Expected: all 3 parent-chain members
+   (`parentHead`, `parentMiddle`, `parentTip`), no child-chain
+   members.
 
 2. **Multi-parent branch points are skipped.** Same predicate gate as
    the existing terminal-tip collector. (This test already exists for
@@ -722,12 +771,42 @@ data transformation).
    (**finisher invokes the helper using the still-alive marker
    and `journal.TreeId`**, not just an AdvancePhase no-op — see
    the "Critical finisher-side change" note in the plan body) →
-   `MarkerCleared` → `Durable2Done` (`finisher-durable2` save).
-   Final on-disk state: promoted sidecars, journal cleared, marker
-   null. Assert the helper's INFO line reports `promoted > 0` on
-   the redrive (NOT "nothing to promote") because the
-   rebuilt-from-sidecar state still carried the unpromoted RELATIVE
-   sections.
+   `MarkerCleared` → `Durable2Done`.
+
+   **Important: `finisher-durable2` is a DEFERRED save, not a
+   synchronous one.** `MergeJournalOrchestrator.cs:386` calls
+   `DurableSave("finisher-durable2", persistSynchronously: false)`,
+   which short-circuits at `MergeJournalOrchestrator.cs:422-426`
+   without invoking `GamePersistence.SaveGame` (the load-time
+   finisher avoids re-entering KSP's save path). The
+   in-memory promotion is therefore in `RecordingStore` with
+   `MarkFilesDirty()` set on the affected recordings, BUT the
+   on-disk sidecars and `persistent.sfs` still hold the
+   pre-promotion shape until the next real save (a quicksave,
+   scene change, or Parsek's recording-side dirty-sidecar
+   writer).
+
+   Test assertions therefore split into two phases:
+   - **Immediately after `RunFinisher` returns**: assert
+     in-memory state — `RecordingStore.CommittedRecordings` shows
+     promoted ABSOLUTE sections, `recording.FilesDirty == true`
+     for affected recordings, journal is in-memory-only and
+     marker is null in memory. The helper's INFO line reports
+     `promoted > 0` on the redrive (NOT "nothing to promote")
+     because the rebuilt-from-sidecar state still carried the
+     unpromoted RELATIVE sections.
+   - **After triggering an explicit save** (call
+     `GamePersistence.SaveGame` directly via the test's
+     `SaveGameForTesting` hook, or simulate a quicksave):
+     assert on-disk state — sidecars now ABSOLUTE, journal
+     cleared on disk, marker null on disk.
+
+   This mirrors the existing test pattern for the deferred
+   `finisher-durable2` checkpoint and is the only correct way to
+   verify the redrive for this phase. Adding a real synchronous
+   durable save in the finisher path is out of scope for this
+   plan (it would change the existing finisher's load-time
+   contract for ALL post-Durable1 phases, not just the new one).
 
 3. **Crash AFTER helper completes but BEFORE `durable2` save.**
    This pins the post-promotion / pre-Durable2 window. Two
@@ -739,9 +818,13 @@ data transformation).
       null in memory, but BEFORE `AdvancePhase(Durable2Done) /
       durable2` save. On disk: phase=`Durable1Done`, marker still
       alive (last save was durable1 before in-memory marker null).
-      Reload runs the finisher; helper re-executes (idempotent —
-      but the sidecars are pre-promotion because durable2 never
-      fired, so it does real work again). Final state = promoted.
+      Reload runs the finisher; helper re-executes on the
+      rebuilt-from-sidecar RELATIVE state (idempotent — does real
+      work because sidecars are pre-promotion). Test assertions
+      follow the same two-phase pattern as test 2:
+      in-memory-promoted+dirty after the finisher; on-disk-
+      promoted only after an explicit subsequent save (the
+      `finisher-durable2` is deferred, see test 2's note).
 
    3b. `DurableSaveForTesting = label => throw` for `label ==
       "durable2"`. Fires inside the durable2 save call itself.
@@ -749,9 +832,9 @@ data transformation).
       to `Durable2Done`, marker is null, sections are promoted.
       But none of that is on disk — the save itself failed. On
       disk: phase=`Durable1Done`, marker alive, sidecars
-      pre-promotion. Reload behaves identically to 3a; the
-      redrive runs the helper again and the `finisher-durable2`
-      save lands the promoted shape.
+      pre-promotion. Reload behaves identically to 3a (same
+      two-phase assertion pattern; `finisher-durable2` is
+      deferred and does not write disk in the finisher tick).
 
    These are NOT duplicates of #2: the orchestrator's catch and
    log paths between "helper threw" (#2 helper-throw variant),
