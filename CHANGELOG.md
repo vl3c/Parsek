@@ -50,6 +50,9 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Tracking Station ghost-detail panel now matches the rest of the Parsek window family (opaque dark style, consistent title font / padding) and no longer flickers; the always-disabled stock `Fly` / `Delete` / `Recover` buttons are gone, leaving `Materialize` on its own row with a clear hint of what it does.
+- Custom ghost map icons, ghost labels, and Parsek windows now hide while the Esc / pause overlay is open in flight, KSC, and Tracking Station, so they no longer punch through the pause menu.
+
 - KSC ghost playback now honors v6 RELATIVE track sections, keeping rendezvous/docking ghosts attached to their anchor instead of drawing them underground.
 
 - `#613` Re-Fly relative ghosts now reconstruct unsafe or unavailable anchors from the recorded ground-frame anchor trajectory before retiring. This keeps other vessels' paths ground-relative instead of locking to the live Re-Fly target.
