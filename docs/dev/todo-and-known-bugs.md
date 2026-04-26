@@ -896,7 +896,7 @@ and live playback. Regression coverage should pin both possible shapes:
 multiple caller surfaces through the same positioner, and recorded-anchor
 coverage gaps for the active Re-Fly target's pre-merge trajectory.
 
-**Resolution (2026-04-26):** CLOSED for v0.8.3. The retire WARN was traced to partial recorded-anchor coverage in the live relative interpolation path, not to a separate third hardcoded callsite. `TryResolveRelativeAnchorPose` now explicitly selects the anchor frame source: unrelated recordings keep the fast live-anchor path, while active in-place Re-Fly parent-chain victims bypass the live active vessel, use exact recorded anchor coverage when available, and fall back to the nearest recorded absolute anchor pose before retiring. The selector is wired into the production resolver and covered by `RelativeAnchorResolutionTests`.
+**Resolution (2026-04-26):** CLOSED for v0.8.3. The retire WARN was traced to partial recorded-anchor coverage in the live relative interpolation path, not to a separate third hardcoded callsite. `TryResolveRelativeAnchorPose` now explicitly selects the anchor frame source: unrelated recordings keep the fast live-anchor path, while active in-place Re-Fly parent-chain victims bypass the live active vessel, use exact recorded anchor coverage when available, and fall back to the nearest recorded absolute anchor pose before retiring. Large nearest-pose fallback gaps now emit a rate-limited `recorded-anchor-fallback-gap` WARN so visually suspicious snaps are visible in `KSP.log`. The selector is wired into the production resolver and covered by `RelativeAnchorResolutionTests`.
 
 **Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 

@@ -15576,6 +15576,8 @@ namespace Parsek
             return false;
         }
 
+        private const double RecordedAnchorFallbackGapWarnThresholdSeconds = 5.0;
+
         bool TryResolveRecordedAnchorPoseWithCoverage(
             uint anchorVesselId,
             string victimRecordingId,
@@ -15655,45 +15657,85 @@ namespace Parsek
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, targetUT);
                 if (sectionIdx < 0)
                 {
-                    return requireCoverage
-                        ? false
-                        : TryResolveNearestRecordedAnchorAbsoluteSectionPose(
-                            rec, targetUT, out pose);
+                    if (requireCoverage)
+                        return false;
+
+                    if (!TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose, out double fallbackGapSeconds))
+                    {
+                        return false;
+                    }
+
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec, anchorVesselId, victimRecordingId, targetUT, fallbackGapSeconds);
+                    return true;
                 }
 
                 TrackSection section = rec.TrackSections[sectionIdx];
                 if (section.referenceFrame != ReferenceFrame.Absolute)
                 {
-                    return requireCoverage
-                        ? false
-                        : TryResolveNearestRecordedAnchorAbsoluteSectionPose(
-                            rec, targetUT, out pose);
+                    if (requireCoverage)
+                        return false;
+
+                    if (!TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose, out double fallbackGapSeconds))
+                    {
+                        return false;
+                    }
+
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec, anchorVesselId, victimRecordingId, targetUT, fallbackGapSeconds);
+                    return true;
                 }
 
                 List<TrajectoryPoint> anchorPoints =
                     section.frames != null && section.frames.Count > 0
                         ? section.frames
                         : rec.Points;
-                return TryResolveRecordedAnchorPointPose(
+                bool resolved = TryResolveRecordedAnchorPointPose(
                     anchorPoints,
                     targetUT,
                     requireCoverage: requireCoverage,
                     out pose);
+                if (resolved && !requireCoverage)
+                {
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec,
+                        anchorVesselId,
+                        victimRecordingId,
+                        targetUT,
+                        DistanceOutsideRecordedAnchorCoverage(anchorPoints, targetUT));
+                }
+
+                return resolved;
             }
 
-            return TryResolveRecordedAnchorPointPose(
+            bool resolvedFromPoints = TryResolveRecordedAnchorPointPose(
                 rec.Points,
                 targetUT,
                 requireCoverage: requireCoverage,
                 out pose);
+            if (resolvedFromPoints && !requireCoverage)
+            {
+                MaybeWarnLargeRecordedAnchorFallbackGap(
+                    rec,
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    DistanceOutsideRecordedAnchorCoverage(rec.Points, targetUT));
+            }
+
+            return resolvedFromPoints;
         }
 
         bool TryResolveNearestRecordedAnchorAbsoluteSectionPose(
             Recording rec,
             double targetUT,
-            out RelativeAnchorPose pose)
+            out RelativeAnchorPose pose,
+            out double fallbackGapSeconds)
         {
             pose = default(RelativeAnchorPose);
+            fallbackGapSeconds = double.MaxValue;
             if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
                 return false;
 
@@ -15720,11 +15762,66 @@ namespace Parsek
                 }
             }
 
-            return TryResolveRecordedAnchorPointPose(
+            bool resolved = TryResolveRecordedAnchorPointPose(
                 bestPoints,
                 targetUT,
                 requireCoverage: false,
                 out pose);
+            if (resolved)
+                fallbackGapSeconds = bestGap;
+            return resolved;
+        }
+
+        void MaybeWarnLargeRecordedAnchorFallbackGap(
+            Recording rec,
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            double fallbackGapSeconds)
+        {
+            if (!ShouldWarnRecordedAnchorFallbackGap(fallbackGapSeconds))
+                return;
+
+            string anchorRecordingId = rec?.RecordingId;
+            string key = string.Format(CultureInfo.InvariantCulture,
+                "recorded-anchor-fallback-gap|anchorRec={0}|victimRec={1}|anchorPid={2}",
+                string.IsNullOrEmpty(anchorRecordingId) ? "(none)" : anchorRecordingId,
+                string.IsNullOrEmpty(victimRecordingId) ? "(none)" : victimRecordingId,
+                anchorVesselId);
+            ParsekLog.WarnRateLimited(
+                "Anchor",
+                key,
+                BuildRecordedAnchorFallbackGapLog(
+                    anchorRecordingId,
+                    victimRecordingId,
+                    anchorVesselId,
+                    targetUT,
+                    fallbackGapSeconds),
+                minIntervalSeconds: 30.0);
+        }
+
+        internal static bool ShouldWarnRecordedAnchorFallbackGap(double fallbackGapSeconds)
+        {
+            return !double.IsNaN(fallbackGapSeconds)
+                && !double.IsInfinity(fallbackGapSeconds)
+                && fallbackGapSeconds > RecordedAnchorFallbackGapWarnThresholdSeconds;
+        }
+
+        internal static string BuildRecordedAnchorFallbackGapLog(
+            string anchorRecordingId,
+            string victimRecordingId,
+            uint anchorVesselId,
+            double targetUT,
+            double fallbackGapSeconds)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "recorded-anchor-fallback-gap: anchorRec={0} victimRec={1} anchorPid={2} " +
+                "targetUT={3:F2} gap={4:F2}s reason=active-refly-live-anchor-bypass",
+                string.IsNullOrEmpty(anchorRecordingId) ? "(none)" : anchorRecordingId,
+                string.IsNullOrEmpty(victimRecordingId) ? "(none)" : victimRecordingId,
+                anchorVesselId,
+                targetUT,
+                fallbackGapSeconds);
         }
 
         internal static double DistanceOutsideRecordedAnchorCoverage(

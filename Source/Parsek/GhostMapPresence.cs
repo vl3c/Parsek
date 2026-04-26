@@ -2918,6 +2918,7 @@ namespace Parsek
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
+            activeReFlyDeferredStateVectorGhostSessions.Remove(recordingIndex);
             trackingStationStateVectorOrbitTrajectories.Remove(recordingIndex);
             trackingStationStateVectorCachedIndices.Remove(recordingIndex);
             lastKnownByRecordingIndex.Remove(recordingIndex);

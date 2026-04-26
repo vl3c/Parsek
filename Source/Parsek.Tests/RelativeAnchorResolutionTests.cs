@@ -306,6 +306,33 @@ namespace Parsek.Tests
             Assert.Equal(3.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 113.0));
         }
 
+        [Fact]
+        public void ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap()
+        {
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.0));
+            Assert.True(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(5.01));
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(double.NaN));
+            Assert.False(ParsekFlight.ShouldWarnRecordedAnchorFallbackGap(double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void BuildRecordedAnchorFallbackGapLog_IncludesGapAndRecordingContext()
+        {
+            string line = ParsekFlight.BuildRecordedAnchorFallbackGapLog(
+                anchorRecordingId: "854fdf77",
+                victimRecordingId: "e77d90b6",
+                anchorVesselId: 3314061462u,
+                targetUT: 178.0,
+                fallbackGapSeconds: 12.345);
+
+            Assert.Contains("recorded-anchor-fallback-gap", line);
+            Assert.Contains("anchorRec=854fdf77", line);
+            Assert.Contains("victimRec=e77d90b6", line);
+            Assert.Contains("anchorPid=3314061462", line);
+            Assert.Contains("targetUT=178.00", line);
+            Assert.Contains("gap=12.35s", line);
+        }
+
         #endregion
 
         #region ReFly Log Builders
