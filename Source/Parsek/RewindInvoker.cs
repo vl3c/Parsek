@@ -817,34 +817,45 @@ namespace Parsek
                 && originChild.VesselPersistentId == stripResult.SelectedPid;
 
             Recording provisional = null;
-            string activeReFlyRecordingId;
-            string treeIdForMarker;
-
-            if (inPlaceContinuation)
-            {
-                activeReFlyRecordingId = originChild.RecordingId;
-                treeIdForMarker = originChild.TreeId;
-                ParsekLog.Info(InvokeTag,
-                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
-                    $"{originChild.RecordingId} (no placeholder created)");
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
-            else
-            {
-                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
-                activeReFlyRecordingId = provisional.RecordingId;
-                treeIdForMarker = provisional.TreeId;
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                RecordingStore.AddProvisional(provisional);
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
+            string activeReFlyRecordingId = null;
+            string treeIdForMarker = null;
+            string priorPreReFlyAnchorSessionId = null;
+            List<TrajectoryPoint> priorPreReFlyAnchorPoints = null;
+            List<OrbitSegment> priorPreReFlyAnchorOrbitSegments = null;
+            List<TrackSection> priorPreReFlyAnchorTrackSections = null;
+            bool frozeOriginForInPlace = false;
 
             ReFlySessionMarker marker;
             try
             {
+                if (inPlaceContinuation)
+                {
+                    activeReFlyRecordingId = originChild.RecordingId;
+                    treeIdForMarker = originChild.TreeId;
+                    priorPreReFlyAnchorSessionId = originChild.PreReFlyAnchorSessionId;
+                    priorPreReFlyAnchorPoints = originChild.PreReFlyAnchorPoints;
+                    priorPreReFlyAnchorOrbitSegments = originChild.PreReFlyAnchorOrbitSegments;
+                    priorPreReFlyAnchorTrackSections = originChild.PreReFlyAnchorTrackSections;
+                    originChild.CapturePreReFlyAnchorTrajectory(sessionId);
+                    frozeOriginForInPlace = true;
+                    ParsekLog.Info(InvokeTag,
+                        $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                        $"{originChild.RecordingId} (no placeholder created; pre-ReFly anchor trajectory frozen)");
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+                else
+                {
+                    provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    activeReFlyRecordingId = provisional.RecordingId;
+                    treeIdForMarker = provisional.TreeId;
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    RecordingStore.AddProvisional(provisional);
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
@@ -868,10 +879,18 @@ namespace Parsek
                 // section. Both clears are idempotent
                 // (RemoveCommittedInternal returns false if absent; marker
                 // clear is a null-assignment). In-place continuation paths
-                // did not add anything to the committed list, so there's
-                // nothing to roll back on the recording side.
+                // did not add a recording, but they did freeze transient
+                // pre-ReFly anchor data on the existing origin; restore that
+                // snapshot so the critical section stays all-or-nothing.
                 if (provisional != null)
                     RecordingStore.RemoveCommittedInternal(provisional);
+                if (frozeOriginForInPlace && originChild != null)
+                {
+                    originChild.PreReFlyAnchorSessionId = priorPreReFlyAnchorSessionId;
+                    originChild.PreReFlyAnchorPoints = priorPreReFlyAnchorPoints;
+                    originChild.PreReFlyAnchorOrbitSegments = priorPreReFlyAnchorOrbitSegments;
+                    originChild.PreReFlyAnchorTrackSections = priorPreReFlyAnchorTrackSections;
+                }
                 try
                 {
                     if (ParsekScenario.Instance != null)

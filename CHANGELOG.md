@@ -54,6 +54,8 @@ All notable changes to Parsek are documented here.
 
 - `#613` Re-Fly relative ghosts now reconstruct unsafe or unavailable anchors from the recorded ground-frame anchor trajectory before retiring. This keeps other vessels' paths ground-relative instead of locking to the live Re-Fly target.
 
+- Re-Fly in-place continuations now freeze the active recording's pre-Re-Fly trajectory at invoke time and use that frozen copy for parent-chain relative-anchor playback, so upper-stage ghosts no longer replay at a constant offset from the newly flown booster/probe path.
+
 - Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.
 
 - Re-Fly ghost reentry FX no longer activates during hidden spawn priming at the stale KSC-surface pose; first-frame visual FX are suppressed until after the playback transform and ghost activation order are synchronized.
