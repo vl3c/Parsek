@@ -141,7 +141,9 @@ Key source files and what they do - read the relevant one before modifying:
 
 ## Worktree Workflow
 
-**HARD RULE — never edit or commit inside an existing worktree without explicit per-session approval.** "Existing worktree" = anything `git worktree list` already shows: the main repo at `Parsek/`, and every `Parsek-<branch>/` sibling. This applies to every change that will produce a commit — code, tests, CHANGELOG trims, todo edits, doc tweaks, anything. "It's just a one-line fix" is not an exception.
+**HARD RULE — never edit or commit inside `Parsek/` (the main checkout) without explicit per-session approval.** This applies to every change that will produce a commit — code, tests, CHANGELOG trims, todo edits, doc tweaks, anything. "It's just a one-line fix" is not an exception. Recovery if I slip: stash any unrelated WIP, `git worktree add` a new worktree at the tip containing the direct-edit commit, `git reset --hard` `Parsek/` back to the pre-direct-edit tip, `git merge --no-ff` the rescue branch back in, `git stash pop`. Never leave a direct-edit commit standing on `main` or a shared branch.
+
+**`Parsek-<branch>/` sibling worktrees are fair game once opened — keep working in them directly.** If I'm already in a `Parsek-<branch>/` worktree for the current line of work (created earlier this session, or already had ongoing changes I committed), I can keep editing, committing, and pushing inside it for the rest of that line of work. Spinning up a fresh worktree per change is unnecessary ceremony — the merge-back step is also unneeded since the changes already live on the same branch. Only spawn a new worktree when starting a *new* line of work that should land on its own branch.
 
 For manual worktrees (when not using `isolation=worktree`), create as sibling folders:
 ```bash
@@ -153,9 +155,7 @@ Pick `<target>` carefully:
 - Branching from `main` → use `origin/main` (local main may be ahead of remote from in-progress work).
 - Branching from a feature branch that's about to be merged → compare `git log --oneline <local>..origin/<branch>` first. Use the local ref if it's ahead; use `origin/<branch>` if it's behind or matches.
 
-Every change-producing task ends in: commit on the fix/chore branch → in the target worktree, `git merge --no-ff <branch>` it back → leave the branch around unless the user asks to prune.
-
-**If I slip and edit directly in an existing worktree**: stop before pushing. Recovery: stash any unrelated WIP in the dirty worktree, `git worktree add` a new worktree at the tip containing the direct-edit commit (picks up my work on a clean branch), `git reset --hard` the dirty worktree back to the pre-direct-edit tip, `git merge --no-ff` the rescue branch back in, `git stash pop`. Never leave a direct-edit commit standing on a shared branch.
+When a fresh worktree was created off a parent feature branch and finishes its work: commit on the fix/chore branch → in the parent worktree, `git merge --no-ff <branch>` it back → leave the branch around unless the user asks to prune. This merge-back step does NOT apply when you stayed on the same branch the whole time inside one worktree (the changes are already there).
 
 `Parsek.csproj` probes up to 5 parent levels for `Kerbal Space Program/`, so builds work from worktrees at this location.
 
