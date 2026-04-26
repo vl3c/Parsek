@@ -543,6 +543,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_DestroyedChildUnderRewindPointWithoutSlot_RemainsImmutable()
+        {
+            var tree = MakeTreeWithBranch("rewind_tree_missing_slot");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].VesselName = "Kerbal X Debris";
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Destroyed;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "unrelated_controlled_child"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable,
+                tree.Recordings["child2"].MergeState);
+            Assert.Contains(tree.Recordings["child2"],
+                RecordingStore.CommittedRecordings);
+        }
+
+        [Fact]
         public void CommitTree_NormalStagingRewindPointPromoted_AllImmutableSlotsCanReap()
         {
             var tree = MakeTreeWithBranch("clean_rewind_tree");

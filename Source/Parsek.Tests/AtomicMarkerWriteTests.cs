@@ -315,6 +315,9 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot> { slot },
                 UT = 42.0,
             };
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.RewindPoints != null)
+                scenario.RewindPoints.Add(rp);
             return (rp, slot);
         }
 

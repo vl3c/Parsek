@@ -66,13 +66,21 @@ namespace Parsek.Tests
             };
         }
 
-        private static ParsekScenario InstallScenarioWithRp(string bpId, string rpId)
+        private static ParsekScenario InstallScenarioWithRp(string bpId, string rpId, string slotRecordingId)
         {
             var rp = new RewindPoint
             {
                 RewindPointId = rpId,
                 BranchPointId = bpId,
-                ChildSlots = new List<ChildSlot>(),
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = slotRecordingId,
+                        Controllable = true
+                    }
+                },
                 UT = 100.0,
                 SessionProvisional = false,
             };
@@ -96,7 +104,7 @@ namespace Parsek.Tests
             // rename with only its display name changed.
             var rec = MakeCrashedUnfinished("rec_uf1", "bp_uf1", "OriginalName");
             RecordingStore.AddCommittedInternal(rec);
-            InstallScenarioWithRp("bp_uf1", "rp_uf1");
+            InstallScenarioWithRp("bp_uf1", "rp_uf1", rec.RecordingId);
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec),
                 "precondition: recording must classify as unfinished");
@@ -126,7 +134,7 @@ namespace Parsek.Tests
             // wired in DrawRecordingRow's hide branch.
             var rec = MakeCrashedUnfinished("rec_uf2", "bp_uf2", "Debris");
             RecordingStore.AddCommittedInternal(rec);
-            InstallScenarioWithRp("bp_uf2", "rp_uf2");
+            InstallScenarioWithRp("bp_uf2", "rp_uf2", rec.RecordingId);
 
             Assert.False(rec.Hidden, "precondition");
 
@@ -199,7 +207,7 @@ namespace Parsek.Tests
             // refuse path. This test pins the classifier-only gate.
             var rec = MakeCrashedUnfinished("rec_uf_normal", "bp_uf_normal", "Booster");
             RecordingStore.AddCommittedInternal(rec);
-            InstallScenarioWithRp("bp_uf_normal", "rp_uf_normal");
+            InstallScenarioWithRp("bp_uf_normal", "rp_uf_normal", rec.RecordingId);
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec),
                 "precondition: recording must classify as unfinished");

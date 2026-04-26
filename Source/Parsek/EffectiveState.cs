@@ -139,13 +139,39 @@ namespace Parsek
             return string.Equals(effective, rec.RecordingId, StringComparison.Ordinal);
         }
 
+        internal static int ResolveRewindPointSlotIndexForRecording(
+            RewindPoint rp,
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rp == null || rp.ChildSlots == null || rec == null)
+                return -1;
+            if (string.IsNullOrEmpty(rec.RecordingId))
+                return -1;
+
+            var effectiveSupersedes = supersedes ?? Array.Empty<RecordingSupersedeRelation>();
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                var slot = rp.ChildSlots[i];
+                if (slot == null) continue;
+                string effective = slot.EffectiveRecordingId(effectiveSupersedes);
+                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
         /// <summary>
         /// True iff <paramref name="rec"/> is an Unfinished Flight per design §3.1.
         /// Current formulation: the recording is committed-visible
         /// (<c>Immutable</c> legacy/original child or <c>CommittedProvisional</c>
         /// live rewind slot), the terminal indicates a crash (see
-        /// <see cref="IsTerminalCrashed"/>), and the parent BranchPoint carries
-        /// a RewindPoint.
+        /// <see cref="IsTerminalCrashed"/>), the parent BranchPoint carries
+        /// a RewindPoint, and the recording resolves to one of that RewindPoint's
+        /// child slots.
         /// </summary>
         public static bool IsUnfinishedFlight(Recording rec)
         {
@@ -206,6 +232,10 @@ namespace Parsek
                 return false;
             }
 
+            int missingSlotMatches = 0;
+            List<string> missingSlotCandidates = null;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var rp = scenario.RewindPoints[i];
@@ -219,14 +249,40 @@ namespace Parsek
                     // The parent BP has an RP — and RewindPoint existence IS the
                     // design §5.4 "BranchPoint.RewindPointId != null" check,
                     // since BranchPoint.RewindPointId is backfilled from the
-                    // persisted RewindPoint list.
+                    // persisted RewindPoint list. The recording must still map
+                    // to a child slot; debris under the same BP is not invokable
+                    // and must not surface as a disabled Unfinished Flight row.
                     string matchedBp = matchesParent ? parentBpId : childBpId;
                     string side = matchesParent ? "parent" : "active-parent-child";
+                    int slotListIndex = ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
+                    if (slotListIndex < 0)
+                    {
+                        missingSlotMatches++;
+                        if (missingSlotCandidates == null)
+                            missingSlotCandidates = new List<string>();
+                        missingSlotCandidates.Add(
+                            $"{(rp.RewindPointId ?? "<no-rp>")}@{(matchedBp ?? "<none>")}");
+                        continue;
+                    }
+
                     ParsekLog.VerboseRateLimited("UnfinishedFlights",
                         $"match-{recId}",
-                        $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} rp={rp.RewindPointId}");
+                        $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} " +
+                        $"rp={rp.RewindPointId} slotListIndex={slotListIndex}");
                     return true;
                 }
+            }
+
+            if (missingSlotMatches > 0)
+            {
+                string candidates = missingSlotCandidates != null && missingSlotCandidates.Count > 0
+                    ? string.Join(",", missingSlotCandidates.ToArray())
+                    : "<none>";
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"noMatchingRpSlot-{recId}",
+                    $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRpSlot " +
+                    $"matches={missingSlotMatches} candidates={candidates}");
+                return false;
             }
 
             ParsekLog.VerboseRateLimited("UnfinishedFlights",

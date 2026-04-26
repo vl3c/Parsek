@@ -1382,6 +1382,16 @@ namespace Parsek
 
         void OnGUI()
         {
+            // The Esc / pause overlay lives on KSP's Canvas and sorts above
+            // our IMGUI layer, so without this gate the custom map markers,
+            // watch-mode HUD, ghost labels, and Parsek windows render on top
+            // of the pause menu. Stock vessel labels hide automatically
+            // because they live on the same Canvas as the overlay; ours do
+            // not. Skip both Layout and Repaint passes so layout-driven sizes
+            // don't flicker between events while paused.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
@@ -2666,6 +2676,135 @@ namespace Parsek
             return false;
         }
 
+        internal static bool ShouldIncludeVesselInDeferredBreakupScan(Vessel v, out string rejectReason)
+        {
+            rejectReason = null;
+            if (v == null)
+            {
+                rejectReason = "null-vessel";
+                return false;
+            }
+
+            if (IsSpaceObjectLikeBreakupScanReject(v.vesselType, EnumeratePartNames(v), EnumerateModuleNames(v),
+                out rejectReason))
+                return false;
+
+            return true;
+        }
+
+        internal static bool IsSpaceObjectLikeBreakupScanReject(
+            VesselType vesselType,
+            IEnumerable<string> partNames,
+            IEnumerable<string> moduleNames,
+            out string rejectReason)
+        {
+            rejectReason = null;
+
+            if (vesselType == VesselType.SpaceObject)
+            {
+                rejectReason = "space-object-type";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometPart(partNames))
+            {
+                rejectReason = "asteroid-comet-part";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometModule(moduleNames))
+            {
+                rejectReason = "asteroid-comet-module";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> EnumeratePartNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                if (p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    yield return p.partInfo.name;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.partName))
+                {
+                    yield return p.partName;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.name))
+                    yield return p.name;
+            }
+        }
+
+        private static IEnumerable<string> EnumerateModuleNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null)
+                    continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.IsNullOrEmpty(module.moduleName))
+                        yield return module.moduleName;
+                    Type moduleType = module.GetType();
+                    if (moduleType != null && !string.IsNullOrEmpty(moduleType.Name))
+                        yield return moduleType.Name;
+                }
+            }
+        }
+
+        private static bool ContainsAsteroidOrCometPart(IEnumerable<string> partNames)
+        {
+            if (partNames == null)
+                return false;
+
+            foreach (string partName in partNames)
+            {
+                if (string.IsNullOrEmpty(partName))
+                    continue;
+                // Part cfg/runtime names can carry expansion or variant suffixes,
+                // while module names below are stable C# class identifiers.
+                if (partName.IndexOf("PotatoRoid", StringComparison.OrdinalIgnoreCase) >= 0
+                    || partName.IndexOf("PotatoComet", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAsteroidOrCometModule(IEnumerable<string> moduleNames)
+        {
+            if (moduleNames == null)
+                return false;
+
+            foreach (string moduleName in moduleNames)
+            {
+                if (string.IsNullOrEmpty(moduleName))
+                    continue;
+                if (string.Equals(moduleName, "ModuleAsteroid", StringComparison.Ordinal)
+                    || string.Equals(moduleName, "ModuleComet", StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Determines whether a debris vessel is significant enough to record.
         /// Filters out trivial crash fragments (single struts, panels, shroud pieces)
@@ -3780,6 +3919,14 @@ namespace Parsek
                         // Skip if already captured by onVesselCreate
                         if (newVesselPids.Contains(v.persistentId))
                             continue;
+
+                        if (!ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"DeferredJointBreakCheck: ignoring unrelated new vessel pid={v.persistentId} " +
+                                $"name='{v.vesselName ?? "<unnamed>"}' type={v.vesselType} reason={rejectReason}");
+                            continue;
+                        }
 
                         newVesselPids.Add(v.persistentId);
 
