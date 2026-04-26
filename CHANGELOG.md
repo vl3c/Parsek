@@ -50,6 +50,8 @@ All notable changes to Parsek are documented here.
 
 - `#613` Ghosts whose recorded relative-frame anchor vessel was erased by a Re-Fly rewind now retire (hide) gracefully during the relative section instead of appearing frozen at the world origin with a bogus distance reading. The retire now persists through the rest of the frame: the engine no longer re-shows a just-hidden ghost via the unconditional same-frame activation pipeline, and four additional side-effect paths (early-debris completion, loop cycle endpoint, overlap expiry endpoint, loop-pause endpoint) no longer fire explosions or camera/restart payloads from the stale (0,0,0) transform.
 
+- `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
+
 - `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the guard skips the stand-in recreate only when the kerbal is currently on the SAME vessel where the rescue placed them (pid-scoped marker), so fresh reservations on the active player vessel still get their swap stand-in even if the kerbal happened to be rescued onto a different vessel earlier in the same session.
 
 - Re-Fly slot precondition log no longer spams `KSP.log` with thousands of identical `slot-ok` lines per session; the on-change gate now uses a per-call-site decision cache that reliably suppresses repeats from the OnGUI draw loop.

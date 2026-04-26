@@ -683,6 +683,33 @@ loop-endpoint paths). Each retire test asserts `explosionFired==false`,
 no event-list emissions, and the suppression log line; each negative
 test asserts the same side effects DO fire when the anchor resolves.
 
+**P1 review follow-up (finalize-spawn retarget):** PR #594's gates
+covered continuing playback, loop endpoints, overlap expiry, loop pause,
+and early-completion side effects, but `FinalizePendingSpawnLifecycle`
+still ran immediately after `PrimeLoadedGhostForPlaybackUT`. On a fresh
+loop or overlap-primary spawn whose first priming pass landed inside a
+Relative section with an unresolvable anchor, the priming positioner set
+`state.anchorRetiredThisFrame = true`, hid the ghost, and left its pivot
+under the just-built origin-positioned hierarchy. The pending lifecycle
+then cleared normally and emitted `OnLoopCameraAction` /
+`OnOverlapCameraAction(RetargetToNewGhost)` with
+`GhostPivot = state.cameraPivot`. Watch mode could anchor at world origin
+for one frame before the next per-frame gate suppressed continuing
+playback. Fix: `FinalizePendingSpawnLifecycle` now leaves
+`OnGhostCreated`, pending-lifecycle cleanup, flag visibility, and range
+entry logging intact, but suppresses only the `RetargetToNewGhost`
+camera side effect when `state.anchorRetiredThisFrame` is true. It emits
+the greppable Verbose line `finalize-spawn retire: suppressing
+RetargetToNewGhost (anchor retired on first spawn) ghost #N
+"vesselName"` with the lifecycle and cycle context. In-game regressions
+`Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin` and
+`Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget` drive both
+`LoopEnter` and `OverlapPrimaryEnter` fresh-spawn paths through the
+mock relative positioner, asserting that retired anchors keep the state
+machine and `OnGhostCreated` path complete without camera retargeting,
+while resolved anchors still emit exactly one retarget with the spawned
+state's `cameraPivot`.
+
 **Status:** Open until merged.
 
 ---
