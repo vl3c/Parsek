@@ -139,6 +139,7 @@ namespace Parsek
 
                 // 2. Remove scenario entry.
                 rps.RemoveAt(idx);
+                RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp?.RewindPointId);
 
                 // 3. Clear BranchPoint back-reference (if any).
                 if (ClearBranchPointBackref(rp))

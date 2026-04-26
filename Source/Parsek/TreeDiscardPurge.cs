@@ -214,6 +214,7 @@ namespace Parsek
 
                 // Remove scenario entry.
                 scenario.RewindPoints.RemoveAt(i);
+                RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
 
                 // Clear back-ref on the owning BranchPoint (the BP stays in
                 // the tree and will be removed when the tree is discarded

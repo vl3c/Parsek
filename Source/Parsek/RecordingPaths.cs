@@ -73,7 +73,8 @@ namespace Parsek
                     null,
                     out string root,
                     out string saveFolder,
-                    allowNullRelativePath: true))
+                    allowNullRelativePath: true,
+                    warnOnMissingContext: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -128,7 +129,8 @@ namespace Parsek
                     null,
                     out string root,
                     out string saveFolder,
-                    allowNullRelativePath: true))
+                    allowNullRelativePath: true,
+                    warnOnMissingContext: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -147,7 +149,8 @@ namespace Parsek
                     null,
                     out string root,
                     out string saveFolder,
-                    allowNullRelativePath: true))
+                    allowNullRelativePath: true,
+                    warnOnMissingContext: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -177,7 +180,8 @@ namespace Parsek
                     null,
                     out string root,
                     out string saveFolder,
-                    allowNullRelativePath: true))
+                    allowNullRelativePath: true,
+                    warnOnMissingContext: true))
                 return null;
 
             return EnsureSaveScopedDirectory(
@@ -263,7 +267,8 @@ namespace Parsek
             string relativePath,
             out string root,
             out string saveFolder,
-            bool allowNullRelativePath = false)
+            bool allowNullRelativePath = false,
+            bool warnOnMissingContext = false)
         {
             string rootError = null;
             string saveError = null;
@@ -289,13 +294,16 @@ namespace Parsek
             if (rootSet && saveSet && relativeSet)
                 return true;
 
-            ParsekLog.WarnRateLimited("Paths", rateLimitKey,
+            string message =
                 $"{operation} missing context: rootSet={rootSet}, saveSet={saveSet}, " +
                 $"relativeSet={relativeSet}, saveFolder='{FormatPathContext(saveFolder)}', " +
                 $"relativePath='{FormatPathContext(relativePath)}'" +
                 (string.IsNullOrEmpty(rootError) ? "" : $" rootError={rootError}") +
-                (string.IsNullOrEmpty(saveError) ? "" : $" saveError={saveError}"),
-                5.0);
+                (string.IsNullOrEmpty(saveError) ? "" : $" saveError={saveError}");
+            if (warnOnMissingContext)
+                ParsekLog.WarnRateLimited("Paths", rateLimitKey, message, 5.0);
+            else
+                ParsekLog.VerboseRateLimited("Paths", rateLimitKey, message, 5.0);
             return false;
         }
 

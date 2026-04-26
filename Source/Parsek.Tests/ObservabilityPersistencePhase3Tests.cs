@@ -217,13 +217,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingPathMissingContext_LogsWarnWithRelativePath()
+        public void ResolveSaveScopedPathMissingContext_LogsVerboseWithRelativePath()
         {
             Assert.Null(RecordingPaths.ResolveSaveScopedPath(null));
 
             Assert.Contains(logLines, line =>
-                line.Contains("[WARN][Paths]") &&
+                line.Contains("[VERBOSE][Paths]") &&
                 line.Contains("ResolveSaveScopedPath missing context") &&
+                line.Contains("relativeSet=") &&
+                line.Contains("relativePath="));
+        }
+
+        [Fact]
+        public void EnsureDirectoryMissingContext_LogsWarn()
+        {
+            Assert.Null(RecordingPaths.EnsureRecordingsDirectory());
+
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Paths]") &&
+                line.Contains("EnsureRecordingsDirectory missing context") &&
                 line.Contains("relativeSet=") &&
                 line.Contains("relativePath="));
         }
@@ -341,6 +353,33 @@ namespace Parsek.Tests
             Assert.Contains("slot=3", slotLines[0]);
             Assert.Contains("origin=rec_child", slotLines[0]);
             Assert.Contains("reason='rewind slot disabled: no-live-vessel'", slotLines[0]);
+        }
+
+        [Fact]
+        public void RewindSlotCanInvokeLogState_ClearAllowsRemovedRpIdentityToRelease()
+        {
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_clear",
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 3,
+                        OriginChildRecordingId = "rec_child",
+                        Disabled = true,
+                        DisabledReason = "no-live-vessel"
+                    }
+                }
+            };
+
+            Assert.False(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+            Assert.False(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+
+            Assert.Equal(1, RecordingsTableUI.ClearRewindSlotCanInvokeLogState("rp_clear"));
+            Assert.False(RecordingsTableUI.CanInvokeRewindPointSlot(rp, 0, out _));
+
+            Assert.Equal(2, LogLinesContaining("CanInvokeSlot:").Count);
         }
 
         [Fact]

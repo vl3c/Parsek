@@ -422,6 +422,7 @@ namespace Parsek
                 }
                 if (removed > 0)
                 {
+                    RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
                     ParsekLog.Info("Rewind",
                         $"RewindPoint rolled back: rp={rp.RewindPointId} removals={removed}");
                 }

@@ -367,6 +367,7 @@ namespace Parsek
             if (!showRecordingsWindow)
             {
                 ReleaseInputLock();
+                ClearAllRewindSlotCanInvokeLogState();
                 return;
             }
 
@@ -2883,6 +2884,23 @@ namespace Parsek
                     ? $"CanInvokeSlot: slot-ok rp={rpId} slot={slotId} listIndex={slotListIndex} origin={slotOrigin}"
                     : $"CanInvokeSlot: {blockedKind} rp={rpId} slot={slotId} listIndex={slotListIndex} " +
                       $"origin={slotOrigin} reason='{normalizedReason}'");
+        }
+
+        internal static int ClearRewindSlotCanInvokeLogState(string rewindPointId)
+        {
+            if (string.IsNullOrEmpty(rewindPointId))
+                return 0;
+
+            return ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix(
+                "RewindUI",
+                $"CanInvokeSlot|{rewindPointId}|");
+        }
+
+        internal static int ClearAllRewindSlotCanInvokeLogState()
+        {
+            return ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix(
+                "RewindUI",
+                "CanInvokeSlot|");
         }
 
         /// <summary>

@@ -891,6 +891,7 @@ namespace Parsek
                 for (int i = 0; i < entries.Length; i++)
                     RewindPoints.Add(RewindPoint.LoadFrom(entries[i]));
             }
+            RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
 
             ConfigNode sParent = node.GetNode("RECORDING_SUPERSEDES");
             if (sParent != null)

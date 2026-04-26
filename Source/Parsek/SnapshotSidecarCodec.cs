@@ -74,41 +74,54 @@ namespace Parsek
                 return false;
             }
 
+            bool hasBinaryMagic;
             try
             {
-                if (HasBinaryMagic(path))
-                    return TryProbeBinary(path, out probe);
-
-                var legacyNode = ConfigNode.Load(path);
-                if (legacyNode == null)
-                {
-                    probe.Encoding = SnapshotSidecarEncoding.TextConfigNode;
-                    probe.FailureReason = "legacy text parse failed";
-                    return false;
-                }
-
-                long fileLength = new FileInfo(path).Length;
-                probe = new SnapshotSidecarProbe
-                {
-                    Success = true,
-                    Supported = true,
-                    Encoding = SnapshotSidecarEncoding.TextConfigNode,
-                    FormatVersion = 0,
-                    Codec = 0,
-                    NodeName = legacyNode.name,
-                    UncompressedLength = fileLength > int.MaxValue ? int.MaxValue : (int)fileLength,
-                    CompressedLength = 0,
-                    Checksum = 0,
-                    LegacyNode = legacyNode,
-                    FailureReason = null
-                };
-                return true;
+                hasBinaryMagic = HasBinaryMagic(path);
             }
             catch (Exception ex)
             {
                 probe.FailureReason = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
+
+            if (hasBinaryMagic)
+            {
+                try
+                {
+                    return TryProbeBinary(path, out probe);
+                }
+                catch (Exception ex)
+                {
+                    probe.FailureReason = ex.GetType().Name + ": " + ex.Message;
+                    return false;
+                }
+            }
+
+            var legacyNode = ConfigNode.Load(path);
+            if (legacyNode == null)
+            {
+                probe.Encoding = SnapshotSidecarEncoding.TextConfigNode;
+                probe.FailureReason = "legacy text parse failed";
+                return false;
+            }
+
+            long fileLength = new FileInfo(path).Length;
+            probe = new SnapshotSidecarProbe
+            {
+                Success = true,
+                Supported = true,
+                Encoding = SnapshotSidecarEncoding.TextConfigNode,
+                FormatVersion = 0,
+                Codec = 0,
+                NodeName = legacyNode.name,
+                UncompressedLength = fileLength > int.MaxValue ? int.MaxValue : (int)fileLength,
+                CompressedLength = 0,
+                Checksum = 0,
+                LegacyNode = legacyNode,
+                FailureReason = null
+            };
+            return true;
         }
 
         internal static bool TryLoad(string path, out ConfigNode node, out SnapshotSidecarProbe probe)

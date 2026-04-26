@@ -47,7 +47,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Observability Phase 3 (`observability/persistence-rewind`) improves persistence and rewind diagnostics without adding UI-loop spam. `OnSave` / `OnLoad` now log top-level exception context with phase, save folder, committed/pending counts, active marker/journal state, and `[RecState]` snapshots; `OnLoad` emits one timing line per invocation with final count plus phase/status. Recording sidecar save/load, path-resolution, snapshot probe, and transient cleanup failures now log at Warn/Error with recording id, save folder, sidecar epoch, ghost snapshot mode, file kind, full path/probe details, staged-file count, and exception type/message. Rewind/Re-Fly `CanInvoke` and slot-level disabled decisions now log only on reason changes, covering corrupt/missing/deep-parse/pending/session and disabled-slot cases without per-draw spam.
+- Persistence and Re-Fly rewind diagnostics now report save/load, sidecar, path, cleanup, and precondition failures with enough context to debug from `KSP.log`.
 
 - `#572` follow-up: scene-exit `FinalizeTreeRecordings` no longer clobbers the just-restored terminal state of a Re-Fly-stripped recording with a stale `Landed` inference. When `RestoreHydrationFailedRecordingsFromCommittedTree` repairs an active-tree record from the committed copy, the next finalize pass detects the missing live pid is a deliberate Re-Fly strip casualty (not a natural unload), skips the surface inference, and emits a structured `[Flight]` `FinalizeTreeRecordings: skipping Landed/Splashed inference … repaired from committed tree this frame` log line; the existing orbit-then-land Landed-inference path is unchanged.
 

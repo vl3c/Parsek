@@ -264,6 +264,34 @@ namespace Parsek
             onChangeStateByIdentity[compositeIdentity] = state;
         }
 
+        internal static int ClearVerboseOnChangeIdentitiesWithPrefix(
+            string subsystem,
+            string identityPrefix)
+        {
+            if (string.IsNullOrEmpty(subsystem) || string.IsNullOrEmpty(identityPrefix))
+                return 0;
+
+            string compositePrefix = $"{subsystem}|{identityPrefix}";
+            List<string> keysToRemove = null;
+            foreach (string key in onChangeStateByIdentity.Keys)
+            {
+                if (key.StartsWith(compositePrefix, StringComparison.Ordinal))
+                {
+                    if (keysToRemove == null)
+                        keysToRemove = new List<string>();
+                    keysToRemove.Add(key);
+                }
+            }
+
+            if (keysToRemove == null)
+                return 0;
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+                onChangeStateByIdentity.Remove(keysToRemove[i]);
+
+            return keysToRemove.Count;
+        }
+
         /// <summary>
         /// Rate-limited warning. Same throttling as VerboseRateLimited but emits at WARN level
         /// unconditionally (not gated on IsVerboseEnabled). Used for budget threshold warnings

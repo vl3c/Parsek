@@ -42,6 +42,12 @@ observability-audit work stays in the non-persistence phases: KSC/playback spam
 hygiene, ghost skip summaries, recorder/auto-record decision logs, game-action
 aggregation, and map/UI/test-runner visibility.
 
+Review follow-up: legacy text snapshot parse exceptions again flow to the
+outer `exception:<Type>` sidecar failure path; resolve-only path lookups now log
+missing save context at Verbose while directory-creation entry points keep Warn;
+and Rewind/Re-Fly slot `VerboseOnChange` identities are cleared when RP state is
+loaded, closed, reaped, discarded, or rolled back.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
