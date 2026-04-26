@@ -179,7 +179,7 @@ namespace Parsek
 
         private const string LegacyPrefix = "[Parsek] ";
 
-        static void Log(string message)
+        internal static void Log(string message)
         {
             if (SuppressLogging) return;
 

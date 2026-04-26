@@ -8,27 +8,6 @@ namespace Parsek
 {
     internal static class TrajectoryTextSidecarCodec
     {
-        private const string LegacyPrefix = "[Parsek] ";
-
-        static void Log(string message)
-        {
-            if (RecordingStore.SuppressLogging) return;
-
-            string clean = message ?? "(empty)";
-            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
-                clean = clean.Substring(LegacyPrefix.Length);
-
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
-                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
-            {
-                int idx = clean.IndexOf(':');
-                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
-                ParsekLog.Warn("RecordingStore", trimmed);
-                return;
-            }
-
-            ParsekLog.Info("RecordingStore", clean);
-        }
         #region Trajectory Serialization
 
         private static void SerializePoint(ConfigNode parent, TrajectoryPoint pt, CultureInfo ic)
@@ -1175,7 +1154,7 @@ namespace Parsek
                 rec.Points.Add(DeserializePoint(ptNode, ns, ic));
             }
             if (parseFailCount > 0)
-                Log($"[Parsek] WARNING: {parseFailCount}/{ptNodes.Length} trajectory points had unparseable UT in recording {rec.RecordingId}");
+                RecordingStore.Log($"[Parsek] WARNING: {parseFailCount}/{ptNodes.Length} trajectory points had unparseable UT in recording {rec.RecordingId}");
         }
 
         /// <summary>
@@ -1217,7 +1196,7 @@ namespace Parsek
                         evt.eventType = (PartEventType)typeInt;
                     else
                     {
-                        Log($"[Recording] Skipping unknown PartEvent type={typeInt} in recording {rec.RecordingId}");
+                        RecordingStore.Log($"[Recording] Skipping unknown PartEvent type={typeInt} in recording {rec.RecordingId}");
                         continue;
                     }
                 }
@@ -1312,7 +1291,7 @@ namespace Parsek
                 double ut;
                 if (!double.TryParse(seNode.GetValue("ut"), ns, ic, out ut))
                 {
-                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with missing or unparseable ut");
+                    RecordingStore.Log("[Recording] WARNING: Skipping SEGMENT_EVENT with missing or unparseable ut");
                     skipped++;
                     continue;
                 }
@@ -1320,13 +1299,13 @@ namespace Parsek
                 int typeInt;
                 if (!int.TryParse(seNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
                 {
-                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with unparseable type");
+                    RecordingStore.Log("[Recording] WARNING: Skipping SEGMENT_EVENT with unparseable type");
                     skipped++;
                     continue;
                 }
                 if (!Enum.IsDefined(typeof(SegmentEventType), typeInt))
                 {
-                    Log($"[Recording] WARNING: Skipping SEGMENT_EVENT with unknown type={typeInt}");
+                    RecordingStore.Log($"[Recording] WARNING: Skipping SEGMENT_EVENT with unknown type={typeInt}");
                     skipped++;
                     continue;
                 }

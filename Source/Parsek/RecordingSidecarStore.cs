@@ -7,10 +7,6 @@ namespace Parsek
 {
     internal static class RecordingSidecarStore
     {
-        // Kept local during the wrapper-facade split so legacy log text stays stable.
-        // Consolidate with RecordingStore.Log after sidecar/codec ownership settles.
-        private const string LegacyPrefix = "[Parsek] ";
-
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
@@ -116,12 +112,12 @@ namespace Parsek
         {
             if (rec == null)
             {
-                Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
+                RecordingStore.Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
                 return false;
             }
             if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
             {
-                Log($"[Parsek] WARNING: LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
+                RecordingStore.Log($"[Parsek] WARNING: LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
                 return false;
             }
 
@@ -271,7 +267,7 @@ namespace Parsek
                 ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
                 if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
                 {
-                    Log(string.Format(CultureInfo.InvariantCulture,
+                    RecordingStore.Log(string.Format(CultureInfo.InvariantCulture,
                         "[Parsek] Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
                         rec.RecordingId,
                         rec.TerminalOrbitBody,
@@ -285,7 +281,7 @@ namespace Parsek
                 && (rec.EndpointPhase != endpointPhaseBeforeBackfill
                     || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
             {
-                Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
+                RecordingStore.Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
             }
 
             // Load snapshot sidecars only after the trajectory probe passes the
@@ -1083,27 +1079,6 @@ namespace Parsek
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
             FileIOUtils.SafeWriteConfigNode(node, path, "RecordingStore");
-        }
-
-        // Mirrors RecordingStore.Log while preserving legacy prefix and WARN normalization.
-        private static void Log(string message)
-        {
-            if (RecordingStore.SuppressLogging) return;
-
-            string clean = message ?? "(empty)";
-            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
-                clean = clean.Substring(LegacyPrefix.Length);
-
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
-                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
-            {
-                int idx = clean.IndexOf(':');
-                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
-                ParsekLog.Warn("RecordingStore", trimmed);
-                return;
-            }
-
-            ParsekLog.Info("RecordingStore", clean);
         }
 
         private struct ReadableMirrorReconcileSummary
