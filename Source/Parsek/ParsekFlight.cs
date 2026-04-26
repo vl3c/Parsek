@@ -1398,6 +1398,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
+            ClearGhostSkipReasonLogState();
 
             ui?.Cleanup();
         }
@@ -12560,6 +12561,17 @@ namespace Parsek
                     externalVesselSuppressed));
         }
 
+        private void ClearGhostSkipReasonLogState()
+        {
+            activeGhostSkipReasonLogIdentities.Clear();
+            ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix("Flight", "ghost-skip|");
+        }
+
+        internal void ClearGhostSkipReasonLogStateForTesting()
+        {
+            ClearGhostSkipReasonLogState();
+        }
+
         internal static void LogGhostSkipReasonChangeForTesting(
             int index,
             string recordingId,
@@ -13094,6 +13106,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
+            ClearGhostSkipReasonLogState();
         }
 
         /// <summary>

@@ -57,6 +57,10 @@ suppression, renderer force-enable, and watched-ghost map-focus restore blockers
 Review follow-up: map-focus restore logging now uses one stable on-change
 identity with the watched recording/pid/reason in the state key, avoiding
 per-recording cache growth while preserving reason-change visibility.
+Review follow-up: Flight scene teardown and `DestroyAllTimelineGhosts` now clear
+ghost-skip reason state and the matching `Flight|ghost-skip|` `VerboseOnChange`
+identities, with coverage showing per-recording skip reasons re-emit after
+scene cleanup and rewind/timeline destruction.
 Remaining observability audit items stay open.
 
 Phase 3 persistence/rewind observability is closed on
@@ -97,6 +101,36 @@ save/load exception context, sidecar/path severity expansion, rewind
 `CanInvoke` reason-change logging, playback-engine frame skip counters, and
 Phase 6 retained in-game log-package validation still need separate passes.
 
+Review follow-up coverage (2026-04-26): closed the deferred log-assertion gaps
+for finalizer refresh identity isolation, Diagnostics missing-sidecar path
+warning scopes, `ComputePlaybackFlags` ghost-skip emit/suppress behavior,
+`OnSave` exception context/RecState, and unsupported snapshot probe logging.
+
+Post-merge spam fix (2026-04-26, `fix/rewindui-canInvokeSlot-spam`): the
+2026-04-26_1025 playtest log showed 1389 identical `[RewindUI] CanInvokeSlot:
+slot-ok` lines in 6 seconds for a single rp/slot — the existing
+`ParsekLog.VerboseOnChange` gate did not suppress the repeats from the OnGUI
+draw loop, while the matching `[Rewind] CanInvoke:` site (same code path,
+same dictionary) suppressed correctly. The xUnit 200-call repro passes, so
+the failure is Unity-runtime-specific. `LogRewindSlotCanInvokeDecision` now
+tracks the last-emitted decision stateKey in a file-local
+`Dictionary<string,string>` and only calls `ParsekLog.Verbose` when it
+changes — mirroring the `lastCanInvoke` pattern already used by
+`DrawUnfinishedFlightRewindButton` ~300 lines above. Existing
+`ClearRewindSlotCanInvokeLogState` callers (LoadTimeSweep, RewindPointAuthor,
+RewindPointReaper, TreeDiscardPurge, ParsekScenario.OnLoad) clear the new
+dict alongside the original `ParsekLog.ClearVerboseOnChangeIdentitiesWithPrefix`
+call. Review follow-up: removed the per-OnGUI-pass clear that
+`RecordingsTableUI.DrawIfOpen` was firing while the Recordings window was
+closed — it wiped the cache before TimelineWindowUI's Fly button could
+reuse it, re-spamming `slot-ok` whenever Timeline was open without
+Recordings. Regression tests:
+`RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk` drives
+200 calls and asserts a single emit;
+`RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose`
+drives 200 Timeline-style calls after a single close-transition clear and
+asserts only 2 emits total.
+
 ---
 
 ## Rewind to Staging — v0.9 carryover follow-ups
@@ -128,6 +162,8 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 28. **#571 in-game regression `GhostMapCheckpointSourceLogResolvesWorldPosition` failed in FLIGHT and TRACKSTATION with "Expected StateVector checkpoint source, got Segment".** ~~done~~ — Cross-reference: original closure for `~~571~~` (above) preserves the seed `OrbitSegment` as the Keplerian source of truth and adds densified `OrbitalCheckpoint` frames as section-local samples along that same arc. The shipped resolver `ResolveMapPresenceGhostSource` (`Source/Parsek/GhostMapPresence.cs:2430-2476`) intentionally returns `Segment` whenever the segment list covers `currentUT` — `TryResolveCheckpointStateVectorMapPoint` is consulted only for diagnostic detail, never to override the source — and the comment block at `Source/Parsek/GhostMapPresence.cs:2478-2482` plus the pinned xUnit `ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper` confirm the contract. The in-game test was authored against an earlier interpretation of the closure rationale and asserted `StateVector` for a fixture where the segment and inline frames cover the same window. Fixed by aligning the in-game test with the resolver: it now asserts `Segment`, captures the `OrbitSegment` `out` and checks `body.name == resolvedSegment.bodyName`, and looks for `sourceKind=Segment` (instead of `sourceKind=StateVector`) in the captured decision line — the original `world=(x,y,z)` (not `(unresolved)`) world-resolution pin is preserved through `BuildOrbitSourceStructuredDetail` -> `TryResolveOrbitWorldPosition`. Added xUnit regression `ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment` in `Source/Parsek.Tests/GhostMapPresenceTests.cs` mirroring the in-game fixture (single OrbitSegment + OrbitalCheckpoint TrackSection both covering currentUT, two inline frames) so the contract is enforced from headless tests too. Reproduced from `logs/2026-04-25_2147/Player.log` line 134538 (`source=Segment branch=(n/a) … reason=runtime-571-checkpoint-world`).
 
 29. **Re-Fly 22:10 cascade: duplicate upper-stage view, marker/RP loss, and zero-payload sidecar overwrite broke playback after rewind.** ~~done~~ — Reproduced from `logs/2026-04-25_2210_refly-bugs`. The duplicate upper-stage view was a post-load ordering race: `UpdateTimelinePlaybackViaEngine` spawned/positioned timeline ghosts before `RewindInvoker.ConsumePostLoad` completed strip/activate/atomic marker write, so the selected in-place continuation vessel could coexist for a few frames with its own pre-marker ghost. The later playback failure had two persistence causes: `MarkerValidator` rejected a valid live marker when the tree existed only as `RecordingStore.PendingTree`, `RewindPointReaper` could reap the RP still referenced by the live marker, and the pending-Limbo active tree carried stale-sidecar epoch failures for the root/upper-stage recordings; a later active-tree save wrote those failed records back out as empty `.prec` files, replacing the good committed launch trajectory and leaving no watchable ghost. Fixed by gating timeline playback while `RewindInvokeContext.Pending` is true, accepting pending-tree marker ownership during validation, preserving marker-referenced RPs during reap, repairing hydration-failed active-tree records from the committed tree during restore/save, and skipping an active-tree sidecar write if a failed-hydration record is still truly empty. Regression coverage: `LoadTimeSweepTests.MarkerValid_TreeExistsOnlyAsPendingTree_Preserved`, `LoadTimeSweepTests.Reaper_PreservesEligibleRpReferencedByActiveMarker`, `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches`, and `RewindTimelineTests.ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState`.
+
+30. **Re-Fly quickload sidecar epoch mismatch reproduced again in `logs/2026-04-26_1025_3bugs-refly` -- confirmed benign; bug #270 + #585-followup mitigations are doing their job.** ~~no-fix-needed~~ — Around `10:14:55.168-185` two recordings hit the canonical bug `#270` stale-sidecar surface (`c9df8d86...` `.sfs` epoch 2 vs `.prec` epoch 5; `89eff843...` `.sfs` epoch 1 vs `.prec` epoch 3) on the rewind quickload of tree `Kerbal X` (id `50e9197d...`). The user's hypothesis "the writer is committing the `.prec` before the `.sfs`, or reconciliation is running more aggressively than designed" is wrong: `RecordingStore.SaveRecordingFilesToPathsInternal` increments `rec.SidecarEpoch` ONCE per `OnSave`, stages the `.prec` write through `SidecarFileCommitBatch.Apply`, and `ParsekScenario.SaveActiveTreeIfAny` then writes the now-incremented epoch into the `.sfs` `RECORDING_TREE` ConfigNode in the same call. Both files always carry the same epoch within a single save. The mismatch on quickload is structural by design: the `.prec` is per-recording-id (one global file overwritten by every `OnSave`), the `.sfs` is a snapshot of one specific save point. Loading an older `.sfs` (a rewind quicksave taken before subsequent saves) yields a smaller epoch than the on-disk `.prec`, which now belongs to a discarded future timeline. Three protection layers fired correctly in this log: (1) `ParsekScenario.SpliceMissingCommittedRecordings` at `10:14:55.193` reported `loadedBefore=8 committed=10 after=10 splicedRecordings=2 refreshedRecordings=2 ... refreshedIds=[c9df8d86...,89eff843...] source=committed-tree-in-memory` -- the two stale-sidecar IDs were repaired from the in-memory committed tree before the tree was stashed; (2) `Stashed pending tree 'Kerbal X' (10 recordings, state=Limbo)` with `2 sidecar hydration failure(s)` records the Limbo-stash for revert-detection dispatch; (3) `[ReconciliationBundle] Restored: recs=10 trees=1 actions=26 rps=1 ... marker=False journal=False crew=3 groups=1 hidden=0 milestones=2` brought the post-load in-memory state back to the pre-rewind snapshot. The `ShouldSkipSaveToPreserveStaleSidecar` callee-side gate stays armed as defense-in-depth for any subsequent `SaveActiveTreeIfAny` / `BgRecorder` / scene-exit force-write that might still reach the saver with `SidecarLoadFailed=true`+empty state. No code change required; this entry exists so the next reproduction with the same shape can be cross-referenced quickly. If a future repro shows the splice logging `refreshedRecordings=0` for a stale-sidecar id while the matching committed-tree record DOES carry data, that would be a real divergence and warrants reopening; this log shows the contract holding.
 
 The three latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
 
@@ -579,6 +615,188 @@ test fixtures that drive the method without a state object; the
 production callsites always pass the live state.
 
 **Status:** Open until merged.
+
+---
+
+## ~~614. GhostMap parent-chain walk misses optimizer-split chain ancestors during Re-Fly~~
+
+**Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Follow-up to `#611`:
+after the load-window pending-tree fix shipped, the user re-flew the booster
+again and a `Ghost: Kerbal X` ProtoVessel was still created — this time for
+the **root** recording (`c9df8d86b79b4f6b91c049696b5cc8e2`), an ancestor two
+hops up the parent chain from the active Re-Fly target
+(`89eff8431cb843b783e5dbe693ed30f2`). The direct parent
+(`1d6d2116543245249c9ca7f26dd361f7`) was correctly suppressed at log line
+~14640 (`reason=refly-relative-anchor=active relationship=parent`). The root
+got `reason=not-suppressed-not-parent-of-refly-target` at log line ~14211
+and the bogus state-vector ghost was created at log line ~14212 with
+`sma=2 ecc=1.000000`.
+
+**Cause (`Source/Parsek/GhostMapPresence.cs:976-1093`):** the BFS walk in
+`IsRecordingInParentChainOfActiveReFly` only followed
+`Recording.ParentBranchPointId` links. The user's tree topology was:
+`c9df8d86 (root, ChainIndex=0)` -> [optimizer split] ->
+`1d6d2116 (mid, ChainIndex=1)` -> [Breakup BP `f1c7b08f`] ->
+`89eff8431 (leaf)`. The root -> mid edge is an **optimizer chain split**
+(`RecordingStore.RunOptimizationSplitPass` at `RecordingStore.cs:2016-2049`):
+the second half (`mid`) shares the root's `ChainId` + monotonically
+incremented `ChainIndex`, but does NOT receive a `ParentBranchPointId`.
+The comment at `RecordingStore.cs:2041-2046` is explicit: *"The chain
+linkage (shared ChainId) connects it to subsequent segments. Code that
+walks from a BranchPoint to the chain tip must follow ChainId, not just
+ChildRecordingIds."* The reverse walk (used here) had the same bug — it
+must follow `ChainId` predecessors, not just `ParentBranchPointId`.
+
+The structured `walkTrace` in the failed log line confirms the BFS
+terminated at mid: `walkTrace=(exhausted-without-victim
+activeId=89eff843 treeId=50e9197d victim=c9df8d86 visitedBPs=1
+parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
+parents=[1d6d2116])`. One BP visited, one parent recording reached
+(mid), then exhausted — never traversed the chain link from mid to root.
+
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #593):** the BFS now
+walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
+`ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
+reaches, including the active recording itself (so a mid-chain active
+seeds the chain-predecessor leg too). New helper
+`GhostMapPresence.TryFindChainPredecessor(tree, rec)` encapsulates the
+chain-predecessor lookup: returns null for standalone recordings,
+`ChainIndex == 0`, and missing predecessors; scoped per-tree and
+per-`ChainBranch` so legacy / future cross-tree clones cannot leak.
+
+The `walkTrace` gains a `chainHops` counter that increments on every
+chain-predecessor enqueue (active-seed + every fan-out hop) plus a
+`chainHopsViaAncestors` counter for the fan-out subset. A future
+regression of the same shape will surface as `chainHops=0` on a
+topology that should have chain links — visible in `KSP.log` without
+re-reading source. The previous trace string `active-has-no-parent-bp`
+was renamed to `active-has-no-parent` because the bail condition is
+now "neither BP-parent nor chain-predecessor", not BP-only.
+
+**Tests:** 14 new cases in `Bug614GhostMapAncestorChainTests` covering
+the user's exact 3-recording chain shape (`SuppressesRoot_…`,
+`SuppressesMid_…`), sibling-branch negatives
+(`DoesNotSuppressSibling_…`, `DoesNotSuppressUnrelatedTreeRecording`),
+multi-hop chain depth (`SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments`),
+mid-chain active recording (`SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent`),
+true-root bail behaviour, chain cycles
+(`HandlesChainCycleGracefully_VisitedSetCapsTheWalk`), the
+`TryFindChainPredecessor` helper edge cases (standalone recording,
+`ChainIndex == 0`, `ChainBranch` scoping, missing predecessor), and the
+`chainHops=` walkTrace counter contract on both success and failure
+paths. The end-to-end production-gate test
+`EndToEnd_SuppressesRoot_ProductionGate_UserShape` drives
+`ShouldSuppressStateVectorProtoVesselForActiveReFly` with the user's
+exact production tree shape and asserts both the suppress decision and
+the `chainHops=` marker on the `suppressReason`. All 9025 tests pass.
+
+---
+
+## ~~612. Boring-tail trim never fires for stable orbits because terminal-shape match used exact float equality~~
+
+**Source:** user reported the orbital "boring tail" trim mechanism never trims
+in practice. Logs from `logs/2026-04-26_1025_3bugs-refly/KSP.log` confirmed
+that neither the success log (`TrimBoringTail: trimmed ...`) nor the existing
+divergence skip log fired at all for orbital-terminal recordings, even when
+the recording clearly ended in a long stable coast.
+
+**Root cause:** `RecordingOptimizer.OrbitShapeMatchesTerminal` compared the
+tail's `OrbitSegment` parameters (SMA, eccentricity, inclination, LAN, argP)
+against the recording's `TerminalOrbit*` fields with exact `!=` equality.
+Numerical drift across the boring tail from rails / pack-unpack / conic
+prediction is unavoidable on real recordings, so the byte-for-byte match
+rejected on the first parameter. The same failure mode bit the surface-state
+path before its tolerances landed (`#356` follow-up). Two compounding
+problems made this hard to diagnose: the existing `TailMatchesTerminalOrbit`
+skip log only fired when the predicate was actually called, but the player
+was reporting "no trim happens" with no log line either way — and
+`TrimBoringTail`'s six entry guards (leaf / duration / track-sections /
+last-section-not-boring / lastInteresting-NaN-too-few-points / buffer-not-met)
+all early-returned silently, so we could not tell which guard rejected.
+
+**Fix:** `OrbitShapeMatchesTerminal` now uses `Math.Abs(delta) > eps` checks
+sized to absorb stable-orbit jitter while still catching real maneuvers.
+Body name remains exact equality.
+
+- `TailOrbitSmaAbsoluteEpsilonMeters = 10.0`,
+  `TailOrbitSmaRelativeEpsilon = 1e-3`. SMA uses
+  `max(absolute, relative * |terminal SMA|)` so the check scales from a
+  700 km LKO (relEps -> ~700 m) to a 13 Mm Mun encounter (~13 km) without
+  losing sensitivity to small absolute changes. A 1 m/s circularization
+  burn at LKO shifts SMA by ~tens of metres, well above 10 m.
+- `TailOrbitEccentricityEpsilon = 1e-3` absolute. A real burn shifts
+  eccentricity by `>= 1e-3`; rails jitter is closer to `1e-5..1e-4`.
+- `TailOrbitAngleEpsilonDegrees = 0.01` absolute (inclination, LAN, argP).
+  Stable-orbit prograde precession over a 15-minute coast stays under
+  `0.01 deg`; a real plane-change burn is hundreds of times larger.
+
+Each `OrbitShapeMatchesTerminal` rejection now logs which field diverged
+and the actual delta (Verbose, `[Optimizer]` tag), so future tolerance
+tuning has structured data instead of "trim mysteriously didn't fire".
+
+`TrimBoringTail`'s entry guards now each emit a structured one-line skip
+reason (Verbose, `[Optimizer]` tag): `not-leaf`, `too-short`,
+`no-track-sections`, `last-section-not-boring`, `all-boring-too-few-points`,
+`buffer-not-met`, `terminal-mismatch`, `no-points-past-trim-ut`,
+`keep-count-too-low`, plus a `rec-null-or-too-few-points` guard at entry.
+Each line carries the recording id and the relevant numeric values so the
+rejection branch is auditable from `KSP.log` alone.
+
+**Tests:** `RecordingOptimizerTests.cs`:
+- `TrimBoringTail_StableOrbitWithRailsJitter_StillTrims` constructs a
+  jittered tail (SMA shifted by 3.5 m, ecc by 5e-4, angles by 0.005 deg)
+  and asserts the trim now succeeds.
+- `TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim` uses an
+  eccentricity delta of 0.05 (50x epsilon) and asserts the trim still
+  rejects.
+- `TrimBoringTail_NotLeaf_LogsSkipReason`, `_TooShort_LogsSkipReason`, and
+  `_TerminalMismatch_LogsSkipReasonWithDelta` capture log output via
+  `ParsekLog.TestSinkForTesting` and assert the corresponding skip-reason
+  string fires.
+
+Two pre-existing tests had constructed deltas chosen to break exact
+equality (`eccentricity = 0.01001` and `semiMajorAxis = 1200000.5`), well
+below the new tolerances; they were updated to use deltas above the
+epsilons (`eccentricity = 0.05`, `semiMajorAxis = 1300000.0`) so they
+continue to pin the guard-rejects-real-changes contract.
+
+**Wraparound follow-up (P2 review on PR #589):** the first-pass angle
+checks used raw `Math.Abs(seg.angle - rec.terminal.angle)` for
+inclination, LAN, and argument of periapsis. LAN and argP routinely cross
+the 0/360 boundary on a stable orbit; e.g. `terminal LAN = 359.997` vs
+`segment LAN = 0.002` is a real wrapped delta of `0.005 deg` (within
+epsilon), but raw `Abs(a - b) = 359.995` would have triggered a false
+mismatch and the trim would have stayed broken even after the epsilon
+fix. Inclination stays in `[0, 180]` and never hits the wrap branch, but
+uses the same helper for symmetry / centralized math.
+
+The fix reuses `TrajectoryMath.AngularDeltaDegrees(a, b)` (the existing
+`Math.Abs(a - b) % 360, > 180 ? 360 - delta : delta` helper used by
+`TrajectoryMath.OrbitsAreEquivalent`); promoted from `private` to
+`internal static` so `RecordingOptimizer` can call it. The helper's
+contract is now documented (inputs in any range; result in `[0, 180]`)
+and pinned by `TrajectoryMathTests.cs` covering simple deltas, zero
+delta, the wraparound short-path case, the half-turn boundary,
+inclination-range inputs, out-of-range inputs (small negatives,
+`> 360`), and the always-non-negative result invariant.
+
+The LAN / argP / inc divergence log lines now report
+`<field> wrapped delta <value>deg` so the log no longer lies about what
+the comparison saw (a tail at LAN = 0.002 vs terminal LAN = 359.997 logs
+a wrapped delta of `0.005`, not `359.995`).
+
+Wraparound regressions in `RecordingOptimizerTests.cs`:
+
+- `TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims` (terminal
+  `LAN = 359.997` vs segment `LAN = 0.002`, wrapped delta `0.005`) — trim
+  succeeds.
+- `TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims` (terminal
+  `argP = 0.001` vs segment `argP = 359.998`, wrapped delta `0.003`) —
+  trim succeeds.
+- `TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim` (terminal
+  `LAN = 359.5` vs segment `LAN = 0.5`, wrapped delta `1.0`) — trim is
+  rejected, AND the divergence log line carries `LAN wrapped delta` (so
+  the wrap fix is observable from `KSP.log` alone).
 
 ---
 

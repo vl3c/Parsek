@@ -472,6 +472,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SafeGetFileSize_MissingFile_DifferentPathsHaveIndependentWarnWindows()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+            string firstPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}_a.prec");
+            string secondPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}_b.prec");
+
+            Assert.Equal(0L, DiagnosticsComputation.SafeGetFileSize(firstPath, warnIfMissing: true));
+            Assert.Equal(0L, DiagnosticsComputation.SafeGetFileSize(secondPath, warnIfMissing: true));
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(firstPath)));
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(secondPath)));
+
+            Assert.Equal(0L, DiagnosticsComputation.SafeGetFileSize(firstPath, warnIfMissing: true));
+            Assert.Equal(0L, DiagnosticsComputation.SafeGetFileSize(secondPath, warnIfMissing: true));
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(firstPath)));
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("[Parsek][WARN][Diagnostics]")
+                && l.Contains("Missing sidecar file")
+                && l.Contains(secondPath)));
+        }
+
+        [Fact]
         public void SafeGetFileSize_MissingFile_WarnIfMissingFalse_NoWarning()
         {
             string nonExistent = System.IO.Path.Combine(

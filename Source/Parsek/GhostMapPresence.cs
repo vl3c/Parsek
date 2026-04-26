@@ -966,6 +966,19 @@ namespace Parsek
         /// <paramref name="searchTrees"/> from BOTH committed + pending so
         /// the active-tree lookup succeeds whether the load just happened
         /// or the player is in steady-state flight.</para>
+        ///
+        /// <para><b>#614 fix:</b> the walk now follows BOTH BranchPoint-parents
+        /// AND chain-predecessors. Optimizer splits
+        /// (<see cref="RecordingStore"/> RunOptimizationSplitPass) connect
+        /// chain segments via shared <see cref="Recording.ChainId"/> alone — the
+        /// second half receives no <see cref="Recording.ParentBranchPointId"/>.
+        /// The pre-#614 BP-only walk silently terminated at the first chain
+        /// segment it reached, missing the root and any earlier segments. The
+        /// fix seeds the walk with the active recording's chain predecessor
+        /// (when present) and enqueues a chain predecessor for every recording
+        /// reached during fan-out. <c>chainHops</c> in the walk trace counts
+        /// these enqueues so a future regression shows up as <c>chainHops=0</c>
+        /// on a topology that should have chain links.</para>
         /// </summary>
         /// <param name="searchTrees">Trees to search. Production callers
         /// compose <see cref="RecordingStore.CommittedTrees"/> ++
@@ -1013,24 +1026,104 @@ namespace Parsek
                     activeRecordingId, treesSearched);
                 return false;
             }
-            if (string.IsNullOrEmpty(active.ParentBranchPointId))
-            {
-                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "active-has-no-parent-bp activeId={0} treeId={1}",
-                    activeRecordingId, tree.Id ?? "<no-id>");
-                return false;
-            }
-
+            // #614: walk both BranchPoint-parents AND chain-predecessors. Optimizer
+            // splits (RecordingStore.RunOptimizationSplitPass) connect chain segments
+            // via shared ChainId / ChainIndex, NOT via ParentBranchPointId — so the
+            // older BP-only walk silently terminated when it reached a chain segment
+            // whose parent was a previous chain segment with no BP link, missing the
+            // root and any earlier chain segments. Seed the walk with the active
+            // recording's parent BP AND its chain predecessor; for every recording
+            // reached, enqueue its parent BP AND its chain predecessor.
             var pendingBPs = new Queue<string>();
+            var pendingRecs = new Queue<string>();
             var visitedBPs = new HashSet<string>();
             var visitedRecs = new HashSet<string>();
             var bpTrace = new List<string>();
             var parentTrace = new List<string>();
             int bpsNotFound = 0;
-            pendingBPs.Enqueue(active.ParentBranchPointId);
+            int chainHopsEnqueued = 0;
+            int chainHopsAncestorPredecessor = 0;
 
-            while (pendingBPs.Count > 0)
+            // Seed: parent BP of the active recording (may be empty for chain
+            // mid-segments and tree roots).
+            if (!string.IsNullOrEmpty(active.ParentBranchPointId))
+                pendingBPs.Enqueue(active.ParentBranchPointId);
+
+            // Seed: chain predecessor of the active recording. The active itself
+            // is not a victim (the victim-is-active short-circuit fires above),
+            // but the active may sit mid-chain whose previous segment IS a victim.
+            string activePredecessorId = TryFindChainPredecessor(tree, active);
+            if (!string.IsNullOrEmpty(activePredecessorId))
             {
+                pendingRecs.Enqueue(activePredecessorId);
+                chainHopsEnqueued++;
+            }
+
+            // Bail if neither seed produced any work: the active is a true root
+            // with no chain predecessor.
+            if (pendingBPs.Count == 0 && pendingRecs.Count == 0)
+            {
+                walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "active-has-no-parent activeId={0} treeId={1}",
+                    activeRecordingId, tree.Id ?? "<no-id>");
+                return false;
+            }
+
+            // Helper-style local: process a parent recording id (whether reached
+            // via BP-parent fan-out or chain-predecessor link). Returns true when
+            // the victim is found.
+            bool VisitRecordingId(string recId, string discoverySource)
+            {
+                if (string.IsNullOrEmpty(recId) || !visitedRecs.Add(recId))
+                    return false;
+
+                parentTrace.Add(recId);
+                if (string.Equals(recId, victimRecordingId, StringComparison.Ordinal))
+                    return true;
+
+                if (!tree.Recordings.TryGetValue(recId, out Recording rec) || rec == null)
+                    return false;
+
+                // BP link to next ancestor up.
+                if (!string.IsNullOrEmpty(rec.ParentBranchPointId))
+                    pendingBPs.Enqueue(rec.ParentBranchPointId);
+
+                // Chain link to previous segment (no BP). #614: this is the leg
+                // the old walk missed — optimizer-split chain predecessors share
+                // ChainId but have no ParentBranchPointId on the second half.
+                string predId = TryFindChainPredecessor(tree, rec);
+                if (!string.IsNullOrEmpty(predId))
+                {
+                    pendingRecs.Enqueue(predId);
+                    chainHopsEnqueued++;
+                    chainHopsAncestorPredecessor++;
+                }
+
+                return false;
+            }
+
+            while (pendingBPs.Count > 0 || pendingRecs.Count > 0)
+            {
+                // Drain any chain-predecessor recordings first so the walk
+                // surfaces direct chain ancestry before fanning out via BPs.
+                while (pendingRecs.Count > 0)
+                {
+                    string recId = pendingRecs.Dequeue();
+                    if (VisitRecordingId(recId, "chain-predecessor"))
+                    {
+                        walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "found-victim-in-parent-chain activeId={0} treeId={1} victim={2} " +
+                            "visitedBPs={3} parentsEncountered={4} chainHops={5} bps=[{6}] parents=[{7}]",
+                            activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
+                            visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued,
+                            string.Join(",", bpTrace.ToArray()),
+                            string.Join(",", parentTrace.ToArray()));
+                        return true;
+                    }
+                }
+
+                if (pendingBPs.Count == 0) break;
+
                 string bpId = pendingBPs.Dequeue();
                 if (string.IsNullOrEmpty(bpId) || !visitedBPs.Add(bpId))
                     continue;
@@ -1056,40 +1149,68 @@ namespace Parsek
 
                 for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
                 {
-                    string parentId = bp.ParentRecordingIds[i];
-                    if (string.IsNullOrEmpty(parentId) || !visitedRecs.Add(parentId))
-                        continue;
-
-                    parentTrace.Add(parentId);
-                    if (string.Equals(parentId, victimRecordingId, StringComparison.Ordinal))
+                    if (VisitRecordingId(bp.ParentRecordingIds[i], "bp-parent"))
                     {
                         walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                             "found-victim-in-parent-chain activeId={0} treeId={1} victim={2} " +
-                            "visitedBPs={3} parentsEncountered={4} bps=[{5}] parents=[{6}]",
+                            "visitedBPs={3} parentsEncountered={4} chainHops={5} bps=[{6}] parents=[{7}]",
                             activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
-                            visitedBPs.Count, visitedRecs.Count,
+                            visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued,
                             string.Join(",", bpTrace.ToArray()),
                             string.Join(",", parentTrace.ToArray()));
                         return true;
                     }
-
-                    if (tree.Recordings.TryGetValue(parentId, out Recording parent)
-                        && parent != null
-                        && !string.IsNullOrEmpty(parent.ParentBranchPointId))
-                    {
-                        pendingBPs.Enqueue(parent.ParentBranchPointId);
-                    }
                 }
             }
 
+            // Ancestor-walk summary: chainHops counts every chain-predecessor
+            // enqueue (active-seed + every parent recording's chain predecessor)
+            // so a future regression of the #614-style bug shows up here as a
+            // suspicious chainHops=0 on a topology that should have chain links.
             walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "exhausted-without-victim activeId={0} treeId={1} victim={2} " +
-                "visitedBPs={3} parentsEncountered={4} bpsNotFound={5} bps=[{6}] parents=[{7}]",
+                "visitedBPs={3} parentsEncountered={4} chainHops={5} chainHopsViaAncestors={6} " +
+                "bpsNotFound={7} bps=[{8}] parents=[{9}]",
                 activeRecordingId, tree.Id ?? "<no-id>", victimRecordingId,
-                visitedBPs.Count, visitedRecs.Count, bpsNotFound,
+                visitedBPs.Count, visitedRecs.Count, chainHopsEnqueued, chainHopsAncestorPredecessor,
+                bpsNotFound,
                 string.Join(",", bpTrace.ToArray()),
                 string.Join(",", parentTrace.ToArray()));
             return false;
+        }
+
+        /// <summary>
+        /// #614: returns the recording-id of <paramref name="rec"/>'s chain
+        /// predecessor in <paramref name="tree"/>, or null when the recording
+        /// is standalone, is the first chain segment (ChainIndex == 0), or
+        /// when no matching predecessor exists in the tree.
+        /// </summary>
+        /// <remarks>
+        /// Optimizer splits (<see cref="RecordingStore"/> RunOptimizationSplitPass)
+        /// link chain segments via shared <see cref="Recording.ChainId"/> and
+        /// monotonically increasing <see cref="Recording.ChainIndex"/> with the
+        /// same <see cref="Recording.ChainBranch"/>. The second half does NOT
+        /// receive a <see cref="Recording.ParentBranchPointId"/> — the chain id
+        /// is the only ancestry link.
+        /// </remarks>
+        internal static string TryFindChainPredecessor(RecordingTree tree, Recording rec)
+        {
+            if (tree?.Recordings == null || rec == null) return null;
+            if (string.IsNullOrEmpty(rec.ChainId)) return null;
+            if (rec.ChainIndex <= 0) return null;
+
+            int targetIdx = rec.ChainIndex - 1;
+            foreach (var kvp in tree.Recordings)
+            {
+                Recording other = kvp.Value;
+                if (other == null) continue;
+                if (!string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (other.ChainBranch != rec.ChainBranch) continue;
+                if (other.ChainIndex != targetIdx) continue;
+                return other.RecordingId;
+            }
+            return null;
         }
 
         /// <summary>
