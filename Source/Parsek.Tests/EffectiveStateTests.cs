@@ -107,6 +107,32 @@ namespace Parsek.Tests
             return scenario;
         }
 
+        private static RewindPoint Rp(string rpId, string bpId, params string[] slotRecordingIds)
+        {
+            var slots = new List<ChildSlot>();
+            if (slotRecordingIds != null)
+            {
+                for (int i = 0; i < slotRecordingIds.Length; i++)
+                {
+                    slots.Add(new ChildSlot
+                    {
+                        SlotIndex = i,
+                        OriginChildRecordingId = slotRecordingIds[i],
+                        Controllable = true
+                    });
+                }
+            }
+
+            return new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = bpId,
+                UT = 0.0,
+                SessionProvisional = false,
+                ChildSlots = slots
+            };
+        }
+
         // =====================================================================
         // EffectiveRecordingId: forward walk
         // =====================================================================
@@ -235,13 +261,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_1",
-                BranchPointId = "bp_1",
-                UT = 0.0,
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_1", "bp_1", "rec_A");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec));
@@ -275,6 +295,26 @@ namespace Parsek.Tests
             MakeScenario();
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+        }
+
+        [Fact]
+        public void IsUnfinishedFlight_MultipleMatchingRpsWithoutSlot_LogsAllMisses()
+        {
+            var rec = Rec("rec_debris", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            MakeScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_parent"),
+                Rp("rp_2", "bp_1", "rec_controlled_child")
+            });
+
+            Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=noMatchingRpSlot")
+                && l.Contains("matches=2")
+                && l.Contains("rp_1@bp_1")
+                && l.Contains("rp_2@bp_1"));
         }
 
         [Fact]
@@ -330,12 +370,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(tip);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_stage",
-                BranchPointId = "bp_stage",
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(head));
@@ -382,7 +417,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(tip);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(head));
@@ -485,7 +520,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(head);
             RecordingStore.AddRecordingWithTreeForTesting(tip);
 
-            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
@@ -521,12 +556,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(activeParent);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_breakup",
-                BranchPointId = "bp_breakup",
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_breakup", "bp_breakup", "rec_active_parent");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(activeParent));
