@@ -3095,6 +3095,45 @@ flips rather than per-frame stable repeats. Regression coverage:
 
 ---
 
+## ~~625. Log spam: `Blocked GoOffRails for ghost vessel` Harmony prefix fires ~117 Hz per ghost ProtoVessel in physics range~~
+
+**Source:** `logs/2026-04-26_2357_newest/KSP.log`. 2,941 lines for a
+single ghost PID `940887686` over 25 seconds (23:51:57-23:52:22), at
+~117 Hz (FixedUpdate × 2.3). Shape:
+
+```
+[Parsek][VERBOSE][GhostMap] Blocked GoOffRails for ghost vessel 'Ghost: Kerbal X' pid=940887686
+```
+
+Per-second distribution: `109, 118, 116, 118, 118, 117, 117, 115, …`
+
+**Cause:** `GhostVesselLoadPatch.Prefix` (Harmony prefix on
+`Vessel.GoOffRails`) returns `false` to keep ghost ProtoVessels on
+rails. KSP retries the off-rails transition every FixedUpdate while
+the ghost is inside physics range, so the prefix fires per physics
+tick and emits a raw `ParsekLog.Verbose` every time. With one ghost
+in range it floods at FixedUpdate × 2.3.
+
+**Resolution (2026-04-27):** Extracted the log into
+`GhostVesselLoadPatch.LogBlockedOffRails(uint pid, string vesselName)`
+and routed it through `ParsekLog.VerboseOnChange` with identity
+`block-offrails|<pid>` and stateKey `<vesselName>`. Each ghost gets its
+own VerboseOnChange slot, so two distinct ghosts each emit on first
+block while per-PID repeats coalesce silently. The next genuine state
+flip (a vessel rename, vanishingly rare for ghosts) surfaces
+`| suppressed=N`.
+
+Regression coverage:
+- `GhostVesselLoadPatchTests.LogBlockedOffRails_RepeatedCallsSamePid_EmitOnceForStableName`
+  — 100 repeat calls after first block emit zero new lines.
+- `GhostVesselLoadPatchTests.LogBlockedOffRails_DistinctPids_EachEmitsOnceAndStaysSilent`
+  — two PIDs each emit on first block, then 50 alternating calls
+  (which would ping-pong a shared identity slot) emit zero new lines.
+
+**Status:** CLOSED 2026-04-27.
+
+---
+
 ## ~~607. Misleading `Strip left N pre-existing vessel(s)` WARN reports stale, deduped count after post-supplement kill~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906-12907`:

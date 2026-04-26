@@ -413,11 +413,23 @@ namespace Parsek.Patches
         {
             if (GhostMapPresence.IsGhostMapVessel(__instance.persistentId))
             {
-                ParsekLog.Verbose("GhostMap",
-                    $"Blocked GoOffRails for ghost vessel '{__instance.vesselName}' pid={__instance.persistentId}");
+                LogBlockedOffRails(__instance.persistentId, __instance.vesselName);
                 return false; // skip original — keep ghost on rails
             }
             return true;
+        }
+
+        // Extracted so the spam-coalescing contract is testable without a live
+        // Unity Vessel. KSP retries GoOffRails on every FixedUpdate while a ghost
+        // is in physics range; a raw Verbose here floods at ~117 Hz per ghost
+        // (logs/2026-04-26_2357_newest/KSP.log: 2941 lines in 25 s for one PID).
+        // VerboseOnChange keyed by pid emits once per ghost, then stays silent.
+        internal static void LogBlockedOffRails(uint pid, string vesselName)
+        {
+            ParsekLog.VerboseOnChange("GhostMap",
+                identity: $"block-offrails|{pid}",
+                stateKey: vesselName ?? "(null)",
+                message: $"Blocked GoOffRails for ghost vessel '{vesselName}' pid={pid}");
         }
     }
 
