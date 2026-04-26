@@ -521,7 +521,7 @@ parentsEncountered=1 bpsNotFound=0 bps=[f1c7b08f:parents=1]
 parents=[1d6d2116])`. One BP visited, one parent recording reached
 (mid), then exhausted — never traversed the chain link from mid to root.
 
-**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #---):** the BFS now
+**Fix (`fix/ghostmap-ancestor-chain-suppression`, PR #593):** the BFS now
 walks BOTH `ParentBranchPointId` AND chain-predecessor links (same
 `ChainId`, same `ChainBranch`, `ChainIndex - 1`) for every recording it
 reaches, including the active recording itself (so a mid-chain active
