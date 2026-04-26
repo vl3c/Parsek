@@ -498,34 +498,121 @@ The helper:
 
   Concretely the new finisher code (net472-compatible —
   `Dictionary.GetValueOrDefault` does NOT exist on this target
-  framework, so use `TryGetValue`):
+  framework, so use `TryGetValue`). The structure inserts a NEW
+  block transitioning `RpReap → RelativePromotion`, splits the
+  existing `RpReap` block's marker-null work to a NEW
+  `RelativePromotion` block, AND adds a defensive helper
+  invocation for the rare path where the journal was persisted
+  with `Phase = RelativePromotion` directly:
+
   ```csharp
+  // Block 1 — EXISTING: Durable1Done -> RpReap (RP cleanup).
+  if (fromPhase == MergeJournal.Phases.Durable1Done)
+  {
+      TagRpsForReap(scenario.ActiveReFlySessionMarker, scenario);
+      RewindPointReaper.ReapOrphanedRPs();
+      AdvancePhase(scenario, MergeJournal.Phases.RpReap);
+      stepsDriven++;
+  }
+
+  // Block 2 — NEW: RpReap -> RelativePromotion (helper).
+  // Marker must be alive here; it is, because (a) durable1 saved
+  // marker-alive, and (b) reaching this block means the in-memory
+  // marker-null work hasn't run yet (that's now in Block 3).
   if (journal.Phase == MergeJournal.Phases.RpReap)
   {
-      // NEW: invoke promotion helper before clearing the marker.
-      var marker = scenario.ActiveReFlySessionMarker;
-      if (marker != null)
-      {
-          RecordingTree tree = ResolveTreeById(journal.TreeId);
-          Recording activeTarget = null;
-          if (tree?.Recordings != null
-              && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-          {
-              tree.Recordings.TryGetValue(
-                  marker.ActiveReFlyRecordingId, out activeTarget);
-          }
-          if (tree != null && activeTarget != null)
-          {
-              SupersedeCommit.PromoteParentChainRelativeToAbsolute(
-                  marker, activeTarget, tree);
-          }
-      }
+      RunPromotionHelper(scenario, journal);  // see helper inline below
       AdvancePhase(scenario, MergeJournal.Phases.RelativePromotion);
+      stepsDriven++;
+  }
 
-      // EXISTING: marker null + bump + log + AdvancePhase(MarkerCleared).
-      … (unchanged existing block) …
+  // Block 3 — MOVED FROM PRIOR `RpReap` block + DEFENSIVE helper:
+  // RelativePromotion -> MarkerCleared (marker null).
+  if (journal.Phase == MergeJournal.Phases.RelativePromotion)
+  {
+      // Defensive: if we entered the finisher with phase already at
+      // RelativePromotion (no-crash path never persists this — the
+      // next durable save advances to Durable2Done first — but
+      // an external mid-run save could) the helper hasn't yet
+      // landed promoted sidecars on disk. Re-run idempotently.
+      // When entering via Block 2 instead, the helper just ran;
+      // this re-run is a "nothing to promote" no-op. Cost: one
+      // dictionary lookup per parent-chain recording.
+      if (fromPhase == MergeJournal.Phases.RelativePromotion)
+      {
+          RunPromotionHelper(scenario, journal);
+      }
+
+      // EXISTING marker-null work (was inside the old `RpReap`
+      // block at MergeJournalOrchestrator.cs:368-381).
+      if (scenario.ActiveReFlySessionMarker != null)
+      {
+          string provisionalId =
+              scenario.ActiveReFlySessionMarker.ActiveReFlyRecordingId
+              ?? "<no-id>";
+          ParsekLog.Info("ReFlySession",
+              $"End reason=merged sess={sessionId} provisional={provisionalId}");
+      }
+      scenario.ActiveReFlySessionMarker = null;
+      scenario.BumpSupersedeStateVersion();
+      AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
+      stepsDriven++;
+  }
+
+  // Block 4 — EXISTING: MarkerCleared -> Durable2Done (deferred save).
+  if (journal.Phase == MergeJournal.Phases.MarkerCleared)
+  {
+      AdvancePhase(scenario, MergeJournal.Phases.Durable2Done);
+      DurableSave("finisher-durable2", persistSynchronously: false);
+      stepsDriven++;
+  }
+
+  // RunPromotionHelper inline (deduplicated):
+  static void RunPromotionHelper(ParsekScenario scenario, MergeJournal journal)
+  {
+      var marker = scenario.ActiveReFlySessionMarker;
+      if (marker == null) return;
+      RecordingTree tree = ResolveTreeById(journal.TreeId);
+      Recording activeTarget = null;
+      if (tree?.Recordings != null
+          && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+      {
+          tree.Recordings.TryGetValue(
+              marker.ActiveReFlyRecordingId, out activeTarget);
+      }
+      if (tree != null && activeTarget != null)
+      {
+          SupersedeCommit.PromoteParentChainRelativeToAbsolute(
+              marker, activeTarget, tree);
+      }
   }
   ```
+
+  **Behavioral contract changes from the existing finisher:**
+  - The marker-null + `End reason=merged` log + `BumpSupersedeStateVersion`
+    work moves from `if (journal.Phase == RpReap)` to `if (journal.Phase
+    == RelativePromotion)`. Existing tests that crash at `Phase.RpReap`
+    and assert marker-null still pass because in the same finisher run,
+    Block 2 advances RpReap → RelativePromotion and Block 3 runs the
+    marker-null work; the end state is identical to today's. Update
+    log-line assertions if any test pinned the exact "marker null
+    happens during RpReap-block" log ordering — the new ordering is
+    helper INFO line → marker-null INFO line.
+  - A journal that persists `Phase = RelativePromotion` is now a
+    recoverable state (per `IsPostDurablePhase`). The defensive
+    re-invocation in Block 3 ensures redrive promotes sidecars even
+    in that path.
+  - A journal that persists `Phase = MarkerCleared` with on-disk
+    sidecars STILL pre-promotion is an unrecoverable corner case
+    (marker is gone on disk, helper has nothing to read). This
+    requires an external mid-run save that lands `MarkerCleared` —
+    not produced by `RunMerge` itself, since durable2 is the next
+    save and durable2 advances to `Durable2Done` BEFORE saving. We
+    do not handle this case; document it in the orchestrator code
+    comment and add a `Warn` log on the rare `MarkerCleared`-with-
+    dirty-sidecars combination if it's ever observed. This is
+    explicitly out of scope for this plan; see "Out of scope"
+    below.
 
   The implementation MUST preserve the existing TagRpsForReap +
   ReapOrphanedRPs work in the `Durable1Done` branch and the existing
@@ -860,6 +947,43 @@ data transformation).
    already-promoted data is covered by optimizer-pass test 5
    (direct second-run), so we don't double-cover it here.
 
+5. **Recovery from a persisted `Phase=RelativePromotion` runs the
+   helper defensively.** This pins the corner case the round-7
+   review flagged: an external save lands `Phase=RelativePromotion`
+   on disk before durable2 fires (the no-crash path never persists
+   this, but the orchestrator can't preempt `OnSave`). Set up the
+   scenario by directly mutating the in-memory journal to
+   `Phase=RelativePromotion` and calling
+   `ParsekScenario.OnSave` to persist that snapshot, then crash
+   before `RunMerge` advances further. On reload:
+   - `journal.Phase == RelativePromotion` (persisted).
+   - `scenario.ActiveReFlySessionMarker` is **alive** (the
+     promoting save was BEFORE MarkerCleared advance + nulling).
+   - Sidecars pre-promotion (durable2 didn't fire).
+
+   `RunFinisher` calls `CompleteFromPostDurable(fromPhase=
+   RelativePromotion)`. Block 1 (`fromPhase==Durable1Done`) skips.
+   Block 2 (`journal.Phase==RpReap`) skips. **Block 3
+   (`journal.Phase==RelativePromotion`) fires**:
+   - The defensive `if (fromPhase == RelativePromotion)` clause
+     re-invokes the helper. Helper finds RELATIVE sections in the
+     freshly-loaded recording, promotes them. Assert helper INFO
+     line reports `promoted > 0`.
+   - Marker null + `End reason=merged` log + bump fires; assert
+     marker is null in memory after.
+   - AdvancePhase(MarkerCleared) fires.
+   Block 4 advances to Durable2Done with deferred save. Two-phase
+   assertion (in-memory after finisher, on-disk after explicit
+   save) follows the same pattern as tests 2-3.
+
+   **Without the defensive helper invocation in Block 3**, this
+   test would fail: the helper would never re-run on the
+   RelativePromotion-tagged journal, sidecars would stay
+   pre-promotion, and after the explicit save the on-disk state
+   would be inconsistent (marker=null and journal=cleared but
+   sidecars=RELATIVE). Pin this so a future refactor can't
+   silently drop the defensive branch.
+
 ### `MergeDialogTests` / in-place branch wiring
 
 These pin the P1 review fix — the in-place branch must call the
@@ -928,6 +1052,30 @@ passing. No changes expected.
   filter (item 2). Test 9 pins the mixed-section recording case
   (one promotable + one preserved on the same recording) so a
   future change can't silently widen the filter.
+
+- **Recovery from a persisted `Phase=MarkerCleared` with
+  pre-promotion sidecars.** This is the unrecoverable corner case
+  flagged in the finisher pseudocode: an external save would have
+  to land `Phase=MarkerCleared` AND null marker on disk while the
+  sidecars are still pre-promotion. The no-crash path can't
+  produce this (helper runs in Block 2 / RpReap → RelativePromotion
+  before MarkerCleared advance), and there's no in-orchestrator
+  save that lands `MarkerCleared` before `Durable2Done`. If it
+  ever happens (a third-party mod calls `SaveGame` mid-frame
+  during the in-memory window, for example), the finisher can
+  no longer recover the helper invocation: the marker is gone, so
+  there's no `ActiveReFlyRecordingId` / pid to read. We accept
+  this as out of scope; the implementation MUST emit a `Warn` log
+  on encountering this exact combination
+  (`journal.Phase == MarkerCleared` but parent-chain RELATIVE
+  sections still match the scope filter for some recording in
+  the tree) so a real-world occurrence is visible in `KSP.log`.
+  A follow-up plan could mitigate by capturing the active target
+  recording id + vessel pid into the `MergeJournal` itself
+  (alongside `SessionId` and `TreeId`) — that lets the finisher
+  reconstruct the helper inputs even after marker clear. We
+  defer that to a separate plan if the `Warn` ever fires in
+  practice.
 
 - **In-place editing of the recorder.** `FlightRecorder` keeps writing
   v7 shadows as before. The pass only runs on already-committed
