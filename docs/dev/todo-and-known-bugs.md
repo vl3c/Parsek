@@ -147,7 +147,7 @@ bodies (Mun, Minmus, etc.) keep the existing `PeR > Radius` semantics. Added
 explicit null guard for `vessel.orbit.referenceBody` and updated the Info log
 line to include `atmoTop` and `bodyHasAtmosphere`.
 
-## 626. Five flaky in-game tests at HEAD were failing for harness reasons, not code regressions ~~done~~
+## 628. Five flaky in-game tests at HEAD were failing for harness reasons, not code regressions ~~done~~
 
 Investigation log: `logs/2026-04-27_1902/parsek-test-results.txt` (5 FAILED in
 FLIGHT). All five turned out to be test-authoring bugs / a timing race against
