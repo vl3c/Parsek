@@ -225,6 +225,21 @@ Regression coverage in `SessionSuppressedSubtreeTests`:
 `SessionSuppressionWiringTests` fixtures that incidentally used different
 PIDs for origin/inside descendants were updated to use the same PID so they
 still exercise the linear-continuation path the closure now scopes to.
+## 632. Pipeline Phase 1: per-frame spline-eval summary log line L4 deferred
+
+`ParsekFlight.cs` (around `InterpolateAndPosition` near `:14868`) carries a
+`// TODO Phase 1: per-frame spline-eval summary log L4` comment for the
+per-frame `Pipeline-Smoothing` `VerboseRateLimited` summary of spline
+evaluations (L4 in the design doc §19.2 logging table). Cleanly placing the
+counter requires a per-frame counter-reset hook in `GhostPlaybackEngine`
+(matching the existing `GhostPlaybackEngine` frame batch counters pattern, per
+`.claude/CLAUDE.md` "Batch counting convention"), which is outside Phase 1's
+scope. Tracked here so it isn't lost; non-blocking for Phase 1 functional
+behaviour. The orchestrator-side L1 / L3 / L5 / L7 / L8 / L9 / L11 lines all
+ship in Phase 1 and are pinned by `SmoothingPipelineLoggingTests`; only the
+hot-path L4 line is deferred.
+
+---
 
 ## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
 
