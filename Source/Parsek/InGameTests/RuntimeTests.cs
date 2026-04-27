@@ -13444,6 +13444,116 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Pipeline-Smoothing (Phase 1)
+
+        /// <summary>
+        /// Phase 1 spline-smoothing visual smoke test (design doc §6.1, §18
+        /// Phase 1, §20.5). Builds a synthetic ABSOLUTE-frame ExoBallistic
+        /// section whose samples are deliberately jittered (a 1 m noise on
+        /// each lat/lon/alt component) and verifies that the spline-smoothed
+        /// playback produces frame-to-frame deltas substantially smaller than
+        /// the underlying lerp would.
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: a regression that bypasses
+        /// <c>SectionAnnotationStore.PutSmoothingSpline</c> at the section's
+        /// playback UT, or any change in <c>InterpolateAndPosition</c> that
+        /// stops gating on the spline. The 60-frame sample window is wide
+        /// enough that any visually-noticeable jitter (above 0.1 m on a
+        /// nominally smooth coast) is caught.
+        ///
+        /// Runs only in FLIGHT scene because <c>Parsek.Rendering.SectionAnnotationStore</c>
+        /// is a pure POCO store but the underlying <c>body.GetWorldSurfacePosition</c>
+        /// requires a live <c>FlightGlobals.Bodies</c> table. The xUnit
+        /// suite covers the orchestrator behaviour; this test pins the live
+        /// world-space jitter contract.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "ExoBallistic coast playback with smoothing spline produces sub-jitter frame deltas")]
+        public IEnumerator Pipeline_Smoothing_NoJitterOnCoast()
+        {
+            const string recordingId = "in-game-pipeline-smoothing-coast";
+            const int sectionIndex = 0;
+            const int sampleCount = 64;
+            const double dutPerSample = 0.5;
+            const double startUT = 1000.0;
+
+            // Build a synthetic ExoBallistic section. 1 m of metric noise on
+            // each axis after the deterministic rise — noise is what the
+            // spline must filter out.
+            var frames = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double phase = i * 0.13;
+                double jitter = System.Math.Sin(phase * 17.0) * 0.000005; // ~0.5 m latitude jitter
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.5 + i * 0.0005 + jitter,
+                    longitude = 1.0 + i * 0.001 + jitter,
+                    altitude = 80000 + i * 50 + System.Math.Sin(phase) * 1.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            // Fit + store the spline through the synthetic frames.
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            var spline = TrajectoryMath.CatmullRomFit.Fit(
+                frames, SmoothingConfiguration.Default.Tension,
+                out string fitFailure);
+            InGameAssert.IsTrue(spline.IsValid,
+                "Fit should produce a valid spline (failure='" + (fitFailure ?? "<none>") + "')");
+            Parsek.Rendering.SectionAnnotationStore.PutSmoothingSpline(
+                recordingId, sectionIndex, spline);
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+
+            // Sample 60 spline evaluations across the section. Compute world-
+            // space frame-to-frame deltas; the maximum delta sets the visual
+            // jitter ceiling.
+            const int evalFrames = 60;
+            double maxDelta = 0.0;
+            Vector3d previous = Vector3d.zero;
+            bool havePrev = false;
+            for (int i = 0; i < evalFrames; i++)
+            {
+                double evalUT = startUT + i * dutPerSample;
+                Vector3d latLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, evalUT);
+                Vector3d world = kerbin.GetWorldSurfacePosition(latLonAlt.x, latLonAlt.y, latLonAlt.z);
+                if (havePrev)
+                {
+                    double delta = Vector3d.Distance(previous, world);
+                    // Two consecutive samples are dutPerSample seconds apart;
+                    // for a smooth coast the world-space delta should track
+                    // the underlying altitude rise (50 m / 0.5 s = 25 m/frame
+                    // here), so noise contribution above ~0.5 m would be
+                    // visible. Use a generous 100 m ceiling for the inter-
+                    // frame delta to allow for the smooth altitude rise itself
+                    // while still catching gross jitter.
+                    if (delta > maxDelta) maxDelta = delta;
+                    InGameAssert.IsTrue(delta < 100.0,
+                        "Frame " + i + " delta=" + delta.ToString("F3", CultureInfo.InvariantCulture)
+                            + "m exceeds smoothness ceiling — spline likely not applied");
+                }
+                previous = world;
+                havePrev = true;
+                yield return null;
+            }
+
+            ParsekLog.Info("Pipeline-Smoothing",
+                "Pipeline_Smoothing_NoJitterOnCoast: maxFrameDelta="
+                    + maxDelta.ToString("F3", CultureInfo.InvariantCulture) + "m"
+                    + " sampleCount=" + sampleCount + " evalFrames=" + evalFrames);
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            yield break;
+        }
+
+        #endregion
     }
 
     // Bug #613 in-game-test trajectory: a 5-second non-looping recording

@@ -12714,6 +12714,10 @@ namespace Parsek
                 {
                     // Position from trajectory points (same interpolation as existing ghost positioning)
                     bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
+                    // Phase 1: background path bypasses splines pending section
+                    // indexing — the BackgroundRecorder does not yet emit
+                    // TrackSections, so there is no body-fixed section index
+                    // to feed the spline gate. Tracked in the Phase 1 plan.
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip);
@@ -14362,9 +14366,16 @@ namespace Parsek
             }
 
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            // Phase 1: pass section index so the body-fixed spline lookup can
+            // gate per-section. Falls through to legacy lerp when sections
+            // are absent (-1) — older flat-point recordings remain bit-exact.
+            int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
+                ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
+                : -1;
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
-                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
+                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
+                recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -14809,7 +14820,8 @@ namespace Parsek
         // CreateGhostSphere moved to GhostVisualBuilder.CreateGhostSphere (T25 Phase 4 prep)
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
-            double targetUT, bool allowActivation, out InterpolationResult interpResult)
+            double targetUT, bool allowActivation, out InterpolationResult interpResult,
+            string recordingId = null, int sectionIndex = -1)
         {
             TrajectoryPoint before, after;
             float t;
@@ -14865,6 +14877,31 @@ namespace Parsek
                 interpolatedPos = posBefore;
             }
 
+            // Phase 1 smoothing splines (design doc §6.1, §17.3.1, §18 Phase 1).
+            // Replace the lerped lat/lon/alt-derived world position with a
+            // Catmull-Rom spline evaluation when the section has a valid spline
+            // and the rollout flag is on. Rotation continues to come from the
+            // existing slerp — Phase 1 is position-only. Any precondition miss
+            // (no recordingId, no sectionIndex, flag off, store miss, or
+            // !IsValid) silently falls through to the legacy lerp result —
+            // that is acceptable per HR-9 because "no spline yet" is a normal
+            // state, not a failure.
+            // TODO Phase 1: per-frame spline-eval summary log L4 — accumulate
+            // s_frameSplineEvalCount and emit a single VerboseRateLimited line
+            // from the engine's per-frame entry point so eval counts surface
+            // in KSP.log without per-frame chatter.
+            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            {
+                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
+                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
+                {
+                    Vector3d splineWorld = bodyBefore.GetWorldSurfacePosition(
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z);
+                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                        interpolatedPos = splineWorld;
+                }
+            }
+
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
@@ -14886,6 +14923,34 @@ namespace Parsek
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+        }
+
+        /// <summary>
+        /// Phase 1 spline-positioning gate (design doc §6.1, §17.3.1).
+        /// Returns <c>true</c> with a populated <paramref name="spline"/>
+        /// when (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useSmoothingSplines</c> rollout flag is
+        /// on, and (c) <see cref="SectionAnnotationStore"/> holds a valid
+        /// spline for the (recordingId, sectionIndex) pair. Any miss is a
+        /// silent fall-through to legacy lerp positioning (HR-9 — "no spline
+        /// yet" is a normal state, not a failure).
+        /// </summary>
+        private static bool allowSplinePositioning(string recordingId, int sectionIndex,
+            out Parsek.Rendering.SmoothingSpline spline)
+        {
+            spline = default(Parsek.Rendering.SmoothingSpline);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out spline))
+                return false;
+
+            return spline.IsValid;
         }
 
         // Keep the old signature for backward compat with tests
@@ -15300,13 +15365,20 @@ namespace Parsek
                     allowActivation,
                     out interpResult))
             {
+                // Phase 1: pass section context. Checkpoint sections are
+                // OrbitalCheckpoint reference frame, which ShouldFitSection
+                // filters out — the spline gate will naturally fall through
+                // to legacy lerp here. Threaded so a future spline-on-
+                // checkpoint extension wouldn't need to revisit the call site.
                 InterpolateAndPosition(
                     ghost,
                     section.frames,
                     ref playbackIdx,
                     playbackUT,
                     allowActivation,
-                    out interpResult);
+                    out interpResult,
+                    recordingId: traj?.RecordingId,
+                    sectionIndex: sectionIdx);
             }
 
             int logIndex = playbackIdx;
@@ -17088,9 +17160,16 @@ namespace Parsek
             }
 
             // Absolute positioning fallback
+            // Phase 1: pass section context for spline lookup. The fallback is
+            // the body-fixed loop path, which is exactly where ABSOLUTE
+            // ExoPropulsive / ExoBallistic splines are meant to apply.
+            int splineSectionIdx = rec.TrackSections != null && rec.TrackSections.Count > 0
+                ? TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT)
+                : -1;
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
-                allowActivation: allowActivation);
+                allowActivation: allowActivation,
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
         }
 
         /// <summary>
@@ -17325,7 +17404,8 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false)
+            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
+            string recordingId = null, int sectionIndex = -1)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -17369,7 +17449,8 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
+                recordingId, sectionIndex);
         }
 
         #endregion
