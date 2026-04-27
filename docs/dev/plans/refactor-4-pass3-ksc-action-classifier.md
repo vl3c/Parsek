@@ -204,11 +204,11 @@ Full non-injection xUnit gate:
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
 ```
 
-No in-game canary is required for the first classifier-only slice because it is
-pure logic movement behind the existing `LedgerOrchestrator` facade. If review
-expands the implementation to reconciliation, logging, event matching, or
-post-walk behavior, this proposal no longer applies and the validation plan
-must be re-reviewed before implementation.
+No in-game canary is required for these zero-logic refactor slices because they
+move already-covered, parameterized helper code behind the existing
+`LedgerOrchestrator` facades. If a future slice changes reconciliation policy,
+event matching, logging text, mutation order, or post-walk behavior, that
+future proposal needs a fresh validation plan before implementation.
 
 ## Rollback And PR Granularity
 
@@ -216,41 +216,45 @@ must be re-reviewed before implementation.
 - Planned PR B: classifier-only extraction behind
   `LedgerOrchestrator.ClassifyAction`.
 - Planned PR C: optional DTO/enum cleanup and caller/test migration.
-- Actual PR #621 landing shape: PR B and PR C are folded together. See the
+- Actual PR #621 landing shape: PR B, PR C, and the follow-up KSC action
+  reconciler helper extraction are folded together after review. See the
   implementation checkpoints below for the exact completed slices.
 
 Rollback for the combined PR #621 shape is still source-only, but it must revert
-both completed slices: delete `KscActionExpectationClassifier.cs`, restore the
-classifier body and the four `Ksc*` DTO/enum types inside
-`LedgerOrchestrator`, and revert the direct test callers, production XML doc
-references, and `EarningsReconciliationTests` reflection helper back to
-`LedgerOrchestrator.Ksc*` / `typeof(LedgerOrchestrator)`. Because no schemas,
-persisted fields, ledger mutation paths, or runtime state contracts change, no
-save migration or cleanup is needed.
+all completed slices: delete `KscActionExpectationClassifier.cs` and
+`KscActionReconciler.cs`; restore the classifier body, the four `Ksc*` DTO/enum
+types, `KscExpectedLegMatch`, `ReconcileKscAction`,
+`ReconcileKscExpectationLeg`, `CollectMatchingLegs`, `AddMatchingLeg`,
+`ComputeExpectedDeltaForLeg`, `ResourceChannelTag`, and
+`KscReconcileEpsilonSeconds` inside `LedgerOrchestrator`; and revert the direct
+test callers, production XML doc references, and `EarningsReconciliationTests`
+reflection helpers back to `LedgerOrchestrator.Ksc*` /
+`typeof(LedgerOrchestrator)`. Because no schemas, persisted fields, ledger
+mutation paths, or runtime state contracts change, no save migration or cleanup
+is needed.
 
-Do not combine the PR #621 classifier/DTO migration with any reconciliation
-extraction. If a behavior drift is found, revert the classifier move rather
-than patching reconciliation policy in the same PR.
+Post-walk reconciliation, KSC event entry points, ledger writes, sequence
+assignment, legacy migration, and resource/currency mutation order remain out
+of scope for PR #621.
 
 ## What Remains In LedgerOrchestrator
 
-The first slice would move roughly lines 4411-4637, about 227 lines, out of the
-7,137-line `LedgerOrchestrator.cs`. After that slice, `LedgerOrchestrator`
-still owns:
+After the completed PR #621 slices, `LedgerOrchestrator` still owns:
 
 - KSC event/action entry points (`OnKscSpending`,
   `OnVesselRolloutSpending`);
 - ledger action insertion and sequence assignment;
-- KSC reconciliation orchestration and logging;
-- event matching/coalescing and mismatch warning policy;
-- reputation-curve aggregate comparison;
-- resource channel tags and comparison tolerances;
+- KSC classifier/reconciler compatibility facades
+  (`ClassifyAction`, `ReconcileKscAction`, `ResourceChannelTag`,
+  `KscReconcileEpsilonSeconds`);
 - post-walk reconciliation;
 - recalculate/patch orchestration;
 - legacy migration/load repair and ledger mutation.
 
-It also retains the nested `Ksc*` DTO/enum facade until a separate caller
-migration proposal approves removing that compatibility surface.
+The classifier body, KSC DTO/enum types, and the per-action KSC reconciliation
+helper body now live in dedicated KSC action helper classes. The extracted
+reconciler preserves the original `LedgerOrchestrator` log tag string so log
+output stays byte-stable.
 
 ## Zero-Logic-Changes Statement
 
@@ -259,15 +263,16 @@ change any `switch` case, predicate, event key, expected delta sign, skip reason
 leg count, tolerance, logging text, rate-limit key, call order, resource
 mutation order, or public/internal test-facing wrapper signature.
 
-The implementation diff should be reviewable as "same classifier body in a new
-file, existing wrapper delegates to it."
+The implementation diff should be reviewable as the same classifier and KSC
+per-action reconciliation helper bodies in new files, with existing
+`LedgerOrchestrator` wrappers delegating to them.
 
-## Open Approval Question
+## Approval Resolution
 
-Approve PR B at the scoped slice - extract only `CreateExpectationLeg` and the
-`ClassifyAction` body behind the stable `LedgerOrchestrator.ClassifyAction`
-wrapper - or fold the four DTO/enum types into the first implementation PR and
-accept the required caller/test migration?
+The original PR B classifier slice and PR C DTO/enum migration were folded into
+PR #621 after review. After that review was green, the follow-up KSC
+per-action reconciler helper extraction was approved to build on the same open
+PR rather than waiting for merge.
 
 ## Implementation Checkpoint - Classifier-Only Extraction
 
@@ -321,6 +326,40 @@ Validation completed:
 dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~EarningsReconciliationTests|FullyQualifiedName~StrategyCaptureTests|FullyQualifiedName~Bug445RolloutCostLeakTests|FullyQualifiedName~PostWalkReconciliationIntegrationTests|FullyQualifiedName~FullCareerTimelineTests|FullyQualifiedName~LedgerOrchestratorTests|FullyQualifiedName~RewindUtCutoffTests|FullyQualifiedName~RewindTechStickinessTests|FullyQualifiedName~GloopsEventSuppressionTests"
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
+```
+
+Latest focused run passed 326 tests; the non-injection gate passed 9,261 tests.
+
+## Implementation Checkpoint - KSC Action Reconciler Extraction
+
+Follow-up slice completed on top of PR #621 after the classifier/DTO review was
+green and continuation on the open PR was approved:
+
+- Added `Source/Parsek/GameActions/KscActionReconciler.cs`.
+- Moved `KscExpectedLegMatch`, the `ReconcileKscAction` body,
+  `ReconcileKscExpectationLeg`, `CollectMatchingLegs`, `AddMatchingLeg`,
+  `ComputeExpectedDeltaForLeg`, the `ResourceChannelTag` switch, and the
+  canonical `KscReconcileEpsilonSeconds` constant source into the new class.
+- Kept `LedgerOrchestrator.ReconcileKscAction`,
+  `LedgerOrchestrator.ResourceChannelTag`, and
+  `LedgerOrchestrator.KscReconcileEpsilonSeconds` as compatibility facades for
+  existing production and test call sites.
+- Kept `OnKscSpending`, `OnVesselRolloutSpending`, ledger action insertion,
+  sequence assignment, post-walk reconciliation, legacy migration, ledger
+  mutation, logging policy, and resource/currency mutation order in
+  `LedgerOrchestrator`.
+- Migrated the `EarningsReconciliationTests` reflection hooks for
+  `KscExpectedLegMatch` and `ComputeExpectedDeltaForLeg` to
+  `typeof(KscActionReconciler)`.
+- Preserved the original reconciliation log tag string (`LedgerOrchestrator`)
+  in the extracted class so emitted log lines do not change.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug --no-build --filter "FullyQualifiedName~EarningsReconciliationTests|FullyQualifiedName~StrategyCaptureTests|FullyQualifiedName~Bug445RolloutCostLeakTests|FullyQualifiedName~PostWalkReconciliationIntegrationTests|FullyQualifiedName~FullCareerTimelineTests|FullyQualifiedName~LedgerOrchestratorTests|FullyQualifiedName~RewindUtCutoffTests|FullyQualifiedName~RewindTechStickinessTests|FullyQualifiedName~GloopsEventSuppressionTests" --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug --no-build --filter "FullyQualifiedName!~InjectAllRecordings" --nologo
 ```
 
 Latest focused run passed 326 tests; the non-injection gate passed 9,261 tests.

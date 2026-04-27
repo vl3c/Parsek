@@ -442,7 +442,7 @@ namespace Parsek.Tests
 
         private static object CreateKscExpectedLegMatch(GameAction action, object leg)
         {
-            Type matchType = typeof(LedgerOrchestrator).GetNestedType(
+            Type matchType = typeof(KscActionReconciler).GetNestedType(
                 "KscExpectedLegMatch",
                 BindingFlags.NonPublic);
             object match = Activator.CreateInstance(matchType);
@@ -704,11 +704,11 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeExpectedDeltaForLeg_ReputationCurve_SameUtMatchesUseSequenceTiebreaker()
         {
-            Type matchType = typeof(LedgerOrchestrator).GetNestedType(
+            Type matchType = typeof(KscActionReconciler).GetNestedType(
                 "KscExpectedLegMatch",
                 BindingFlags.NonPublic);
             Type matchListType = typeof(List<>).MakeGenericType(matchType);
-            MethodInfo computeMethod = typeof(LedgerOrchestrator).GetMethod(
+            MethodInfo computeMethod = typeof(KscActionReconciler).GetMethod(
                 "ComputeExpectedDeltaForLeg",
                 BindingFlags.Static | BindingFlags.NonPublic);
 
