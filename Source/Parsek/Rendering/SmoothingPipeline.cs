@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using UnityEngine;
 
 namespace Parsek.Rendering
 {
@@ -46,12 +47,35 @@ namespace Parsek.Rendering
         private static readonly object s_configHashLock = new object();
         private static byte[] s_cachedConfigurationHash;
 
+        // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
+        // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
+        // once per fit cycle (not per re-fit during config drift recompute).
+        // Cleared by ResetForTesting so the test suite can re-observe the line.
+        private static readonly object s_frameDecisionLock = new object();
+        private static readonly HashSet<string> s_frameDecisionLogged = new HashSet<string>();
+
+        // Test seam: when set, returned in place of FlightGlobals.Bodies?.Find.
+        // xUnit cannot stand up FlightGlobals.Bodies, so the suite injects a
+        // CelestialBody factory (typically TestBodyRegistry.ResolveBodyByName)
+        // via this hook. Production callers leave the seam null and resolve
+        // through FlightGlobals.
+        internal static System.Func<string, CelestialBody> BodyResolverForTesting;
+
         /// <summary>
         /// Fits a Catmull-Rom spline through every eligible ABSOLUTE-frame
         /// ExoPropulsive / ExoBallistic section's frames and stores the result
         /// in <see cref="SectionAnnotationStore"/>. Sections that don't qualify
         /// (RELATIVE, OrbitalCheckpoint, Atmospheric, Surface*, Approach) are
         /// skipped silently — they belong to other rendering paths (HR-7).
+        ///
+        /// <para>
+        /// Phase 4: ExoPropulsive / ExoBallistic sections are lifted to
+        /// inertial-longitude space (FrameTag = 1) before fitting; design doc
+        /// §6.2 Stage 2 / §18 Phase 4. Body resolution failure for an inertial
+        /// section is HR-9 (Pipeline-Frame Warn + skip, no spline stored — the
+        /// consumer falls back to the legacy lerp path). Phases 1's body-fixed
+        /// path is preserved for future Atmospheric / Surface* eligibility.
+        /// </para>
         /// </summary>
         internal static void FitAndStorePerSection(Recording rec)
         {
@@ -72,9 +96,50 @@ namespace Parsek.Rendering
                     continue;
                 }
 
+                // Phase 4 frame-tag decision (design doc §6.2). ExoPropulsive
+                // / ExoBallistic sections fit in inertial longitude; everything
+                // else still routes through body-fixed (currently no eligible
+                // sections per ShouldFitSection but the branch is here so
+                // future Atmospheric / Surface* enablement is a one-line
+                // change).
+                bool inertial = section.environment == SegmentEnvironment.ExoPropulsive
+                    || section.environment == SegmentEnvironment.ExoBallistic;
+                byte frameTag = inertial ? (byte)1 : (byte)0;
+
+                CelestialBody body = null;
+                string bodyName = section.frames != null && section.frames.Count > 0
+                    ? section.frames[0].bodyName
+                    : null;
+                if (inertial)
+                {
+                    body = ResolveBody(bodyName);
+                    // Use ReferenceEquals to bypass Unity's overloaded `==`,
+                    // which would treat a TestBodyRegistry-built uninitialized
+                    // CelestialBody as null. The test seam delivers genuine
+                    // CLR objects whose Unity-cached pointer is zero; the
+                    // pipeline only needs the managed reference for downstream
+                    // dispatch.
+                    if (object.ReferenceEquals(body, null))
+                    {
+                        // HR-9 visibility: missing body is a real failure for
+                        // an inertial fit (we can't compute the rotation phase),
+                        // not a silent skip. Surface it as Warn and continue —
+                        // the consumer will fall through to the legacy lerp.
+                        fitFailed++;
+                        ParsekLog.Warn("Pipeline-Frame",
+                            $"body not found, skipping inertial fit recordingId={recordingId} " +
+                            $"sectionIndex={i} bodyName={bodyName ?? "<null>"}");
+                        continue;
+                    }
+                }
+
+                IList<TrajectoryPoint> samplesForFit = section.frames;
+                if (inertial)
+                    samplesForFit = LiftFramesToInertial(section.frames, body);
+
                 var sw = Stopwatch.StartNew();
                 SmoothingSpline spline = TrajectoryMath.CatmullRomFit.Fit(
-                    section.frames,
+                    samplesForFit,
                     SmoothingConfiguration.Default.Tension,
                     out string failureReason);
                 sw.Stop();
@@ -89,19 +154,89 @@ namespace Parsek.Rendering
                     continue;
                 }
 
+                spline.FrameTag = frameTag;
                 SectionAnnotationStore.PutSmoothingSpline(recordingId, i, spline);
                 fitOk++;
                 int knotCount = spline.KnotsUT != null ? spline.KnotsUT.Length : 0;
                 int sampleCt = section.frames != null ? section.frames.Count : 0;
                 ParsekLog.Info("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Spline fit: recordingId={0} sectionIndex={1} env={2} sampleCount={3} knotCount={4} fitDurationMs={5}",
-                        recordingId, i, section.environment, sampleCt, knotCount, sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
+                        "Spline fit: recordingId={0} sectionIndex={1} env={2} sampleCount={3} knotCount={4} frameTag={5} body={6} fitDurationMs={7}",
+                        recordingId, i, section.environment, sampleCt, knotCount, frameTag, bodyName ?? "<null>", sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
+
+                // Phase 4 §19.2 Stage 2 log: per-section lift-to-inertial
+                // decision, dedup'd so a re-fit during drift recompute does
+                // not double-log.
+                LogFrameDecisionOnce(recordingId, i, section.environment, frameTag, bodyName);
             }
 
             ParsekLog.Verbose("Pipeline-Smoothing",
                 $"FitAndStorePerSection summary: recordingId={recordingId} sections={rec.TrackSections.Count} " +
                 $"fitOk={fitOk} fitFailed={fitFailed} skipped={skipped}");
+        }
+
+        /// <summary>
+        /// Phase 4 helper. Lifts every body-fixed sample to inertial-longitude
+        /// space at the sample's recording UT. The new transient list is what
+        /// CatmullRomFit.Fit smooths against; raw section.frames are NOT
+        /// mutated (HR-1: recordings are immutable).
+        /// </summary>
+        private static List<TrajectoryPoint> LiftFramesToInertial(
+            IList<TrajectoryPoint> source, CelestialBody body)
+        {
+            int count = source != null ? source.Count : 0;
+            var lifted = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                TrajectoryPoint p = source[i];
+                Vector3d li = TrajectoryMath.FrameTransform.LiftToInertial(
+                    p.latitude, p.longitude, p.altitude, body, p.ut);
+                lifted.Add(new TrajectoryPoint
+                {
+                    ut = p.ut,
+                    latitude = li.x,
+                    longitude = li.y,    // inertial-longitude (degrees)
+                    altitude = li.z,
+                    rotation = p.rotation,
+                    velocity = p.velocity,
+                    bodyName = p.bodyName,
+                    funds = p.funds,
+                    science = p.science,
+                    reputation = p.reputation,
+                });
+            }
+            return lifted;
+        }
+
+        private static CelestialBody ResolveBody(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+            var seam = BodyResolverForTesting;
+            if (seam != null)
+                return seam(bodyName);
+            try
+            {
+                return FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == bodyName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void LogFrameDecisionOnce(string recordingId, int sectionIndex,
+            SegmentEnvironment env, byte frameTag, string bodyName)
+        {
+            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            lock (s_frameDecisionLock)
+            {
+                if (!s_frameDecisionLogged.Add(key))
+                    return;
+            }
+            ParsekLog.Verbose("Pipeline-Frame",
+                $"Section lift to inertial decision: recordingId={recordingId} sectionIndex={sectionIndex} " +
+                $"env={env} frameTag={frameTag} body={bodyName ?? "<null>"}");
         }
 
         /// <summary>
@@ -239,6 +374,11 @@ namespace Parsek.Rendering
             {
                 s_cachedConfigurationHash = null;
             }
+            lock (s_frameDecisionLock)
+            {
+                s_frameDecisionLogged.Clear();
+            }
+            BodyResolverForTesting = null;
         }
 
         // ---- helpers ----

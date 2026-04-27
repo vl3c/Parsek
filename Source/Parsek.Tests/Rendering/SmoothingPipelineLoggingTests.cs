@@ -31,6 +31,8 @@ namespace Parsek.Tests.Rendering
     {
         private readonly string tempDir;
         private readonly List<string> logLines = new List<string>();
+        private readonly CelestialBody fakeKerbin;
+        private const double KerbinRotationPeriod = 21549.425;
 
         public SmoothingPipelineLoggingTests()
         {
@@ -38,10 +40,19 @@ namespace Parsek.Tests.Rendering
                 "parsek_pipeline_log_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempDir);
             SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
+
+            // Phase 4: ExoPropulsive / ExoBallistic sections lift to inertial
+            // before fitting (design doc §6.2). Inject the body + rotation-
+            // period seams so xUnit can drive the lift without FlightGlobals.
+            fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? fakeKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, fakeKerbin) ? KerbinRotationPeriod : double.NaN;
         }
 
         public void Dispose()
@@ -49,6 +60,7 @@ namespace Parsek.Tests.Rendering
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); } catch { }

@@ -61,7 +61,12 @@ namespace Parsek
         private static readonly byte[] CanonicalMagic = Encoding.ASCII.GetBytes("PANC");
 
         internal const int PannotationsBinaryVersion = 1;
-        internal const int AlgorithmStampVersion = 1;
+        // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
+        // fitted in inertial-longitude space (FrameTag = 1) instead of body-
+        // fixed. The .pann binary schema is unchanged — frameTag was already
+        // serialized — but the algorithm output for the same input differs,
+        // so HR-10 invalidates v1 .pann files via alg-stamp-drift.
+        internal const int AlgorithmStampVersion = 2;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +

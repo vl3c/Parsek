@@ -21,6 +21,8 @@ namespace Parsek.Tests.Rendering
     {
         private readonly string tempDir;
         private readonly List<string> logLines = new List<string>();
+        private readonly CelestialBody fakeKerbin;
+        private const double KerbinRotationPeriod = 21549.425;
 
         public SmoothingPipelineTests()
         {
@@ -28,10 +30,21 @@ namespace Parsek.Tests.Rendering
                 "parsek_pipeline_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempDir);
             SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
+
+            // Phase 4: ExoPropulsive / ExoBallistic sections lift to inertial
+            // before fitting (design doc §6.2). The lift needs a CelestialBody
+            // and its rotationPeriod — both injected via test seams since
+            // xUnit cannot stand up FlightGlobals.Bodies.
+            fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            CelestialBody capturedKerbin = fakeKerbin;
+            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? capturedKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, capturedKerbin) ? KerbinRotationPeriod : double.NaN;
         }
 
         public void Dispose()
@@ -39,6 +52,7 @@ namespace Parsek.Tests.Rendering
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); } catch { }
@@ -104,13 +118,16 @@ namespace Parsek.Tests.Rendering
         {
             // What makes it fail: ExoPropulsive isn't recognised as eligible →
             // stores no spline → smoothing never runs and HR-9 silent-failure
-            // mode kicks in.
+            // mode kicks in. Phase 4 regression: FrameTag must now be 1
+            // (inertial-longitude) — a 0 here means the lift is missing and
+            // along-track drift returns.
             var rec = MakeRecording("rec-prop",
                 MakeSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, frameCount: 10));
             SmoothingPipeline.FitAndStorePerSection(rec);
             Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-prop", 0, out var spline));
             Assert.True(spline.IsValid);
             Assert.True(spline.KnotsUT.Length >= 4);
+            Assert.Equal((byte)1, spline.FrameTag);
         }
 
         [Fact]
@@ -118,12 +135,15 @@ namespace Parsek.Tests.Rendering
         {
             // What makes it fail: ExoBallistic dropped from the eligible set
             // → coast / drifting trajectories never get smoothed (the most
-            // visually noticeable Phase 1 case).
+            // visually noticeable Phase 1 case). Phase 4 regression: FrameTag
+            // must now be 1 (inertial-longitude); a 0 means the inertial fit
+            // path didn't run.
             var rec = MakeRecording("rec-ball",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
             SmoothingPipeline.FitAndStorePerSection(rec);
             Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-ball", 0, out var spline));
             Assert.True(spline.IsValid);
+            Assert.Equal((byte)1, spline.FrameTag);
         }
 
         [Fact]
@@ -443,6 +463,168 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("recordingId=rec-v5")
                 && l.Contains("formatVersion=5")
                 && l.Contains("degradedFeatures=[]"));
+        }
+
+        // --- Phase 4: inertial frame transformation ---
+
+        [Fact]
+        public void FitAndStorePerSection_ExoBallistic_FitsInInertial()
+        {
+            // What makes it fail: missing the lift in FitAndStorePerSection
+            // means the spline ControlsY[0] equals the raw body-fixed
+            // longitude. Phase 4 requires it to equal lifted longitude
+            // (raw + recordingUT*360/period, wrapped). This is THE check that
+            // proves the lift ran.
+            const double startUT = 100.0;
+            var rec = MakeRecording("rec-ball-inertial",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: startUT));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-ball-inertial", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.Equal((byte)1, spline.FrameTag);
+
+            // Raw frame[0]: longitude = 1.0 at UT=100 (per MakeFrames default).
+            // Inertial longitude = 1.0 + 100*360/period, wrapped to (-180,180].
+            double phase = (startUT * 360.0) / KerbinRotationPeriod;
+            double expectedInertial = 1.0 + phase;
+            // Wrap.
+            double wrapped = expectedInertial % 360.0;
+            if (wrapped > 180.0) wrapped -= 360.0;
+            else if (wrapped <= -180.0) wrapped += 360.0;
+            Assert.Equal((float)wrapped, spline.ControlsY[0], precision: 4);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ExoPropulsive_FitsInInertial()
+        {
+            // What makes it fail: same as the ExoBallistic case but for the
+            // propulsive environment. Both EXO_* environments must lift; if
+            // ExoPropulsive is dropped from the inertial branch, long-burn
+            // playback drifts.
+            const double startUT = 200.0;
+            var rec = MakeRecording("rec-prop-inertial",
+                MakeSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: startUT));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-prop-inertial", 0, out var spline));
+            Assert.Equal((byte)1, spline.FrameTag);
+
+            double phase = (startUT * 360.0) / KerbinRotationPeriod;
+            double expectedInertial = 1.0 + phase;
+            double wrapped = expectedInertial % 360.0;
+            if (wrapped > 180.0) wrapped -= 360.0;
+            else if (wrapped <= -180.0) wrapped += 360.0;
+            Assert.Equal((float)wrapped, spline.ControlsY[0], precision: 4);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_NullBody_LogsWarnAndSkips()
+        {
+            // What makes it fail: HR-9 — a section whose bodyName cannot be
+            // resolved in FlightGlobals.Bodies (planet pack uninstalled, body
+            // renamed) must NOT crash, must NOT silently fall back to a body-
+            // fixed fit (which would silently corrupt rendering), and MUST
+            // surface a Pipeline-Frame Warn so the failure is greppable.
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10);
+            // Override every frame's bodyName to one the resolver doesn't know.
+            for (int i = 0; i < sec.frames.Count; i++)
+            {
+                var p = sec.frames[i];
+                p.bodyName = "Bogus";
+                sec.frames[i] = p;
+            }
+            var rec = MakeRecording("rec-bogus", sec);
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-bogus", 0, out _));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Frame]")
+                && l.Contains("body not found")
+                && l.Contains("recordingId=rec-bogus")
+                && l.Contains("bodyName=Bogus"));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_LogIncludesFrameTag()
+        {
+            // What makes it fail: the L1 Spline-fit Info line is the primary
+            // observation point for Phase 4 — without `frameTag=1` in the
+            // line, no one debugging KSP.log can confirm the inertial path
+            // ran. (Atmospheric / Surface* will print frameTag=0 once the
+            // gate enables them; preserving the field keeps that future-proof.)
+            var rec = MakeRecording("rec-tag",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Smoothing]")
+                && l.Contains("Spline fit:")
+                && l.Contains("recordingId=rec-tag")
+                && l.Contains("frameTag=1")
+                && l.Contains("body=Kerbin"));
+
+            // Pipeline-Frame Verbose lift-decision line.
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Pipeline-Frame]")
+                && l.Contains("Section lift to inertial decision")
+                && l.Contains("recordingId=rec-tag")
+                && l.Contains("frameTag=1"));
+        }
+
+        // --- Phase 4 Task 4: AlgorithmStampVersion bump ---
+
+        [Fact]
+        public void AlgorithmStampBump_V1FilesInvalidatedAsAlgStampDrift()
+        {
+            // What makes it fail: HR-10 — a Phase-3-shipped .pann (alg stamp
+            // v1, body-fixed splines) must NOT be silently reused under the
+            // Phase 4 binary (alg stamp v2, inertial splines). The reason
+            // token "alg-stamp-drift" is the canonical signal that this
+            // happened; tests pin to it so a future bump that forgets to
+            // change AlgorithmStampVersion shows up as a green test that
+            // shouldn't be green.
+            string pannPath = Path.Combine(tempDir, "rec-v1stamp.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-v1stamp",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Mutate AlgorithmStampVersion (offset 8..11) to 1 — represents
+            // a .pann written by the Phase 3 build before the Phase 4 bump.
+            byte[] bytes = File.ReadAllBytes(pannPath);
+            bytes[8] = 1; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+            File.WriteAllBytes(pannPath, bytes);
+
+            var rec = MakeRecording("rec-v1stamp",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=alg-stamp-drift"));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-v1stamp", 0, out var spline));
+            // Recompute under Phase 4 produces FrameTag = 1.
+            Assert.Equal((byte)1, spline.FrameTag);
+        }
+
+        [Fact]
+        public void PannotationsHeader_WritesV2Stamp()
+        {
+            // What makes it fail: a forgotten bump of AlgorithmStampVersion
+            // would leave new .pann files with stamp 1, so a future Phase 5
+            // that bumps to 3 would not be able to invalidate them. This is
+            // the constant-side regression; the drift-test above is the
+            // behaviour-side regression.
+            var rec = MakeRecording("rec-v2write",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-v2write.pann");
+
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probe));
+            Assert.True(probe.Success);
+            Assert.Equal(2, probe.AlgorithmStampVersion);
         }
     }
 }
