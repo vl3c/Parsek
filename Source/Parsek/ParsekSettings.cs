@@ -75,6 +75,19 @@ namespace Parsek
         public bool useSmoothingSplines = true;
 
         /// <summary>
+        /// Phase 2 of the ghost trajectory rendering pipeline (design doc
+        /// §6.3 Stage 3, §7.1, §18 Phase 2). When true, ghost siblings of an
+        /// active re-fly target are rendered with an additive
+        /// <c>AnchorCorrection</c> ε computed once at session-entry and held
+        /// constant across the segment (Phase 2's single-anchor case).
+        /// Default true; the flag exists so Phase 2 ships behind a single
+        /// rollout gate parallel to <see cref="useSmoothingSplines"/>.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use anchor correction",
+            toolTip = "When on (Phase 2), ghost siblings during a re-fly are rigid-translated by the recorded separation offset so they spawn aligned with the live vessel")]
+        public bool useAnchorCorrection = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -330,6 +343,20 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Smoothing", $"useSmoothingSplines: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Anchor log line when
+        /// <see cref="useAnchorCorrection"/> flips. Phase 2 spec (design doc
+        /// §19.2 Stage 3 row, §18 Phase 2) requires Info-level visibility for
+        /// the rollout gate so a developer can attribute a visual artifact to
+        /// the toggle moment in KSP.log. UI / settings code should call this
+        /// at the assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseAnchorCorrectionChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Anchor", $"useAnchorCorrection: {oldValue}->{newValue}");
         }
     }
 }

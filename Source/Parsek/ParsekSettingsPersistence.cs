@@ -41,12 +41,14 @@ namespace Parsek
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
+        private const string UseAnchorCorrectionKey = "useAnchorCorrection";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
         private static bool? storedUseSmoothingSplines;
+        private static bool? storedUseAnchorCorrection;
         private static bool loaded;
 
         /// <summary>
@@ -143,11 +145,23 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseSmoothingSplinesKey} — using default");
                 }
 
+                string useAnchorStr = root.GetValue(UseAnchorCorrectionKey);
+                if (!string.IsNullOrEmpty(useAnchorStr)
+                    && bool.TryParse(useAnchorStr, out bool useAnchor))
+                {
+                    storedUseAnchorCorrection = useAnchor;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorCorrectionKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
-                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}");
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -193,6 +207,16 @@ namespace Parsek
                 ParsekSettings.NotifyUseSmoothingSplinesChanged(prev, storedUseSmoothingSplines.Value);
             }
 
+            if (storedUseAnchorCorrection.HasValue
+                && storedUseAnchorCorrection.Value != settings.useAnchorCorrection)
+            {
+                bool prev = settings.useAnchorCorrection;
+                settings.useAnchorCorrection = storedUseAnchorCorrection.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useAnchorCorrection {prev} -> {storedUseAnchorCorrection.Value} from persistent store");
+                ParsekSettings.NotifyUseAnchorCorrectionChanged(prev, storedUseAnchorCorrection.Value);
+            }
+
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
             // now is ParsekSettings.Current authoritative enough for
             // EffectiveShowGhostsInTrackingStation to trust it and resync the
@@ -223,6 +247,13 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedUseSmoothingSplines = value;
+            Save();
+        }
+
+        internal static void RecordUseAnchorCorrection(bool value)
+        {
+            LoadIfNeeded();
+            storedUseAnchorCorrection = value;
             Save();
         }
 
@@ -324,12 +355,15 @@ namespace Parsek
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
                     root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
+                if (storedUseAnchorCorrection.HasValue)
+                    root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
-                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}");
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -348,6 +382,7 @@ namespace Parsek
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
             storedUseSmoothingSplines = null;
+            storedUseAnchorCorrection = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -375,6 +410,8 @@ namespace Parsek
 
         internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
 
+        internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
+
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -394,6 +431,12 @@ namespace Parsek
         internal static void SetStoredUseSmoothingSplinesForTesting(bool? value)
         {
             storedUseSmoothingSplines = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseAnchorCorrectionForTesting(bool? value)
+        {
+            storedUseAnchorCorrection = value;
             loaded = true;
         }
     }
