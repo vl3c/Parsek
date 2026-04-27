@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R9 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R8 incorporated four external review passes; R9 closes a fifth pass with one P1 (the helper-based Site B fix doesn't actually work under v0.9's star-shaped supersede graph; needs a v0.9 invocation change to produce linear chains) and a P2 on a stale legacy-test bullet. The next step is to promote this to a formal design doc, with the v0.9 invocation change either folded into the feature scope or split into a prerequisite PR.*
+*Investigation doc, started 2026-04-27, R10 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R9 incorporated five external review passes; R10 closes a sixth pass with two more P1s on the §9.2.1 prerequisite (it edited the wrong write site, and the proposed contract change to `marker.OriginChildRecordingId` would have broken every existing consumer of that field). R10 moves the marker-write change into `AtomicMarkerWrite` and adds a third persistent field (`marker.SupersedeTargetId`) instead of mutating the existing one. The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -16,7 +16,8 @@
 - **R6.** Follow-up external review caught two internal-consistency P1s: (a) §4's `HasDownstreamBP` standalone-leaf code block still used the R4 gate, which would re-introduce the breakup-survivor regression that R5 fixed in §3; (b) §9.2 Site A pseudocode still wrote `chainTip.ChildBranchPointId != null -> reject` and called `TerminalOutcomeQualifies(chainTip)` without the slot/RP context, which would re-introduce both P1.2 and P1.3 failure modes. R6 rewrites both: §4 now defines `HasDownstreamBP(rec, matchedRP)` requiring per-RP context. §9.2 Site A and Site B both call the new `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` shared helper.
 - **R7.** Third external review pass landed two more P1s + a P2: (a) **P1.C** -- Site B's slot resolution matched on `slot.EffectiveRecordingId(supersedes) == marker.OriginChildRecordingId`, which fails on chain extension. R7 rewrites Site B to use `TryResolveRewindPointForRecording(provisional, ...)`. (b) **P1.D** -- the R6 broad legacy guard would have blocked retroactive surfacing; R7 drops it and replaces with a narrower `RP.FocusSlotIndex == -1` short-circuit inside `TerminalOutcomeQualifies`. The retroactive-surfacing claim flips to forward-only. (c) **P2** -- §2's overview MUST statement still said leaf detection requires `ChildBranchPointId == null`, contradicting §3.
 - **R8.** Fourth external review pass landed two more P1s + a P2: (a) **P1.E** -- R7's Site B explanation claimed the helper was topology-agnostic; R8 corrected it to match the actual v0.9 star-graph semantic. (b) **P1.F** -- the EVA branch returns BEFORE the FocusSlotIndex short-circuit, so legacy live-RP stranded EVA kerbals retroactively surface; R8 made this an explicit intentional carve-out and split the CHANGELOG note into vessels-forward-only / kerbals-retroactive. (c) **P2** -- §10's stale "every slot treated as non-focus" risk text rewritten to match R7's short-circuit.
-- **R9 (this version).** Fifth external review pass landed one P1 + a P2: (a) **P1.G** -- R8 incorrectly claimed `TryResolveRewindPointForRecording` is topology-agnostic; the reviewer correctly notes that `EffectiveState.EffectiveRecordingId` scans supersedes from the beginning and stops at the first OldRecordingId match, so a star-shaped graph (`{probeOrig -> probeReFly1, probeOrig -> provisional}`) resolves to `probeReFly1`, not the latest provisional, and the helper returns -1 for `provisional`. The Site B fix ONLY works under linear supersede semantics. R9 escalates this to a **prerequisite v0.9 invocation change** in the new §9.2.1: `RewindInvoker.BuildProvisionalRecording` must use `selected.EffectiveRecordingId(supersedes)` (= prior tip) rather than `selected.OriginChildRecordingId` (= immutable origin) for both `provisional.SupersedeTargetId` and `marker.OriginChildRecordingId`, so `SupersedeCommit.AppendRelations` writes linear chains. Also brings the actual code in line with v0.9 doc §1.4. R9's §9.5 regression test now expects linear semantics (positive case) and asserts the helper returns -1 on the star case (negative regression guard for the v0.9 invocation path). §12 marks the invocation change as a hard prerequisite. (b) **P2** -- the §9.5 legacy-load test bullet still claimed "matches v0.9 behaviour exactly" which contradicted R8's intentional EVA carve-out; bullet rewritten to call out the EVA exception explicitly.
+- **R9.** Fifth external review pass landed one P1 + a P2: (a) **P1.G** -- the helper-based Site B fix doesn't work under v0.9's star-shaped supersede graph; R9 escalated to a prerequisite invocation change. (b) **P2** -- legacy-test bullet contradicted the EVA carve-out; rewritten.
+- **R10 (this version).** Sixth external review pass landed two more P1s on the §9.2.1 prerequisite from R9: (a) **P1.H** -- R9 framed the linearization as a `BuildProvisionalRecording` change, but that method only stamps `provisional.SupersedeTargetId`; the marker fields are assigned later in `AtomicMarkerWrite` and `SupersedeCommit.AppendRelations` reads from the marker (subtree closure), not from the provisional. Editing only `BuildProvisionalRecording` leaves the marker rooted at the immutable origin and the graph stays star. R10 moves the change to the marker-write site, computes `priorTip` once, and stamps it into both fields atomically. Also flagged: the in-place continuation branch (which doesn't go through `BuildProvisionalRecording`) needs the same prior-tip computation; R10 calls this out as a §9.2.1-step-4 design-doc-phase open item. (b) **P1.I** -- R9 proposed mutating `marker.OriginChildRecordingId` to hold the prior tip, but existing v0.9 consumers (`RevertInterceptor.FindSlotForMarker`, in-place continuation, ghost suppression) treat that field as the slot's immutable origin. Mutation would silently break Retry resolution after a chain extension. R10 introduces a new field `marker.SupersedeTargetId` (R10's third persistent field), keeping `marker.OriginChildRecordingId` unchanged. `SupersedeCommit.AppendRelations` reads the new field for linear append; existing consumers continue to read the old field. R10 also adds an existing-consumer audit test (§9.5) that exercises Retry, in-place continuation, and ghost suppression after a chain extension, asserting they still resolve via the slot's origin.
 
 ---
 
@@ -492,9 +493,9 @@ The leaf gate is the critical one for this scenario: V's chainTip has `ChildBran
 
 ## 9. Data-model and code touchpoints
 
-### 9.0 New persistent fields (R5)
+### 9.0 New persistent fields (R5 + R10)
 
-Two new fields on existing types. Both back-compat (default values match v0.9 behaviour).
+Three new fields on existing types. All back-compat (default values match v0.9 behaviour).
 
 **`ChildSlot.Sealed`** ([ChildSlot.cs](../../../Source/Parsek/ChildSlot.cs)):
 
@@ -534,6 +535,30 @@ public int FocusSlotIndex = -1;
 ```
 
 ConfigNode key: `focusSlotIndex`, written when != -1. Legacy RPs load with -1; `TerminalOutcomeQualifies` interprets -1 as "no focus signal available" and short-circuits Orbiting/SubOrbital to false (forward-only migration -- see §3 algorithm and §9.2's legacy-migration paragraph). Crashed and EVA-stranded continue to qualify regardless of focus, preserving v0.9 semantics for legacy RPs exactly. New post-feature RPs always have a defined `FocusSlotIndex` (>= 0 for the focused slot, or explicitly -1 ONLY when no slot was focused at split time -- e.g. a pure background split where the focused vessel is not itself in any slot).
+
+**`ReFlySessionMarker.SupersedeTargetId`** (R10, [ReFlySessionMarker.cs](../../../Source/Parsek/ReFlySessionMarker.cs)):
+
+```csharp
+/// The supersede target at invocation time -- the slot's CURRENT EFFECTIVE
+/// recording (slot.EffectiveRecordingId(supersedes)). NULL means the slot
+/// has no prior re-fly and SupersedeTargetId == OriginChildRecordingId would
+/// hold; the field is omitted in that case for back-compat (legacy markers
+/// load with null and the AppendRelations code path falls through to the
+/// existing closure walk over OriginChildRecordingId).
+///
+/// Used by SupersedeCommit.AppendRelations to root the new supersede
+/// relation when chain-extending: write {SupersedeTargetId -> provisional}
+/// linearly. This decouples the supersede-graph topology from the slot
+/// identity (held in OriginChildRecordingId), so existing consumers that
+/// key off the slot's immutable origin (RevertInterceptor.FindSlotForMarker,
+/// in-place continuation, ghost suppression) continue to work unchanged.
+///
+/// See §9.2.1 for the marker-write site change and §9.5 for the
+/// existing-consumer audit test.
+public string SupersedeTargetId;
+```
+
+ConfigNode key: `supersedeTargetId`, omitted when null. Legacy markers load with null. Validated by `MarkerValidator.Validate` only weakly: when present, must resolve in `CommittedRecordings`; when null, no validation.
 
 ### 9.1 Predicate
 
@@ -644,26 +669,46 @@ The current `EffectiveState.EffectiveRecordingId` walker scans `RecordingSuperse
 
 This is **not just a Site B problem.** v0.9's existing Crashed chain extension documented in `parsek-rewind-to-separation-design.md` §7.43 ("Chain extends through multiple merged crashes") relies on the same walker. Either v0.9's chain extension is silently broken under current code (the second re-fly's effective lookup returns the first re-fly, hiding the second), or there is some unstated mechanism (relation insertion order, walker tie-break, or a code path I have not read) that makes star-graph resolution work in practice. R9 takes the conservative position: **don't depend on the star graph resolving correctly. Change v0.9 invocation to produce a linear chain.**
 
-**The fix.** Modify `RewindInvoker.BuildProvisionalRecording`:
+**The fix is more nuanced than R9 stated.** R9 originally proposed editing `RewindInvoker.BuildProvisionalRecording`, but two reviewer findings (R10 P1.H and P1.I) flag that:
 
-```
-// BEFORE:
-provisional.SupersedeTargetId = selected.OriginChildRecordingId
-marker.OriginChildRecordingId = selected.OriginChildRecordingId
+- **P1.H -- wrong write site.** `BuildProvisionalRecording` only stamps `provisional.SupersedeTargetId`. The marker fields are assigned LATER in `AtomicMarkerWrite` from `selected.OriginChildRecordingId`. `SupersedeCommit.AppendRelations` reads from the marker (via the subtree closure), not from the provisional. Editing only `BuildProvisionalRecording` leaves the marker rooted at the immutable origin and the graph stays star-shaped. The fix has to land where the marker is actually written.
+- **P1.I -- can't repurpose `marker.OriginChildRecordingId`.** Existing v0.9 consumers (`RevertInterceptor.FindSlotForMarker`, in-place continuation paths, ghost suppression keying off `ActiveReFlyRecordingId == OriginChildRecordingId`) treat that field as the slot's immutable origin. Changing its semantic to "prior effective tip" silently breaks Retry resolution and ghost suppression after a chain extension. The fix has to add a new marker field rather than mutate the existing one.
 
-// AFTER:
-string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes)
-provisional.SupersedeTargetId = priorTip
-marker.OriginChildRecordingId = priorTip
-```
+**R10 design.** Add a new marker field; touch the marker-write site, not the provisional-build site:
 
-`SupersedeCommit.AppendRelations` then writes `{priorTip -> provisional}`. The supersede graph becomes a linear chain (`probeOrig -> probeReFly1 -> probeReFly2 -> ...`). v0.9's EffectiveRecordingId walker resolves it correctly: walk from `probeOrig`, step to `probeReFly1`, step to `probeReFly2`, no further relation, return `probeReFly2`. `TryResolveRewindPointForRecording(provisional, ...)` succeeds.
+1. **New field on `ReFlySessionMarker`:** `string SupersedeTargetId` (default null). Stores the slot's effective recording at invocation time -- the linear-append root for `AppendRelations`. `marker.OriginChildRecordingId` keeps its existing contract (= slot's immutable origin) so every existing consumer continues to work.
 
-**Doc/code discrepancy resolved.** v0.9 design doc §1.4 describes the linear chain (`SupersedeTargetId = A'.Id` for the second re-fly). The actual v0.9 code does the star (per the reviewer's analysis). The fix above brings the code in line with the doc.
+2. **`AtomicMarkerWrite` change** (`RewindInvoker.cs`):
+   ```
+   // BEFORE (paraphrased): selected = the ChildSlot the player invoked
+   marker.OriginChildRecordingId = selected.OriginChildRecordingId
 
-**Migration concern.** Existing saves with star-shaped supersede graphs from prior v0.9 Crashed chain extensions: their `EffectiveRecordingId` walks already silently picked the oldest re-fly. After R9's invocation fix lands, NEW relations are linear, but OLD star relations remain. The walker continues to pick the oldest in the star portion, then walks linearly from there. This means: a save with `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` from v0.9, after R9 ships, would resolve to `probeReFly1` (whichever the walker found first) and any further re-fly would extend linearly from `probeReFly1`. This is acceptable: it preserves whatever v0.9 was doing for legacy data without changing it; new chains are correct. A migration sweep that converts star to linear (delete duplicate-old relations, keep only the latest) is a nice-to-have but not required for this feature.
+   // AFTER: compute prior tip ONCE, assign the new field, leave the
+   // existing field untouched
+   string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes)
+   marker.OriginChildRecordingId = selected.OriginChildRecordingId   // unchanged
+   marker.SupersedeTargetId      = priorTip                          // NEW
+   provisional.SupersedeTargetId = priorTip                          // overwrite the
+                                                                     // BuildProvisionalRecording
+                                                                     // value to stay consistent
+   ```
+   Both writes happen inside the same atomic block as the existing marker assignment; no new save/yield boundaries.
 
-**The §9.5 regression test models the linear semantic** (post-fix), with a separate test asserting that the v0.9 invocation actually writes the prior-tip value into the marker / SupersedeTargetId.
+3. **`SupersedeCommit.AppendRelations` change**: when `marker.SupersedeTargetId` is non-null AND differs from `marker.OriginChildRecordingId` (i.e. chain-extension case), append the linear relation `{marker.SupersedeTargetId -> provisional.RecordingId}` and skip the existing subtree-closure walk. When the two fields match (first re-fly, no chain extension yet), fall through to the existing v0.9 closure-based code path (which writes `{slot.OriginChildRecordingId -> provisional}`, identical to the linear append in this case).
+
+4. **In-place continuation branch (must also write the new field).** v0.9 has at least one path that produces a re-fly outcome without going through `RewindInvoker.AtomicMarkerWrite` -- the reviewer flagged this. The formal design doc must enumerate every code path that writes `marker.OriginChildRecordingId` and stamp `marker.SupersedeTargetId` in each one with the same `priorTip = slot.EffectiveRecordingId(supersedes)` computation. R10 cannot specify the exact list without code spelunking; this is an explicit design-doc-phase open item.
+
+5. **Existing consumer audit.** Add a §9.2.2 sub-task before promotion: walk every read site of `marker.OriginChildRecordingId` and confirm it should continue to receive the slot's immutable origin (NOT the new prior-tip value). Initial findings from the reviewer:
+   - `RevertInterceptor.FindSlotForMarker`: matches against `slot.OriginChildRecordingId` -- needs the immutable origin. ✓ Unchanged.
+   - In-place continuation paths: key off `ActiveReFlyRecordingId == OriginChildRecordingId` -- needs the immutable origin. ✓ Unchanged.
+   - Ghost suppression: same. ✓ Unchanged.
+   - `SupersedeCommit.AppendRelations`: needs the prior tip for linear chain extension -- migrates to the NEW field. ✓ Per (3).
+
+**Doc/code discrepancy resolved.** v0.9 design doc §1.4 describes the linear chain (`SupersedeTargetId = A'.Id` for the second re-fly). The actual v0.9 code does the star (per the reviewer's analysis). The fix above brings the code's append behaviour in line with the doc, without breaking the existing marker contract.
+
+**Migration concern.** Existing saves with star-shaped supersede graphs from prior v0.9 Crashed chain extensions: their `EffectiveRecordingId` walks already silently picked the oldest re-fly. After R10's invocation fix lands, NEW relations are linear, but OLD star relations remain. The walker continues to pick the oldest in the star portion, then walks linearly from there. A migration sweep that converts star to linear (delete duplicate-old relations, keep only the latest) is a nice-to-have but not required for this feature.
+
+**The §9.5 regression test models the linear semantic** (post-fix), with separate tests asserting that the marker-write path stamps both fields correctly AND that every existing consumer of `marker.OriginChildRecordingId` continues to receive the slot's immutable origin.
 
 Both Site A and Site B route through the same `UnfinishedFlightClassifier.Qualifies` entry point with the same triple shape. The shared-classifier identity test in §9.5 forces this -- otherwise the failure mode is that a stable-leaf re-fly gets sealed Immutable at merge while a tree-commit pass would have promoted it, and the row vanishes from Unfinished Flights immediately after the player merges their re-fly.
 
@@ -707,8 +752,10 @@ Site A / Site B promotion tests:
 
 - `ApplyRewindProvisionalMergeStates` (Site A): stable-leaf non-focus controllable -> CP; stable-leaf focus controllable -> Immutable; stable-leaf debris -> Immutable; crashed-leaf focus -> CP (active-parent crash regression guard); crashed-leaf non-focus -> CP.
 - `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B): re-fly ending Orbiting + non-focus slot -> CP; re-fly ending Orbiting + focus slot -> Immutable; re-fly ending SubOrbital + non-focus -> CP; re-fly ending EVA-stranded Landed -> CP (kerbal branch ignores focus); re-fly ending Landed (vessel) -> Immutable; re-fly ending Crashed -> CP (regression).
-- **R9 invocation linearization (P1.G prerequisite):** assert that after `RewindInvoker.BuildProvisionalRecording` runs on a slot whose effective recording is `probeReFly1` (one prior re-fly already in the supersede chain), the new `provisional.SupersedeTargetId == probeReFly1` AND `marker.OriginChildRecordingId == probeReFly1`. NOT `probeOrig`. This is the v0.9 invocation change §9.2.1 describes; without it, the Site B slot resolver test below also fails.
+- **R10 marker-write linearization (P1.G/H/I prerequisite):** invoke a re-fly into a slot whose effective recording is `probeReFly1` (one prior re-fly already in the supersede chain). After `AtomicMarkerWrite` runs, assert: `marker.OriginChildRecordingId == probeOrig` (UNCHANGED -- slot's immutable origin); `marker.SupersedeTargetId == probeReFly1` (NEW field, prior tip); `provisional.SupersedeTargetId == probeReFly1`. After Phase 2's `AppendRelations` runs, assert one new relation `{probeReFly1 -> provisional.RecordingId}` appended (linear, NOT a duplicate-old star relation).
+- **Existing consumer audit (P1.I regression guard):** for each existing read site of `marker.OriginChildRecordingId` -- `RevertInterceptor.FindSlotForMarker`, in-place continuation, ghost suppression -- assert that the value the consumer reads is still the slot's immutable origin (`probeOrig`), not the new prior-tip (`probeReFly1`). Specifically: build a chain-extension scenario, exercise Retry from RevertInterceptor, and assert the slot resolves correctly; exercise an in-place continuation path and assert it routes via the slot's origin; exercise ghost suppression and assert the supressed-subtree closure starts from the slot's origin.
 - **Site B chain-extension slot resolution** (R7 P1.C / R8 P1.E / R9 P1.G regression guard): build a linear supersede chain `{probeOrig -> probeReFly1, probeReFly1 -> provisional}` (matches the post-§9.2.1 invocation semantic). At Site B's slot-resolution step (during Phase 4 Finalize, after Phase 2 AppendRelations has appended the second relation), assert that `TryResolveRewindPointForRecording(provisional, ...)` returns the slot whose `OriginChildRecordingId == probeOrig`. Negative variant: build the same scenario with a STAR graph `{probeOrig -> probeReFly1, probeOrig -> provisional}` (the pre-§9.2.1 buggy state); assert that the helper returns -1 for `provisional` -- this is the failure mode the linearization fixes, and the test's role is to make a regression in the invocation path loud.
+- **In-place continuation marker-stamp coverage** (P1.H follow-on): once §9.2.1 step 4's code-path enumeration is complete, every path that writes `marker.OriginChildRecordingId` must have a paired test asserting `marker.SupersedeTargetId` is also written with `priorTip`. The shared helper that computes `priorTip` is the natural seam to test against.
 - Shared-classifier identity test: assert that the Site A and Site B paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value (forcing both call sites through the shared helper -- catches predicate drift).
 
 Seal handler tests:
@@ -783,10 +830,10 @@ In-game tests:
 
 ## 12. Recommendation
 
-R9 is ready to promote to a formal design doc, modulo one explicit unresolved item (§7.0's UI layout choice) AND one explicit prerequisite v0.9 change (§9.2.1's invocation linearization). The shape:
+R10 is ready to promote to a formal design doc, modulo two explicit unresolved items: §7.0's UI layout choice AND §9.2.1 step 4's enumeration of every code path that writes `marker.OriginChildRecordingId` (the in-place continuation branch in particular needs to be located and audited so it stamps `SupersedeTargetId` consistently). Both are design-doc-phase tasks. The shape:
 
-- **Prerequisite v0.9 invocation change**: `RewindInvoker.BuildProvisionalRecording` rewrites `provisional.SupersedeTargetId` and `marker.OriginChildRecordingId` to use the slot's CURRENT EFFECTIVE recording (= prior tip), not the immutable origin. Without this, `SupersedeCommit.AppendRelations` produces a star-shaped graph that the existing `EffectiveState.EffectiveRecordingId` walker resolves wrong on chain extension. See §9.2.1.
-- **Two new persistent fields**: `ChildSlot.Sealed` (bool, plus diagnostic `SealedRealTime`) for the per-slot close signal; `RewindPoint.FocusSlotIndex` (int, default -1) for the focus-attribution at split time. Both back-compat.
+- **Prerequisite v0.9 marker-write change**: `RewindInvoker.AtomicMarkerWrite` (NOT `BuildProvisionalRecording`) computes `priorTip = selected.EffectiveRecordingId(supersedes)` and stamps the new `marker.SupersedeTargetId` with it; `marker.OriginChildRecordingId` is unchanged (still slot's immutable origin) so existing consumers keep working. `provisional.SupersedeTargetId` is overwritten with the same `priorTip`. `SupersedeCommit.AppendRelations` reads the new marker field for linear chain append. See §9.2.1.
+- **Three new persistent fields**: `ChildSlot.Sealed` (+ diagnostic `SealedRealTime`); `RewindPoint.FocusSlotIndex` (int, -1 default); `ReFlySessionMarker.SupersedeTargetId` (string, null default). All back-compat.
 - **Predicate**: keep v0.9's `MergeState in { Immutable, CommittedProvisional }`; add `IsDebris == false` controllable-subject gate; add per-RP-context leaf gate (chainTip ChildBranchPointId is null OR equals the matched RP's BranchPointId); add `slot.Sealed == false`; replace terminal-Crashed-only with `TerminalOutcomeQualifies(chainTip, slot, RP)` per §3. Shared classifier helper used by both call sites.
 - **MergeState promotion at TWO sites**: `RecordingStore.ApplyRewindProvisionalMergeStates` (Site A) AND `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B), both routing through the shared classifier. Reaper extended one term ("Immutable OR Sealed").
 - **UI**: per-row Seal action alongside the existing Fly button. Layout TBD (§7.0). Confirmation dialog with destructive-action language (§7.1). Tooltip refresh.
@@ -800,4 +847,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R9.*
+*End of research note R10.*
