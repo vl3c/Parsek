@@ -137,9 +137,12 @@ namespace Parsek.Tests
             string sidecarStoreSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "RecordingSidecarStore.cs"));
 
-            // Step 1: PR #176's limbo finalize routes through FinalizeIndividualRecording
+            // Step 1: PR #176's limbo finalize routes through FinalizeIndividualRecording.
+            // The call also threads `treeContext: tree` so the effective-leaf check in
+            // FinalizeIndividualRecording can resolve the BP topology for limbo trees
+            // that aren't yet in RecordingStore.CommittedTrees (effective-leaf fix).
             Assert.Contains(
-                "ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true)",
+                "ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true, treeContext: tree)",
                 scenarioSrc);
 
             // Step 2: FinalizeIndividualRecording nulls VesselSnapshot in the

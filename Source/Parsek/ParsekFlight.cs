@@ -9903,7 +9903,7 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
-                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache)
+                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache, tree)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(recording?.RecordingId))
                 {
@@ -10288,7 +10288,8 @@ namespace Parsek
             Recording rec,
             double commitUT,
             bool isSceneExit,
-            RecordingFinalizationCache finalizationCache = null)
+            RecordingFinalizationCache finalizationCache = null,
+            RecordingTree treeContext = null)
         {
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
@@ -10311,7 +10312,15 @@ namespace Parsek
             // Look up the live vessel once — shared by the terminal-determination block below
             // and the #289 re-snapshot block that follows. Avoids a double FindVesselByPid
             // for recordings that enter !HasValue, get terminal set, then hit the re-snapshot path.
-            bool isLeaf = rec.ChildBranchPointId == null;
+            //
+            // A recording also counts as a leaf when it carries a ChildBranchPointId but no
+            // child of that BP shares its VesselPersistentId — i.e. the recording is the
+            // effective continuation of its own PID across a side-off split (debris-only or
+            // split-off-sibling-with-different-pid). Without this, the original LU recording
+            // that kept its PID after a stage separation never gets a terminal state and
+            // disappears from the Unfinished Flights list (#224 follow-up).
+            bool isLeaf = rec.ChildBranchPointId == null
+                || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext);
             Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
                 ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
                 : null;
