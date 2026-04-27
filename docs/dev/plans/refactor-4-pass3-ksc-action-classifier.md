@@ -5,9 +5,10 @@
 `refactor-4-pass3-ksc-classifier-proposal`.
 **Base:** `f83744b8` (`origin/main`, after `git fetch origin main` and
 fast-forward).
-**Status:** Proposal plus implementation checkpoint. The classifier-only
-extraction behind `LedgerOrchestrator.ClassifyAction` is complete; DTO/enum
-movement and caller/test migration remain separate follow-ups.
+**Status:** Proposal plus implementation checkpoints. The classifier-only
+extraction behind `LedgerOrchestrator.ClassifyAction` is complete, and the
+DTO/enum type migration to `KscActionExpectationClassifier` is complete.
+Reconciliation movement remains a separate follow-up.
 
 ## Goal
 
@@ -279,6 +280,35 @@ Approved PR B slice completed in `refactor-4-pass3-ksc-classifier`, based on
   `KscReconcileEpsilonSeconds`, post-walk reconciliation, legacy migration,
   ledger mutation, logging policy, and resource/currency mutation order outside
   the slice.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~EarningsReconciliationTests|FullyQualifiedName~StrategyCaptureTests|FullyQualifiedName~Bug445RolloutCostLeakTests|FullyQualifiedName~PostWalkReconciliationIntegrationTests|FullyQualifiedName~FullCareerTimelineTests|FullyQualifiedName~LedgerOrchestratorTests|FullyQualifiedName~RewindUtCutoffTests|FullyQualifiedName~RewindTechStickinessTests|FullyQualifiedName~GloopsEventSuppressionTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
+```
+
+Latest focused run passed 326 tests; the non-injection gate passed 9,261 tests.
+
+## Implementation Checkpoint - DTO/Enum Type Migration
+
+Follow-up slice completed on top of PR #621:
+
+- Moved `KscReconcileClass`, `KscExpectationLegMode`,
+  `KscExpectationLeg`, and `KscActionExpectation` from
+  `LedgerOrchestrator` to `KscActionExpectationClassifier`.
+- Migrated direct production XML doc references and direct unit-test
+  assertions from `LedgerOrchestrator.Ksc*` to
+  `KscActionExpectationClassifier.Ksc*`.
+- Migrated the `EarningsReconciliationTests` reflection helper for
+  `KscExpectationLeg` and `KscExpectationLegMode` to
+  `typeof(KscActionExpectationClassifier)`.
+- Kept `KscExpectedLegMatch`, `CollectMatchingLegs`, `AddMatchingLeg`,
+  `ComputeExpectedDeltaForLeg`, `ReconcileKscAction`,
+  `ReconcileKscExpectationLeg`, post-walk reconciliation, legacy migration,
+  ledger mutation, logging policy, and resource/currency mutation order in
+  `LedgerOrchestrator`.
 
 Validation completed:
 

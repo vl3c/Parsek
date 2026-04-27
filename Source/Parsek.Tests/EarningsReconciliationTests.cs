@@ -424,10 +424,10 @@ namespace Parsek.Tests
             double expectedDelta,
             string modeName)
         {
-            Type legType = typeof(LedgerOrchestrator).GetNestedType(
+            Type legType = typeof(KscActionExpectationClassifier).GetNestedType(
                 "KscExpectationLeg",
                 BindingFlags.NonPublic);
-            Type modeType = typeof(LedgerOrchestrator).GetNestedType(
+            Type modeType = typeof(KscActionExpectationClassifier).GetNestedType(
                 "KscExpectationLegMode",
                 BindingFlags.NonPublic);
 
@@ -1230,7 +1230,7 @@ namespace Parsek.Tests
                 FundsSpent = 600f
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(1, exp.LegCount);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
@@ -1249,7 +1249,7 @@ namespace Parsek.Tests
                 RepReward = 10f
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Transformed, exp.Class);
             Assert.False(string.IsNullOrEmpty(exp.SkipReason));
         }
 
@@ -1258,7 +1258,7 @@ namespace Parsek.Tests
         {
             var a = new GameAction { Type = GameActionType.KerbalAssignment };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.NoResourceImpact, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact, exp.Class);
         }
 
         [Fact]
@@ -1270,7 +1270,7 @@ namespace Parsek.Tests
                 SetupCost = 100000f
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
             Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
@@ -1291,7 +1291,7 @@ namespace Parsek.Tests
 
             var exp = LedgerOrchestrator.ClassifyAction(a);
 
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(3, exp.LegCount);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.True(exp.ScienceLeg.IsPresent);
@@ -1305,7 +1305,7 @@ namespace Parsek.Tests
             Assert.Equal(-100000.0, exp.FundsLeg.ExpectedDelta);
             Assert.Equal(-5.0, exp.ScienceLeg.ExpectedDelta);
             Assert.Equal(-10.0, exp.ReputationLeg.ExpectedDelta);
-            Assert.Equal(LedgerOrchestrator.KscExpectationLegMode.ReputationCurve, exp.ReputationLeg.Mode);
+            Assert.Equal(KscActionExpectationClassifier.KscExpectationLegMode.ReputationCurve, exp.ReputationLeg.Mode);
             Assert.Empty(logLines);
         }
 
@@ -1322,7 +1322,7 @@ namespace Parsek.Tests
 
             var exp = LedgerOrchestrator.ClassifyAction(a);
 
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(1, exp.LegCount);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.False(exp.ScienceLeg.IsPresent);
@@ -1342,7 +1342,7 @@ namespace Parsek.Tests
                 SetupReputationCost = 0f
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(0, exp.LegCount);
 
             var events = new List<GameStateEvent>();
@@ -1356,7 +1356,7 @@ namespace Parsek.Tests
         {
             var a = new GameAction { Type = GameActionType.StrategyDeactivate };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.NoResourceImpact, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact, exp.Class);
         }
 
         // ---------- #448 / #451: part-purchase zero-delta bypass path ----------
@@ -1399,7 +1399,7 @@ namespace Parsek.Tests
                 };
                 var exp = LedgerOrchestrator.ClassifyAction(a);
 
-                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+                Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
                 Assert.True(exp.FundsLeg.IsPresent);
                 Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
                 Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);

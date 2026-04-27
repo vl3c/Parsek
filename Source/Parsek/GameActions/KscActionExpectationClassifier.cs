@@ -1,12 +1,65 @@
-using KscActionExpectation = Parsek.LedgerOrchestrator.KscActionExpectation;
-using KscExpectationLeg = Parsek.LedgerOrchestrator.KscExpectationLeg;
-using KscExpectationLegMode = Parsek.LedgerOrchestrator.KscExpectationLegMode;
-using KscReconcileClass = Parsek.LedgerOrchestrator.KscReconcileClass;
-
 namespace Parsek
 {
     internal static class KscActionExpectationClassifier
     {
+        /// <summary>
+        /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
+        /// KSC-write path: <see cref="KscReconcileClass.Untransformed"/> types have raw action fields that
+        /// equal the post-walk contribution (WARN on missing/mismatched event);
+        /// <see cref="KscReconcileClass.Transformed"/> types are subject to strategy diversion or reputation
+        /// curve (skip with VERBOSE until a post-walk reconciliation phase lands);
+        /// <see cref="KscReconcileClass.NoResourceImpact"/> types short-circuit silently.
+        /// </summary>
+        internal enum KscReconcileClass
+        {
+            NoResourceImpact,
+            Untransformed,
+            Transformed
+        }
+
+        /// <summary>
+        /// Compact description of what an untransformed action expects to see in
+        /// GameStateStore: up to three resource legs, each with its event type, the
+        /// KSP <c>TransactionReasons</c> key the emitter writes on it, and the signed
+        /// delta the action's raw field should represent. Returned by
+        /// <see cref="ClassifyAction"/>.
+        /// </summary>
+        internal enum KscExpectationLegMode
+        {
+            Direct = 0,
+            ReputationCurve = 1
+        }
+
+        internal struct KscExpectationLeg
+        {
+            public bool IsPresent;
+            public GameStateEventType EventType;
+            public string ExpectedReasonKey;
+            public double ExpectedDelta;
+            public KscExpectationLegMode Mode;
+        }
+
+        internal struct KscActionExpectation
+        {
+            public KscReconcileClass Class;
+            public KscExpectationLeg FundsLeg;
+            public KscExpectationLeg ScienceLeg;
+            public KscExpectationLeg ReputationLeg;
+            public string SkipReason;            // meaningful only when Class == Transformed
+
+            public int LegCount
+            {
+                get
+                {
+                    int count = 0;
+                    if (FundsLeg.IsPresent) count++;
+                    if (ScienceLeg.IsPresent) count++;
+                    if (ReputationLeg.IsPresent) count++;
+                    return count;
+                }
+            }
+        }
+
         internal static KscActionExpectation ClassifyAction(GameAction action)
         {
             if (action == null)

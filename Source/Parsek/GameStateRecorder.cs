@@ -1678,7 +1678,7 @@ namespace Parsek
         /// Called from the Harmony postfix on <c>Strategies.Strategy.Deactivate</c> when
         /// <c>__result == true</c>. Emits <see cref="GameStateEventType.StrategyDeactivated"/>.
         /// Stock Deactivate has no resource cost, so the classifier maps this to
-        /// <see cref="LedgerOrchestrator.KscReconcileClass.NoResourceImpact"/>.
+        /// <see cref="KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact"/>.
         /// Internal static for testability.
         /// </summary>
         internal static void OnStrategyDeactivated(Strategies.Strategy strategy)
