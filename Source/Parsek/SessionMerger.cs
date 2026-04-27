@@ -493,6 +493,7 @@ namespace Parsek
                             TrackSection before = existing;
                             before.endUT = current.startUT;
                             before.frames = TrimFrames(existing.frames, existing.startUT, current.startUT);
+                            before.absoluteFrames = TrimFrames(existing.absoluteFrames, existing.startUT, current.startUT);
                             before.checkpoints = TrimCheckpoints(existing.checkpoints, existing.startUT, current.startUT);
                             newOutput.Add(before);
                         }
@@ -503,6 +504,7 @@ namespace Parsek
                             TrackSection after = existing;
                             after.startUT = current.endUT;
                             after.frames = TrimFrames(existing.frames, current.endUT, existing.endUT);
+                            after.absoluteFrames = TrimFrames(existing.absoluteFrames, current.endUT, existing.endUT);
                             after.checkpoints = TrimCheckpoints(existing.checkpoints, current.endUT, existing.endUT);
                             newOutput.Add(after);
                         }
@@ -524,6 +526,7 @@ namespace Parsek
                             TrackSection before = current;
                             before.endUT = existing.startUT;
                             before.frames = TrimFrames(current.frames, current.startUT, existing.startUT);
+                            before.absoluteFrames = TrimFrames(current.absoluteFrames, current.startUT, existing.startUT);
                             before.checkpoints = TrimCheckpoints(current.checkpoints, current.startUT, existing.startUT);
                             if (before.endUT > before.startUT)
                                 newOutput.Add(before);
@@ -535,6 +538,7 @@ namespace Parsek
                             TrackSection remainder = current;
                             remainder.startUT = existing.endUT;
                             remainder.frames = TrimFrames(current.frames, existing.endUT, current.endUT);
+                            remainder.absoluteFrames = TrimFrames(current.absoluteFrames, existing.endUT, current.endUT);
                             remainder.checkpoints = TrimCheckpoints(current.checkpoints, existing.endUT, current.endUT);
                             current = remainder;
                         }
@@ -739,6 +743,8 @@ namespace Parsek
                 TrackSection clone = sections[i];
                 if (clone.frames != null)
                     clone.frames = new List<TrajectoryPoint>(clone.frames);
+                if (clone.absoluteFrames != null)
+                    clone.absoluteFrames = new List<TrajectoryPoint>(clone.absoluteFrames);
                 if (clone.checkpoints != null)
                     clone.checkpoints = new List<OrbitSegment>(clone.checkpoints);
                 clones.Add(clone);

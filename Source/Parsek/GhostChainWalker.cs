@@ -24,7 +24,10 @@ namespace Parsek
 
             if (committedTrees == null || committedTrees.Count == 0)
             {
-                ParsekLog.Verbose(Tag, "No committed trees — returning empty chain map");
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "claims-summary",
+                    stateKey: "no-trees",
+                    message: "No committed trees — returning empty chain map");
                 return new Dictionary<uint, GhostChain>();
             }
 
@@ -52,8 +55,11 @@ namespace Parsek
 
             if (skippedTerminated > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "Skipped {0} fully-terminated tree(s)", skippedTerminated));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "skipped-terminated",
+                    stateKey: skippedTerminated.ToString(ic),
+                    message: string.Format(ic,
+                        "Skipped {0} fully-terminated tree(s)", skippedTerminated));
             }
 
             // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
@@ -62,21 +68,29 @@ namespace Parsek
             // ERS from the walker's perspective.
             if (skippedSessionSuppressed > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "skipped-session-suppressed",
+                    stateKey: skippedSessionSuppressed.ToString(ic),
+                    message: string.Format(ic,
                         "Skipped {0} claim(s) from session-suppressed recording(s)",
                         skippedSessionSuppressed));
             }
 
             if (claimsByPid.Count == 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "No claims found in {0} committed trees", committedTrees.Count));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "claims-summary",
+                    stateKey: string.Format(ic, "no-claims|{0}", committedTrees.Count),
+                    message: string.Format(ic,
+                        "No claims found in {0} committed trees", committedTrees.Count));
                 return new Dictionary<uint, GhostChain>();
             }
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
+            ParsekLog.VerboseOnChange(Tag,
+                identity: "claims-summary",
+                stateKey: string.Format(ic, "found|{0}|{1}",
+                    claimsByPid.Count, committedTrees.Count),
+                message: string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
                     claimsByPid.Count, committedTrees.Count));
 
             // Step 4: Build chains from sorted claims
@@ -108,8 +122,12 @@ namespace Parsek
                 var chain = kvp.Value;
                 ResolveTermination(chain, committedTrees);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "chain|{0}", chain.OriginalVesselPid),
+                    stateKey: string.Format(ic, "{0}|{1}|{2:F1}|{3}",
+                        chain.Links.Count,
+                        chain.TipRecordingId ?? "null", chain.SpawnUT, chain.IsTerminated),
+                    message: string.Format(ic,
                         "Chain built: vessel={0} links={1} tip={2} spawnUT={3:F1} terminated={4}",
                         chain.OriginalVesselPid, chain.Links.Count,
                         chain.TipRecordingId ?? "null", chain.SpawnUT, chain.IsTerminated));
@@ -253,8 +271,10 @@ namespace Parsek
                 }
                 list.Add(link);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "claim|{0}|{1}|{2}", pid, tree.Id, bp.Id),
+                    stateKey: string.Format(ic, "{0}|{1:F1}", interactionType, bp.UT),
+                    message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via {2} at UT={3:F1}",
                         pid, tree.Id, interactionType, bp.UT));
             }
@@ -314,8 +334,11 @@ namespace Parsek
                 }
                 list.Add(link);
 
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "claim-bg|{0}|{1}|{2}",
+                        pid, tree.Id, rec.RecordingId),
+                    stateKey: string.Format(ic, "{0:F1}", rec.StartUT),
+                    message: string.Format(ic,
                         "Vessel PID={0} claimed by tree={1} via BACKGROUND_EVENT at UT={2:F1}",
                         pid, tree.Id, rec.StartUT));
             }
@@ -478,8 +501,11 @@ namespace Parsek
 
                     pidsToMerge.Add(tipVesselPid);
 
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic,
+                            "cross-tree-link|{0}|{1}", originPid, tipVesselPid),
+                        stateKey: chain.TipRecordingId ?? "null",
+                        message: string.Format(ic,
                             "Cross-tree link: vessel={0} → merged with chain for vessel={1}, new tip={2}",
                             originPid, tipVesselPid, chain.TipRecordingId));
 
@@ -495,8 +521,11 @@ namespace Parsek
 
             if (pidsToMerge.Count > 0)
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic, "MergeCrossTreeLinks: absorbed {0} chain(s)", pidsToMerge.Count));
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "cross-tree-merge-summary",
+                    stateKey: pidsToMerge.Count.ToString(ic),
+                    message: string.Format(ic,
+                        "MergeCrossTreeLinks: absorbed {0} chain(s)", pidsToMerge.Count));
             }
         }
 
@@ -601,8 +630,12 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(bestChildId, out child))
                 {
                     steps++;
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic,
+                            "walk-step|{0}|{1}", rec.RecordingId, steps),
+                        stateKey: string.Format(ic,
+                            "{0}|{1}|{2}", current.RecordingId, bestChildId, bp.Id),
+                        message: string.Format(ic,
                             "WalkToLeaf: step {0}: rec={1} → child={2} via bp={3}",
                             steps, current.RecordingId, bestChildId, bp.Id));
                     current = child;
@@ -617,8 +650,10 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
+            ParsekLog.VerboseOnChange(Tag,
+                identity: string.Format(ic, "walk|{0}", rec.RecordingId),
+                stateKey: string.Format(ic, "{0}|{1}", current.RecordingId, steps),
+                message: string.Format(ic,
                     "WalkToLeaf: reached leaf={0} after {1} steps from start={2}",
                     current.RecordingId, steps, rec.RecordingId));
             return current;
@@ -657,8 +692,10 @@ namespace Parsek
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered)
                 {
                     chain.IsTerminated = true;
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic, "terminate|{0}", chain.OriginalVesselPid),
+                        stateKey: string.Format(ic, "{0}|{1}", chain.TipRecordingId, ts),
+                        message: string.Format(ic,
                             "ResolveTermination: vessel={0} tip={1} terminalState={2} — marked terminated",
                             chain.OriginalVesselPid, chain.TipRecordingId, ts));
                 }

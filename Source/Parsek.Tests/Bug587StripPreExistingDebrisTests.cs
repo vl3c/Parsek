@@ -166,6 +166,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveDebris_InPlaceMarker_KillsNameMatchingParentChainRec()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_parent_chain_test",
+                ActiveReFlyRecordingId = "rec-probe",
+                OriginChildRecordingId = "rec-probe",
+                TreeId = "tree-1",
+            };
+            var tree = MakeTree("tree-1",
+                ("rec-upper", "Kerbal X", TerminalState.Orbiting, 300u),
+                ("rec-probe", "Kerbal X Probe", null, 200u));
+            tree.Recordings["rec-probe"].ParentBranchPointId = "bp-decouple";
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-decouple",
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-upper" },
+                ChildRecordingIds = new List<string> { "rec-probe" },
+            });
+            var trees = new List<RecordingTree> { tree };
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u, "Kerbal X"),
+                (200u, "Kerbal X Probe"),
+            };
+            var protectedSet = new HashSet<uint> { 200u };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, protectedSet);
+
+            Assert.Single(kill);
+            Assert.Contains(101u, kill);
+            Assert.DoesNotContain(200u, kill);
+        }
+
+        [Fact]
         public void ResolveDebris_NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly()
         {
             // Backwards compatibility: when the new sessionSuppressedRecordingIds

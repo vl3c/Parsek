@@ -1071,6 +1071,7 @@ namespace Parsek
             // handled inline per-row as before.
             // TODO(phase 6+): migrate recording table to recording-id-keyed rows.
             var committed = RecordingStore.CommittedRecordings;
+            var supersedes = CurrentRecordingSupersedesForDisplay();
             double now = Planetarium.GetUniversalTime();
             recordingsWindowTooltipText = string.Empty;
 
@@ -1133,7 +1134,7 @@ namespace Parsek
                 HashSet<string> rootChainIds;
                 BuildGroupTreeData(committed, sortedIndices, KnownEmptyGroups,
                     out grpToRecs, out chainToRecs, out grpChildren,
-                    out rootGrps, out rootChainIds);
+                    out rootGrps, out rootChainIds, supersedes);
 
                 // -- Build unified sorted root items --
                 var rootItems = new List<RootDrawItem>();
@@ -1171,6 +1172,7 @@ namespace Parsek
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
+                    if (IsSupersededForDisplay(rec, supersedes)) continue;
                     // Skip recordings that belong to groups (drawn inside group trees)
                     if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0) continue;
 
@@ -1255,17 +1257,17 @@ namespace Parsek
                     {
                         case RootItemType.Group:
                             deleted = DrawGroupTree(item.GroupName, 0, committed, now,
-                                grpToRecs, chainToRecs, grpChildren);
+                                grpToRecs, chainToRecs, grpChildren, supersedes);
                             break;
                         case RootItemType.Chain:
                             deleted = DrawChainBlock(item.ChainId,
-                                chainToRecs[item.ChainId], 0, committed, now);
+                                chainToRecs[item.ChainId], 0, committed, now, supersedes);
                             break;
                         case RootItemType.Recording:
-                            deleted = DrawRecordingRow(item.RecIdx, committed, now, 0f);
+                            deleted = DrawRecordingRow(item.RecIdx, committed, now, 0f, supersedes);
                             break;
                         case RootItemType.VirtualGroup:
-                            deleted = DrawVirtualUnfinishedFlightsGroup(committed, now);
+                            deleted = DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes);
                             break;
                     }
                 }
@@ -1285,9 +1287,11 @@ namespace Parsek
         /// <summary>
         /// Draws a single recording row. Returns true if the list was modified (break iteration).
         /// </summary>
-        private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx)
+        private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             var rec = committed[ri];
+            if (IsSupersededForDisplay(rec, supersedes ?? CurrentRecordingSupersedesForDisplay())) return false;
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
 
             // Cross-link: detect target row during draw pass
@@ -1442,29 +1446,58 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
-            // Loop checkbox
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
-            if (loop != rec.LoopPlayback)
+            // Loop checkbox — suppressed when this row is being drawn inside the
+            // virtual Unfinished Flights group (unfinishedFlightRowDepth > 0).
+            // The group is a re-fly TODO list; surfacing a loop toggle there
+            // is misleading because the user's next action on these rows is
+            // Fly, not playback configuration. The same recording's row in
+            // its real (mission) group still exposes the toggle, so loop
+            // remains editable for unfinished-flight recordings — just not
+            // from inside the virtual group itself. We render an empty cell
+            // of the same column width to keep the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
             {
-                rec.LoopPlayback = loop;
-                ApplyAutoLoopRange(rec, loop);
-                if (!loop && loopPeriodFocusedRi == ri)
-                    loopPeriodFocusedRi = -1;
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
             }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (loop != rec.LoopPlayback)
+                {
+                    rec.LoopPlayback = loop;
+                    ApplyAutoLoopRange(rec, loop);
+                    if (!loop && loopPeriodFocusedRi == ri)
+                        loopPeriodFocusedRi = -1;
+                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                }
+            }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
 
             // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right treatment
             // applied to single-button body cells (DrawBodyCenteredButton).
-            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
-            GUILayout.Space(BodyCellButtonLeftInset);
-            DrawLoopPeriodCell(rec, ri);
-            GUILayout.EndHorizontal();
+            // Suppressed alongside the loop checkbox when this row is being
+            // drawn inside the virtual Unfinished Flights group: the period
+            // editor is editable for any recording with LoopPlayback=true,
+            // so leaving it active would re-open loop configuration on the
+            // re-fly TODO surface that the loop-checkbox hide was meant to
+            // remove. Render an empty cell of the same column width to keep
+            // the table grid aligned.
+            if (unfinishedFlightRowDepth > 0)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+                GUILayout.Space(BodyCellButtonLeftInset);
+                DrawLoopPeriodCell(rec, ri);
+                GUILayout.EndHorizontal();
+            }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPeriod");
 
             // Watch button (flight only)
@@ -1748,7 +1781,8 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double now,
             Dictionary<string, List<int>> grpToRecs,
             Dictionary<string, List<int>> chainToRecs,
-            Dictionary<string, List<string>> grpChildren)
+            Dictionary<string, List<string>> grpChildren,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             // Compute this tree's unfinished-flight members up front so the
             // nested virtual subgroup can be rendered even when the mission
@@ -1764,7 +1798,7 @@ namespace Parsek
             if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(groupName))
             {
                 if (hasNestedUnfinished
-                    && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                    && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished))
                     return true;
                 return false;
             }
@@ -2204,10 +2238,10 @@ namespace Parsek
                     if (block.Members.Count > 1)
                     {
                         if (DrawGroupedRecordingBlock(block.Key, block.DisplayName,
-                            block.Members, depth + 1, committed, now))
+                            block.Members, depth + 1, committed, now, supersedes))
                             return true;
                     }
-                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f))
+                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f, supersedes))
                         return true;
                 }
             }
@@ -2219,7 +2253,7 @@ namespace Parsek
                 for (int c = 0; c < children.Count; c++)
                 {
                     if (DrawGroupTree(children[c], depth + 1, committed, now,
-                        grpToRecs, chainToRecs, grpChildren))
+                        grpToRecs, chainToRecs, grpChildren, supersedes))
                         return true;
                 }
             }
@@ -2232,7 +2266,7 @@ namespace Parsek
             // `nestedUnfinished` was already computed at the top of
             // DrawGroupTree so the hide-escape path can use it too.
             if (hasNestedUnfinished
-                && DrawVirtualUnfinishedFlightsGroup(committed, now, depth + 1, nestedUnfinished))
+                && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished))
                 return true;
 
             return false;
@@ -2305,6 +2339,7 @@ namespace Parsek
         /// </summary>
         private bool DrawVirtualUnfinishedFlightsGroup(
             IReadOnlyList<Recording> committed, double now,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             int depth = 0,
             IReadOnlyList<Recording> filteredMembers = null)
         {
@@ -2416,26 +2451,18 @@ namespace Parsek
             // aligned.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Group));
 
-            // Loop aggregate (acts on member rows; members are real recordings
-            // so the per-row loop toggle remains valid).
-            int loopCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].LoopPlayback) loopCount++;
-            bool allLoop = memberCount > 0 && loopCount == memberCount;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool newLoop = GUILayout.Toggle(allLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (newLoop != allLoop)
-            {
-                foreach (int idx in descendants)
-                    committed[idx].LoopPlayback = newLoop;
-                ParsekLog.Info("UI",
-                    $"Virtual group '{groupName}' loop set to {newLoop} ({memberCount} recordings)");
-            }
+            // Loop aggregate placeholder — the virtual Unfinished Flights group
+            // hides its loop toggle (and the per-member rows hide theirs too,
+            // see DrawRecordingRow) because the group is a re-fly TODO list.
+            // Surfacing an aggregate "loop all" toggle here would write
+            // LoopPlayback back to every member, undoing the hide-from-the-
+            // TODO-surface intent. The per-recording loop state stays
+            // editable from the same recording's row in its real (mission)
+            // group. Render an empty cell to keep the column aligned.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
 
-            // Period placeholder.
+            // Period placeholder — paired with the suppressed loop aggregate
+            // above so the virtual group exposes no playback configuration.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
 
             // Watch placeholder (flight only) — Unfinished Flights row does
@@ -2501,7 +2528,7 @@ namespace Parsek
                 float memberIndent = (depth + 1) * 15f;
                 for (int i = 0; i < sortedMembers.Count; i++)
                 {
-                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent))
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent, supersedes))
                         return true;
                 }
             }
@@ -2556,16 +2583,17 @@ namespace Parsek
                 return false;
             }
 
-            // Always "Re-Fly" — the action is qualitatively different from
-            // the legacy R / FF buttons (rewind time and watch playback).
-            // Clicking this loads a Rewind Point quicksave, places the
-            // player in control of the destroyed sibling vessel, and
-            // starts a re-fly session (marker, supersede tracking, merge
-            // dialog later). Past-vs-future relative to current UT is
-            // irrelevant for the user-facing label: the action is "go to
-            // the breakup point and re-fly" in either direction. `now` is
-            // kept on the signature for future per-row state if needed.
-            const string kReFlyLabel = "Re-Fly";
+            // Always "Fly" — matches the Timeline-window separation-row label
+            // (DrawTimelineFlyButton) so the same action carries the same
+            // glyph in both surfaces. The action is qualitatively different
+            // from the legacy R / FF buttons (rewind time and watch
+            // playback): clicking this loads a Rewind Point quicksave,
+            // places the player in control of the destroyed sibling vessel,
+            // and starts a re-fly session (marker, supersede tracking,
+            // merge dialog later). Past-vs-future relative to current UT is
+            // irrelevant for the user-facing label. `now` is kept on the
+            // signature for future per-row state if needed.
+            const string kReFlyLabel = "Fly";
             _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
@@ -2627,7 +2655,7 @@ namespace Parsek
             }
 
             GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Re-Fly", reason), ColW_Rewind);
+            DrawBodyCenteredButton(new GUIContent("Fly", reason), ColW_Rewind);
             GUI.enabled = true;
         }
 
@@ -2758,7 +2786,7 @@ namespace Parsek
 
             if (!EffectiveState.IsUnfinishedFlight(rec))
             {
-                reason = "no matching rewind point";
+                reason = "no matching rewind point or slot";
                 return false;
             }
 
@@ -2954,42 +2982,34 @@ namespace Parsek
         /// </summary>
         internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)
         {
-            if (rp == null || rp.ChildSlots == null || rec == null) return -1;
             var supersedes = ParsekScenario.Instance?.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
-            for (int i = 0; i < rp.ChildSlots.Count; i++)
-            {
-                var slot = rp.ChildSlots[i];
-                if (slot == null) continue;
-                string effective = slot.EffectiveRecordingId(supersedes);
-                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-            }
-            return -1;
+            return EffectiveState.ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
         }
 
         /// <summary>
         /// Draws a chain block (header + members). Returns true if the recording list was modified.
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
-            IReadOnlyList<Recording> committed, double now)
+            IReadOnlyList<Recording> committed, double now,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             string chainName = members.Count > 0 ? committed[members[0]].VesselName : null;
             return DrawRecordingBlock(chainId, chainName, members, depth,
-                committed, now, chainId, "Chain");
+                committed, now, chainId, "Chain", supersedes);
         }
 
         private bool DrawGroupedRecordingBlock(string blockKey, string blockName, List<int> members, int depth,
-            IReadOnlyList<Recording> committed, double now)
+            IReadOnlyList<Recording> committed, double now,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             return DrawRecordingBlock(blockKey, blockName, members, depth,
-                committed, now, null, "Block");
+                committed, now, null, "Block", supersedes);
         }
 
         private bool DrawRecordingBlock(string blockId, string blockName, List<int> members, int depth,
-            IReadOnlyList<Recording> committed, double now, string chainIdForPopup, string logKind)
+            IReadOnlyList<Recording> committed, double now, string chainIdForPopup, string logKind,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             if (members == null || members.Count == 0)
                 return false;
@@ -3119,7 +3139,7 @@ namespace Parsek
             {
                 for (int m = 0; m < members.Count; m++)
                 {
-                    if (DrawRecordingRow(members[m], committed, now, (depth + 1) * 15f))
+                    if (DrawRecordingRow(members[m], committed, now, (depth + 1) * 15f, supersedes))
                         return true;
                 }
             }
@@ -4867,7 +4887,8 @@ namespace Parsek
             out Dictionary<string, List<int>> chainToRecs,
             out Dictionary<string, List<string>> grpChildren,
             out List<string> rootGrps,
-            out HashSet<string> rootChainIds)
+            out HashSet<string> rootChainIds,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             GroupHierarchyStore.EnsurePermanentRootGroupsAreRoot();
 
@@ -4875,11 +4896,14 @@ namespace Parsek
             grpToRecs = new Dictionary<string, List<int>>();
             // chainId -> list of recording indices
             chainToRecs = new Dictionary<string, List<int>>();
+            supersedes = supersedes ?? CurrentRecordingSupersedesForDisplay();
 
             for (int row = 0; row < sortedIndices.Length; row++)
             {
                 int ri = sortedIndices[row];
                 var rec = committed[ri];
+                if (IsSupersededForDisplay(rec, supersedes))
+                    continue;
 
                 // Multi-group: recording appears in each group it belongs to
                 if (rec.RecordingGroups != null)
@@ -4959,6 +4983,21 @@ namespace Parsek
                 }
                 if (!anyInGrp) rootChainIds.Add(kvp.Key);
             }
+        }
+
+        private static IReadOnlyList<RecordingSupersedeRelation> CurrentRecordingSupersedesForDisplay()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingSupersedes;
+        }
+
+        private static bool IsSupersededForDisplay(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return EffectiveState.IsSupersededByRelation(rec, supersedes);
         }
     }
 }

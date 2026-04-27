@@ -57,7 +57,8 @@ namespace Parsek
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
-        public const int CurrentRecordingFormatVersion = RelativeLocalFrameFormatVersion;
+        public const int RelativeAbsoluteShadowFormatVersion = 7;
+        public const int CurrentRecordingFormatVersion = RelativeAbsoluteShadowFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -83,6 +84,7 @@ namespace Parsek
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
         // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
         // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
+        // v7: RELATIVE TrackSections also store absolute planet-relative shadow points
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
@@ -419,7 +421,7 @@ namespace Parsek
                     ? new List<SegmentEvent>(segmentEvents)
                     : new List<SegmentEvent>(),
                 TrackSections = trackSections != null
-                    ? new List<TrackSection>(trackSections)
+                    ? Recording.DeepCopyTrackSections(trackSections)
                     : new List<TrackSection>(),
                 VesselName = vesselName
             };
@@ -736,6 +738,15 @@ namespace Parsek
                 if (parentBp == null || string.IsNullOrEmpty(parentBp.RewindPointId))
                     continue;
 
+                if (!HasRewindPointSlotForRecording(rec, parentBp.RewindPointId, out string slotRejectReason))
+                {
+                    ParsekLog.Verbose("UnfinishedFlights",
+                        $"CommitTree: crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={slotRejectReason} " +
+                        $"bp={parentBp.Id ?? "<no-bp>"} rp={parentBp.RewindPointId}");
+                    continue;
+                }
+
                 rec.MergeState = MergeState.CommittedProvisional;
                 rec.FilesDirty = true;
                 promoted++;
@@ -763,6 +774,53 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        private static bool HasRewindPointSlotForRecording(
+            Recording rec,
+            string rewindPointId,
+            out string rejectReason)
+        {
+            rejectReason = null;
+
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+            {
+                rejectReason = "recording-id-missing";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(rewindPointId))
+            {
+                rejectReason = "rewind-point-id-missing";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                rejectReason = "scenario-rewind-points-unavailable";
+                return false;
+            }
+
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null) continue;
+                if (!string.Equals(rp.RewindPointId, rewindPointId, StringComparison.Ordinal))
+                    continue;
+
+                int slotListIndex = EffectiveState.ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
+                if (slotListIndex >= 0)
+                    return true;
+
+                rejectReason = "rewind-point-slot-not-found";
+                return false;
+            }
+
+            rejectReason = "rewind-point-not-found";
+            return false;
         }
 
         /// <summary>
@@ -2026,6 +2084,9 @@ namespace Parsek
                 second.PreLaunchReputation = original.PreLaunchReputation;
                 second.RecordingGroups = original.RecordingGroups != null
                     ? new List<string>(original.RecordingGroups) : null;
+                second.CreatingSessionId = original.CreatingSessionId;
+                second.ProvisionalForRpId = original.ProvisionalForRpId;
+                second.SupersedeTargetId = original.SupersedeTargetId;
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
@@ -2033,10 +2094,12 @@ namespace Parsek
                 if (second.Points != null && second.Points.Count > 0)
                     second.SegmentBodyName = second.Points[0].bodyName;
 
-                // BranchPoint linkage: ChildBranchPointId moves to last half.
-                // This is safe because ChildBranchPointId is always set at recording
-                // termination (CreateSplitBranch sets it at branchUT), so any optimizer
-                // environment split is at an internal boundary before branchUT.
+                // BranchPoint linkage: ChildBranchPointId moves to the half whose
+                // time range owns the branch point. Older code always moved it to
+                // the second half, assuming every optimizer split precedes branchUT.
+                // Re-Fly atmo/exo splits can happen after a staging branch; moving
+                // that branch would make a BP at UT 116 point at a segment starting
+                // around UT 170 and corrupt parent-chain topology.
                 //
                 // NOTE: The parent BranchPoint's ChildRecordingIds still references
                 // original.RecordingId (now the first chain segment). This is correct —
@@ -2044,12 +2107,25 @@ namespace Parsek
                 // (shared ChainId) connects it to subsequent segments. Code that walks
                 // from a BranchPoint to the chain tip must follow ChainId, not just
                 // ChildRecordingIds.
-                second.ChildBranchPointId = original.ChildBranchPointId;
-                original.ChildBranchPointId = null;
+                string movedChildBranchPointId = null;
+                bool childBranchPointMovesToSecond = ShouldMoveChildBranchPointToSplitSecondHalf(
+                    original.TreeId,
+                    original.ChildBranchPointId,
+                    second.StartUT);
+                if (childBranchPointMovesToSecond)
+                {
+                    movedChildBranchPointId = original.ChildBranchPointId;
+                    second.ChildBranchPointId = original.ChildBranchPointId;
+                    original.ChildBranchPointId = null;
+                }
+                else
+                {
+                    second.ChildBranchPointId = null;
+                }
                 // Do NOT set second.ParentRecordingId — that field is for EVA linkage only
 
                 // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
-                if (!string.IsNullOrEmpty(second.ChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
+                if (!string.IsNullOrEmpty(movedChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
                 {
                     for (int t = 0; t < committedTrees.Count; t++)
                     {
@@ -2059,7 +2135,7 @@ namespace Parsek
                         {
                             for (int b = 0; b < tree.BranchPoints.Count; b++)
                             {
-                                if (tree.BranchPoints[b].Id == second.ChildBranchPointId
+                                if (tree.BranchPoints[b].Id == movedChildBranchPointId
                                     && tree.BranchPoints[b].ParentRecordingIds != null)
                                 {
                                     var parentIds = tree.BranchPoints[b].ParentRecordingIds;
@@ -2069,7 +2145,7 @@ namespace Parsek
                                         {
                                             parentIds[p] = second.RecordingId;
                                             ParsekLog.Verbose("RecordingStore",
-                                                $"Split: updated BranchPoint '{second.ChildBranchPointId}' " +
+                                                $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
                                                 $"ParentRecordingIds: {original.RecordingId} → {second.RecordingId}");
                                             break;
                                         }
@@ -2120,6 +2196,41 @@ namespace Parsek
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
             return splitCount;
+        }
+
+        internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(
+            string treeId,
+            string childBranchPointId,
+            double secondStartUT)
+        {
+            // Optimizer-only helper: RunOptimizationPass operates on committed
+            // trees, so this intentionally does not inspect PendingTree. If a
+            // future pending-tree split path appears, add an explicit tree
+            // parameter rather than broadening this committed-tree contract.
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(childBranchPointId))
+                return false;
+            if (double.IsNaN(secondStartUT) || double.IsInfinity(secondStartUT))
+                return false;
+
+            const double eps = 0.0001;
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                var tree = committedTrees[t];
+                if (tree == null || !string.Equals(tree.Id, treeId, StringComparison.Ordinal))
+                    continue;
+                if (tree.BranchPoints == null)
+                    return false;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    var bp = tree.BranchPoints[b];
+                    if (bp == null || !string.Equals(bp.Id, childBranchPointId, StringComparison.Ordinal))
+                        continue;
+                    return bp.UT >= secondStartUT - eps;
+                }
+                return false;
+            }
+
+            return false;
         }
 
         private static void TrimBoringTailsForOptimization(List<Recording> recordings)
@@ -3772,6 +3883,11 @@ namespace Parsek
         private static void SerializePoint(ConfigNode parent, TrajectoryPoint pt, CultureInfo ic)
         {
             ConfigNode ptNode = parent.AddNode("POINT");
+            SerializePointValues(ptNode, pt, ic);
+        }
+
+        private static void SerializePointValues(ConfigNode ptNode, TrajectoryPoint pt, CultureInfo ic)
+        {
             ptNode.AddValue("ut", pt.ut.ToString("R", ic));
             ptNode.AddValue("lat", pt.latitude.ToString("R", ic));
             ptNode.AddValue("lon", pt.longitude.ToString("R", ic));
@@ -5142,6 +5258,20 @@ namespace Parsek
                         for (int i = 0; i < frames.Count; i++)
                             SerializePoint(tsNode, frames[i], ic);
                     }
+
+                    if (track.referenceFrame == ReferenceFrame.Relative
+                        && recordingFormatVersion >= RelativeAbsoluteShadowFormatVersion)
+                    {
+                        var absoluteFrames = track.absoluteFrames;
+                        if (absoluteFrames != null)
+                        {
+                            for (int i = 0; i < absoluteFrames.Count; i++)
+                            {
+                                ConfigNode ptNode = tsNode.AddNode("ABSOLUTE_POINT");
+                                SerializePointValues(ptNode, absoluteFrames[i], ic);
+                            }
+                        }
+                    }
                 }
                 else if (track.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
@@ -5272,6 +5402,14 @@ namespace Parsek
                     ConfigNode[] ptNodes = tsNode.GetNodes("POINT");
                     for (int i = 0; i < ptNodes.Length; i++)
                         section.frames.Add(DeserializePoint(ptNodes[i], ns, ic));
+
+                    if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        section.absoluteFrames = new List<TrajectoryPoint>();
+                        ConfigNode[] absPtNodes = tsNode.GetNodes("ABSOLUTE_POINT");
+                        for (int i = 0; i < absPtNodes.Length; i++)
+                            section.absoluteFrames.Add(DeserializePoint(absPtNodes[i], ns, ic));
+                    }
                 }
                 else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
@@ -5291,6 +5429,8 @@ namespace Parsek
                     section.frames = new List<TrajectoryPoint>();
                 if (section.checkpoints == null)
                     section.checkpoints = new List<OrbitSegment>();
+                if (section.referenceFrame == ReferenceFrame.Relative && section.absoluteFrames == null)
+                    section.absoluteFrames = new List<TrajectoryPoint>();
 
                 tracks.Add(section);
             }
@@ -6062,6 +6202,22 @@ namespace Parsek
             RecordingSidecarStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
         }
 
+        /// <summary>
+        /// #565 / #567: encodes the narrow contract between a trajectory sidecar's on-disk
+        /// binary-encoding version (<c>probe.FormatVersion</c>) and the in-memory recording's
+        /// semantic version (<c>rec.RecordingFormatVersion</c>) for a current-format committed
+        /// recording. The two values can differ ONLY by the v3 -&gt; v4 metadata-only
+        /// migration: <see cref="LaunchToLaunchLoopIntervalFormatVersion"/> changed the
+        /// meaning of <c>loopIntervalSeconds</c> without altering binary layout, so a v3
+        /// sidecar with a v4 in-memory recording is correct on disk and only the in-memory
+        /// state was promoted (see
+        /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
+        /// Every other lag is rejected: v5 added serialized
+        /// <c>OrbitSegment.isPredicted</c>, v6 changed RELATIVE TrackSection point
+        /// semantics, and v7 added RELATIVE absolute shadow points, so a v3 sidecar
+        /// paired with a v5+ recording indicates stale or incomplete trajectory data
+        /// on disk that the runtime test must catch.
+        /// </summary>
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
         {
             return RecordingSidecarStore.IsAcceptableSidecarVersionLag(probeFormatVersion, recordingFormatVersion);

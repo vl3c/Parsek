@@ -766,6 +766,116 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", "ParsekKSC instance found");
         }
 
+        [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.SPACECENTER,
+            Description = "KSC RELATIVE playback resolves against a live anchor vessel")]
+        public void ParsekKscRelativePlaybackUsesLiveAnchor()
+        {
+            var ksc = Object.FindObjectOfType<ParsekKSC>();
+            if (ksc == null)
+                InGameAssert.Skip("No ParsekKSC instance");
+
+            Vessel anchor = FindLoadedAnchorForKscRelativePlaybackTest();
+            if (anchor == null)
+                InGameAssert.Skip("No loaded non-ghost vessel available as KSC RELATIVE anchor");
+
+            var before = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 10,
+                longitude = 20,
+                altitude = 30,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            };
+            var after = new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 20,
+                longitude = 30,
+                altitude = 40,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            };
+            var rec = new Recording
+            {
+                RecordingId = "runtime-ksc-relative-anchor",
+                VesselName = "Runtime KSC Relative Probe",
+                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+            };
+            rec.Points.Add(before);
+            rec.Points.Add(after);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100,
+                endUT = 110,
+                anchorVesselId = anchor.persistentId,
+                frames = new List<TrajectoryPoint> { before, after }
+            });
+
+            GameObject probe = new GameObject("Parsek_KSC_RelativeRuntimeProbe");
+            var state = new GhostPlaybackState
+            {
+                ghost = probe,
+                deferVisibilityUntilPlaybackSync = true
+            };
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+
+            try
+            {
+                bool positioned = ksc.InterpolateAndPositionKsc(
+                    state,
+                    rec,
+                    ref cachedIndex,
+                    ref cachedFrameSourceKey,
+                    105);
+
+                InGameAssert.IsTrue(positioned, "KSC relative runtime probe should resolve a live anchor");
+                InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
+                    "Successful KSC relative positioning should clear deferred visibility");
+
+                Vector3d expected = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchor.GetWorldPos3D(),
+                    anchor.transform.rotation,
+                    15,
+                    25,
+                    35,
+                    rec.RecordingFormatVersion);
+                Vector3d actual = probe.transform.position;
+                double error = (actual - expected).magnitude;
+                InGameAssert.IsTrue(error < 0.25,
+                    $"KSC relative runtime probe should land at anchor-local offset; error={error:F3}m");
+                ParsekLog.Verbose("TestRunner",
+                    $"KSC relative runtime probe resolved anchorPid={anchor.persistentId} error={error:F3}m");
+            }
+            finally
+            {
+                if (probe != null)
+                    Object.Destroy(probe);
+            }
+        }
+
+        private static Vessel FindLoadedAnchorForKscRelativePlaybackTest()
+        {
+            if (FlightGlobals.Vessels == null)
+                return null;
+
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel vessel = FlightGlobals.Vessels[i];
+                if (vessel == null || !vessel.loaded || vessel.transform == null)
+                    continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                    continue;
+                return vessel;
+            }
+
+            return null;
+        }
+
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.TRACKSTATION,
             Description = "ParsekTrackingStation MonoBehaviour exists in Tracking Station")]
         public void ParsekTrackingStationExists()

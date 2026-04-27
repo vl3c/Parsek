@@ -54,6 +54,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowLoopToggle_PastLoopableUnfinishedFlight_ReturnsFalse()
+        {
+            var rec = new Recording { SegmentPhase = "atmo" };
+
+            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(
+                rec, isFuture: false, isUnfinishedFlight: true));
+        }
+
+        [Fact]
+        public void ShouldShowLoopToggle_PastActiveLoopUnfinishedFlight_ReturnsFalse()
+        {
+            var rec = new Recording { LoopPlayback = true };
+
+            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(
+                rec, isFuture: false, isUnfinishedFlight: true));
+        }
+
+        [Fact]
         public void ShouldShowFastForwardButton_FutureRecording_ReturnsTrue()
         {
             var rec = new Recording();

@@ -39,7 +39,8 @@ namespace Parsek
         private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
         private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
-        private const int CurrentBinaryVersion = RelativeLocalFrameBinaryVersion;
+        private const int RelativeAbsoluteShadowBinaryVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
+        private const int CurrentBinaryVersion = RelativeAbsoluteShadowBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -127,6 +128,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= RelativeLocalFrameBinaryVersion
+                    ? RelativeLocalFrameBinaryVersion
                 : rec.RecordingFormatVersion >= PredictedOrbitSegmentBinaryVersion
                     ? PredictedOrbitSegmentBinaryVersion
                 : rec.RecordingFormatVersion >= LoopIntervalBinaryVersion
@@ -318,6 +321,11 @@ namespace Parsek
                         for (int i = 0; i < section.frames.Count; i++)
                             table.Register(section.frames[i].bodyName);
                     }
+                    if (section.absoluteFrames != null)
+                    {
+                        for (int i = 0; i < section.absoluteFrames.Count; i++)
+                            table.Register(section.absoluteFrames[i].bodyName);
+                    }
 
                     if (section.checkpoints != null)
                     {
@@ -336,6 +344,7 @@ namespace Parsek
                 || version == SparsePointBinaryVersion
                 || version == LoopIntervalBinaryVersion
                 || version == PredictedOrbitSegmentBinaryVersion
+                || version == RelativeLocalFrameBinaryVersion
                 || version == CurrentBinaryVersion;
         }
 
@@ -635,6 +644,8 @@ namespace Parsek
                 writer.Write(track.minAltitude);
                 writer.Write(track.maxAltitude);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
+                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
+                    WritePointList(writer, track.absoluteFrames, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, track.checkpoints, table, binaryVersion);
             }
         }
@@ -657,10 +668,13 @@ namespace Parsek
                     minAltitude = reader.ReadSingle(),
                     maxAltitude = reader.ReadSingle(),
                     frames = new List<TrajectoryPoint>(),
+                    absoluteFrames = new List<TrajectoryPoint>(),
                     checkpoints = new List<OrbitSegment>()
                 };
 
                 ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
+                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
+                    ReadPointList(reader, track.absoluteFrames, stringTable, binaryVersion, ref stats);
                 ReadOrbitSegmentList(reader, track.checkpoints, stringTable, binaryVersion);
                 tracks.Add(track);
             }
