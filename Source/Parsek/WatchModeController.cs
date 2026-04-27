@@ -1110,24 +1110,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stores a captured camera state into the remembered-per-mode slot as a
-        /// target-relative snapshot. The ghost and its horizon proxy rotate
-        /// continuously, so a world-orbit-direction snapshot becomes stale within
-        /// a frame and restoring it on the next mode swap would snap the camera
-        /// to wherever that world vector now lies in the rotated basis. Raw
-        /// (pitch, hdg) relative to the current target stay meaningful because
-        /// the target transform tracks the ghost. Used for mode-swap bookmarks
-        /// (V-toggle + auto-mode atmosphere crossings); W->W switches and chain
-        /// transfers still use the world-direction path because those apply
-        /// immediately on the same frame with no drift window.
+        /// Returns a copy of <paramref name="cameraState"/> with the world-direction
+        /// and source-target-rotation basis fields cleared so restoring the state
+        /// on a different ghost re-applies the captured (pitch, hdg) directly
+        /// relative to the new target's transform. Used for mode-swap bookmarks
+        /// (V-toggle, auto-mode atmosphere crossings) and for explicit user W->W
+        /// switches, where the captured world-direction would otherwise decompose
+        /// into a visually surprising local angle on the destination ghost's
+        /// rotated basis (its horizon proxy / camera pivot has rotated continuously
+        /// during the seconds the user spent on another ghost). Chain transfers
+        /// (TransferWatchToNextSegment) keep the world-direction path because the
+        /// auto-handoff applies on the same frame with no drift window.
         /// </summary>
-        private void RememberWatchCameraStateAsTargetRelative(WatchCameraTransitionState cameraState)
+        internal static WatchCameraTransitionState MakeWatchCameraStateTargetRelative(
+            WatchCameraTransitionState cameraState)
         {
             cameraState.HasTargetRotation = false;
             cameraState.TargetRotation = Quaternion.identity;
             cameraState.HasWorldOrbitDirection = false;
             cameraState.WorldOrbitDirection = Vector3.zero;
-            RememberWatchCameraState(cameraState);
+            return cameraState;
+        }
+
+        private void RememberWatchCameraStateAsTargetRelative(WatchCameraTransitionState cameraState)
+        {
+            RememberWatchCameraState(MakeWatchCameraStateTargetRelative(cameraState));
         }
 
         private void RememberCurrentWatchCameraState()
@@ -1442,7 +1449,20 @@ namespace Parsek
                     $"distance={WatchMode.EntryDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
             if (switching && hasSwitchCameraState)
+            {
+                // Explicit user W->W switches let many frames pass between
+                // capture (on the source ghost) and apply (on the destination
+                // ghost) — the source ghost's basis has rotated continuously
+                // during the gap, so the captured world-orbit-direction would
+                // decompose into a visually surprising local angle on the
+                // destination ghost's rotated basis. Drop the world-direction
+                // and apply the captured (pitch, hdg) directly relative to the
+                // new target. Chain transfers (TransferWatchToNextSegment) keep
+                // the world-direction path because they auto-handoff in a
+                // single frame with no drift window.
+                switchCameraState = MakeWatchCameraStateTargetRelative(switchCameraState);
                 RememberWatchCameraState(switchCameraState);
+            }
             bool preservedHasRememberedFreeCameraState = hasRememberedFreeCameraState;
             WatchCameraTransitionState preservedFreeCameraState = rememberedFreeCameraState;
             bool preservedHasRememberedHorizonLockedCameraState = hasRememberedHorizonLockedCameraState;

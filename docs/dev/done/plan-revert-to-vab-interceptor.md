@@ -276,7 +276,7 @@ test seams, input lock) stays as it is today.
 - `Source/Parsek.Tests/ReFlyRevertDialogTests.cs`
   - Add the Prelaunch-context tests (see §Tests below). The file's
     `MakeMarker` helper and scenario-setup plumbing stay as-is.
-- `docs/parsek-rewind-to-staging-design.md`
+- `docs/parsek-rewind-to-separation-design.md`
   - §6.14 paragraph — widen the opening sentence to say "intercepts both
     `FlightDriver.RevertToLaunch` AND `FlightDriver.RevertToPrelaunch`"
     and note the Full Revert path drives whichever method the player
@@ -432,7 +432,7 @@ swap is stock KSP behaviour):
 
 ## Documentation updates
 
-### `docs/parsek-rewind-to-staging-design.md` §6.14
+### `docs/parsek-rewind-to-separation-design.md` §6.14
 
 Current opening sentence (line 842):
 

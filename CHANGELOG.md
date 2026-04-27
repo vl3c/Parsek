@@ -6,21 +6,27 @@ All notable changes to Parsek are documented here.
 
 ## 0.9.1
 
+### Bug Fixes
+
+- Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
+
 ### Internals
 
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` load-path extraction: trajectory probe/id/epoch validation, sidecar load-failure marking, post-hydration loop and endpoint repairs, terminal-orbit backfill, and snapshot fallback policy now live behind `RecordingStore` wrappers while codecs stay in their existing owners.
 
+---
+
 ## 0.9.0
 
 ### Features
 
-- **Rewind to Staging** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Discard Re-fly / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
+- **Rewind to Separation** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Discard Re-fly / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
 - Revert to VAB/SPH during an active re-fly session now triggers the same 3-option dialog as Revert to Launch (was previously unhandled, bypassing the dialog entirely); Discard Re-fly returns the player to the editor as originally clicked.
 - Discard Re-fly (was `Full Revert`) during an active re-fly session now preserves the tree's supersede relations, tombstones, and other Rewind Points; only the current re-fly session's artifacts and provisional recording are cleared, and the origin RP's quicksave is reloaded so the timeline winds back to the split UT. Launch click returns to the Space Center; VAB/SPH click returns to the clicked editor.
 - New Settings > Diagnostics line shows live rewind-point disk usage (directory size + file count, refreshed every 10 seconds).
 
-### Internals — Rewind to Staging rollout (reference)
+### Internals — Rewind to Separation rollout (reference)
 
 - Phase 1 — data model (MergeState tri-state, RewindPoint + ChildSlot + RecordingSupersedeRelation + LedgerTombstone + ReFlySessionMarker + MergeJournal; scenario persistence + one-shot legacy migration).
 - Phase 2 — EffectiveState helper (ERS / ELS with tombstone-only filter, SessionSuppressedSubtree forward-only closure, IsVisible / IsUnfinishedFlight / EffectiveRecordingId; StateVersion counters drive cache invalidation).
@@ -233,13 +239,13 @@ All notable changes to Parsek are documented here.
 
 - Re-fly merges refuse supersede rows when the re-fly recording has no trajectory or terminal state, catching the placeholder-as-supersede-target class of bug at commit time.
 
-- Rewind to Staging re-checks preconditions on dialog confirm, cancelling with a toast if state changed between show and click.
+- Rewind to Separation re-checks preconditions on dialog confirm, cancelling with a toast if state changed between show and click.
 
 - Recordings table no longer draws duplicate rewind-to-launch `R` buttons on tree-branch rows; only the recording that owns the launch save renders one.
 
 - Re-fly merges with a Limbo-restored origin recording no longer write a self-supersede row, and load-time sweep purges any such rows left from older saves.
 
-- Rewind to Staging warns after Strip when a left-alone vessel shares a name with a tree recording, so players can tell a pre-existing orbital "Kerbal X" apart from the current flight's ghost.
+- Rewind to Separation warns after Strip when a left-alone vessel shares a name with a tree recording, so players can tell a pre-existing orbital "Kerbal X" apart from the current flight's ghost.
 
 - `#533` Timeline kerbal-hire rows now live in the Details tier instead of the Overview tier. Sandbox, Mission, and Science saves render hire rows as `Hire: <kerbal>` without a funds suffix because those modes have no funds ledger.
 
@@ -290,8 +296,8 @@ All notable changes to Parsek are documented here.
 - A booster left behind during upper-stage time warp that KSP destroyed on reentry now correctly terminates as `Destroyed` and appears in `Unfinished Flights` with a working `Rewind` button, including when the booster's recording was split across atmo/exo chain segments.
 - `Unfinished Flights` virtual group now nests under its owning mission's group instead of floating at the root of the Recordings Manager, and the legacy rewind-to-launch `R` button is suppressed on chain continuations of a rewindable booster chain.
 - Clicking `Rewind` on an Unfinished Flight now correctly activates the target vessel after the Space Center→Flight scene load completes, instead of failing silently with "selected vessel not present on reload" and dropping the player onto the wrong vessel.
-- `#504` Rewind-to-Staging unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
-- `#504` Rewind-to-Staging now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
+- `#504` Rewind-to-Separation unfinished-flight rows now preempt the legacy tree-root launch rewind in the normal Recordings Manager list as well as in the virtual "Unfinished Flights" group, so a staged child such as `Kerbal X Probe` invokes its Rewind Point slot and returns to FLIGHT with that vessel live instead of loading the parent launch save in Space Center.
+- `#504` Rewind-to-Separation now preserves normal staging Rewind Points across the KSC/TrackingStation load that shows the merge dialog, promotes them to persistent once the tree is accepted, stamps crash-terminal RP children as `CommittedProvisional`, and lets those rows populate "Unfinished Flights"; a staged booster such as `Kerbal X Probe` no longer loses its group entry before merge.
 - `#523` Strategy lifecycle SPACECENTER canaries now hydrate `Administration.Instance` by creating a hidden stock Administration canvas, re-check that hydration after warmup, and keep Activate/Deactivate assertions in the same frame as the stock strategy calls. This closes both the plain-KSC singleton timeout and the latest KSC batch race where the first canary observed `Activate()` succeed but `IsActive` had flipped false after a yield while the next canary timed out on a null `Administration.Instance` after hidden-canvas teardown.
 - Scene-exit tree finalization now consumes recording-finalization caches before trajectory inference, preserving live-finalizer precedence while giving missing active and background vessels their cached synthetic terminal tails; rejected caches still fall through to inference and stale cache consumption now warns in logs.
 - Background premature-end finalization now consumes recording-finalization caches for debris TTL, out-of-bubble/missing-vessel endings, and confirmed background destruction, capping destroyed predictions at the actual deletion UT before persisting the sidecar.
@@ -328,7 +334,7 @@ All notable changes to Parsek are documented here.
 - `#546` Added headless and runtime coverage for post-switch auto-record follow-up.
 - `#550` Added headless source-vessel materialization guard coverage for adoption, no-mutation and replay-bypass cases, validated-spawn short-circuiting before snapshot validation, chain-tip adoption before collision/snapshot work, KSC spawn adoption, time-jump chain-tip bypass preservation, and committed-tree restore matching of adopted source vessels.
 - `#532` Added headless coverage for the live KSC tech-unlock debit holdback, so the xUnit suite now pins both the unmatched-burst gap calculation and the `PatchScience` target adjustment that prevents temporary science refunds.
-- `#504` Added headless coverage for Rewind-to-Staging row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
+- `#504` Added headless coverage for Rewind-to-Separation row routing: RP-backed unfinished flights now resolve their child slot from normal rows, non-crashed children keep the legacy temporal controls, disabled slots block before a scene load, and the row-level RP route is pinned ahead of `RecordingStore.CanRewind`.
 - Added headless coverage for the recording-finalization cache applier, including identity mismatches, stale-cache rejection, terminal-UT rollback rejection, predicted-tail trimming, authored-data preservation, surface metadata preservation, and terminal orbit stamping.
 - Added headless coverage for recording-finalization cache refresh cadence, live-vessel surface/extrapolated/atmospheric-fallback producers, background on-rails cache production and cleanup, active-to-background cache adoption, and UI maneuver-node fallback behavior.
 - Added headless scene-exit fallback coverage for live-finalizer precedence, missing-vessel cache application on leaf and active non-leaf recordings, stable-cache override guards, and background cache lookup by recording id.
@@ -340,7 +346,7 @@ All notable changes to Parsek are documented here.
 
 - `#526` Updated the auto-record manual checklist and todo entry for the shared time-jump pad-vessel regression and its visible suppression evidence.
 - `#546` Updated the auto-record manual checklist and tracked the remaining `#534` gate in the todo doc.
-- `#504` Documented the normal-row Rewind-to-Staging affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
+- `#504` Documented the normal-row Rewind-to-Separation affordance so the design spec no longer implies that only the virtual group can invoke a Rewind Point.
 - Added a recording-finalization cache manual checklist covering runtime canaries, atmospheric booster deletion, stable background orbiters, scene-exit mid-burns, maneuver-node ignoring, focused crashes, log sweeps, and cadence calibration.
 - Updated the spawn audit design note and todo docs to mark the KSC, chain-tip, tree-leaf, and orphan-`ProtoVessel` follow-ups closed.
 
@@ -472,7 +478,7 @@ All notable changes to Parsek are documented here.
 - Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 ### Documentation
 
-- Added `docs/parsek-recording-finalization-design.md` and `docs/dev/done/plans/recording-finalization-reliability.md`. Specifies the terminal-state/synthetic-tail reliability contract for scene exit, crash, vessel unload/delete, and background recording end paths that Rewind-to-Staging depends on.
+- Added `docs/parsek-recording-finalization-design.md` and `docs/dev/done/plans/recording-finalization-reliability.md`. Specifies the terminal-state/synthetic-tail reliability contract for scene exit, crash, vessel unload/delete, and background recording end paths that Rewind-to-Separation depends on.
 - Added the Tracking Station audit action plan (`#551`-`#556`) covering Map View lifecycle parity, a TS control surface, safe ghost actions, TS runtime coverage, orbit-source diagnostics, and the broad `buildVesselsList` finalizer.
 - `#558` Updated the game-actions design document to define top-bar funds/science as current-UT cashflow-projected spendable resources and to clarify that rewound R&D state locks future tech nodes while keeping their future costs in the projection.
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.
