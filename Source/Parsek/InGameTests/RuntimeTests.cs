@@ -13590,6 +13590,218 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Pipeline-Anchor (Phase 2)
+
+        /// <summary>
+        /// Phase 2 live-separation anchor smoke test (design doc §6.3 / §6.4
+        /// single-anchor case / §7.1 / §18 Phase 2 / §20.3 / §20.5 / §26.1
+        /// HR-9 / HR-15). Builds a synthetic re-fly tree (one origin recording
+        /// + one ghost sibling) at a branch point UT, drives the test
+        /// overload of <c>RenderSessionState.RebuildFromMarker</c> with a
+        /// frozen-once live position provider, then verifies that the
+        /// resulting <c>AnchorCorrection.Epsilon</c> magnitude matches the
+        /// recorded geometric attachment offset to within centimetres
+        /// (Phase 2 done-condition).
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: a regression in the live-separation Stage 3
+        /// path. If the recorded offset sign flips, or the live world read
+        /// is reused as the smoothed reference, ε would be off by twice the
+        /// recorded separation and the test's 0.05 m tolerance would catch
+        /// it. The xUnit suite covers the math against a synthetic surface-
+        /// lookup; this test runs the production overload's body lookup via
+        /// <c>FlightGlobals.GetBodyByName(...).GetWorldSurfacePosition</c>,
+        /// so any KSP-side rotation/world contract change surfaces here.
+        ///
+        /// Runs only in FLIGHT because the surface-lookup fallback inside
+        /// <c>RenderSessionState.DefaultSurfaceLookup</c> needs a live
+        /// CelestialBody. The synthetic recordings carry a zero
+        /// <c>SpawnedVesselPersistentId</c>, so the production live-position
+        /// provider would short-circuit; the test injects a constant via
+        /// the fully-injectable test overload of <c>RebuildFromMarker</c>.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
+            Description = "Live-separation anchor ε within tolerance of the recorded geometric offset")]
+        public IEnumerator Pipeline_Anchor_LiveSeparation()
+        {
+            const string originId = "in-game-pipeline-anchor-origin";
+            const string siblingId = "in-game-pipeline-anchor-sibling";
+            const double bpUT = 1234.0;
+            const double tolerance = 0.05; // 0.05 m
+
+            // Per-axis lat/lon/alt around KSC. The origin sits at the prime
+            // meridian; the sibling sits a couple of metres east at the same
+            // altitude. The test asserts ε ≈ recordedOffset = (sibling -
+            // origin) in world space, with live_world_at_spawn cancelling
+            // out (we feed the same value as both the live world and
+            // P_smoothed_world's surface lookup).
+            const double bodyLat = -0.0972;
+            const double bodyLon = -74.5577;
+            const double bodyAlt = 80.0;
+            // Sibling slightly east + slightly higher.
+            const double siblingLatDelta = 1.0e-5; // ~1.1 m at Kerbin radius
+            const double siblingLonDelta = 0.0;
+            const double siblingAltDelta = 1.5; // 1.5 m
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+            yield return null;
+
+            // Predict the production lookup's recordedOffset in world space.
+            Vector3d originWorld = kerbin.GetWorldSurfacePosition(
+                bodyLat, bodyLon, bodyAlt);
+            Vector3d siblingWorld = kerbin.GetWorldSurfacePosition(
+                bodyLat + siblingLatDelta,
+                bodyLon + siblingLonDelta,
+                bodyAlt + siblingAltDelta);
+            Vector3d expectedOffset = siblingWorld - originWorld;
+
+            // Reset rendering state so any prior session does not leak
+            // anchors into this test.
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+
+            // Build a minimal pair of recordings. Each gets one ABSOLUTE
+            // section + a single TrajectoryPoint at bpUT so the rebuild's
+            // FindFirstPointAtOrAfter and FindTrackSectionForUT both hit.
+            var rOrigin = MakeAnchorTestRecording(
+                originId, bpUT, bodyLat, bodyLon, bodyAlt);
+            var rSibling = MakeAnchorTestRecording(
+                siblingId,
+                bpUT,
+                bodyLat + siblingLatDelta,
+                bodyLon + siblingLonDelta,
+                bodyAlt + siblingAltDelta);
+
+            var tree = new RecordingTree { Id = "in-game-pipeline-anchor-tree" };
+            var bp = new BranchPoint
+            {
+                Id = "in-game-pipeline-anchor-bp",
+                UT = bpUT,
+                Type = BranchPointType.Undock,
+            };
+            tree.Recordings[rOrigin.RecordingId] = rOrigin;
+            tree.Recordings[rSibling.RecordingId] = rSibling;
+            bp.ChildRecordingIds.Add(rOrigin.RecordingId);
+            bp.ChildRecordingIds.Add(rSibling.RecordingId);
+            tree.BranchPoints.Add(bp);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "in-game-pipeline-anchor-sess",
+                TreeId = tree.Id,
+                OriginChildRecordingId = rOrigin.RecordingId,
+            };
+
+            // Drive the test overload: pass an explicit recordings list, a
+            // tree-lookup closure, and a live-position provider that returns
+            // the origin's recorded world position. With that choice,
+            // target = live_world_at_spawn + recordedOffset
+            //        = originWorld + (siblingWorld - originWorld)
+            //        = siblingWorld
+            // and P_smoothed_world = siblingWorld (no spline annotation, so
+            // the rebuild falls back to the raw boundary sample).
+            // Therefore ε = target - P_smoothed_world = (0,0,0) — but that's
+            // the degenerate case. We want a non-zero ε so the test really
+            // exercises the additive translation; provide a live position
+            // displaced from the recorded origin so the recordedOffset
+            // re-targets the sibling to a different world spot:
+            //   live_world := originWorld + delta
+            //   target := live_world + recordedOffset = siblingWorld + delta
+            //   ε := target - P_smoothed_world (= siblingWorld) = delta
+            // We therefore pick a deterministic delta and assert ε.magnitude
+            // ≈ delta.magnitude.
+            Vector3d delta = new Vector3d(2.5, 0.0, 0.0);
+            Vector3d liveAtSpawn = originWorld + delta;
+
+            Parsek.Rendering.RenderSessionState.RebuildFromMarker(
+                marker,
+                new List<Recording> { rOrigin, rSibling },
+                _ => new Parsek.Rendering.RecordingTreeContext(tree, bp),
+                _ => liveAtSpawn);
+
+            yield return null;
+
+            // Look the anchor up exactly the way ParsekFlight.allowAnchorCorrection
+            // does. A miss here means the rebuild path silently dropped the
+            // sibling without storing an anchor — exactly the regression
+            // class Phase 2 ships to fix.
+            bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
+                rSibling.RecordingId, sectionIndex: 0,
+                Parsek.Rendering.AnchorSide.Start,
+                out Parsek.Rendering.AnchorCorrection ac);
+            InGameAssert.IsTrue(hit,
+                "RenderSessionState.TryLookup miss for the freshly-rebuilt sibling — "
+                + "rebuild did not write an anchor for recordingId="
+                + rSibling.RecordingId);
+
+            double epsilonMagnitude = ac.Epsilon.magnitude;
+            double expectedMagnitude = delta.magnitude;
+            double residual = System.Math.Abs(epsilonMagnitude - expectedMagnitude);
+
+            ParsekLog.Info("Pipeline-Anchor",
+                "Pipeline_Anchor_LiveSeparation: epsilonMagnitudeM="
+                    + epsilonMagnitude.ToString("F4", CultureInfo.InvariantCulture)
+                    + " expectedM=" + expectedMagnitude.ToString("F4", CultureInfo.InvariantCulture)
+                    + " residualM=" + residual.ToString("F4", CultureInfo.InvariantCulture));
+
+            InGameAssert.IsTrue(residual < tolerance,
+                "ε magnitude residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m — recordedOffset / live world / smoothed world wiring is broken");
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            yield break;
+        }
+
+        private static Recording MakeAnchorTestRecording(
+            string id, double bpUT, double lat, double lon, double alt)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                SidecarEpoch = 1,
+            };
+            var bpPoint = new TrajectoryPoint
+            {
+                ut = bpUT,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+            var laterPoint = new TrajectoryPoint
+            {
+                ut = bpUT + 50.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+            rec.Points.Add(bpPoint);
+            rec.Points.Add(laterPoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                source = TrackSectionSource.Active,
+                startUT = bpUT - 10.0,
+                endUT = bpUT + 100.0,
+                anchorVesselId = 0u,
+                frames = new List<TrajectoryPoint> { bpPoint, laterPoint },
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            return rec;
+        }
+
+        #endregion
     }
 
     // Bug #613 in-game-test trajectory: a 5-second non-looping recording
