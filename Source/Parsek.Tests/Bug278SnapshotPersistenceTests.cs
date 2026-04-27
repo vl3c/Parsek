@@ -134,6 +134,8 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
             string storeSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "RecordingStore.cs"));
+            string sidecarStoreSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "RecordingSidecarStore.cs"));
 
             // Step 1: PR #176's limbo finalize routes through FinalizeIndividualRecording
             Assert.Contains(
@@ -156,12 +158,12 @@ namespace Parsek.Tests
             // happy path (the line we left intact). Pinning this lets us detect
             // a future refactor that moves the destructive-delete logic back into
             // the function or restructures the conditional.
-            Assert.Contains("if (rec.VesselSnapshot != null)", storeSrc);
+            Assert.Contains("if (rec.VesselSnapshot != null)", sidecarStoreSrc);
 
             // Step 5: The destructive-delete branch is GONE (replaced with the
             // bug #278 follow-up comment). If anyone re-introduces File.Delete
             // on the vesselPath, this test fails and they re-read the chain.
-            Assert.DoesNotContain("File.Delete(vesselPath)", storeSrc);
+            Assert.DoesNotContain("File.Delete(vesselPath)", sidecarStoreSrc);
         }
 
         /// <summary>

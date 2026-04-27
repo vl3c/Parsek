@@ -4740,7 +4740,7 @@ namespace Parsek.InGameTests
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
-                if (rec == null || rec.RecordingFormatVersion < 2 || string.IsNullOrEmpty(rec.RecordingId))
+                if (rec == null || rec.RecordingFormatVersion < 3 || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
 
                 // Recordings with no trajectory points have no .prec sidecar on disk — structural
