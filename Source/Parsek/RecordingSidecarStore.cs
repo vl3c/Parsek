@@ -247,6 +247,20 @@ namespace Parsek
 
             RecordingStore.DeserializeTrajectorySidecar(precPath, probe, rec);
 
+            // Phase 1 smoothing pipeline (design doc §17.3.1, §18 row 1).
+            // Hydrate / lazily fit Catmull-Rom splines for every eligible
+            // ABSOLUTE-frame ExoPropulsive / ExoBallistic section. Routed
+            // through SmoothingPipeline so .pann freshness is gated on the
+            // five-field cache key (HR-10) and write failure stays soft
+            // (HR-9 — .pann is regenerable, must not abort .prec hydration).
+            string pannRelativePath = RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId);
+            if (!string.IsNullOrEmpty(pannRelativePath))
+            {
+                string pannPath = RecordingPaths.ResolveSaveScopedPath(pannRelativePath);
+                if (!string.IsNullOrEmpty(pannPath))
+                    Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            }
+
             // #412: Run legacy-loop migration and degenerate-interval normalization as soon
             // as trajectory points are hydrated, BEFORE snapshot loading. A snapshot-sidecar
             // failure below returns early while leaving Points populated; ParsekScenario.OnLoad
@@ -766,6 +780,20 @@ namespace Parsek
                 }
 
                 SidecarFileCommitBatch.Apply(changes, () => RecordingStore.SuppressLogging);
+
+                // Phase 1 smoothing pipeline (design doc §17.3.1, §18 row 1).
+                // Persist .pann AFTER the trajectory commit batch applies
+                // — HR-9 mandates that a regenerable-cache write failure must
+                // never roll back the .prec write. PersistAfterCommit catches
+                // IO failures internally and logs Warn; the next load will
+                // recompute. HR-1: .prec is never touched by SmoothingPipeline.
+                string pannRelativePath = RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId);
+                if (!string.IsNullOrEmpty(pannRelativePath))
+                {
+                    string pannPath = RecordingPaths.ResolveSaveScopedPath(pannRelativePath);
+                    if (!string.IsNullOrEmpty(pannPath))
+                        Parsek.Rendering.SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+                }
 
                 ReadableMirrorReconcileSummary mirrorSummary =
                     ReconcileReadableSidecarMirrors(rec, precPath, vesselPath, ghostPath, ghostSnapshotMode);
