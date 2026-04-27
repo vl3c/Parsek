@@ -11,6 +11,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~632. Optimizer split fired on every passive atmo-grazing periapsis pass~~
+
+Original concern: `extending-rewind-to-stable-leaves.md` §S16 — an eccentric
+BG-recorded orbit whose periapsis dips below 70 km would, in principle, drive
+`RecordingOptimizer.FindSplitCandidatesForOptimizer` to split the recording at
+each Atmospheric↔ExoBallistic crossing, yielding 2N chain segments after N
+periapsis passes. The producer audit (research note §3) confirmed the literal
+on-rails BG case can't fire today — `BackgroundOnRailsState` has no env-classified
+TrackSections — but the principle still applies to focused atmo-grazing, brief
+in-bubble passes, and the no-payload boundary section produced by
+`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
+
+Fix: gated `FindSplitCandidatesForOptimizer` behind a meaningful-action check
+on pure Atmospheric↔Exo* boundaries. The seam is split only when one of:
+  - body changes (#251 — always-meaningful SOI traversal),
+  - either side is `Surface*` or `Approach` (state-flag-gated upstream),
+  - either side is `ExoPropulsive` (S3 short-circuit — engine was firing),
+  - a meaningful `PartEvent` (engine, RCS, decoupling, parachute, gear,
+    thermal animation) lands within ±5 s of `next.startUT`.
+
+`MeaningfulBoundaryWindowSeconds = 5.0` is `internal const`, exposed for tests.
+The legacy `FindSplitCandidates` (test-only path) keeps its old
+"always split on env change" semantics so `CanAutoSplit` callers (ghost chain
+walker) see a pre-meaningful-gate boundary set.
+
+Forward-only by construction: existing chain segments carry distinct
+`SegmentPhase` tags, and `CanAutoMerge` requires equal phase, so legacy chains
+cannot be retroactively re-merged on next OnLoad. Logged as
+`Split candidate (...)` / `Split suppressed (...)` Verbose lines including
+the discriminator that fired (`BodyChange`, `SurfaceOrApproach`,
+`ExoPropulsiveAtCrossing`, `MeaningfulPartEventNearUT`,
+`SuppressedPassiveCrossing`, `SuppressedCheckpointPair`).
+
+Tests: 18 new xUnit cases under `RecordingOptimizerTests.cs` covering each
+discriminator + the gap/overlap regression that anchors the gate to
+`next.startUT` (not `prev.endUT`); the existing
+`EccentricOrbitOptimizerInvariantTests.Two_Different_Env_TrackSections_Still_Produce_Split_Candidate`
+sanity counterfactual updated to inject a meaningful event so the inverse
+of the suppression case still holds. Existing integration tests that relied
+on optimizer-driven splits across passive Atmo↔Exo seams updated to add an
+`AddMeaningfulBoundaryEvent` call.
+
+Research: `docs/dev/research/optimizer-meaningful-split-rule.md` (merged in
+PR #624).
+
 ## ~~629. Multi-stage crash showed only one half in Unfinished Flights (effective-leaf finalize)~~
 
 Repro: `logs/2026-04-27_2157_stage-separation-bugs/KSP.log`. LU stack
