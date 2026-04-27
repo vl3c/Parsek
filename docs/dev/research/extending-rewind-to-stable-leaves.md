@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R3 same day. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closes all open clarifications; the next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R4 same day. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporates an internal opus review pass. The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -10,7 +10,8 @@
 
 - **R1.** Proposed a separate "Parked Flights" virtual UI group alongside Unfinished Flights, with a meaningful-action filter (A1 body change / A2 mid-chain surface / A4 orbit shift) on stable leaves.
 - **R2.** Per user feedback: one Unfinished Flights group, broadened to include "stable leaves not finished on purpose." Multi-recording chain handling. Voluntary-vs-involuntary detection via A1+A2 in v1, A4 deferred to v1.1. Eccentric-orbit optimizer concern flagged as separate investigation.
-- **R3 (this version).** All R2 clarifications closed. The A1/A2/A4 voluntary-action heuristics are dropped entirely. The classifier is now purely terminal-state-based with per-row Seal override. UI: the Rewind column splits into Fly + Seal buttons. Filing the Park-from-not-UF affordance (the rover-drive override) as v2 future work to keep v1 scope tight.
+- **R3.** All R2 clarifications closed. The A1/A2/A4 voluntary-action heuristics are dropped entirely. The classifier is now purely terminal-state-based with per-row Seal override. UI: the Rewind column splits into Fly + Seal buttons. Filing the Park-from-not-UF affordance (the rover-drive override) as v2 future work to keep v1 scope tight.
+- **R4 (this version).** Internal opus review pass. Code anchors fixed across §3: `Recording.IsDebris` ([Recording.cs:25](../../../Source/Parsek/Recording.cs)) for the controllable-subject gate (replacing the earlier hand-wavy "had a working ControllerInfo" prose); `Recording.EvaCrewName` ([Recording.cs:142](../../../Source/Parsek/Recording.cs)) for the EVA exception; `BallisticExtrapolator.cs:223` + `IncompleteBallisticSceneExitFinalizer.cs:464,489` for the atmospheric-SubOrbital reclassification footnote; explicit null-terminal handling. §9.2 now also extends `SupersedeCommit.FlipMergeStateAndClearTransient` so re-fly merges that end Orbiting / SubOrbital / EVA-stranded produce `CommittedProvisional` -- without this, §S8's chain-extension claim is false. Added §S19b (inverted: upper stage is the leaf). §9.2 legacy-migration guard explicitly excludes recordings that were already Immutable on the upgrade load. §7 split-cell UI layout is reframed as an unresolved design question with three candidate layouts -- the cell is 75 px today (`ColW_Rewind` in [RecordingsTableUI.cs:39](../../../Source/Parsek/UI/RecordingsTableUI.cs)), and a no-cost split is not feasible. §10 risk #2 cleaned up to stop hinting at heuristic revival.
 
 ---
 
@@ -46,11 +47,14 @@ A Mun lander chain might look like:
 
 ```
 ChainId=L  ChainBranch=0
-  index 0  exo (Kerbin orbit phase)              <- HEAD, ParentBranchPointId = undock
-  index 1  exo (Mun SOI cruise)                  <- body change at SOI entry
-  index 2  surface (Mun landed)                  <- env class change
-  index 3  exo (back in orbit after takeoff)     <- env class change
-  index 4  exo (Kerbin SOI return)               <- TIP, ChildBranchPointId = null
+  index 0  exo      (Kerbin orbit phase)         <- HEAD, ParentBranchPointId = undock
+  index 1  exo      (Mun SOI cruise)             <- body change at SOI entry
+  index 2  surface  (Mun landed)                 <- env class change
+  index 3  exo      (back in orbit after takeoff) <- env class change
+  index 4  exo      (Kerbin SOI return)
+  index 5  atmo     (re-entry)                   <- env class change
+  index 6  surface  (Kerbin splashdown)          <- TIP, terminal=Splashed,
+                                                    ChildBranchPointId = null
 ```
 
 Leaf detection MUST walk to the chain TIP and check that TIP's `ChildBranchPointId == null`. `EffectiveState.ResolveChainTerminalRecording` already does this walk for the v0.9 predicate. Same helper feeds the broadened predicate.
@@ -81,29 +85,49 @@ IsUnfinishedFlight(rec) :=
     AND parent (or active-parent-child) BranchPoint has a live RP with a slot for rec
 
     // Controllable-subject gate -- new in this feature
-    AND chain HEAD vessel had a working ControllerInfo at start
-        (ProbeCore, CrewedPod, KerbalEVA, ExternalSeat with crew)
-        // Pure debris (no controller from the moment of split) is excluded.
-        // A vessel whose only crew evac'd / died after the split is also
-        // out of scope -- it's not re-flyable in any meaningful sense.
+    AND chainHead.IsDebris == false
+        // Recording.IsDebris (Recording.cs:25) is set per-recording at recording
+        // start: "True if vessel has no controller parts (debris). Minimal
+        // recording only." The optimizer's SplitAtSection inherits Controllers
+        // from the source (RecordingOptimizer.cs:566-567), and IsDebris travels
+        // with that. Continuation-after-focus-switch chains recompute IsDebris
+        // from the live vessel; if controllers were lost mid-mission (kerbal
+        // died, probe core destroyed but vessel persists), TIP IsDebris may
+        // differ from HEAD IsDebris. We gate on the HEAD's value -- the question
+        // is "was this vessel a controllable thing at split time"; lost-control
+        // post-split is a separate concern that v1 does not try to model.
 
     // Outcome gate -- new in this feature
     AND TerminalOutcomeQualifies(chainTip)
 
 TerminalOutcomeQualifies(chainTip) :=
-    let kerbal = chainTip is an EVA kerbal recording
-    let terminal = chainTip.TerminalStateValue
+    let kerbal   = !string.IsNullOrEmpty(chainTip.EvaCrewName)   // Recording.cs:142
+    let terminal = chainTip.TerminalStateValue                   // Nullable<TerminalState>
+
+    if !terminal.HasValue:
+        return false
+        // No terminal recorded means finalization didn't run cleanly. The
+        // recording-finalization-design.md contract guarantees this is rare
+        // post-v0.9, but we don't auto-include a recording whose terminal
+        // we can't read. Logged as reason=noTerminal for diagnostics.
 
     if kerbal:
-        return terminal != Boarded
+        return terminal.Value != Boarded
         // EVA kerbals: any non-Boarded terminal is unfinished (stranded on
         // surface, drifting in orbit, dead). The Boarded case isn't reached
         // here anyway -- a Board BP makes the recording non-leaf via the
         // structural gate. Listed for completeness.
 
-    if terminal == Destroyed: return true   // Crashed -- the v0.9 case
-    if terminal == Orbiting:  return true   // left in flight
-    if terminal == SubOrbital: return true  // left in flight (vacuum arc; atmospheric SubOrbital is reclassified to Destroyed pre-commit by BallisticExtrapolator)
+    if terminal.Value == Destroyed: return true   // Crashed -- the v0.9 case
+    if terminal.Value == Orbiting:  return true   // left in flight
+    if terminal.Value == SubOrbital: return true
+        // Vacuum-arc SubOrbital only. Atmospheric SubOrbital (a falling
+        // booster about to splash) is reclassified to TerminalState.Destroyed
+        // by the scene-exit finalizer before commit -- the extrapolator's
+        // SubSurfaceStart short-circuit (BallisticExtrapolator.cs:223)
+        // feeds IncompleteBallisticSceneExitFinalizer (lines 464, 489) which
+        // stamps Destroyed. The recording-finalization-design.md §1.3 entry
+        // is the upstream contract.
 
     // Landed / Splashed / Recovered / Docked: the universe gave the vessel
     // a stable conclusion. Player did not say "I'm done with it" but the
@@ -121,15 +145,24 @@ Plus, deferred to v2: a **Park override** on rows that the default classifier wo
 ## 4. The hard rule, restated
 
 > A recording does not qualify for re-fly if it has any downstream BranchPoint after its
-> chain TIP. Period. The structural-leaf gate enforces this; nothing else can override it.
+> chain TIP. Period. Nothing the player or the algorithm does can override this.
 
-In code:
+`chainTip.ChildBranchPointId != null` is **a necessary condition for re-fly to be forbidden, not the full predicate.** A recording can also be ineligible for re-fly because:
+
+- Its `MergeState` is not in `{ Immutable, CommittedProvisional }` (e.g. the live re-fly provisional with `MergeState == NotCommitted`).
+- It is not in ERS (filtered out by supersede or by `SessionSuppressedSubtree` during an active re-fly).
+- The parent BranchPoint has no live `RewindPoint` with a slot for this recording (the RP was reaped, was never written, or is `Corrupted`).
+- It is debris (`IsDebris == true`) -- not re-flyable in v1.
+
+§3's `IsUnfinishedFlight` predicate composes all of those gates. The hard-rule statement above is the *structural* invariant that the rest of the predicate refines further.
+
+In code, the structural-leaf negation:
 
 ```
-ForbidRefly(rec) := ResolveChainTerminalRecording(rec).ChildBranchPointId != null
+HasDownstreamBP(rec) := ResolveChainTerminalRecording(rec).ChildBranchPointId != null
 ```
 
-Whether a leaf shows in the UI is a separate question (the default classifier + Seal override). But re-fly is structurally forbidden the moment the recording has a downstream BP -- dock, board, undock, joint break, EVA, breakup. No exception.
+A `true` result here means re-fly is forbidden no matter what else holds. A `false` result means re-fly *might* be permitted, subject to the other gates in §3.
 
 ---
 
@@ -150,13 +183,15 @@ After this feature:
 
 ```
 if rec is structurally a leaf
-   AND rec is controllable
+   AND rec is controllable (chainHead.IsDebris == false)
    AND parent BP has live RP with slot
    AND TerminalOutcomeQualifies(chainTip):
        promote rec to CommittedProvisional        // shows in Unfinished Flights
 otherwise:
     leave Immutable                               // RP can reap when all slots Immutable
 ```
+
+**The same predicate must also feed the re-fly merge path.** `SupersedeCommit.FlipMergeStateAndClearTransient` today maps `TerminalKindClassifier.Classify(provisional) != Crashed` -> `Immutable`. After this feature, a re-fly that ends Orbiting / SubOrbital / EVA-stranded should *also* commit `CommittedProvisional` so the slot stays open for another re-fly attempt (consistent with §S8 chain extension). See §9.2 for the call-site change.
 
 Disk impact:
 
@@ -189,16 +224,24 @@ All play back as ghosts simultaneously when any later mission rewinds past UT 10
 
 **One Unfinished Flights group** (no separate Parked Flights). System group, not hideable, not a drop target. Tooltip text updated to: "Vessels and kerbals that ended up in a state where you might want to re-fly them -- crashed, abandoned in orbit, stranded on a surface."
 
-**Rewind-column split.** Per user: in the Recordings Manager, the Unfinished Flights row's Rewind cell splits into two side-by-side controls:
+**Two row-level actions: Fly + Seal.**
 
-| Cell | Button | Effect |
-|---|---|---|
-| Fly | "Fly" | Routes through `RewindInvoker.StartInvoke` (existing v0.9 flow). Reloads the RP quicksave, strips siblings, activates this recording's vessel, scene reload. |
-| Seal | "Seal" | Spawns the Seal confirmation dialog (see below). On accept: flip `MergeState` to `Immutable`; bump `SupersedeStateVersion`; row drops from group; reaper runs (RP deleted if all sibling slots are also closed). |
+| Action | Effect |
+|---|---|
+| Fly | Routes through `RewindInvoker.StartInvoke` (existing v0.9 flow). Reloads the RP quicksave, strips siblings, activates this recording's vessel, scene reload. Today this is the only button in the Rewind column for an Unfinished Flight row, drawn by `DrawUnfinishedFlightRewindButton` ([RecordingsTableUI.cs:2559](../../../Source/Parsek/UI/RecordingsTableUI.cs)). |
+| Seal | Spawns the Seal confirmation dialog (see §7.1). On accept: flip `MergeState` to `Immutable`; bump `SupersedeStateVersion`; row drops from group; reaper runs (RP deleted if all sibling slots are also closed). |
 
-Fly is the primary action (left); Seal is secondary (right). Same column width as today's single Rewind cell -- compress button text or use icons if needed.
+The crashed-row UX (today's v0.9) gets the same two actions. A crashed row's Seal action is "I accept the crash as canonical; stop offering me the re-fly." Same semantics; works identically for both default-UF flavours (Crashed and Stable-Unconcluded).
 
-The crashed-row UX (today's v0.9) becomes the same split-cell layout. A crashed row's Seal action is "I accept the crash as canonical; stop offering me the re-fly." Same semantics; works identically for both default-UF flavours (Crashed and Stable-Unconcluded).
+### 7.0 Unresolved: how to surface the second action in the table
+
+The natural-language R3 framing was "split the Rewind cell into Fly + Seal." On closer reading of [RecordingsTableUI.cs:39](../../../Source/Parsek/UI/RecordingsTableUI.cs), `ColW_Rewind = 75f` and the existing `DrawUnfinishedFlightRewindButton` draws a single Fly button at the full column width. Two side-by-side controls in 75 px would be unreadable. Three candidate layouts, none free:
+
+- **(L1) Widen the Rewind column.** Bump `ColW_Rewind` to ~150 px; draw two `DrawBodyCenteredButton`s side-by-side; each ~70 px wide. Cascades through every row in the table (Crashed rows currently using R/FF/Fly/blank also get the new width). The header "Rewind/FF" stays; possibly relabel to "Rewind / Seal."
+- **(L2) Add a separate Seal column.** New `ColW_Seal = 60f`; only drawn for rows where `IsUnfinishedFlight` is true; blank otherwise. Adds a column to *every* row visually (alignment), even though most cells are blank. Less natural-grouping but no width pressure on existing controls.
+- **(L3) Row context action / kebab menu.** Tiny "..." button next to the Fly cell that pops a menu with "Seal slot" as the only entry (today). Cheapest layout-wise; least discoverable. Discoverability matters less if the v0.9 crashed-row Seal is also routed through the same menu (consistent across flavours).
+
+R4 does not pick. Promoting this doc to a formal design doc requires a UI mock for one of the three (or a fourth nobody's thought of yet); the chosen layout drives `RecordingsTableUI` changes in the build phase.
 
 ### 7.1 Seal confirmation dialog
 
@@ -234,7 +277,7 @@ Logging on accept: `[UnfinishedFlights] Info: Sealed rec=<rid> bp=<bpId> rp=<rpI
 
 ---
 
-## 8. Gameplay scenarios (R3 verdicts)
+## 8. Gameplay scenarios
 
 Each scenario: setup -> default classifier verdict -> note. The R3 algorithm is small enough that most scenarios resolve trivially.
 
@@ -278,7 +321,9 @@ Slot Immutable. Predicate filters out. ✓ Same as v0.9.
 
 Re-fly merge: terminal Landed -> `TerminalKindClassifier.Classify` returns Landed -> per `SupersedeCommit.FlipMergeStateAndClearTransient`, MergeState = Immutable. Slot closes. Supersede chain `probeOrig -> probeReFly`. ✓
 
-If re-fly ends Orbiting (player parked in a different orbit): `Classify` returns InFlight, which today maps to Immutable in `SupersedeCommit.FlipMergeStateAndClearTransient`. Slot closes. The new flight is "deliberate parking, sealed." If player wants it re-flyable AGAIN, they'd need a fresh undock -- which is consistent with v0.9 chain-extension semantics (only Crashed extends the chain).
+If re-fly ends Orbiting (player parked in a different orbit): under v0.9 today, `Classify` returns InFlight and `SupersedeCommit.FlipMergeStateAndClearTransient` maps `kind != Crashed -> Immutable`. The slot would close. **R4 changes this**: §9.2 extends `FlipMergeStateAndClearTransient` to use the same `TerminalOutcomeQualifies` predicate as `ApplyRewindProvisionalMergeStates`, so a re-fly ending Orbiting / SubOrbital / EVA-stranded commits `CommittedProvisional`. The slot stays open; the row reappears in Unfinished Flights with the new flight as the effective recording. The player can Fly it again, or Seal to close.
+
+This means the chain-extension semantics in R3 (only Crashed extends the chain) are **broadened** to also extend through stable-unconcluded re-flies. A player who parks a probe, re-flies it, ends in a different stable orbit, and parks again has a 3-link supersede chain `probeOrig -> probeReFly1 -> probeReFly2`, all CP, slot still open. To finally close the slot, the player either re-flies to a Landed terminal (Immutable per `TerminalOutcomeQualifies` returning false) or hits Seal.
 
 ### S9. Re-fly a parked leaf, dock with another vessel
 
@@ -330,6 +375,24 @@ Booster has parachutes + probe core (controllable). Player toggles chute, return
 
 Booster has parachutes only, no controller. At split time, the controllable-subject gate at chain HEAD fails. NOT UF. Booster is debris, may not even produce a multi-controllable RP at all (`SegmentBoundaryLogic.IsMultiControllableSplit` requires count >= 2 controllables). ✓ Matches user's Q3 example.
 
+### S19b (R4-new). Inverted: upper stage is the leaf, booster is the active mission
+
+Setup. Single-stage spaceplane with a strap-on booster section. Player flies the booster section to recover it (the actual mission), strap-on upper stage is BG-recorded and ends Orbiting around Kerbin (it never had a planned mission -- the player only cared about the booster).
+
+Predicate verdict. Upper-stage recording: structural leaf, controllable, terminal Orbiting, parent BP has RP+slot -> UF. Booster recording: terminal Landed (the player did fly it down) -> NOT UF.
+
+Disk impact. Both slots live in the same RP. Upper-stage promoted to CP (per the new predicate); booster Immutable. RP stays alive because one slot is still CP. Player can later Fly the upper stage (re-fly that wasn't in the original plan) or Seal it; only after Seal does the RP reach all-Immutable and reap.
+
+This case is symmetric to S1/S3 but inverts which slot is the "kept-alive" one. It's worth calling out because the v0.9 mental model assumed the *crashed* sibling was always the BG-recorded one and the *flown* sibling was always the focus -- this feature makes "BG sibling that ended Orbiting" the new common UF case, regardless of whether it was the booster or the upper stage in the original launch geometry.
+
+### S21 (R4-new). Cross-tree dock during a stable-leaf re-fly
+
+Setup. Player picks parked probe (S1) from Unfinished Flights, hits Fly, rewinds to split UT. Probe is live; mothership is ghost. Player flies the probe to a station that belongs to a *different tree* (different launch). Docks the probe to the station.
+
+Behaviour. Dock BP fires; probe-re-fly recording gains a `ChildBranchPointId`. On merge, `SupersedeCommit.AppendRelations` walks `EffectiveState.ComputeSessionSuppressedSubtree(marker)` for the supersede subtree -- which is tree-scoped and halts at mixed-parent BranchPoints. The station's tree is unaffected; supersede stays inside the probe's tree. The probe-re-fly itself is no longer a leaf (Dock BP). `FlipMergeStateAndClearTransient` runs `TerminalOutcomeQualifies` on a Docked terminal -> returns false -> Immutable. Slot closes.
+
+Same shape as v0.9 §7.7 (cross-tree dock during re-fly). Confirmed compatible with the broadened predicate; no new code path needed. v0.9's "acceptable v1 limitation: no dedicated test for cross-tree dock" still applies; this feature should add a covering test as part of its in-game test pass.
+
 ---
 
 ## 9. Data-model and code touchpoints
@@ -349,21 +412,52 @@ Logging additions (`[UnfinishedFlights] Verbose`):
 - `IsUnfinishedFlight=true rec=<rid> reason=stableLeafUnconcluded terminal=<state>`
 - `IsUnfinishedFlight=true rec=<rid> reason=stranded EVA terminal=<state>`
 
-### 9.2 MergeState promotion
+### 9.2 MergeState promotion -- TWO call sites
 
-`RecordingStore.ApplyRewindProvisionalMergeStates` extended:
+The promotion logic must change in **two places**, not one. Missing the second one breaks chain extension for stable-leaf re-flies (see §S8 R4 update).
+
+**Site A: original mission tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` ([RecordingStore.cs:715-770](../../../Source/Parsek/RecordingStore.cs)) extended:
 
 ```
 if rec.MergeState != Immutable: continue
-if NOT structurally a leaf: continue
-if NOT controllable at HEAD: continue
+if rec was already Immutable on the previous load:        // legacy guard, see below
+    continue
+if NOT structurally a leaf (chainTip.ChildBranchPointId != null): continue
+if rec.IsDebris (chainHead): continue                       // controllable-subject gate
 if parent BP doesn't have live RP with slot for rec: continue
 if NOT TerminalOutcomeQualifies(chainTip): continue
 promote rec to CommittedProvisional
 log [UnfinishedFlights] Info: CommitTree: promoted ...
 ```
 
-The existing crash-only path is folded into the more general predicate; same call site.
+The existing crash-only path is subsumed by `TerminalOutcomeQualifies(chainTip) == true` for `terminal == Destroyed`.
+
+**Legacy migration guard.** Without the "rec was already Immutable on the previous load" line, the first OnLoad-then-commit cycle on an upgraded save would re-promote every legacy Immutable Landed sibling whose parent BP still carries an RP -- retroactively populating Unfinished Flights with stale rows the player thought were closed. Two implementation options:
+
+- **Persisted bit on Recording.** Add `bool LegacyImmutableAtFirstLoad` (serialized once, never re-written). Set on first load whenever `MergeState == Immutable` AND no rewind-state markers were present pre-upgrade. Skip in the promotion check.
+- **Pre-feature-marker on the scenario.** Persist a `bool RewindStableLeavesFeatureSeen` on `ParsekScenario`. On first load with the feature: mark every existing Immutable rec with a transient skip-flag, set the bit, save. Subsequent loads see the bit and skip the marking.
+
+The persisted-bit-on-Recording option is more targeted; the scenario-level option is one less field to serialize per recording. Either works; pick at design-doc time.
+
+**Site B: re-fly merge.** `SupersedeCommit.FlipMergeStateAndClearTransient` extended. Today (paraphrased):
+
+```
+kind = TerminalKindClassifier.Classify(provisional)
+newState = (kind == Crashed) ? CommittedProvisional : Immutable
+provisional.MergeState = newState
+```
+
+After this feature:
+
+```
+kind = TerminalKindClassifier.Classify(provisional)
+qualifies = TerminalOutcomeQualifies(provisional.chainTip)   // shared predicate
+newState = qualifies ? CommittedProvisional : Immutable
+provisional.MergeState = newState
+log [Supersede] Info: provisional=<rid> mergeState=<state> terminalKind=<kind> qualifies=<b>
+```
+
+The predicate is shared between Site A and Site B by extracting `TerminalOutcomeQualifies` and the controllable-subject helper into `EffectiveState` (or a new `UnfinishedFlightClassifier` static class) so both call sites resolve the same answer. Otherwise the two sites can drift, with the failure mode that a stable-leaf re-fly gets sealed Immutable at merge while a tree-commit pass would have promoted it -- the row vanishes from Unfinished Flights immediately after the player merges their re-fly.
 
 ### 9.3 Reaper
 
@@ -371,26 +465,42 @@ No change. "All slots Immutable" rule still works correctly given §9.2's broade
 
 ### 9.4 UI
 
-`UI/RecordingsTableUI.cs` (or wherever the Unfinished Flights row currently draws its Rewind button): split the cell into Fly + Seal.
+`UI/RecordingsTableUI.cs` `DrawUnfinishedFlightRewindButton` ([line 2559](../../../Source/Parsek/UI/RecordingsTableUI.cs)) gains a second action -- Seal -- per one of the three layouts proposed in §7.0. The chosen layout drives whether `ColW_Rewind` widens, a new column is added, or a kebab menu is introduced.
 
 Seal handler:
 
-1. Confirmation dialog (`PopupDialog.SpawnPopupDialog`).
+1. Confirmation dialog (`PopupDialog.SpawnPopupDialog`) per §7.1, with input lock `ParsekUFSealDialog`.
 2. On accept: `rec.MergeState = MergeState.Immutable`; clear any transient session fields; `BumpSupersedeStateVersion`; `BumpStateVersion` on the store; the reaper's next pass will free the RP if all siblings now Immutable.
-3. Log `[UnfinishedFlights] Info: Sealed rec=<rid> bp=<bpId> rp=<rpId>`.
+3. Log `[UnfinishedFlights] Info: Sealed rec=<rid> bp=<bpId> rp=<rpId> terminal=<state> reaperImpact=<willReap|stillBlocked>`.
+4. On cancel: log `[UnfinishedFlights] Info: Seal cancelled rec=<rid>`.
 
-Tooltip update on the group itself.
+Tooltip update on the group itself ("Vessels and kerbals that ended up in a state where you might want to re-fly them..."). The existing tooltip is set in `UnfinishedFlightsGroup` -- name the file at design-doc time so a planner doesn't have to grep.
 
 ### 9.5 Tests
 
-- Unit tests on the new predicate gates: controllable-subject true/false, each terminal state's outcome verdict, EVA exception, structural leaf interaction.
-- `ApplyRewindProvisionalMergeStates`: stable-leaf controllable -> CP; stable-leaf debris -> Immutable; crashed-leaf -> CP (regression).
-- Seal handler test: state flips, version bumps, reaper subsequently reaps RP if siblings sealed.
+Unit tests:
+
+- New predicate gates: controllable-subject true/false, each `TerminalState` enum value's outcome verdict, null-terminal verdict (false), EVA exception (`EvaCrewName != null` flips the rule), structural-leaf interaction with the chain HEAD/TIP walk.
+- `ApplyRewindProvisionalMergeStates` (Site A): stable-leaf controllable -> CP; stable-leaf debris -> Immutable; crashed-leaf -> CP (regression); pre-existing legacy Immutable not re-promoted (legacy guard test).
+- `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B): re-fly ending Orbiting -> CP; re-fly ending SubOrbital -> CP; re-fly ending EVA-stranded Landed -> CP; re-fly ending Landed (vessel) -> Immutable; re-fly ending Crashed -> CP (regression). These are the predicate-drift guards described in §9.2.
+- Shared-classifier identity test: assert that `ApplyRewindProvisionalMergeStates` and `FlipMergeStateAndClearTransient` resolve the same answer on the same `Recording` instance for every terminal-state value (forcing both call sites through the shared helper).
+- Seal handler: state flips, version bumps, reaper subsequently reaps RP if and only if all sibling slots are also Immutable.
 - `RewindPointReaperTests` extended: stable-leaf CP slots prevent reap until sealed.
-- Migration test: legacy save with already-reaped split RPs has empty Unfinished Flights for those splits.
-- In-game test: deploy 4 probes, fly mothership home, return to Recordings Manager, verify all 4 in Unfinished Flights, Fly probe #2, land it, merge, verify slot closure + supersede.
-- In-game test: deploy a probe, Seal it, verify row disappears + RP eventually reaps.
-- In-game test: auto-parachute booster scenario (S19), verify NOT in Unfinished Flights and RP reaps.
+
+Migration tests:
+
+- Legacy save with already-reaped split RPs has empty Unfinished Flights for those splits (no retroactive surfacing).
+- Legacy save with live RPs whose Landed siblings are Immutable does NOT retroactively populate UF (the legacy guard from §9.2 fires).
+- Legacy save with live RPs whose Orbiting siblings are Immutable: same guard fires; player would need a fresh undock to get the new behaviour. Document explicitly.
+
+In-game tests:
+
+- Deploy 4 probes, fly mothership home, return to Recordings Manager, verify all 4 in Unfinished Flights, Fly probe #2, land it, merge, verify slot closure + supersede chain.
+- Deploy a probe, Seal it, verify row disappears + RP eventually reaps once all other slots reach Immutable / Sealed.
+- Auto-parachute booster scenario (S19), verify NOT in Unfinished Flights and RP reaps cleanly when upper stage commits.
+- Inverted scenario (S19b): fly the booster, leave upper stage Orbiting, verify upper stage IS in Unfinished Flights and the RP stays alive.
+- Cross-tree dock during stable-leaf re-fly (S21): probe re-fly docks with another tree's station, merge, verify slot closes Immutable, supersede stays inside the probe's tree, station's tree unchanged.
+- Re-fly chain extension on a stable terminal: park probe, re-fly to a different stable orbit, merge, verify slot stays CP and Unfinished Flights still shows the probe with the new flight as effective; re-fly again, land it, merge, verify slot now Immutable.
 
 ### 9.6 Documentation
 
@@ -404,8 +514,9 @@ Tooltip update on the group itself.
 ## 10. Risks
 
 - **Disk usage growth.** Stable-leaf RPs persist until Sealed or fully closed. Bounded by player diligence with the Seal button. Mitigation: Settings -> Diagnostics already shows total RP disk usage; consider splitting into Crashed vs Stable-Unconcluded counts.
-- **Over-inclusion in S6 / S17 / S18.** v1 ships with the simple terminal-state classifier; cases where the player did meaningfully fly a vessel that ended Orbiting/SubOrbital still appear as UF. Player Seals them. Acceptable per direction; v2 adds Park-or-not heuristics if playtest shows annoyance.
-- **Reversal of v0.9 §7.31 stance.** v0.9 said stable-end splits don't get a row. R3 says some do (Orbiting, SubOrbital, EVA-stranded). Need clear CHANGELOG language to set player expectations.
+- **Over-inclusion (S6 / S17 / S18).** The simple terminal-state classifier surfaces some cases where the player meaningfully flew a vessel that happened to end Orbiting / SubOrbital. The player Seals them. This is the explicitly-chosen v1 trade-off; the Seal affordance IS the design's answer to this risk. Do not re-introduce voluntary-action heuristics to address it -- that path was rejected upstream of R3.
+- **Predicate drift between Sites A and B.** The two MergeState-promotion call sites (§9.2) must use a shared classifier helper. If they diverge, a player merging a stable-leaf re-fly sees the row vanish immediately at merge (Site B sealed Immutable) even though a tree-commit pass (Site A) would have promoted it. The shared-classifier identity test in §9.5 guards against this.
+- **Reversal of v0.9 §7.31 stance.** v0.9 said stable-end splits don't get a row. This feature says some do (Orbiting, SubOrbital, EVA-stranded). Need clear CHANGELOG language to set player expectations.
 - **EVA stranded edge cases.** What if the kerbal is dead (suit ran out)? `TerminalState` for a dead EVA kerbal might be Destroyed; that's already UF via the Crashed path. What if KSP unloaded the kerbal mid-EVA? The finalization-cache work in `parsek-recording-finalization-design.md` should give a reliable terminal; depends on that work being solid.
 - **Optimizer chain length.** S16 / §2.1 -- chain walks unbounded in eccentric-orbit case. Performance risk on a save with many such vessels; the chip-spawned investigations should fix the optimizer side independently.
 
@@ -427,18 +538,19 @@ Tooltip update on the group itself.
 
 ## 12. Recommendation
 
-R3 is ready to promote to a formal design doc. The shape:
+R4 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu) needs a UX call. The shape:
 
-- **Predicate**: structural leaf + controllable-subject + `TerminalOutcomeQualifies`. About 30 lines of code in `EffectiveState.cs`.
-- **MergeState promotion**: extended `ApplyRewindProvisionalMergeStates` to use the new predicate. Reaper unchanged.
-- **UI**: Rewind cell splits into Fly + Seal. Per-row Seal handler with confirmation. Tooltip text refresh.
-- **Logging**: new `[UnfinishedFlights]` reasons; `[Recording]` log on Seal.
-- **No new persistent state** (no Park flag, no focus-time field, no orbit-shift cache). Pure derivation from existing data + a button.
-- **Tests**: unit + in-game per §9.5.
-- **Disk policy**: relies on player to Seal; Settings diagnostic surfaces total usage.
+- **Predicate**: structural leaf + controllable-subject (`!IsDebris`) + `TerminalOutcomeQualifies`. About 40 lines of code in a shared classifier (`EffectiveState` or new `UnfinishedFlightClassifier`).
+- **MergeState promotion at TWO sites**: `RecordingStore.ApplyRewindProvisionalMergeStates` (Site A) AND `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B), both routing through the shared classifier. Reaper unchanged.
+- **Legacy migration guard**: persist a one-shot marker so the first-load-after-upgrade pass does not retroactively promote already-Immutable Landed siblings.
+- **UI**: per-row Seal action alongside the existing Fly button. Layout TBD (§7.0). Confirmation dialog with destructive-action language (§7.1). Tooltip text refresh on the group.
+- **Logging**: new `[UnfinishedFlights]` reasons; new `[Supersede]` log line carrying the new `qualifies` field; `[UnfinishedFlights]` Seal accept/cancel logs.
+- **No new persistent state on Recording** beyond the optional legacy guard bit. Pure derivation from existing data + the new flag + a button.
+- **Tests**: unit + in-game per §9.5, including the shared-classifier identity test that guards against Site A/B drift.
+- **Disk policy**: relies on player to Seal; Settings diagnostic surfaces total usage; consider Crashed/Stable-Unconcluded breakdown.
 
-Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` (or merge into a v0.10 revision of the rewind-to-separation doc) following the design-doc template in `development-workflow.md` step 3. Plan + build cycle follows.
+Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` (or merge into a v0.10 revision of the rewind-to-separation doc) following the design-doc template in `development-workflow.md` step 3. Resolve the §7.0 UI layout question with a UX mock during the design-doc phase. Plan + build cycle follows.
 
 ---
 
-*End of research note R3.*
+*End of research note R4.*
