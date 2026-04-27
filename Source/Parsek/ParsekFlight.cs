@@ -14046,10 +14046,57 @@ namespace Parsek
 
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
             // the fixed watch cutoff distance. The cutoff applies uniformly to all ghosts.
+            //
+            // Debounce: requires WatchExitCutoffDebounceFrames consecutive
+            // frames over the cutoff before exiting. Suppresses single-frame
+            // false positives where state.lastDistance was computed across a
+            // FloatingOrigin / Krakensbane frame seam during time warp (the
+            // freshly-resolved ghost world position and the active vessel's
+            // stale pre-shift transform.position end up in different
+            // floating-origin frames and Vector3d.Distance picks up a phantom
+            // hundreds-of-km gap). The counter is driven on every watched-
+            // ghost frame regardless of zone hide/positioning order, so it
+            // also can't get stuck rejecting in a "renderDistance is Beyond"
+            // hidden-without-positioning loop. Real cutoff crossings exit
+            // after the debounce window (~50 ms at 60 fps).
             bool forceWatchedFullFidelity = false;
+            // Drive the cutoff debounce counter only when we're processing
+            // the watched ghost. Every other ghost would register a
+            // within-range sample and reset the counter, so a real cutoff
+            // crossing on the watched ghost could never accumulate enough
+            // consecutive samples to fire whenever any non-watched ghost
+            // ran later in the same frame.
+            bool cutoffTriggered;
+            if (isWatchedGhost && watchMode != null)
+            {
+                bool cachedCutoffTripped =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+                cutoffTriggered = watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped);
+                if (cachedCutoffTripped && !cutoffTriggered)
+                {
+                    ParsekLog.VerboseRateLimited("Zone", $"watch-cutoff-debounce-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" cached cutoff tripped " +
+                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m), " +
+                        $"debounce={watchMode.WatchCutoffConsecutiveFramesForDiagnostics}/" +
+                        $"{WatchModeController.WatchExitCutoffDebounceFrames} — staying in watch mode");
+                }
+            }
+            else if (isWatchedGhost)
+            {
+                // No watch controller available (e.g. test stubs): fall
+                // back to immediate exit on cached cutoff trip so we do
+                // not silently drop real exits.
+                cutoffTriggered =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+            }
+            else
+            {
+                cutoffTriggered = false;
+            }
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                if (isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance))
+                if (cutoffTriggered)
                 {
                     // Append ghost-world + active-section + anchor context so a
                     // "ghost flew off into space" cutoff is diagnosable from
@@ -14065,7 +14112,8 @@ namespace Parsek
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
                         $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
-                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode" +
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                        $"after {WatchModeController.WatchExitCutoffDebounceFrames}-frame debounce — exiting watch mode" +
                         (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)

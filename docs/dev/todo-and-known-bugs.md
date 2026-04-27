@@ -11,6 +11,86 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
+
+Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),
+~4-8x time warp.
+
+```
+[Zone] Ghost #0 "Kerbal X" exceeded ghost camera cutoff
+(786169m from active vessel >= 305000m; render=772527m) — exiting watch mode |
+ghostWorld=(-76794.73,-408.21,-26272.88) section=Absolute sectionUT=[124.0,226.8]
+```
+
+The new `ghostWorld=` field (added by PR #614 for diagnostics) shows the ghost
+sat at floating-origin position (-76794, -408, -26272), magnitude ~81 km. Cross-
+check: ghost #7 spawned 90 ms earlier at world=(-76197.99,-400.66,-25809.32)
+and its appearance log correctly reported `dist=80568m` (~80 km). Both ghosts
+were ~80 km from the active vessel, well inside the 305 km cutoff — but
+`state.lastDistance` for ghost #0 read 786169 m and `renderDistance` read
+772527 m, both ~10× the real distance. Watch mode auto-exited and the camera
+snapped back to the active vessel.
+
+Root cause: cached distance computed across a FloatingOrigin / Krakensbane
+frame seam. `GhostPlaybackEngine.ResolvePlaybackActiveVesselDistance` (line
+2328) and `ResolvePlaybackDistance` (line 2310) both compute
+`Vector3d.Distance(worldPos, activeVesselPos)` once per frame and cache into
+`state.lastDistance` / `state.lastRenderDistance`. During time warp, KSP can
+advance the playback UT by multiple game seconds in a single frame and
+re-position ghosts via fresh body-coord math while the active vessel's
+`transform.position` is still in the pre-shift floating-origin frame. For one
+frame the two values live in different floating-origin frames,
+`Vector3d.Distance` picks up a phantom hundreds-of-km gap, the cutoff trips.
+Same family as the `Krakensbane.GetFrameVelocity()` correction documented in
+`.claude/CLAUDE.md` (KSP API & Code Gotchas).
+
+Fix: 3-frame debounce on `WatchModeController` (approach 2 in spirit — a
+"forced one-frame await" generalised to N frames). New constant
+`WatchExitCutoffDebounceFrames = 3`, new instance method
+`RegisterWatchCutoffSampleAndShouldExit(bool cachedCutoffTripped)` that
+increments a `watchCutoffConsecutiveFrames` counter when the cached value
+trips the cutoff and resets to 0 otherwise; returns true once the counter
+reaches the threshold. Pure predicate
+`ShouldExitWatchAfterCutoffDebounce(int)` exposed for tests. Counter resets
+in both `ResetWatchEntryTransientState` and `ResetWatchState`, mirroring the
+existing `watchNoTargetFrames` safety-net pattern (which also exits after 3
+frames). `ParsekFlight.ApplyZoneRenderingImpl` drives the counter on every
+watched-ghost frame regardless of zone hide/positioning order, so the bug
+where `renderDistance >= Beyond` returned hidden before positioning ran (and
+left a stale ghost transform that could indefinitely re-trigger any
+sanity-check using `state.ghost.transform.position`) is structurally
+impossible. The Register call is gated on `isWatchedGhost && watchMode != null`
+so non-watched ghosts running later in the same frame never reset the counter
+back to 0 (which would otherwise prevent the threshold from ever being
+reached in any multi-ghost frame, since the controller-level counter is
+shared across all ghost states). The first cutoff log at the actual exit now ends with
+`after 3-frame debounce — exiting watch mode`, and intermediate frames emit a
+rate-limited `[VERBOSE][Zone] cached cutoff tripped (...) debounce=N/3 —
+staying in watch mode` line so the debounce window is observable from
+`KSP.log`.
+
+Why not the original "compare cached vs freshly-read live transforms" sanity
+check (PR #617 first commit, reverted): the sanity check rejected exits when
+`Vector3d.Distance(state.ghost.transform.position,
+FlightGlobals.ActiveVessel.transform.position)` was within range, but
+`state.ghost.transform.position` at the time of `ApplyZoneRenderingImpl` is
+the previous frame's positioning result (positioning runs after zone
+rendering). A real cutoff crossing during warp where last frame's transform
+was still in range but the current frame's body math correctly says
+350000 m would be wrongly rejected. Worse, when `renderDistance` is also
+beyond-zone, the engine returns hidden before positioning runs, so the stale
+transform persists and the rejection repeats every frame. Debounce sidesteps
+both problems because it never reads `state.ghost.transform.position` at
+all — it only counts how many consecutive frames the same cached signal has
+held. Real exits happen ~50 ms late at 60 fps, which is imperceptible.
+
+Regression coverage: `WatchModeControllerTests.ShouldExitWatchAfterCutoffDebounce_*`
+(threshold truth table) plus
+`RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter` (one
+bogus frame followed by within-range frame: counter resets, no exit) and
+`RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold`
+(N consecutive cutoff frames trip the exit at exactly the threshold).
+
 ## 626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle
 
 When the user clicked Watch on ghost B while watching ghost A, returned to A

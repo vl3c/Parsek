@@ -55,6 +55,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldExitWatchAfterCutoffDebounce_BelowThreshold_KeepsWatching()
+        {
+            // 0..N-1 consecutive cutoff frames must not fire the exit so a
+            // single-frame frame-seam glitch does not auto-eject the camera.
+            for (int frames = 0; frames < WatchModeController.WatchExitCutoffDebounceFrames; frames++)
+            {
+                Assert.False(WatchModeController.ShouldExitWatchAfterCutoffDebounce(frames));
+            }
+        }
+
+        [Fact]
+        public void ShouldExitWatchAfterCutoffDebounce_AtOrAboveThreshold_ExitsWatch()
+        {
+            // The debounce fires at exactly the configured frame count and
+            // every frame thereafter — once a real cutoff persists past the
+            // window, exits must not be delayed indefinitely.
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames + 1));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(100));
+        }
+
+        [Fact]
+        public void RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter()
+        {
+            // logs/2026-04-27_1902/KSP.log line 208360: a single bogus
+            // frame-seam frame at cached 786169m must not exit watch mode
+            // because the very next frame the cache reports the real
+            // ~81 km again, resetting the debounce counter.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            // First cutoff frame: counter=1, do not exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Within-range frame: counter resets to 0.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(false));
+            Assert.Equal(0, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Another isolated cutoff frame: counter back to 1, still no exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+        }
+
+        [Fact]
+        public void RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold()
+        {
+            // Real cutoff crossings must exit after the configured debounce
+            // window. Drives the counter up to the threshold and asserts
+            // the boundary frame triggers the exit.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            for (int frame = 1; frame < WatchModeController.WatchExitCutoffDebounceFrames; frame++)
+            {
+                Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+                Assert.Equal(frame, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            }
+            Assert.True(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(WatchModeController.WatchExitCutoffDebounceFrames,
+                ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+        }
+
+        [Fact]
         public void PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState()
         {
             var state = new GhostPlaybackState
