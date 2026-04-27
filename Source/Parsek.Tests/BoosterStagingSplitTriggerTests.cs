@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -125,6 +126,89 @@ namespace Parsek.Tests
                 capturedTrajectoryPoints: null);
 
             Assert.Equal(61.39, branchUT, 3);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_ControlledLiveChildResidualBeyondTolerance_ReturnsTrue()
+        {
+            bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: 270.0,
+                toleranceMeters: 50.0);
+
+            Assert.True(preferLive);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_ResidualWithinTolerance_KeepsCapturedSeed()
+        {
+            bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: 42.0,
+                toleranceMeters: 50.0);
+
+            Assert.False(preferLive);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_DebrisOrMissingLiveVessel_KeepsCapturedSeed()
+        {
+            Assert.False(ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: false,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: 270.0,
+                toleranceMeters: 50.0));
+
+            Assert.False(ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: false,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: 270.0,
+                toleranceMeters: 50.0));
+        }
+
+        [Fact]
+        public void ComputeBreakupSeedPropagatedResidualMeters_RawTravelMatchesVelocity_ReturnsZeroResidual()
+        {
+            double residual = ParsekFlight.ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld: new Vector3d(0, 0, 0),
+                seedVelocity: new Vector3(1200f, 0f, 1249f),
+                seedUT: 154.93,
+                liveRootWorld: new Vector3d(600, 0, 624.5),
+                liveUT: 155.43);
+
+            Assert.Equal(0.0, residual, 3);
+        }
+
+        [Fact]
+        public void ComputeBreakupSeedPropagatedResidualMeters_AlongTrackCorrectAltitudeMiss_ReturnsResidual()
+        {
+            double residual = ParsekFlight.ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld: new Vector3d(0, 0, 0),
+                seedVelocity: new Vector3(1200f, 0f, 1249f),
+                seedUT: 154.93,
+                liveRootWorld: new Vector3d(600, 270, 624.5),
+                liveUT: 155.43);
+
+            Assert.Equal(270.0, residual, 3);
+        }
+
+        [Fact]
+        public void ComputeBreakupSeedPropagatedResidualMeters_BeyondCoalescerWindow_ReturnsNaN()
+        {
+            double residual = ParsekFlight.ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld: new Vector3d(0, 0, 0),
+                seedVelocity: new Vector3(100f, 0f, 0f),
+                seedUT: 10.0,
+                liveRootWorld: new Vector3d(100, 0, 0),
+                liveUT: 11.5);
+
+            Assert.True(double.IsNaN(residual));
         }
 
         [Fact]

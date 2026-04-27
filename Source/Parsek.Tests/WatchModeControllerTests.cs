@@ -43,6 +43,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WatchRangeHysteresis_AllowsNearCutoffEntryAndExitsAfterBand()
+        {
+            Assert.True(WatchModeController.IsWithinWatchEntryRange(299_700.0));
+            Assert.False(WatchModeController.IsWithinWatchEntryRange(300_000.0));
+
+            Assert.True(WatchModeController.IsWithinWatchExitRange(299_700.0));
+            Assert.True(WatchModeController.IsWithinWatchExitRange(304_999.0));
+            Assert.False(WatchModeController.ShouldExitWatchForDistance(304_999.0));
+            Assert.True(WatchModeController.ShouldExitWatchForDistance(305_000.0));
+        }
+
+        [Fact]
         public void PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState()
         {
             var state = new GhostPlaybackState

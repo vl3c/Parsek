@@ -57,5 +57,22 @@ namespace Parsek
             IPlaybackTrajectory traj, double distance, int protectedIndex);
 
         void ClearOrbitCache();
+
+        /// <summary>
+        /// Resolves the world-space position of a vessel by persistent ID,
+        /// for diagnostic / observability code that wants to surface
+        /// "where is the anchor right now" alongside the ghost's own
+        /// position. Pure host concern (recorder lookup), exposed via the
+        /// positioner so the playback engine doesn't need to take a
+        /// FlightRecorder dependency just for log enrichment.
+        ///
+        /// <para>
+        /// Returns false when the pid is 0, the vessel is not loaded, or
+        /// the resulting world position is non-finite. Implementations are
+        /// expected to be cheap (single PID hash lookup + one position
+        /// read) — call sites in the engine assume O(1) cost.
+        /// </para>
+        /// </summary>
+        bool TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition);
     }
 }

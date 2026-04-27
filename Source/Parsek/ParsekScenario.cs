@@ -2750,7 +2750,8 @@ namespace Parsek
                 // pass after this scene-load OnLoad), so there is no in-flight payload state
                 // to lose, but a small set of [NonSerialized] mitigation flags
                 // (FilesDirty / SidecarLoadFailed / SidecarLoadFailureReason /
-                // ContinuationBoundaryIndex / Pre-Continuation snapshots) may already be set
+                // ContinuationBoundaryIndex / Pre-Continuation snapshots /
+                // Pre-ReFly anchor trajectory) may already be set
                 // by earlier load-time code paths and the refresh must not wipe them. The
                 // structural fields (trajectory, orbit segments, track sections, terminal
                 // state, ChildBranchPointId) ARE refreshed for the active recording — that is
@@ -3507,7 +3508,8 @@ namespace Parsek
                     // flags that load-time mitigation paths may have already
                     // set on the active recording (FilesDirty / SidecarLoadFailed /
                     // SidecarLoadFailureReason / ContinuationBoundaryIndex /
-                    // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot).
+                    // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot /
+                    // PreReFlyAnchor* trajectory snapshot).
                     bool isActive = !string.IsNullOrEmpty(activeRecordingId)
                         && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
 
@@ -3634,7 +3636,8 @@ namespace Parsek
         /// have already set on the loaded copy: <c>FilesDirty</c>,
         /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>,
         /// <c>ContinuationBoundaryIndex</c>, <c>PreContinuationVesselSnapshot</c>,
-        /// <c>PreContinuationGhostSnapshot</c>. The committed copy never
+        /// <c>PreContinuationGhostSnapshot</c>, and <c>PreReFlyAnchor*</c>
+        /// trajectory snapshots. The committed copy never
         /// carries those flags (they are <c>[NonSerialized]</c> and
         /// <c>DeepClone</c> does not propagate them), so a non-active refresh
         /// can clobber-then-restore safely. The preserve-mode exists because
@@ -3704,7 +3707,7 @@ namespace Parsek
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
             // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
             // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
-            // PreContinuationGhostSnapshot}. Add to this preserve-list when
+            // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this preserve-list when
             // any new [NonSerialized] flag tracking per-session live state
             // is added to Recording.
             bool savedFilesDirty = loadedRec.FilesDirty;
@@ -3713,6 +3716,10 @@ namespace Parsek
             int savedContinuationBoundaryIndex = loadedRec.ContinuationBoundaryIndex;
             ConfigNode savedPreContinuationVesselSnapshot = loadedRec.PreContinuationVesselSnapshot;
             ConfigNode savedPreContinuationGhostSnapshot = loadedRec.PreContinuationGhostSnapshot;
+            string savedPreReFlyAnchorSessionId = loadedRec.PreReFlyAnchorSessionId;
+            List<TrajectoryPoint> savedPreReFlyAnchorPoints = loadedRec.PreReFlyAnchorPoints;
+            List<OrbitSegment> savedPreReFlyAnchorOrbitSegments = loadedRec.PreReFlyAnchorOrbitSegments;
+            List<TrackSection> savedPreReFlyAnchorTrackSections = loadedRec.PreReFlyAnchorTrackSections;
 
             Recording sourceClone = Recording.DeepClone(committedRec);
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
@@ -3759,6 +3766,10 @@ namespace Parsek
                 loadedRec.ContinuationBoundaryIndex = savedContinuationBoundaryIndex;
                 loadedRec.PreContinuationVesselSnapshot = savedPreContinuationVesselSnapshot;
                 loadedRec.PreContinuationGhostSnapshot = savedPreContinuationGhostSnapshot;
+                loadedRec.PreReFlyAnchorSessionId = savedPreReFlyAnchorSessionId;
+                loadedRec.PreReFlyAnchorPoints = savedPreReFlyAnchorPoints;
+                loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;
+                loadedRec.PreReFlyAnchorTrackSections = savedPreReFlyAnchorTrackSections;
             }
 
             return true;

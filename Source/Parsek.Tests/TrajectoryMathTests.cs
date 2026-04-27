@@ -1,4 +1,5 @@
 using Xunit;
+using UnityEngine;
 
 namespace Parsek.Tests
 {
@@ -8,6 +9,33 @@ namespace Parsek.Tests
         // matching (LAN / argP / inclination); promoted to internal in the #612
         // wraparound follow-up so the math stays centralized.
         private const double Eps = 1e-12;
+
+        [Fact]
+        public void PureSlerp_ClampsTLikeUnitySlerp()
+        {
+            var from = new Quaternion(0f, 0f, 0f, 1f);
+            var to = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            AssertQuaternionClose(from, TrajectoryMath.PureSlerp(from, to, -0.5f), 1e-6f);
+            AssertQuaternionClose(to, TrajectoryMath.PureSlerp(from, to, 1.5f), 1e-6f);
+        }
+
+        [Fact]
+        public void PureSlerp_UsesShortestPathForSignEquivalentEndpoint()
+        {
+            var from = new Quaternion(0f, 0f, 0f, 1f);
+            var to = new Quaternion(0f, 0f, 0f, -1f);
+
+            AssertQuaternionClose(from, TrajectoryMath.PureSlerp(from, to, 0.5f), 1e-6f);
+        }
+
+        private static void AssertQuaternionClose(Quaternion expected, Quaternion actual, float tolerance)
+        {
+            Assert.InRange(System.Math.Abs(expected.x - actual.x), 0, tolerance);
+            Assert.InRange(System.Math.Abs(expected.y - actual.y), 0, tolerance);
+            Assert.InRange(System.Math.Abs(expected.z - actual.z), 0, tolerance);
+            Assert.InRange(System.Math.Abs(expected.w - actual.w), 0, tolerance);
+        }
 
         [Fact]
         public void AngularDeltaDegrees_SimpleDelta_ReturnsAbsoluteDifference()

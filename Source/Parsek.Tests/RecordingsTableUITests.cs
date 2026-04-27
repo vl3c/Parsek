@@ -245,7 +245,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveUnfinishedFlightRewindRoute_MissingSlotConsumesRowAsDisabled()
+        public void ResolveUnfinishedFlightRewindRoute_MissingSlotDoesNotExposeUnfinishedFlightButton()
         {
             var probe = new Recording
             {
@@ -265,7 +265,7 @@ namespace Parsek.Tests
             var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
                 probe, out RewindPoint rp, out int slotListIndex, out string reason);
 
-            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.MissingSlot, route);
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
             Assert.Null(rp);
             Assert.Equal(-1, slotListIndex);
             Assert.Contains("slot", reason);
@@ -1424,6 +1424,48 @@ namespace Parsek.Tests
             Assert.True(grpToRecs.ContainsKey("Launch"));
             Assert.Contains(0, grpToRecs["Launch"]);
             Assert.Contains("Launch", rootGrps);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_SupersededRelation_HidesOldRecording()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        OldRecordingId = "old-probe-booster",
+                        NewRecordingId = "replacement-upper-stage"
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "old-probe-booster",
+                    VesselName = "Old Probe Booster",
+                    RecordingGroups = new List<string> { "Launch" }
+                },
+                new Recording
+                {
+                    RecordingId = "replacement-upper-stage",
+                    VesselName = "Replacement Upper Stage",
+                    RecordingGroups = new List<string> { "Launch" }
+                }
+            };
+
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0, 1 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.True(grpToRecs.ContainsKey("Launch"));
+            Assert.DoesNotContain(0, grpToRecs["Launch"]);
+            Assert.Contains(1, grpToRecs["Launch"]);
         }
 
         [Fact]

@@ -69,6 +69,7 @@ namespace Parsek.Tests
             preparedSnapshot.AddValue("lat", "1.0");
             preparedSnapshot.AddValue("lon", "2.0");
             preparedSnapshot.AddValue("alt", "3.0");
+            preparedSnapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
             var orbitNode = new ConfigNode("ORBIT");
             orbitNode.AddValue("SMA", "700000");
             orbitNode.AddValue("ECC", "0.01");

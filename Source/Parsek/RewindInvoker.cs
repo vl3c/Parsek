@@ -246,7 +246,7 @@ namespace Parsek
                     message,
                     title,
                     HighLogic.UISkin,
-                    new DialogGUIButton("Re-Fly", () =>
+                    new DialogGUIButton("Fly", () =>
                     {
                         ParsekLog.Info(UITag,
                             $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +
@@ -339,19 +339,21 @@ namespace Parsek
                 return;
             }
 
-            // Step 2: copy RP quicksave from saves/<save>/Parsek/RewindPoints/<rpId>.sfs
-            // to saves/<save>/Parsek_Rewind_<sessionId>.sfs (root; KSP's LoadGame
+            // Step 2: copy a slot-scrubbed view of the RP quicksave from
+            // saves/<save>/Parsek/RewindPoints/<rpId>.sfs to
+            // saves/<save>/Parsek_Rewind_<sessionId>.sfs (root; KSP's LoadGame
             // does not accept subdirectory paths).
-            string tempPath;
-            string tempLoadName;
+            string tempPath = null;
+            string tempLoadName = null;
             try
             {
-                CopyQuicksaveToSaveRoot(rp, sessionId, out tempPath, out tempLoadName);
+                CopyQuicksaveToSaveRoot(rp, selected, sessionId, out tempPath, out tempLoadName);
             }
             catch (Exception ex)
             {
                 ParsekLog.Error(InvokeTag,
                     $"Invocation failed: copy-to-root threw: {ex.Message} rp={rp.RewindPointId}");
+                TryDeleteTemp(tempPath);
                 ShowUserError($"Rewind failed: could not stage quicksave ({ex.Message})");
                 HandleQuicksaveMissing(rp);
                 return;
@@ -557,7 +559,10 @@ namespace Parsek
                 PostLoadStripResult stripResult;
                 try
                 {
-                    stripResult = PostLoadStripper.Strip(rp, slotIdx);
+                    stripResult = PostLoadStripper.Strip(
+                        rp,
+                        slotIdx,
+                        stripUnmatchedVessels: true);
                 }
                 catch (Exception ex)
                 {
@@ -817,34 +822,53 @@ namespace Parsek
                 && originChild.VesselPersistentId == stripResult.SelectedPid;
 
             Recording provisional = null;
-            string activeReFlyRecordingId;
-            string treeIdForMarker;
-
-            if (inPlaceContinuation)
-            {
-                activeReFlyRecordingId = originChild.RecordingId;
-                treeIdForMarker = originChild.TreeId;
-                ParsekLog.Info(InvokeTag,
-                    $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
-                    $"{originChild.RecordingId} (no placeholder created)");
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
-            else
-            {
-                provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
-                activeReFlyRecordingId = provisional.RecordingId;
-                treeIdForMarker = provisional.TreeId;
-
-                CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
-                RecordingStore.AddProvisional(provisional);
-                CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
-            }
+            string activeReFlyRecordingId = null;
+            string treeIdForMarker = null;
+            string priorPreReFlyAnchorSessionId = null;
+            List<TrajectoryPoint> priorPreReFlyAnchorPoints = null;
+            List<OrbitSegment> priorPreReFlyAnchorOrbitSegments = null;
+            List<TrackSection> priorPreReFlyAnchorTrackSections = null;
+            bool frozeOriginForInPlace = false;
+            string priorOriginCreatingSessionId = null;
+            string priorOriginProvisionalForRpId = null;
+            bool taggedOriginForInPlace = false;
 
             ReFlySessionMarker marker;
             try
             {
+                if (inPlaceContinuation)
+                {
+                    activeReFlyRecordingId = originChild.RecordingId;
+                    treeIdForMarker = originChild.TreeId;
+                    priorPreReFlyAnchorSessionId = originChild.PreReFlyAnchorSessionId;
+                    priorPreReFlyAnchorPoints = originChild.PreReFlyAnchorPoints;
+                    priorPreReFlyAnchorOrbitSegments = originChild.PreReFlyAnchorOrbitSegments;
+                    priorPreReFlyAnchorTrackSections = originChild.PreReFlyAnchorTrackSections;
+                    priorOriginCreatingSessionId = originChild.CreatingSessionId;
+                    priorOriginProvisionalForRpId = originChild.ProvisionalForRpId;
+                    originChild.CapturePreReFlyAnchorTrajectory(sessionId);
+                    frozeOriginForInPlace = true;
+                    originChild.CreatingSessionId = sessionId;
+                    originChild.ProvisionalForRpId = rp.RewindPointId;
+                    taggedOriginForInPlace = true;
+                    ParsekLog.Info(InvokeTag,
+                        $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
+                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata; pre-ReFly anchor trajectory frozen)");
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+                else
+                {
+                    provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    activeReFlyRecordingId = provisional.RecordingId;
+                    treeIdForMarker = provisional.TreeId;
+
+                    CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
+                    RecordingStore.AddProvisional(provisional);
+                    CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+                }
+
                 marker = new ReFlySessionMarker
                 {
                     SessionId = sessionId,
@@ -868,10 +892,23 @@ namespace Parsek
                 // section. Both clears are idempotent
                 // (RemoveCommittedInternal returns false if absent; marker
                 // clear is a null-assignment). In-place continuation paths
-                // did not add anything to the committed list, so there's
-                // nothing to roll back on the recording side.
+                // did not add a recording, but they did mutate transient
+                // in-place state on the existing origin; restore it so the
+                // critical section stays all-or-nothing.
                 if (provisional != null)
                     RecordingStore.RemoveCommittedInternal(provisional);
+                if (frozeOriginForInPlace && originChild != null)
+                {
+                    originChild.PreReFlyAnchorSessionId = priorPreReFlyAnchorSessionId;
+                    originChild.PreReFlyAnchorPoints = priorPreReFlyAnchorPoints;
+                    originChild.PreReFlyAnchorOrbitSegments = priorPreReFlyAnchorOrbitSegments;
+                    originChild.PreReFlyAnchorTrackSections = priorPreReFlyAnchorTrackSections;
+                }
+                if (taggedOriginForInPlace && originChild != null)
+                {
+                    originChild.CreatingSessionId = priorOriginCreatingSessionId;
+                    originChild.ProvisionalForRpId = priorOriginProvisionalForRpId;
+                }
                 try
                 {
                     if (ParsekScenario.Instance != null)
@@ -1012,6 +1049,275 @@ namespace Parsek
             tempLoadName = tempName;
             ParsekLog.Verbose(InvokeTag,
                 $"CopyQuicksaveToSaveRoot: '{sourceAbs}' -> '{destAbs}' loadName='{tempName}'");
+        }
+
+        /// <summary>
+        /// Production Re-Fly staging path: copy the RP quicksave to the save root,
+        /// then scrub that temp copy down to the selected slot before KSP loads it.
+        /// The RP source save and persistent save are not modified.
+        /// </summary>
+        internal static void CopyQuicksaveToSaveRoot(
+            RewindPoint rp, ChildSlot selected, string sessionId,
+            out string tempAbsolutePath, out string tempLoadName)
+        {
+            CopyQuicksaveToSaveRoot(rp, sessionId, out tempAbsolutePath, out tempLoadName);
+            if (!string.IsNullOrEmpty(tempAbsolutePath) && selected != null)
+            {
+                RequireSelectedSlotScrubApplied(tempAbsolutePath, rp, selected.SlotIndex);
+            }
+        }
+
+        internal static ReFlySaveScrubResult RequireSelectedSlotScrubApplied(
+            string tempAbsolutePath, RewindPoint rp, int selectedSlotIndex)
+        {
+            ReFlySaveScrubResult scrubResult = ScrubQuicksaveToSelectedSlotForReFly(
+                tempAbsolutePath, rp, selectedSlotIndex);
+            if (!scrubResult.Applied)
+            {
+                throw new InvalidOperationException(
+                    "Re-Fly temp save scrub failed; refusing to load unscrubbed quicksave");
+            }
+            return scrubResult;
+        }
+
+        internal struct ReFlySaveScrubResult
+        {
+            public bool Applied;
+            public int VesselCountBefore;
+            public int VesselsKept;
+            public int VesselsRemoved;
+            public int SelectedActiveIndex;
+            public int SidecarEpochsRefreshed;
+            public int SidecarEpochRefreshSkipped;
+        }
+
+        /// <summary>
+        /// Rewrites the temp re-fly save so KSP only instantiates the selected
+        /// slot's real vessel. This is intentionally scoped to the root-level
+        /// temp copy: persistent.sfs and the RP source save are not modified.
+        /// </summary>
+        internal static ReFlySaveScrubResult ScrubQuicksaveToSelectedSlotForReFly(
+            string sfsPath, RewindPoint rp, int selectedSlotIndex)
+        {
+            var result = new ReFlySaveScrubResult { SelectedActiveIndex = -1 };
+            if (string.IsNullOrEmpty(sfsPath) || rp == null || selectedSlotIndex < 0)
+                return result;
+
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            if (root == null)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly save scrub skipped: ConfigNode.Load returned null path='{sfsPath}'");
+                return result;
+            }
+
+            ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+            ConfigNode flightState = gameNode?.GetNode("FLIGHTSTATE");
+            if (flightState == null)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly save scrub skipped: no FLIGHTSTATE path='{sfsPath}'");
+                return result;
+            }
+
+            var selectedVesselPids = BuildSelectedSlotPidSet(rp.PidSlotMap, selectedSlotIndex);
+            var selectedRootPartPids = BuildSelectedSlotPidSet(rp.RootPartPidMap, selectedSlotIndex);
+            if (selectedVesselPids.Count == 0 && selectedRootPartPids.Count == 0)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly save scrub skipped: selected slot has no pid mapping " +
+                    $"rp={rp.RewindPointId} slot={selectedSlotIndex}");
+                return result;
+            }
+
+            ConfigNode[] vesselNodes = flightState.GetNodes("VESSEL");
+            result.VesselCountBefore = vesselNodes.Length;
+            var remove = new List<ConfigNode>();
+            int keptIndex = 0;
+            for (int i = 0; i < vesselNodes.Length; i++)
+            {
+                ConfigNode vessel = vesselNodes[i];
+                uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
+                uint rootPartPid = GetRootPartPersistentId(vessel);
+                bool keep = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
+                    || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
+
+                if (keep)
+                {
+                    if (result.SelectedActiveIndex < 0)
+                        result.SelectedActiveIndex = keptIndex;
+                    keptIndex++;
+                    result.VesselsKept++;
+                }
+                else
+                {
+                    remove.Add(vessel);
+                }
+            }
+
+            if (result.VesselsKept == 0)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly save scrub skipped: selected slot vessel not found " +
+                    $"rp={rp.RewindPointId} slot={selectedSlotIndex} vessels={vesselNodes.Length}");
+                return result;
+            }
+
+            for (int i = 0; i < remove.Count; i++)
+                flightState.RemoveNode(remove[i]);
+
+            result.VesselsRemoved = remove.Count;
+            SetOrAddValue(flightState, "activeVessel",
+                Math.Max(0, result.SelectedActiveIndex).ToString(CultureInfo.InvariantCulture));
+            int sidecarSkipped;
+            result.SidecarEpochsRefreshed =
+                RefreshRecordingSidecarEpochsForTempSave(root, sfsPath, out sidecarSkipped);
+            result.SidecarEpochRefreshSkipped = sidecarSkipped;
+            root.Save(sfsPath);
+            result.Applied = true;
+
+            ParsekLog.Info(InvokeTag,
+                $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
+                $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
+                $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
+                $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
+                $"sidecarEpochRefreshSkipped={result.SidecarEpochRefreshSkipped} " +
+                $"path='{sfsPath}'");
+            return result;
+        }
+
+        internal static int RefreshRecordingSidecarEpochsForTempSave(
+            ConfigNode root, string sfsPath, out int skipped)
+        {
+            skipped = 0;
+            if (root == null || string.IsNullOrEmpty(sfsPath))
+                return 0;
+
+            string saveRoot = Path.GetDirectoryName(sfsPath);
+            if (string.IsNullOrEmpty(saveRoot))
+                return 0;
+
+            int refreshed = 0;
+            RefreshRecordingSidecarEpochsInNode(root, saveRoot, ref refreshed, ref skipped);
+            return refreshed;
+        }
+
+        private static void RefreshRecordingSidecarEpochsInNode(
+            ConfigNode node, string saveRoot, ref int refreshed, ref int skipped)
+        {
+            if (node == null) return;
+
+            if (string.Equals(node.name, "RECORDING", StringComparison.Ordinal))
+            {
+                RefreshSingleRecordingSidecarEpoch(node, saveRoot, ref refreshed, ref skipped);
+            }
+
+            foreach (ConfigNode child in node.GetNodes())
+            {
+                RefreshRecordingSidecarEpochsInNode(child, saveRoot, ref refreshed, ref skipped);
+            }
+        }
+
+        private static void RefreshSingleRecordingSidecarEpoch(
+            ConfigNode recordingNode, string saveRoot, ref int refreshed, ref int skipped)
+        {
+            string recordingId = recordingNode.GetValue("recordingId");
+            if (!RecordingPaths.ValidateRecordingId(recordingId))
+            {
+                skipped++;
+                return;
+            }
+
+            string precPath = Path.Combine(saveRoot, RecordingPaths.BuildTrajectoryRelativePath(recordingId));
+            TrajectorySidecarProbe probe;
+            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
+            {
+                skipped++;
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(probe.RecordingId)
+                && !string.Equals(probe.RecordingId, recordingId, StringComparison.Ordinal))
+            {
+                skipped++;
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly sidecar epoch refresh skipped: recording id mismatch node={recordingId} " +
+                    $"sidecar={probe.RecordingId} path='{precPath}'");
+                return;
+            }
+
+            string oldValue = recordingNode.GetValue("sidecarEpoch");
+            int currentEpoch;
+            bool hasCurrentEpoch = int.TryParse(oldValue, NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out currentEpoch);
+            if (hasCurrentEpoch && probe.SidecarEpoch < currentEpoch)
+            {
+                skipped++;
+                ParsekLog.Warn(InvokeTag,
+                    $"Re-Fly sidecar epoch refresh skipped: sidecar older than temp save " +
+                    $"rec={recordingId} sfs={currentEpoch} sidecar={probe.SidecarEpoch} path='{precPath}'");
+                return;
+            }
+
+            int targetEpoch = hasCurrentEpoch
+                ? Math.Max(currentEpoch, probe.SidecarEpoch)
+                : probe.SidecarEpoch;
+            string newValue = targetEpoch.ToString(CultureInfo.InvariantCulture);
+            if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
+            {
+                SetOrAddValue(recordingNode, "sidecarEpoch", newValue);
+                refreshed++;
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly sidecar epoch refreshed: rec={recordingId} old={oldValue ?? "<missing>"} " +
+                    $"new={newValue} path='{precPath}'");
+            }
+        }
+
+        private static HashSet<uint> BuildSelectedSlotPidSet(
+            Dictionary<uint, int> map, int selectedSlotIndex)
+        {
+            var result = new HashSet<uint>();
+            if (map == null) return result;
+            foreach (var kv in map)
+            {
+                if (kv.Key != 0u && kv.Value == selectedSlotIndex)
+                    result.Add(kv.Key);
+            }
+            return result;
+        }
+
+        private static uint GetRootPartPersistentId(ConfigNode vessel)
+        {
+            if (vessel == null) return 0u;
+            int rootIndex;
+            if (!int.TryParse(vessel.GetValue("root"), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out rootIndex))
+            {
+                rootIndex = 0;
+            }
+
+            ConfigNode[] parts = vessel.GetNodes("PART");
+            if (parts == null || parts.Length == 0) return 0u;
+            if (rootIndex < 0 || rootIndex >= parts.Length) rootIndex = 0;
+            return ParseUInt(parts[rootIndex].GetValue("persistentId"));
+        }
+
+        private static uint ParseUInt(string value)
+        {
+            uint parsed;
+            return uint.TryParse(value, NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out parsed)
+                ? parsed
+                : 0u;
+        }
+
+        private static void SetOrAddValue(ConfigNode node, string name, string value)
+        {
+            if (node == null || string.IsNullOrEmpty(name)) return;
+            if (node.HasValue(name))
+                node.SetValue(name, value);
+            else
+                node.AddValue(name, value);
         }
 
         private static void TryDeleteTemp(string tempPath)
@@ -1434,6 +1740,7 @@ namespace Parsek
             var killEligibleNames = new HashSet<string>(StringComparer.Ordinal);
             int destroyedTerminalNames = 0;
             int suppressedSubtreeNames = 0;
+            int parentChainNames = 0;
             foreach (var rec in markerTree.Recordings.Values)
             {
                 if (rec == null) continue;
@@ -1446,13 +1753,24 @@ namespace Parsek
                 bool inSuppressedSubtree = suppressedSet != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressedSet.Contains(rec.RecordingId);
+                bool inActiveParentChain = false;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    string walkTrace;
+                    inActiveParentChain = GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                        rec.RecordingId,
+                        marker.ActiveReFlyRecordingId,
+                        trees,
+                        out walkTrace);
+                }
 
-                if (!destroyedTerminal && !inSuppressedSubtree) continue;
+                if (!destroyedTerminal && !inSuppressedSubtree && !inActiveParentChain) continue;
 
                 if (killEligibleNames.Add(rec.VesselName))
                 {
                     if (destroyedTerminal) destroyedTerminalNames++;
                     if (inSuppressedSubtree) suppressedSubtreeNames++;
+                    if (inActiveParentChain) parentChainNames++;
                 }
             }
             if (killEligibleNames.Count == 0) return kill;
@@ -1472,7 +1790,8 @@ namespace Parsek
                 ParsekLog.Verbose(InvokeTag,
                     $"ResolveInPlaceContinuationDebrisToKill: matched {kill.Count} pid(s) " +
                     $"against {killEligibleNames.Count} kill-eligible name(s) " +
-                    $"(destroyedTerminal={destroyedTerminalNames} suppressedSubtree={suppressedSubtreeNames}) " +
+                    $"(destroyedTerminal={destroyedTerminalNames} suppressedSubtree={suppressedSubtreeNames} " +
+                    $"parentChain={parentChainNames}) " +
                     $"in tree '{markerTree.Id}'");
             }
 
@@ -1655,9 +1974,9 @@ namespace Parsek
             {
                 string joined = string.Join(", ", killedNames.ToArray());
                 ParsekLog.Warn(InvokeTag,
-                    $"Strip post-supplement: killed {killed} pre-existing debris vessel(s) " +
+                    $"Strip post-supplement: killed {killed} pre-existing tree-collision vessel(s) " +
                     $"for in-place continuation re-fly: [{joined}] " +
-                    $"(name matches a Destroyed-terminal recording in tree '{marker.TreeId}'; " +
+                    $"(name matches a Destroyed-terminal, session-suppressed, or parent-chain recording in tree '{marker.TreeId}'; " +
                     $"left in scene by PostLoadStripper because no PidSlotMap entry; " +
                     $"would otherwise trip KSP patched conics into a phantom encounter -- bug #587)");
             }

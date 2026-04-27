@@ -3293,6 +3293,48 @@ namespace Parsek.Tests
             Assert.True(should);
         }
 
+        [Fact]
+        public void ChainAware_SupersedeRelationSuppressesOldRecording()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "old-probe-booster",
+                    ExplicitStartUT = 100,
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000
+                },
+                new Recording
+                {
+                    RecordingId = "replacement-upper-stage",
+                    ExplicitStartUT = 100,
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 800000
+                }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    OldRecordingId = "old-probe-booster",
+                    NewRecordingId = "replacement-upper-stage"
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(
+                recs, 300, supersedes);
+
+            Assert.Contains("old-probe-booster", suppressed);
+            Assert.DoesNotContain("replacement-upper-stage", suppressed);
+
+            var (shouldOld, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[0], suppressed.Contains(recs[0].RecordingId), 300);
+            Assert.False(shouldOld);
+        }
+
         /// <summary>
         /// Standalone recording (no chain) with orbit data: ghost created.
         /// </summary>

@@ -101,6 +101,395 @@ namespace Parsek.Tests
             return rec;
         }
 
+        static Recording MakeKscRelativeRecording()
+        {
+            var before = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 10,
+                longitude = 20,
+                altitude = 30,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var after = new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 30,
+                longitude = 40,
+                altitude = 50,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var rec = new Recording
+            {
+                VesselName = "RelativeKsc",
+                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+            };
+            rec.Points.Add(before);
+            rec.Points.Add(after);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100,
+                endUT = 110,
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint> { before, after }
+            });
+            return rec;
+        }
+
+        static Recording MakeKscAbsoluteSectionRecording()
+        {
+            var before = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 1,
+                longitude = 2,
+                altitude = 3,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var after = new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 11,
+                longitude = 12,
+                altitude = 13,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var rec = new Recording
+            {
+                VesselName = "AbsoluteKsc",
+                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+            };
+            rec.Points.Add(before);
+            rec.Points.Add(after);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100,
+                endUT = 110,
+                frames = new List<TrajectoryPoint> { before, after }
+            });
+            return rec;
+        }
+
+        static Recording MakeKscOrbitalCheckpointSectionRecording()
+        {
+            var before = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 1,
+                longitude = 2,
+                altitude = 3,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var after = new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 11,
+                longitude = 12,
+                altitude = 13,
+                bodyName = "Kerbin",
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = Vector3.zero
+            };
+            var rec = new Recording
+            {
+                VesselName = "CheckpointKsc",
+                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+            };
+            rec.Points.Add(before);
+            rec.Points.Add(after);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100,
+                endUT = 110,
+                frames = new List<TrajectoryPoint> { before, after }
+            });
+            return rec;
+        }
+
+        static ParsekKSC.KscSurfaceLookup SurfaceLookupFromLatLonAlt(Action onCall = null)
+        {
+            return (string bodyName, double lat, double lon, double alt,
+                out Vector3d worldPos, out Quaternion bodyRot) =>
+            {
+                onCall?.Invoke();
+                bodyRot = Quaternion.identity;
+                if (bodyName != "Kerbin")
+                {
+                    worldPos = Vector3d.zero;
+                    return false;
+                }
+
+                worldPos = new Vector3d(lat * 100.0, lon * 100.0, alt);
+                return true;
+            };
+        }
+
+        static ParsekKSC.KscAnchorLookup AnchorLookup(uint expectedPid, Vector3d anchorPos)
+        {
+            return (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            {
+                if (pid != expectedPid)
+                {
+                    anchor = default(ParsekKSC.KscAnchorFrame);
+                    return false;
+                }
+
+                anchor = new ParsekKSC.KscAnchorFrame(anchorPos, Quaternion.identity);
+                return true;
+            };
+        }
+
+        static bool MissingAnchorLookup(uint pid, out ParsekKSC.KscAnchorFrame anchor)
+        {
+            anchor = default(ParsekKSC.KscAnchorFrame);
+            return false;
+        }
+
+        #endregion
+
+        #region KSC reference-frame dispatch
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_RelativeSection_UsesAnchorLocalOffset()
+        {
+            var rec = MakeKscRelativeRecording();
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            bool surfaceCalled = false;
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalled = true),
+                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.False(surfaceCalled);
+            Assert.Equal(1, cachedFrameSourceKey);
+            Assert.Equal("relative", pose.Branch);
+            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Equal(1020.0, pose.WorldPos.x, 6);
+            Assert.Equal(2030.0, pose.WorldPos.y, 6);
+            Assert.Equal(3040.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, line =>
+                line.Contains("[KSCGhost]") &&
+                line.Contains("RELATIVE KSC playback resolved") &&
+                line.Contains("anchorPid=42"));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_RelativeSection_UnresolvedAnchorSkips()
+        {
+            var rec = MakeKscRelativeRecording();
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(),
+                MissingAnchorLookup,
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.False(resolved);
+            Assert.Equal("relative", pose.Branch);
+            Assert.Equal("relative-anchor-unresolved", pose.FailureReason);
+            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Contains(logLines, line =>
+                line.Contains("[KSCGhost]") &&
+                line.Contains("RELATIVE KSC playback skipped") &&
+                line.Contains("anchorPid=42"));
+        }
+
+        [Fact]
+        public void ShouldHideKscRelativeAnchorUnresolvedGhost_HidesOnlyBeforeFirstPose()
+        {
+            Assert.True(ParsekKSC.ShouldHideKscRelativeAnchorUnresolvedGhost(null));
+
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true
+            };
+            Assert.True(ParsekKSC.ShouldHideKscRelativeAnchorUnresolvedGhost(state));
+
+            state.deferVisibilityUntilPlaybackSync = false;
+            Assert.False(ParsekKSC.ShouldHideKscRelativeAnchorUnresolvedGhost(state));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_AbsoluteSection_UsesSurfaceLookup()
+        {
+            var rec = MakeKscAbsoluteSectionRecording();
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            int surfaceCalls = 0;
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
+                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.Equal(2, surfaceCalls);
+            Assert.Equal(1, cachedFrameSourceKey);
+            Assert.Equal("absolute", pose.Branch);
+            Assert.Equal(600.0, pose.WorldPos.x, 6);
+            Assert.Equal(700.0, pose.WorldPos.y, 6);
+            Assert.Equal(8.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, line =>
+                line.Contains("[KSCGhost]") &&
+                line.Contains("KSC SURFACE playback resolved"));
+        }
+
+        [Fact]
+        public void ShouldTriggerKscExplosionAtCurrentPose_UsesFrozenPoseAfterFirstPosition()
+        {
+            Assert.False(ParsekKSC.ShouldTriggerKscExplosionAtCurrentPoseForTesting(
+                positioned: false,
+                hasValidPose: false));
+            Assert.True(ParsekKSC.ShouldTriggerKscExplosionAtCurrentPoseForTesting(
+                positioned: false,
+                hasValidPose: true));
+            Assert.True(ParsekKSC.ShouldTriggerKscExplosionAtCurrentPoseForTesting(
+                positioned: true,
+                hasValidPose: false));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_OrbitalCheckpointFrames_UseSurfaceLookup()
+        {
+            var rec = MakeKscOrbitalCheckpointSectionRecording();
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            int surfaceCalls = 0;
+            bool anchorCalled = false;
+            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            {
+                anchorCalled = true;
+                anchor = default(ParsekKSC.KscAnchorFrame);
+                return false;
+            };
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
+                anchorLookup,
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.Equal(2, surfaceCalls);
+            Assert.Equal(1, cachedFrameSourceKey);
+            Assert.False(anchorCalled);
+            Assert.Equal("orbital-checkpoint", pose.Branch);
+            Assert.Equal(600.0, pose.WorldPos.x, 6);
+            Assert.Equal(700.0, pose.WorldPos.y, 6);
+            Assert.Equal(8.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, line =>
+                line.Contains("[KSCGhost]") &&
+                line.Contains("KSC SURFACE playback resolved") &&
+                line.Contains("branch=orbital-checkpoint"));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_NoSection_UsesAbsoluteSurfaceLookup()
+        {
+            var rec = MakeKerbinRecording();
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            int surfaceCalls = 0;
+            bool anchorCalled = false;
+            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            {
+                anchorCalled = true;
+                anchor = default(ParsekKSC.KscAnchorFrame);
+                return false;
+            };
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                150,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
+                anchorLookup,
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.Equal(2, surfaceCalls);
+            Assert.Equal(ParsekKSC.KscFlatPointFrameSourceKey, cachedFrameSourceKey);
+            Assert.False(anchorCalled);
+            Assert.Equal("no-section", pose.Branch);
+            Assert.Equal(-9.72, pose.WorldPos.x, 6);
+            Assert.Equal(-7455.75, pose.WorldPos.y, 6);
+            Assert.Equal(2535.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, line =>
+                line.Contains("[KSCGhost]") &&
+                line.Contains("KSC SURFACE playback resolved") &&
+                line.Contains("branch=no-section"));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_ResetsCacheWhenFrameSourceChanges()
+        {
+            var relative = MakeKscRelativeRecording();
+            int cachedIndex = 99;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+
+            bool relativeResolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                relative,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(),
+                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                out ParsekKSC.KscPoseResolution relativePose);
+
+            Assert.True(relativeResolved);
+            Assert.Equal("relative", relativePose.Branch);
+            Assert.Equal(1, cachedFrameSourceKey);
+            Assert.InRange(cachedIndex, 0, relative.TrackSections[0].frames.Count - 1);
+
+            var noSection = MakeKerbinRecording();
+            bool absoluteResolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                noSection,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                150,
+                SurfaceLookupFromLatLonAlt(),
+                MissingAnchorLookup,
+                out ParsekKSC.KscPoseResolution absolutePose);
+
+            Assert.True(absoluteResolved);
+            Assert.Equal("no-section", absolutePose.Branch);
+            Assert.Equal(ParsekKSC.KscFlatPointFrameSourceKey, cachedFrameSourceKey);
+            Assert.InRange(cachedIndex, 0, noSection.Points.Count - 1);
+        }
+
         #endregion
 
         #region ShouldShowInKSC
@@ -110,6 +499,23 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording();
             Assert.True(ParsekKSC.ShouldShowInKSC(rec));
+        }
+
+        [Fact]
+        public void ShouldShowInKSC_SupersededRelation_ReturnsFalse()
+        {
+            var rec = MakeKerbinRecording();
+            rec.RecordingId = "old-probe-booster";
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    OldRecordingId = "old-probe-booster",
+                    NewRecordingId = "replacement-upper-stage"
+                }
+            };
+
+            Assert.False(ParsekKSC.ShouldShowInKSC(rec, supersedes));
         }
 
         [Fact]

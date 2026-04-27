@@ -16,6 +16,7 @@ namespace Parsek
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;
+        public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
@@ -55,6 +56,23 @@ namespace Parsek
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
         public bool deferVisibilityUntilPlaybackSync; // fresh/rebuilt ghost stays hidden until positioned and synced
+        // Bug #613 (PR #594 P1): set to true by the relative-frame positioner
+        // when the recorded anchor pid is unresolvable in the current scene
+        // (most common cause: a Re-Fly rewind erased the original anchor
+        // vessel). The engine's per-frame render path clears the flag before
+        // calling the positioner, reads it after positioning, and gates the
+        // visuals / activation / appearance pipeline on it: a retired ghost
+        // skips ApplyFrameVisuals' transient events (engine plumes from a
+        // stale position would be wrong), skips ActivateGhostVisualsIfNeeded
+        // (which would otherwise unconditionally re-show the ghost the same
+        // frame it was hidden), and skips TrackGhostAppearance (logging a
+        // root=(0,0,0) appearance for a retired ghost was the original
+        // misleading symptom). FX teardown still runs via ApplyFrameVisuals
+        // with suppressVisualFx=true so previously-emitting plumes/audio
+        // get cleanly stopped on the retire frame. One-frame scope: the
+        // engine resets it at the top of the next per-frame render pass for
+        // this state.
+        public bool anchorRetiredThisFrame;
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public PendingGhostVisualBuild pendingVisualBuild; // bug #450 B2: multi-frame snapshot build in progress
@@ -103,6 +121,7 @@ namespace Parsek
             fidelityDisabledRenderers = null;
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
+            anchorRetiredThisFrame = false;
             cameraPivot = null;
             horizonProxy = null;
             pendingVisualBuild = null;

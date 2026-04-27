@@ -190,6 +190,38 @@ namespace Parsek.Tests
                 isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(-1.0)]
+        public void ShouldForceWatchedFullFidelity_InvalidDistance_ReturnsFalse(
+            double ghostDistanceMeters)
+        {
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true,
+                ghostDistanceMeters: ghostDistanceMeters,
+                cutoffKm: 300));
+        }
+
+        [Fact]
+        public void ResolveUnresolvedRelativeSectionDistanceFallback_RelativeSection_ReturnsMaxValue()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorVesselId = 698412738u
+            });
+
+            double? distance = ParsekFlight.ResolveUnresolvedRelativeSectionDistanceFallback(
+                rec,
+                playbackUT: 150.0);
+
+            Assert.Equal(double.MaxValue, distance.Value);
+        }
+
         [Fact]
         public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
@@ -769,6 +801,19 @@ namespace Parsek.Tests
                 l.Contains("[Zone]") &&
                 l.Contains("Beyond->Visual") &&
                 l.Contains("Lander"));
+        }
+
+        [Fact]
+        public void LogZoneTransition_UnresolvedDistance_EmitsUnresolvedInsteadOfMaxValue()
+        {
+            RenderingZoneManager.LogZoneTransition(
+                "#1 \"Relative\"", RenderingZone.Physics, RenderingZone.Beyond, double.MaxValue);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Zone]") &&
+                l.Contains("Physics->Beyond") &&
+                l.Contains("dist=unresolved") &&
+                !l.Contains("179769313486232"));
         }
 
         #endregion

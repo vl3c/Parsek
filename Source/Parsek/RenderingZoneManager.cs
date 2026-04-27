@@ -69,9 +69,22 @@ namespace Parsek
         /// </summary>
         internal static void LogZoneTransition(string ghostId, RenderingZone oldZone, RenderingZone newZone, double distanceMeters)
         {
-            string distStr = distanceMeters.ToString("F0", CultureInfo.InvariantCulture);
+            string distStr = FormatDistanceForLog(distanceMeters);
             ParsekLog.VerboseRateLimited("Zone", "zone-transition",
-                $"Zone transition: ghost={ghostId} {oldZone}->{newZone} dist={distStr}m");
+                $"Zone transition: ghost={ghostId} {oldZone}->{newZone} dist={distStr}");
+        }
+
+        internal static string FormatDistanceForLog(double distanceMeters)
+        {
+            if (double.IsNaN(distanceMeters)
+                || double.IsInfinity(distanceMeters)
+                || distanceMeters < 0.0
+                || distanceMeters == double.MaxValue)
+            {
+                return "unresolved";
+            }
+
+            return distanceMeters.ToString("F0", CultureInfo.InvariantCulture) + "m";
         }
 
         /// <summary>
@@ -79,22 +92,22 @@ namespace Parsek
         /// </summary>
         internal static void LogLoopedGhostSpawnDecision(string ghostId, double distanceMeters, bool shouldSpawn, bool simplified)
         {
-            string distStr = distanceMeters.ToString("F0", CultureInfo.InvariantCulture);
+            string distStr = FormatDistanceForLog(distanceMeters);
             string rateLimitKey = "loop-suppress-" + ghostId;
             if (!shouldSpawn)
             {
                 ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost suppressed: ghost={ghostId} dist={distStr}m (beyond {LoopSimplifiedRadius.ToString("F0", CultureInfo.InvariantCulture)}m threshold)", 30.0);
+                    $"Looped ghost suppressed: ghost={ghostId} dist={distStr} (beyond {LoopSimplifiedRadius.ToString("F0", CultureInfo.InvariantCulture)}m threshold)", 30.0);
             }
             else if (simplified)
             {
                 ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost spawned simplified: ghost={ghostId} dist={distStr}m (no part events)", 30.0);
+                    $"Looped ghost spawned simplified: ghost={ghostId} dist={distStr} (no part events)", 30.0);
             }
             else
             {
                 ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost spawned full fidelity: ghost={ghostId} dist={distStr}m", 30.0);
+                    $"Looped ghost spawned full fidelity: ghost={ghostId} dist={distStr}", 30.0);
             }
         }
     }
