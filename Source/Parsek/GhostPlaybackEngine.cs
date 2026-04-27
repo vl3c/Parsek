@@ -4204,7 +4204,12 @@ namespace Parsek
 
             string activeSectionSummary = DescribeAppearanceActiveSection(traj, playbackUT);
             string recordingStartSummary = DescribeAppearanceRecordingStartPoint(traj, rootPos);
-            string liveAnchorContextSummary = DescribeAppearanceLiveAnchorContext(traj, playbackUT, rootPos);
+            // Pass the host positioner so the helper can resolve the live
+            // anchor's world position without taking a recorder dependency
+            // inside this file (review P3 — keep the engine independent of
+            // FlightRecorder lookups).
+            string liveAnchorContextSummary = DescribeAppearanceLiveAnchorContext(
+                traj, playbackUT, rootPos, positioner);
 
             string rootPartWorldSummary = string.Empty;
             if (rootPartTransform != null)
@@ -4268,9 +4273,20 @@ namespace Parsek
         /// without needing to cross-reference prec.txt + flight scene state.
         /// Active-Re-Fly target divergence and post-merge stale-anchor
         /// drift both surface as a large |anchor-root| value here.
+        ///
+        /// <para>
+        /// Live anchor lookup goes through the host positioner
+        /// (<see cref="IGhostPositioner.TryGetLiveAnchorWorldPosition"/>)
+        /// rather than calling <c>FlightRecorder.FindVesselByPid</c>
+        /// directly — keeps this engine file recorder-independent per the
+        /// standalone-mod design intent in CLAUDE.md. <paramref name="positioner"/>
+        /// may be null in tests; the helper degrades to "anchor world
+        /// unresolvable" rather than throwing.
+        /// </para>
         /// </summary>
         internal static string DescribeAppearanceLiveAnchorContext(
-            IPlaybackTrajectory traj, double playbackUT, Vector3d rootPos)
+            IPlaybackTrajectory traj, double playbackUT, Vector3d rootPos,
+            IGhostPositioner positioner)
         {
             if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
                 return string.Empty;
@@ -4282,11 +4298,12 @@ namespace Parsek
                 || section.anchorVesselId == 0u)
                 return string.Empty;
 
-            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
-            if (anchor == null)
+            if (positioner == null
+                || !positioner.TryGetLiveAnchorWorldPosition(section.anchorVesselId, out Vector3d anchorWorld))
+            {
                 return $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
+            }
 
-            Vector3d anchorWorld = anchor.GetWorldPos3D();
             Vector3d delta = rootPos - anchorWorld;
             return
                 $"anchorWorld={FormatVector3d(anchorWorld)} " +

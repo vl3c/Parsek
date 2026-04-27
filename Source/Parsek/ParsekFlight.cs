@@ -14733,6 +14733,18 @@ namespace Parsek
             orbitCache.Clear();
         }
 
+        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (anchorVesselId == 0u) return false;
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null) return false;
+            Vector3d candidate = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(candidate)) return false;
+            worldPosition = candidate;
+            return true;
+        }
+
         #endregion
 
         #region Ghost Positioning (shared by manual + timeline playback)
@@ -15877,6 +15889,27 @@ namespace Parsek
             // Infinity distances fall through to the slow path rather than
             // tripping the fast-path; better to spend one extra probe than
             // misclassify.
+            //
+            // Perf coverage analysis (review P2 from the Opus pass):
+            //  - Anchor loaded AND in physics range (≤5 km from active):
+            //    fast-path returns. O(1). This is the docking/rendezvous
+            //    common case.
+            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
+            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
+            //    of the active vessel, so this band is narrow and rare —
+            //    typically only happens for a few frames around physics-
+            //    range crossings, or with mods extending the load distance.
+            //  - Anchor unloaded (vessel exists but physics-asleep): live
+            //    pose unavailable, fast-path can't apply, we fall through
+            //    to recorded probe. THIS is the bug-class path and the
+            //    probe is exactly what's needed.
+            // Net: under default KSP load behaviour, the residual probe-
+            // every-frame cost only applies to the bug-class scenario the
+            // PR is closing. If a future playtest with extended-physics
+            // mods shows perf regression for the loaded-but-far-from-active
+            // band, a per-FixedUpdate cache keyed on (anchorPid,
+            // sectionStartUT) is the natural follow-up — left out here to
+            // keep the surface area small until measured to matter.
             if (liveAnchorAvailable && !bypassLiveAnchor)
             {
                 Vessel activeForFastPath = FlightGlobals.ActiveVessel;
