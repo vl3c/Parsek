@@ -1017,6 +1017,62 @@ namespace Parsek
                 return ResolveWorldSurfacePosition(body, latDeg, bodyFixedLon, altMeters);
             }
 
+            /// <summary>
+            /// Phase 4 frame-aware dispatch (design doc §6.2 Stage 2, §18 Phase
+            /// 4, §26.1 HR-9). Resolves a smoothed <c>(lat, lon, alt)</c>
+            /// spline sample to a world position based on the spline's
+            /// <c>FrameTag</c> contract:
+            /// <list type="bullet">
+            ///   <item>Tag 0 (body-fixed) — straight <c>GetWorldSurfacePosition</c>.</item>
+            ///   <item>Tag 1 (inertial-longitude) — re-lower via
+            ///     <see cref="LowerFromInertialToWorld"/> at the playback UT.</item>
+            ///   <item>Anything else — HR-9 visible failure: emits a
+            ///     <c>Pipeline-Smoothing</c> Warn (gated by <paramref name="warnedKeys"/>
+            ///     when supplied so a degenerate recording can't flood the log)
+            ///     and returns NaN so the caller's outer guard falls back to
+            ///     the legacy lerp.</item>
+            /// </list>
+            /// Extracted from <c>ParsekFlight.InterpolateAndPosition</c> so
+            /// the unknown-tag branch can be exercised in xUnit without Unity.
+            /// </summary>
+            internal static Vector3d DispatchSplineWorldByFrameTag(byte frameTag,
+                double latDeg, double lonDeg, double altMeters,
+                CelestialBody body, double playbackUT,
+                string recordingId, int sectionIndex,
+                System.Collections.Generic.HashSet<string> warnedKeys = null)
+            {
+                switch (frameTag)
+                {
+                    case 0:
+                        return ResolveWorldSurfacePosition(body, latDeg, lonDeg, altMeters);
+                    case 1:
+                        return LowerFromInertialToWorld(latDeg, lonDeg, altMeters, body, playbackUT);
+                    default:
+                    {
+                        // HR-9: visible failure for an unrecognised tag.
+                        // Emits Warn (not VerboseRateLimited) so a programmer
+                        // error or a v1 .pann slipping past the gates surfaces
+                        // in stock logs. The optional warnedKeys dedup gates
+                        // a single (recordingId, sectionIndex) pair to one Warn
+                        // per session — a degenerate recording with an unknown
+                        // tag at every frame can't flood the log, but each
+                        // distinct unknown-tag occurrence is still visible.
+                        bool emit = true;
+                        if (warnedKeys != null)
+                        {
+                            string key = recordingId + ":" + sectionIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            emit = warnedKeys.Add(key);
+                        }
+                        if (emit)
+                        {
+                            ParsekLog.Warn("Pipeline-Smoothing",
+                                $"unknown frameTag={frameTag} recordingId={recordingId} sectionIndex={sectionIndex} -- falling back to legacy bracket interpolation");
+                        }
+                        return new Vector3d(double.NaN, double.NaN, double.NaN);
+                    }
+                }
+            }
+
             private static double ResolveRotationPeriod(CelestialBody body)
             {
                 var seam = RotationPeriodForTesting;

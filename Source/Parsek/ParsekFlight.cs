@@ -1551,6 +1551,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
 
             ui?.Cleanup();
@@ -13576,6 +13577,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
         }
 
@@ -14932,29 +14934,16 @@ namespace Parsek
                     // straight to GetWorldSurfacePosition; inertial-longitude
                     // (1) re-lowers via FrameTransform.LowerFromInertialToWorld
                     // at the playback UT so the body's rotation between
-                    // recording and playback is correctly cancelled out.
-                    Vector3d splineWorld;
-                    switch (spline.FrameTag)
-                    {
-                        case 0:
-                            splineWorld = bodyBefore.GetWorldSurfacePosition(
-                                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z);
-                            break;
-                        case 1:
-                            splineWorld = TrajectoryMath.FrameTransform.LowerFromInertialToWorld(
-                                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
-                                bodyBefore, targetUT);
-                            break;
-                        default:
-                            // HR-9: visible failure for an unrecognised tag.
-                            // Drops the spline result by emitting NaN; the
-                            // outer guard below falls back to the legacy lerp.
-                            ParsekLog.VerboseRateLimited("Pipeline-Smoothing", "unknown-frame-tag",
-                                $"unknown frameTag={spline.FrameTag} recordingId={recordingId} sectionIndex={sectionIndex}",
-                                5.0);
-                            splineWorld = new Vector3d(double.NaN, double.NaN, double.NaN);
-                            break;
-                    }
+                    // recording and playback is correctly cancelled out. An
+                    // unrecognised tag emits Warn (per HR-9) gated by
+                    // unknownFrameTagWarned so a degenerate recording can't
+                    // flood the log — see DispatchSplineWorldByFrameTag.
+                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                        spline.FrameTag,
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                        bodyBefore, targetUT,
+                        recordingId, sectionIndex,
+                        unknownFrameTagWarned);
                     if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
                         interpolatedPos = splineWorld;
                 }
@@ -15392,6 +15381,11 @@ namespace Parsek
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         private readonly HashSet<string> recordedAnchorSeenRecordingIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        // Phase 4 HR-9: per-(recordingId, sectionIndex) dedup so an unrecognised
+        // FrameTag warns once per session instead of every per-frame dispatch.
+        // Cleared in the same Cleanup hooks as the other per-session log state.
+        private readonly HashSet<string> unknownFrameTagWarned =
             new HashSet<string>(StringComparer.Ordinal);
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(

@@ -250,6 +250,140 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("body=null"));
         }
 
+        // --- DispatchSplineWorldByFrameTag ---
+
+        [Fact]
+        public void DispatchSplineWorldByFrameTag_BodyFixed_ReturnsWorldSurfacePosition()
+        {
+            // What makes it fail: tag-0 routing regression — body-fixed
+            // splines must hand the (lat, lon, alt) sample straight to
+            // GetWorldSurfacePosition (via the test seam), not pass through
+            // the inertial lower path. Routing 0 through Lower would subtract
+            // playback-UT phase and silently rotate the ghost off-axis.
+            const double lat = 12.5;
+            const double lon = 30.0;
+            const double alt = 80000.0;
+            Vector3d world = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 0,
+                latDeg: lat, lonDeg: lon, altMeters: alt,
+                body: fakeKerbin, playbackUT: 5000.0,
+                recordingId: "rec-tag0", sectionIndex: 0);
+            // Default seam returns Vector3d(lat, lon, alt) — tag 0 must hit it
+            // unchanged.
+            Assert.Equal(lat, world.x, precision: 9);
+            Assert.Equal(lon, world.y, precision: 9);
+            Assert.Equal(alt, world.z, precision: 6);
+        }
+
+        [Fact]
+        public void DispatchSplineWorldByFrameTag_Inertial_RoundTripsAtRecordingUT()
+        {
+            // What makes it fail: tag-1 must route through LowerFromInertial
+            // → at the recording UT the lift/lower round-trip recovers the
+            // raw body-fixed lookup. If tag 1 were misrouted to tag 0's path,
+            // the inertial-longitude argument would be interpreted as body-
+            // fixed and produce a position offset by the recording-UT phase.
+            const double lat = 12.5;
+            const double lon = 30.0;
+            const double alt = 80000.0;
+            const double ut = 5000.0;
+            Vector3d lifted = TrajectoryMath.FrameTransform.LiftToInertial(lat, lon, alt, fakeKerbin, ut);
+            Vector3d world = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 1,
+                latDeg: lifted.x, lonDeg: lifted.y, altMeters: lifted.z,
+                body: fakeKerbin, playbackUT: ut,
+                recordingId: "rec-tag1", sectionIndex: 0);
+            Vector3d direct = TrajectoryMath.FrameTransform.WorldSurfacePositionForTesting(
+                fakeKerbin, lat, lon, alt);
+            Assert.Equal(direct.x, world.x, precision: 6);
+            Assert.Equal(direct.y, world.y, precision: 6);
+            Assert.Equal(direct.z, world.z, precision: 6);
+        }
+
+        [Fact]
+        public void DispatchSplineWorldByFrameTag_UnknownTag_LogsWarn_ReturnsNaN()
+        {
+            // What makes it fail: HR-9 visible-failure regression. An
+            // unrecognised FrameTag (e.g. a v1 .pann slipping past the gates,
+            // or a programmer adding tag 2 without wiring this dispatch)
+            // must surface as a Pipeline-Smoothing Warn so the regression
+            // appears in stock KSP.log — and the returned NaN must let the
+            // caller's outer guard fall back to the legacy lerp instead of
+            // freezing the ghost on a stale position.
+            //
+            // The previous VerboseRateLimited level hid the failure unless
+            // the user manually enabled verbose logging — defeating HR-9's
+            // "visible failure" contract.
+            Vector3d world = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 99,
+                latDeg: 12.5, lonDeg: 30.0, altMeters: 80000.0,
+                body: fakeKerbin, playbackUT: 5000.0,
+                recordingId: "rec-bad-tag", sectionIndex: 3);
+            Assert.True(double.IsNaN(world.x));
+            Assert.True(double.IsNaN(world.y));
+            Assert.True(double.IsNaN(world.z));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("unknown frameTag=99")
+                && l.Contains("recordingId=rec-bad-tag")
+                && l.Contains("sectionIndex=3")
+                && l.Contains("falling back to legacy bracket interpolation"));
+        }
+
+        [Fact]
+        public void DispatchSplineWorldByFrameTag_UnknownTag_DedupGate_WarnsOncePerKey()
+        {
+            // What makes it fail: without dedup a degenerate recording with an
+            // unknown FrameTag at every per-frame dispatch would emit a Warn
+            // every frame and flood KSP.log. With the warnedKeys gate, each
+            // (recordingId, sectionIndex) pair must Warn exactly once per
+            // session — distinct keys still Warn independently.
+            var dedup = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+
+            // First call on (rec-A, 0): warn fires.
+            TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 99, latDeg: 0, lonDeg: 0, altMeters: 0,
+                body: fakeKerbin, playbackUT: 0,
+                recordingId: "rec-A", sectionIndex: 0,
+                warnedKeys: dedup);
+            int firstWarnCount = 0;
+            foreach (var l in logLines)
+                if (l.Contains("[WARN][Pipeline-Smoothing]") && l.Contains("recordingId=rec-A") && l.Contains("sectionIndex=0"))
+                    firstWarnCount++;
+            Assert.Equal(1, firstWarnCount);
+
+            // Second call on the same (rec-A, 0): dedup'd, warn does not fire again.
+            TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 99, latDeg: 0, lonDeg: 0, altMeters: 0,
+                body: fakeKerbin, playbackUT: 0,
+                recordingId: "rec-A", sectionIndex: 0,
+                warnedKeys: dedup);
+            int secondWarnCount = 0;
+            foreach (var l in logLines)
+                if (l.Contains("[WARN][Pipeline-Smoothing]") && l.Contains("recordingId=rec-A") && l.Contains("sectionIndex=0"))
+                    secondWarnCount++;
+            Assert.Equal(1, secondWarnCount);
+
+            // Distinct (rec-A, 1): different sectionIndex, warn fires.
+            TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 99, latDeg: 0, lonDeg: 0, altMeters: 0,
+                body: fakeKerbin, playbackUT: 0,
+                recordingId: "rec-A", sectionIndex: 1,
+                warnedKeys: dedup);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("recordingId=rec-A")
+                && l.Contains("sectionIndex=1"));
+
+            // Distinct (rec-B, 0): different recordingId, warn fires.
+            TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                frameTag: 99, latDeg: 0, lonDeg: 0, altMeters: 0,
+                body: fakeKerbin, playbackUT: 0,
+                recordingId: "rec-B", sectionIndex: 0,
+                warnedKeys: dedup);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("recordingId=rec-B")
+                && l.Contains("sectionIndex=0"));
+        }
+
         // --- Integration: spline-eval round-trip ---
 
         [Fact]
