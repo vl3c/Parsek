@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R6 same day. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5 incorporated an external review pass that surfaced three data-model P1s; R6 incorporates a follow-up external review pass that caught two internal-consistency P1s where §4 and §9.2 still used the old gates. The next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R7 same day. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5 incorporated an external review pass that surfaced three data-model P1s; R6 caught two internal-consistency P1s; R7 closes a third external review pass with two P1s (Site B slot resolution + legacy migration guard) and a P2 on §2's residual leaf-rule overview. The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -13,7 +13,8 @@
 - **R3.** All R2 clarifications closed. The A1/A2/A4 voluntary-action heuristics are dropped entirely. The classifier is now purely terminal-state-based with per-row Seal override. UI: the Rewind column splits into Fly + Seal buttons. Filing the Park-from-not-UF affordance (the rover-drive override) as v2 future work to keep v1 scope tight.
 - **R4.** Internal opus review pass. Code anchors fixed across §3: `Recording.IsDebris` ([Recording.cs:25](../../../Source/Parsek/Recording.cs)) for the controllable-subject gate (replacing the earlier hand-wavy "had a working ControllerInfo" prose); `Recording.EvaCrewName` ([Recording.cs:142](../../../Source/Parsek/Recording.cs)) for the EVA exception; `BallisticExtrapolator.cs:223` + `IncompleteBallisticSceneExitFinalizer.cs:464,489` for the atmospheric-SubOrbital reclassification footnote; explicit null-terminal handling. §9.2 now also extends `SupersedeCommit.FlipMergeStateAndClearTransient` so re-fly merges that end Orbiting / SubOrbital / EVA-stranded produce `CommittedProvisional` -- without this, §S8's chain-extension claim is false. Added §S19b (inverted: upper stage is the leaf). §9.2 legacy-migration guard. §7 split-cell UI layout reframed as an unresolved design question. §10 risk #2 cleaned up.
 - **R5.** External review pass landed three P1s; all three resolved by adding two persistent fields and rewriting the predicate. Specifically: (1) the R4 narrowing of `MergeState == CommittedProvisional` would have dropped legacy Immutable crashed UF rows; **R5 reverts to v0.9's `MergeState in {Immutable, CommittedProvisional}` and introduces `ChildSlot.Sealed`** as the dedicated close signal, decoupled from `MergeState`; (2) the R4 leaf gate `chainTip.ChildBranchPointId == null` regressed the v0.9 breakup-survivor active-parent path (which links to its slot RP via `ChildBranchPointId`); **R5 replaces it with a per-RP-context check that allows `chainTip.ChildBranchPointId == matchingRP.BranchPointId`**; (3) the R4 outcome gate would have promoted every routine focus-continuation upper stage to UF, blocking RP reap on every nominal launch; **R5 introduces `RewindPoint.FocusSlotIndex` and gates stable-terminal qualification on `slot.SlotIndex != FocusSlotIndex`**. Crashed terminals still qualify regardless of focus. Scenarios re-verdicted (S1, S3, S5, S19, S19b updated; new §S22 for breakup-survivor case).
-- **R6 (this version).** Follow-up external review caught two internal-consistency P1s: (a) §4's `HasDownstreamBP` standalone-leaf code block still used the R4 gate, which would re-introduce the breakup-survivor regression that R5 fixed in §3; (b) §9.2 Site A pseudocode still wrote `chainTip.ChildBranchPointId != null -> reject` and called `TerminalOutcomeQualifies(chainTip)` without the slot/RP context, which would re-introduce both P1.2 and P1.3 failure modes. R6 rewrites both: §4 now defines `HasDownstreamBP(rec, matchedRP)` requiring per-RP context, and explicitly notes there is no shorter standalone leaf check that captures the hard rule without losing the breakup-survivor case. §9.2 Site A and Site B both call the new `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` shared helper -- the slot+RP triple is now mandatory at every promotion site. Site B's pseudocode also rewritten to show the slot-resolution from `marker.OriginChildRecordingId`.
+- **R6.** Follow-up external review caught two internal-consistency P1s: (a) §4's `HasDownstreamBP` standalone-leaf code block still used the R4 gate, which would re-introduce the breakup-survivor regression that R5 fixed in §3; (b) §9.2 Site A pseudocode still wrote `chainTip.ChildBranchPointId != null -> reject` and called `TerminalOutcomeQualifies(chainTip)` without the slot/RP context, which would re-introduce both P1.2 and P1.3 failure modes. R6 rewrites both: §4 now defines `HasDownstreamBP(rec, matchedRP)` requiring per-RP context. §9.2 Site A and Site B both call the new `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` shared helper.
+- **R7 (this version).** Third external review pass landed two more P1s + a P2: (a) **P1.C** -- Site B's slot resolution matched on `slot.EffectiveRecordingId(supersedes) == marker.OriginChildRecordingId`, which fails on chain extension because after Phase 2's AppendRelations, the slot's effective id is the new provisional, not the prior tip stored in the marker. R7 rewrites Site B to use `TryResolveRewindPointForRecording(provisional, ...)` -- the same v0.9 resolver Site A uses -- and explains why the marker-direct match was wrong. Added a Site B chain-extension regression test in §9.5. (b) **P1.D** -- the R6 broad legacy guard ("skip any rec already Immutable on previous load") would have blocked the §S5.2 retroactive-surfacing claim. R7 drops the broad guard entirely and replaces it with a narrower condition inside `TerminalOutcomeQualifies`: `RP.FocusSlotIndex == -1` short-circuits Orbiting/SubOrbital qualification (covers both legacy RPs and the rare new-RP no-focus-in-slot case identically). The §S5.2 / §10 / §9.5 retroactive-surfacing claim flips to **forward-only** as a result -- pre-upgrade Orbiting siblings stay Immutable; the motivating 4-probe scenario only works for new post-feature deploys. Documented as a CHANGELOG-required player note. (c) **P2** -- §2's overview MUST statement still said leaf detection requires `ChildBranchPointId == null`, contradicting §3. R7 rewrites it to point at the per-RP-context predicate.
 
 ---
 
@@ -59,9 +60,9 @@ ChainId=L  ChainBranch=0
                                                     ChildBranchPointId = null
 ```
 
-Leaf detection MUST walk to the chain TIP and check that TIP's `ChildBranchPointId == null`. `EffectiveState.ResolveChainTerminalRecording` already does this walk for the v0.9 predicate. Same helper feeds the broadened predicate.
+Leaf detection MUST walk to the chain TIP via `EffectiveState.ResolveChainTerminalRecording` and apply a **per-RP-context** check on the TIP's `ChildBranchPointId`: the recording is leaf-shaped relative to a candidate RP iff the TIP has no downstream BP (`ChildBranchPointId == null`) OR the downstream BP IS the candidate RP's own `BranchPointId` (the breakup-survivor case). The exact predicate lives in §3; do not implement a standalone null-only leaf check -- doing so re-introduces the breakup-survivor regression caught by R5's external review.
 
-**Important corollary:** the HEAD's own `ChildBranchPointId` is non-null (it points to the next chain segment). A naive `rec.ChildBranchPointId == null` check would mis-classify every chain HEAD. The chain-aware walk fixes this.
+**Important corollary:** the HEAD's own `ChildBranchPointId` is non-null (it points to the next chain segment). A naive `rec.ChildBranchPointId == null` check on the recording itself would mis-classify every chain HEAD. The chain-walk to TIP plus the per-RP-context check fix this.
 
 ### 2.1 Optimizer concerns (separate investigation)
 
@@ -137,7 +138,23 @@ TerminalOutcomeQualifies(chainTip, slot, RP) :=
                                           // qualifies regardless of isFocus,
                                           // matches v0.9 active-parent-crash
 
-    // Stable in-flight terminals only qualify for non-focus slots.
+    // Stable in-flight terminals only qualify for non-focus slots on RPs
+    // that have a defined focus signal. FocusSlotIndex == -1 covers TWO
+    // cases that we treat identically here:
+    //   (a) Legacy RPs written before this feature -- no signal at all.
+    //   (b) New post-feature RPs where no slot was focused at split time
+    //       (rare: e.g. the player was focused on an unrelated vessel
+    //       outside the split, like a chase plane watching another vessel
+    //       undock). RewindPointAuthor.Begin sets -1 explicitly here.
+    // Both cases mean "we cannot distinguish a routine focus-continuation
+    // upper stage from an unflown deploy", so we conservatively suppress
+    // Orbiting/SubOrbital qualification. The Park-from-not-UF affordance
+    // (deferred to v2) is the player's escape hatch for case (b).
+    // See §9.2's legacy-migration paragraph.
+    bool noFocusSignal = (RP.FocusSlotIndex == -1)
+    if noFocusSignal:
+        return false                              // Crashed / EVA already returned above
+
     if terminal.Value == Orbiting  && !isFocus: return true
     if terminal.Value == SubOrbital && !isFocus: return true
         // Vacuum-arc SubOrbital only. Atmospheric SubOrbital is reclassified
@@ -508,7 +525,7 @@ ConfigNode keys: `sealed` (omitted when false), `sealedRealTime` (omitted when n
 public int FocusSlotIndex = -1;
 ```
 
-ConfigNode key: `focusSlotIndex`, written when != -1. Legacy RPs load with -1; the predicate treats -1 as "no focus exclusion applies" -- which means in legacy RPs, every slot is treated as non-focus for the new gate. That's safe: legacy RPs only had Crashed slots qualifying anyway (v0.9 behaviour), and Crashed qualifies regardless of focus.
+ConfigNode key: `focusSlotIndex`, written when != -1. Legacy RPs load with -1; `TerminalOutcomeQualifies` interprets -1 as "no focus signal available" and short-circuits Orbiting/SubOrbital to false (forward-only migration -- see §3 algorithm and §9.2's legacy-migration paragraph). Crashed and EVA-stranded continue to qualify regardless of focus, preserving v0.9 semantics for legacy RPs exactly. New post-feature RPs always have a defined `FocusSlotIndex` (>= 0 for the focused slot, or explicitly -1 ONLY when no slot was focused at split time -- e.g. a pure background split where the focused vessel is not itself in any slot).
 
 ### 9.1 Predicate
 
@@ -542,8 +559,6 @@ The promotion logic must change in **two places**, not one. Missing the second o
 ```
 for each rec in tree.Recordings:
     if rec.MergeState != Immutable: continue                    // CP / NotCommitted skip
-    if rec was already Immutable on the previous load:          // legacy guard, see below
-        continue
     if rec.chainHead.IsDebris: continue                          // controllable-subject gate
 
     // Resolve the matching RP + slot using the v0.9 helper that already
@@ -568,12 +583,11 @@ for each rec in tree.Recordings:
 
 The existing v0.9 crash-only path is subsumed: `Qualifies(...)` returns true for `terminal == Destroyed` regardless of focus, so legacy crash promotion still fires (P1.1 regression preserved).
 
-**Legacy migration guard.** Without the "rec was already Immutable on the previous load" line, the first OnLoad-then-commit cycle on an upgraded save would re-promote every legacy Immutable Landed sibling whose parent BP still carries an RP -- retroactively populating Unfinished Flights with stale rows the player thought were closed. Two implementation options:
+**Legacy migration is forward-only, enforced inside `TerminalOutcomeQualifies`.** Earlier R4/R5 drafts proposed a per-recording "skip any previously-Immutable" guard at the top of the loop; the external R6 review correctly flagged that this would block the desired retroactive surfacing of pre-upgrade Orbiting non-focus siblings (the §S5.2 migration case). R7's narrower migration rule lives one layer down: when `RP.FocusSlotIndex == -1`, `TerminalOutcomeQualifies` returns false for `Orbiting` and `SubOrbital` regardless of slot identity. The -1 sentinel covers two cases identically -- legacy RPs that predate this field, AND new RPs where no slot was focused at split time. Both lack the focus signal needed to distinguish a routine focus-continuation upper stage (NOT-UF) from an unflown deploy (would-be UF), so the conservative choice is to leave both as Immutable. Crashed and EVA-stranded continue to qualify regardless of focus, preserving v0.9 semantics for legacy RPs exactly. New post-feature RPs almost always have `FocusSlotIndex >= 0` (the focused vessel at the split is one of the slot members in the common case); the -1 case in new RPs is rare (player focused on a vessel outside the split).
 
-- **Persisted bit on Recording.** Add `bool LegacyImmutableAtFirstLoad` (serialized once, never re-written). Set on first load whenever `MergeState == Immutable` AND no rewind-state markers were present pre-upgrade. Skip in the promotion check.
-- **Pre-feature-marker on the scenario.** Persist a `bool RewindStableLeavesFeatureSeen` on `ParsekScenario`. On first load with the feature: mark every existing Immutable rec with a transient skip-flag, set the bit, save. Subsequent loads see the bit and skip the marking.
+This **changes the §S5.2 / §10 retroactive-surfacing claim**: pre-upgrade BG-recorded vessels left Orbiting do NOT auto-populate Unfinished Flights after upgrade. The motivating "4-probe deploy from a pre-upgrade save" case requires the player to fly a fresh deploy mission post-upgrade. CHANGELOG must say "this feature is forward-only; split RPs from before the upgrade do not gain new Unfinished Flights rows."
 
-The persisted-bit-on-Recording option is more targeted; the scenario-level option is one less field to serialize per recording. Either works; pick at design-doc time.
+(R6's "Two implementation options" sketch for a per-recording legacy guard -- persisted bit on `Recording` or scenario-level `RewindStableLeavesFeatureSeen` -- is **dropped in R7**. Both proposals were responses to a guard that R7 no longer needs. The `FocusSlotIndex == -1` short-circuit is a single-point check that requires no per-recording migration scan, no new persistent bit on legacy recordings, and no first-load sweep. Landed/Splashed/Recovered/Docked terminals are already excluded by `TerminalOutcomeQualifies` returning false unconditionally for those states, so there is no risk of legacy Immutable Landed siblings being retroactively surfaced regardless of focus signal.)
 
 **Site B: re-fly merge.** `SupersedeCommit.FlipMergeStateAndClearTransient` extended. Today (paraphrased):
 
@@ -583,18 +597,28 @@ newState = (kind == Crashed) ? CommittedProvisional : Immutable
 provisional.MergeState = newState
 ```
 
-After this feature -- same shared classifier, same triple as Site A:
+After this feature -- same shared classifier, same triple as Site A. Slot resolution uses the same `TryResolveRewindPointForRecording` helper Site A uses, fed the **provisional** recording (whose supersede-target chain reaches back through any prior re-fly relations to a slot's `OriginChildRecordingId`):
 
 ```
-// The provisional re-fly's slot context is known from the active
-// ReFlySessionMarker: marker.RewindPointId names the RP, marker.OriginChildRecordingId
-// resolves to the slot that the provisional supersedes.
-var rp   = scenario.RewindPoints.FirstOrDefault(p => p.RewindPointId == marker.RewindPointId)
-var slot = rp.ChildSlots.FirstOrDefault(s =>
-               s.EffectiveRecordingId(supersedes) == marker.OriginChildRecordingId
-            // (the supersede walk has not yet appended the new relation
-            // for THIS merge, so the lookup still resolves to the prior tip)
-           )
+// The provisional has SupersedeTargetId set (= the prior effective tip on
+// chain extension; equals slot.OriginChildRecordingId for the first re-fly)
+// and ProvisionalForRpId pointing at the RP. Use the v0.9 resolver, which
+// walks slot.OriginChildRecordingId forward through supersedes and accepts
+// either the origin id or any effective id in the chain. After Phase 2
+// (Supersede / AppendRelations) of MergeJournalOrchestrator runs, the new
+// {prior-tip -> provisional} relation is in supersedes, so the forward walk
+// from slot.OriginChildRecordingId now reaches the provisional's id and the
+// resolver returns the same slot whose original was the supersede target.
+if NOT TryResolveRewindPointForRecording(provisional, out rp, out slotIdx):
+    // Should not happen for a valid re-fly merge; defensive log + fall back
+    // to the v0.9 default (Immutable for non-Crashed) so we never throw
+    // mid-merge.
+    log [Supersede] Warn: Site B slot lookup failed for provisional=<rid> ...
+    provisional.MergeState = (Classify(provisional) == Crashed)
+                                 ? CommittedProvisional : Immutable
+    return
+
+var slot = rp.ChildSlots[slotIdx]
 
 bool qualifies = UnfinishedFlightClassifier.Qualifies(
     provisional, slot, rp, considerSealed: false)
@@ -602,6 +626,8 @@ provisional.MergeState = qualifies ? CommittedProvisional : Immutable
 log [Supersede] Info: provisional=<rid> mergeState=<state> qualifies=<b>
     slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex>
 ```
+
+**Why not match on `marker.OriginChildRecordingId` directly?** On the first re-fly, `marker.OriginChildRecordingId == slot.OriginChildRecordingId`, so a direct match would work. But on chain-extension (a second stable-leaf re-fly into the same slot), `marker.OriginChildRecordingId` stores the prior effective tip (e.g. `probeReFly1`), not the slot's immutable original (`probeOrig`). After Phase 2 of the merge appends the new supersede relation, `slot.EffectiveRecordingId(supersedes)` resolves to `probeReFly2` (the new provisional), not to the prior tip. A naive `slot.EffectiveRecordingId(supersedes) == marker.OriginChildRecordingId` would return false on chain extension and the lookup would fail. The reviewer-flagged failure mode (R6 P1.C) was: lookup fails → no slot context → the merge falls back to the v0.9 default (Immutable for non-Crashed) → the row vanishes after the merge. Routing through `TryResolveRewindPointForRecording(provisional, ...)` reuses the same forward-walk semantics Site A uses and handles chain-extension correctly without bespoke logic.
 
 Both Site A and Site B route through the same `UnfinishedFlightClassifier.Qualifies` entry point with the same triple shape. The shared-classifier identity test in §9.5 forces this -- otherwise the failure mode is that a stable-leaf re-fly gets sealed Immutable at merge while a tree-commit pass would have promoted it, and the row vanishes from Unfinished Flights immediately after the player merges their re-fly.
 
@@ -645,6 +671,7 @@ Site A / Site B promotion tests:
 
 - `ApplyRewindProvisionalMergeStates` (Site A): stable-leaf non-focus controllable -> CP; stable-leaf focus controllable -> Immutable; stable-leaf debris -> Immutable; crashed-leaf focus -> CP (active-parent crash regression guard); crashed-leaf non-focus -> CP.
 - `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B): re-fly ending Orbiting + non-focus slot -> CP; re-fly ending Orbiting + focus slot -> Immutable; re-fly ending SubOrbital + non-focus -> CP; re-fly ending EVA-stranded Landed -> CP (kerbal branch ignores focus); re-fly ending Landed (vessel) -> Immutable; re-fly ending Crashed -> CP (regression).
+- **Site B chain-extension slot resolution** (R7 P1.C regression guard): build a 3-link supersede chain (probeOrig -> probeReFly1 -> provisional). At Site B's slot-resolution step (during Phase 4 Finalize, after Phase 2 AppendRelations has appended `probeReFly1 -> provisional`), assert that `TryResolveRewindPointForRecording(provisional, ...)` returns the slot whose `OriginChildRecordingId == probeOrig`. This catches the failure mode where the slot lookup uses `marker.OriginChildRecordingId` directly (which would be `probeReFly1`, not `probeOrig`, and would not match `slot.EffectiveRecordingId` after the new relation is in place).
 - Shared-classifier identity test: assert that the Site A and Site B paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value (forcing both call sites through the shared helper -- catches predicate drift).
 
 Seal handler tests:
@@ -658,13 +685,15 @@ Seal handler tests:
 
 - `FocusSlotIndex` set correctly when the active vessel matches one of the post-split slots (normal split with focus-continuation slot).
 - `FocusSlotIndex == -1` when no slot matches (e.g., normal split where the active vessel is the pre-split parent that is NOT in the slot list).
-- Legacy save loaded -> `FocusSlotIndex == -1` -> stable-terminal predicate treats every slot as non-focus (acceptable: only Crashed slots qualified anyway pre-feature).
+- Legacy save loaded -> `FocusSlotIndex == -1` -> `TerminalOutcomeQualifies` short-circuits Orbiting/SubOrbital to false; only Crashed and EVA-stranded continue to qualify (matches v0.9 behaviour exactly). Forward-only migration: legacy split RPs do not gain new UF rows.
 
 Migration tests:
 
 - Legacy save with already-reaped split RPs has empty Unfinished Flights for those splits (no retroactive surfacing).
 - Legacy save with live RPs whose Landed siblings are Immutable: row count unchanged from v0.9 (no Park-from-not-UF in v1; the predicate excludes Landed).
-- Legacy save with live RPs whose Orbiting non-focus siblings are Immutable: ApplyRewindProvisionalMergeStates re-promotes them on first commit cycle. **This IS retroactive surfacing for Orbiting siblings.** Document in CHANGELOG: "After upgrade, BG vessels left in stable orbit from past missions become Unfinished Flights on next commit." This is the desired outcome for Q1's motivating case (4 probes deployed pre-upgrade), but warrants a player-facing note.
+- Legacy save with live RPs whose Orbiting non-focus siblings are Immutable: `ApplyRewindProvisionalMergeStates` does NOT re-promote them. The `FocusSlotIndex == -1` short-circuit in `TerminalOutcomeQualifies` returns false for Orbiting/SubOrbital, so legacy stable-leaf rows stay Immutable across the upgrade. **Forward-only migration.** CHANGELOG: "This feature only surfaces splits made after the upgrade. Pre-upgrade missions where you deployed probes or stages and left them parked are not retroactively converted to Unfinished Flights -- the original feature decision deliberately avoided guessing focus on legacy data."
+- Legacy save with live RPs whose Crashed siblings are CP / Immutable: continues to qualify (matches v0.9). Regression guard.
+- Post-upgrade fresh deploy: spawn a multi-controllable split, leave probes orbiting, commit. Verify the new RP has `FocusSlotIndex >= 0`, the probes promote to CP, and the row appears in Unfinished Flights -- the motivating case works for new RPs.
 
 In-game tests:
 
@@ -693,7 +722,7 @@ In-game tests:
 - **Predicate drift between Sites A and B.** The two MergeState-promotion call sites (§9.2) must use a shared classifier helper that takes `(Recording, ChildSlot, RewindPoint)`. If they diverge, a player merging a stable-leaf re-fly sees the row vanish immediately at merge (Site B sealed Immutable) even though a tree-commit pass (Site A) would have promoted it. The shared-classifier identity test in §9.5 guards against this.
 - **Reversal of v0.9 §7.31 stance.** v0.9 said stable-end splits don't get a row. This feature says some non-focus stable-end splits do (Orbiting non-focus, SubOrbital non-focus, EVA-stranded). Focus-continuation stable terminals continue to NOT get a row -- this preserves v0.9's "your mission's upper stage didn't suddenly become unfinished" intuition. CHANGELOG language must be precise to avoid mid-mission surprise.
 - **Focus attribution at split time.** `RewindPoint.FocusSlotIndex` depends on `RewindPointAuthor.Begin` being able to identify the focused vessel and match it to a slot. Edge cases: a split fired by KSP on a non-focused vessel (e.g. background joint break) leaves `FocusSlotIndex = -1`, which means every slot is treated as non-focus -- a routine BG-only split's controllable Orbiting siblings would all enter UF. Acceptable, but worth in-game test coverage.
-- **Legacy migration retroactively surfaces orbiting BG siblings.** A pre-upgrade save's BG-recorded vessel left in stable orbit, currently `Immutable`, will be re-promoted to CP on first post-upgrade commit cycle (per the §9.5 migration test). This IS the desired outcome for the 4-probe motivating case but may surprise long-career players. CHANGELOG must call this out.
+- **Legacy migration is forward-only.** Pre-upgrade BG-recorded vessels left in stable orbit stay `Immutable` after upgrade -- the legacy-RP `FocusSlotIndex == -1` short-circuit in `TerminalOutcomeQualifies` (§9.2) deliberately suppresses retroactive Orbiting/SubOrbital qualification because legacy RPs have no focus signal to discriminate routine upper stages from probe deploys. The motivating 4-probe scenario only applies to fresh post-upgrade deploys. CHANGELOG must say this clearly so players don't expect their old missions to surface.
 - **EVA stranded edge cases.** What if the kerbal is dead (suit ran out)? `TerminalState` for a dead EVA kerbal might be Destroyed; that's already UF via the Crashed path. What if KSP unloaded the kerbal mid-EVA? The finalization-cache work in `parsek-recording-finalization-design.md` should give a reliable terminal; depends on that work being solid.
 - **Optimizer chain length.** S16 / §2.1 -- chain walks unbounded in eccentric-orbit case. Performance risk on a save with many such vessels; the chip-spawned investigations should fix the optimizer side independently.
 
@@ -715,7 +744,7 @@ In-game tests:
 
 ## 12. Recommendation
 
-R6 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu) needs a UX call. The shape:
+R7 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu) needs a UX call. The shape:
 
 - **Two new persistent fields**: `ChildSlot.Sealed` (bool, plus diagnostic `SealedRealTime`) for the per-slot close signal; `RewindPoint.FocusSlotIndex` (int, default -1) for the focus-attribution at split time. Both back-compat: legacy ConfigNodes load with safe defaults.
 - **Predicate**: keep v0.9's `MergeState in { Immutable, CommittedProvisional }` check; add `IsDebris == false` controllable-subject gate; add per-RP-context leaf gate (chainTip ChildBranchPointId is null OR equals the matched RP's BranchPointId); add `slot.Sealed == false` slot-close gate; replace terminal-Crashed-only with `TerminalOutcomeQualifies(chainTip, slot, RP)` per §3. Shared classifier helper used by both call sites.
@@ -729,4 +758,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R6.*
+*End of research note R7.*
